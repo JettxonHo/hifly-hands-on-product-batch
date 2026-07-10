@@ -1,0 +1,55 @@
+{
+  "hiflyWorkbenchUrl": "https://hifly.cc",
+  "handsOnProductUrl": "https://hifly.cc/goods",
+  "productsCsv": "products/products.csv",
+  "downloadDir": "downloads",
+  "logDir": "logs",
+  "screenshotDir": "screenshots",
+  "browser": {
+    "profileDir": "playwright/profile/hifly",
+    "headless": false,
+    "slowMoMs": 120,
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    }
+  },
+  "batch": {
+    "maxItems": 0,
+    "retryLimit": 2,
+    "defaultTimeoutMs": 30000,
+    "generationTimeoutMs": 1800000
+  },
+  "hiflyUi": {
+    "entryText": "",
+    "handsOnProductText": "",
+    "productNameLabel": "产品名称",
+    "sellingPointsLabel": "核心卖点",
+    "scriptLabel": "脚本文案",
+    "uploadLabel": "上传人物+产品图",
+    "uploadPersonText": "上传人物",
+    "uploadProductText": "上传商品",
+    "modalSubmitText": "立即生成",
+    "modalConfirmText": "确认",
+    "submitText": "立即生成",
+    "downloadText": "下载"
+  },
+  "behavior": {
+    "productFieldsRequired": false,
+    "uploadCompleteText": "图片上传中",
+    "postUploadWaitMs": 8000,
+    "postConfirmWaitMs": 1000,
+    "resetUploadBeforeEachProduct": true,
+    "useRecommendedPersonWhenMissing": true
+  },
+  "debug": {
+    "captureSteps": true
+  },
+  "defaults": {
+    "avatar": "",
+    "voice": "",
+    "durationSeconds": 20,
+    "aspectRatio": "9:16",
+    "subtitle": true
+  }
+}

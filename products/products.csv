@@ -1,0 +1,4 @@
+sku,product_name,selling_points,image_path,person_image_path,script,avatar,voice,duration_seconds,status,retry_count,output_path,error_message
+SKU001,山野小青菜,"根系完整；叶片厚实；清炒清甜",products/images/SKU001.png,,"",,,20,pending,0,,
+SKU002,云感保湿乳,"清爽不黏；换季保湿；按压泵卫生",products/images/SKU002.png,,"",,,20,pending,0,,
+SKU003,麦香坚果脆,"独立小包；香脆不腻；办公室加餐",products/images/SKU003.png,,"",,,20,pending,0,,

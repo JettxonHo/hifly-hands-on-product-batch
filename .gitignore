@@ -1,0 +1,16 @@
+.DS_Store
+node_modules
+node_modules/
+playwright/.auth/
+playwright/profile/
+downloads/*
+!downloads/.gitkeep
+logs/*
+!logs/.gitkeep
+screenshots/*
+!screenshots/.gitkeep
+outputs/*
+!outputs/.gitkeep
+tmp/*
+!tmp/.gitkeep
+config.local.json
