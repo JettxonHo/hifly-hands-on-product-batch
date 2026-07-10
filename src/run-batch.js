@@ -4,10 +4,15 @@ import { loadConfig, resolveFromRoot } from "./config.js";
 import { readCsv } from "./csv.js";
 import { BatchLogger, timestampForFile } from "./logger.js";
 import { HiflyHandsOnProductPage } from "./hifly-page.js";
+import { assignPersonImages } from "./person-pool.js";
 
 const config = loadConfig();
 const logger = new BatchLogger(config);
-const products = selectProducts(readCsv(resolveFromRoot(config, config.productsCsv)), config);
+const products = assignPersonImages(
+  selectProducts(readCsv(resolveFromRoot(config, config.productsCsv)), config),
+  config,
+  logger
+);
 
 if (products.length === 0) {
   logger.info("no_products_to_process", { productsCsv: config.productsCsv });
@@ -59,7 +64,9 @@ async function processProduct(hifly, product, currentConfig, currentLogger) {
   currentLogger.info("product_started", {
     sku: product.sku,
     productName: product.product_name,
-    row: product.__rowNumber
+    row: product.__rowNumber,
+    category: product.category,
+    personImagePath: product.__resolved_person_image_path || product.person_image_path || ""
   });
 
   try {

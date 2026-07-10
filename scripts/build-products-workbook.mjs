@@ -11,7 +11,9 @@ const headers = [
   "sku",
   "product_name",
   "selling_points",
+  "category",
   "image_path",
+  "person_image_path",
   "script",
   "avatar",
   "voice",
@@ -26,7 +28,9 @@ const sample = [
   "SKU001",
   "示例小青菜",
   "根系完整；叶片厚实；清炒清甜",
+  "fresh_food",
   "products/images/SKU001.png",
+  "",
   "最近买菜最怕不新鲜？这个小青菜我真的会回购。根系完整，叶片厚实，清炒也很嫩。",
   "",
   "",
@@ -37,15 +41,15 @@ const sample = [
   ""
 ];
 
-sheet.getRange("A1:L1").values = [headers];
-sheet.getRange("A2:L2").values = [sample];
+sheet.getRange("A1:N1").values = [headers];
+sheet.getRange("A2:N2").values = [sample];
 
-const title = sheet.getRange("A1:L1");
+const title = sheet.getRange("A1:N1");
 title.format.fill = { color: "#E8EEF8" };
 title.format.font = { color: "#111827", bold: true };
 title.format.rowHeight = 28;
 
-const body = sheet.getRange("A2:L50");
+const body = sheet.getRange("A2:N50");
 body.format.borders = { preset: "insideHorizontal", style: "thin", color: "#E5E7EB" };
 body.format.wrapText = true;
 body.format.verticalAlignment = "top";
@@ -53,26 +57,29 @@ body.format.verticalAlignment = "top";
 sheet.getRange("A:A").format.columnWidth = 14;
 sheet.getRange("B:B").format.columnWidth = 22;
 sheet.getRange("C:C").format.columnWidth = 36;
-sheet.getRange("D:D").format.columnWidth = 32;
-sheet.getRange("E:E").format.columnWidth = 48;
-sheet.getRange("F:G").format.columnWidth = 18;
-sheet.getRange("H:J").format.columnWidth = 15;
-sheet.getRange("K:L").format.columnWidth = 32;
+sheet.getRange("D:D").format.columnWidth = 18;
+sheet.getRange("E:F").format.columnWidth = 32;
+sheet.getRange("G:G").format.columnWidth = 48;
+sheet.getRange("H:I").format.columnWidth = 18;
+sheet.getRange("J:L").format.columnWidth = 15;
+sheet.getRange("M:N").format.columnWidth = 32;
 sheet.freezePanes.freezeRows(1);
 
 sheet.dataValidations.add({
-  range: "I2:I500",
+  range: "K2:K500",
   rule: { type: "list", values: ["pending", "running", "downloaded", "failed", "needs_review"] }
 });
 
 const notes = workbook.worksheets.add("填写说明");
 notes.showGridLines = false;
 notes.getRange("A1:D1").values = [["字段", "是否必填", "说明", "示例"]];
-notes.getRange("A2:D13").values = [
+notes.getRange("A2:D15").values = [
   ["sku", "是", "唯一商品编号，用于命名成片和追踪失败任务。", "SKU001"],
   ["product_name", "是", "产品名称，建议简短。", "示例小青菜"],
   ["selling_points", "是", "核心卖点，建议用中文分号分隔。", "根系完整；叶片厚实；清炒清甜"],
+  ["category", "是", "商品品类，用于从 assets/person_pool/<category>/ 自动轮换人物图。", "fresh_food"],
   ["image_path", "是", "商品图片路径，建议放在 products/images/。", "products/images/SKU001.png"],
+  ["person_image_path", "否", "指定人物图；留空时按 category 从人物池轮换，没有素材则按配置使用飞影推荐人物。", "assets/person_pool/fresh_food/host_01.jpg"],
   ["script", "否", "口播脚本；为空时后续由文案模块生成。", "这个小青菜我真的会回购。"],
   ["avatar", "否", "飞影数字人配置，留空使用默认值。", ""],
   ["voice", "否", "声音配置，留空使用默认值。", ""],
@@ -99,7 +106,7 @@ await xlsx.save(outputPath);
 const inspect = await workbook.inspect({
   kind: "sheet,table",
   tableMaxRows: 4,
-  tableMaxCols: 12,
+  tableMaxCols: 14,
   maxChars: 3000
 });
 console.log(inspect.ndjson);

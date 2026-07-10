@@ -7,6 +7,7 @@
 - Playwright Chromium
 - 飞影账号，且账号可访问 `https://hifly.cc/goods`
 - GitHub CLI `gh`，仅在需要推送 GitHub 或创建 PR 时使用
+- 可选人物素材池：`assets/person_pool/<category>/`
 
 ## 首次安装
 
@@ -37,6 +38,7 @@ npm run run
 - `logs/`：JSONL 运行日志
 - `screenshots/`：失败截图
 - `outputs/`：最终交付打包目录
+- `assets/person_pool/`：按商品品类轮换的人物/背景图，建议入库目录结构，真实客户素材按项目合规要求处理。
 
 ## 不入库内容
 

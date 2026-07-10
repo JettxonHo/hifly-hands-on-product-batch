@@ -42,6 +42,13 @@
     "resetUploadBeforeEachProduct": true,
     "useRecommendedPersonWhenMissing": true
   },
+  "personPool": {
+    "enabled": true,
+    "rootDir": "assets/person_pool",
+    "defaultCategory": "default",
+    "fallbackToRecommended": true,
+    "allowedExtensions": [".jpg", ".jpeg", ".png"]
+  },
   "debug": {
     "captureSteps": true
   },

@@ -14,6 +14,7 @@ const entries = [
   "README.md",
   "config.example.json",
   "package.json",
+  "assets",
   "docs",
   "products/products.csv",
   "products/商品信息表.xlsx",
@@ -37,6 +38,8 @@ if (result.status !== 0) {
 console.log(`Packaged ${archivePath}`);
 
 async function copyEntry(from, to) {
+  if (path.basename(from) === ".DS_Store") return;
+
   const stat = await fs.stat(from);
   if (stat.isDirectory()) {
     await fs.mkdir(to, { recursive: true });

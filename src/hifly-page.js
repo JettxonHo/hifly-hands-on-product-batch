@@ -217,12 +217,17 @@ export class HiflyHandsOnProductPage {
       return;
     }
 
-    if (product.person_image_path) {
+    const personImagePath = product.__resolved_person_image_path || product.person_image_path;
+
+    if (personImagePath) {
       await this.uploadModalFile(
         this.config.hiflyUi.uploadPersonText,
-        resolveFromRoot(this.config, product.person_image_path)
+        resolveFromRoot(this.config, personImagePath)
       );
-    } else if (this.config.behavior?.useRecommendedPersonWhenMissing) {
+    } else if (
+      this.config.behavior?.useRecommendedPersonWhenMissing
+      && this.config.personPool?.fallbackToRecommended !== false
+    ) {
       await this.selectRecommendedPerson();
     }
 
