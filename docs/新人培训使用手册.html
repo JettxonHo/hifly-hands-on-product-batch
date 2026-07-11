@@ -5,6 +5,358 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="飞影手里有货批量生产自动化的客户协作与运营培训手册。">
   <title>飞影手里有货 - 新人培训使用手册</title>
+  <style>
+    :root {
+      --ink: #18202b;
+      --muted: #5c6572;
+      --line: #d8dee7;
+      --paper: #ffffff;
+      --canvas: #f4f6f8;
+      --client: #0b6e69;
+      --client-soft: #e5f3f1;
+      --ops: #5426a8;
+      --ops-soft: #f0eaff;
+      --warning: #8d4d00;
+      --warning-soft: #fff1d9;
+      --danger: #9e2448;
+      --danger-soft: #fdeaf0;
+      --shadow: 0 10px 28px rgba(24, 32, 43, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--canvas);
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--canvas);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    a {
+      color: inherit;
+      text-decoration-color: #9eacc0;
+      text-underline-offset: 3px;
+    }
+
+    a:hover { color: var(--ops); }
+
+    code {
+      padding: 0.1em 0.35em;
+      border: 1px solid #dfe4ea;
+      border-radius: 3px;
+      background: #f7f9fb;
+      color: #243044;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.88em;
+      overflow-wrap: anywhere;
+    }
+
+    header {
+      padding: 60px max(24px, calc((100vw - 1080px) / 2));
+      color: #f7f8fc;
+      background: #242051;
+    }
+
+    header > * { max-width: 760px; }
+
+    header p:first-child,
+    section > p:first-child {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    header p:first-child { color: #cbbcff; }
+
+    header h1 {
+      max-width: 850px;
+      margin: 0;
+      color: #ffffff;
+      font-size: 42px;
+      line-height: 1.16;
+      letter-spacing: 0;
+    }
+
+    header h1 + p {
+      margin: 20px 0 8px;
+      color: #d9dced;
+    }
+
+    header a { color: #ffffff; }
+
+    nav {
+      position: sticky;
+      z-index: 2;
+      top: 0;
+      display: flex;
+      gap: 4px;
+      justify-content: center;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
+    }
+
+    nav a {
+      padding: 5px 10px;
+      border-radius: 4px;
+      color: #3d4754;
+      font-size: 14px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    nav a:hover {
+      color: var(--ops);
+      background: var(--ops-soft);
+    }
+
+    main {
+      width: min(1080px, calc(100% - 40px));
+      margin: 30px auto 70px;
+    }
+
+    section {
+      margin: 24px 0;
+      padding: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    section > p:first-child { color: var(--muted); }
+
+    #client > p:first-child { color: var(--client); }
+    #operations > p:first-child { color: var(--ops); }
+    #troubleshooting > p:first-child { color: var(--danger); }
+
+    h2, h3, h4 {
+      color: var(--ink);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 22px;
+      font-size: 29px;
+      line-height: 1.3;
+    }
+
+    h3 {
+      margin: 36px 0 12px;
+      padding-top: 4px;
+      font-size: 19px;
+      line-height: 1.4;
+    }
+
+    h4 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+
+    p, li { overflow-wrap: anywhere; }
+    ul, ol { padding-left: 1.35em; }
+    li + li { margin-top: 7px; }
+
+    section > div:not(.command),
+    section > aside {
+      margin: 18px 0;
+    }
+
+    #client > div:not(.command) {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    article {
+      padding: 20px;
+      border: 1px solid #b7ded9;
+      border-radius: 6px;
+      background: #f7fcfb;
+    }
+
+    aside {
+      padding: 16px 18px;
+      border-left: 4px solid var(--warning);
+      border-radius: 0 5px 5px 0;
+      background: var(--warning-soft);
+    }
+
+    aside h3 { margin: 0 0 6px; font-size: 16px; }
+    aside p { margin: 0; }
+
+    #operations aside {
+      border-left-color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    #operations > div:not(.command):has(ol) {
+      padding: 22px;
+      border: 1px solid #cfc2f1;
+      border-radius: 6px;
+      background: #faf8ff;
+    }
+
+    .table-wrap {
+      display: block !important;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 620px;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 11px 13px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: #314050;
+      background: #eef2f6;
+      font-weight: 700;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .command {
+      position: relative;
+      margin: 14px 0;
+      border: 1px solid #cdd5df;
+      border-radius: 5px;
+      background: #1f2935;
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px 68px 18px 18px;
+      overflow-x: auto;
+      color: #eef4fa;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    pre code {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font-size: inherit;
+      white-space: pre;
+    }
+
+    .copy-button,
+    .print-button {
+      min-height: 34px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: #ffffff;
+      background: #5b2bb7;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .copy-button {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 5px 9px;
+      background: #354456;
+    }
+
+    .copy-button:hover { background: #4a5f75; }
+    .copy-button:focus-visible,
+    .print-button:focus-visible,
+    details summary:focus-visible,
+    a:focus-visible {
+      outline: 3px solid #f2b53f;
+      outline-offset: 2px;
+    }
+
+    .action-bar {
+      display: flex;
+      justify-content: flex-end;
+      width: min(1080px, calc(100% - 40px));
+      margin: -20px auto 0;
+    }
+
+    .print-button { padding: 7px 12px; }
+    .print-button:hover { background: #45208c; }
+
+    details {
+      margin: 10px 0;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #ffffff;
+    }
+
+    details[open] { border-color: #cdbff2; }
+
+    summary {
+      padding: 14px 16px;
+      color: #2c3746;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    details p { margin: 0; padding: 0 16px 16px; }
+
+    #appendix { margin-bottom: 0; }
+
+    @media (max-width: 680px) {
+      body { font-size: 15px; }
+      header { padding: 42px 22px; }
+      header h1 { font-size: 33px; }
+      nav { justify-content: flex-start; overflow-x: auto; padding-inline: 12px; }
+      nav a { flex: 0 0 auto; }
+      main, .action-bar { width: min(100% - 24px, 1080px); }
+      main { margin-top: 18px; }
+      section { padding: 25px 19px; }
+      h2 { font-size: 25px; }
+      #client > div:not(.command) { grid-template-columns: 1fr; }
+      .action-bar { margin-top: -8px; }
+      pre { padding-right: 18px; padding-top: 52px; }
+    }
+
+    @media print {
+      @page { size: A4; margin: 13mm; }
+      html, body { background: #ffffff; }
+      body { font-size: 10.5pt; line-height: 1.5; }
+      header { padding: 0 0 10mm; color: #18202b; background: #ffffff; }
+      header h1, header p, header a { color: #18202b; }
+      header h1 { font-size: 27pt; }
+      nav, .action-bar, .copy-button { display: none !important; }
+      main { width: 100%; margin: 0; }
+      section { margin: 0 0 8mm; padding: 0; border: 0; box-shadow: none; }
+      section, details, article, aside { break-inside: avoid; }
+      h2 { margin-top: 0; }
+      a { color: inherit; text-decoration: none; }
+      .command { border-color: #8a96a3; background: #ffffff; }
+      pre, pre code { color: #18202b; }
+      pre { padding: 10px; }
+      th { background: #edf0f3 !important; }
+      .table-wrap { overflow: visible; }
+    }
+  </style>
 </head>
 <body>
   <header id="top">
@@ -21,6 +373,10 @@
     <a href="#troubleshooting">问题排查</a>
     <a href="#appendix">附录</a>
   </nav>
+
+  <div class="action-bar">
+    <button class="print-button" type="button" data-print aria-label="打印本使用手册">打印手册</button>
+  </div>
 
   <main>
     <section id="overview">
@@ -73,7 +429,7 @@
       </div>
 
       <h3>商品图片要求</h3>
-      <div>
+      <div class="table-wrap">
         <table>
           <thead><tr><th>项目</th><th>要求</th><th>原因</th></tr></thead>
           <tbody>
@@ -101,7 +457,7 @@
       </aside>
 
       <h3>商品信息表字段说明</h3>
-      <div>
+      <div class="table-wrap">
         <table>
           <thead><tr><th>字段</th><th>谁填写</th><th>填写说明</th></tr></thead>
           <tbody>
@@ -134,7 +490,7 @@
 
       <h3>1. 首次环境准备</h3>
       <p>本机需要 Node.js 20+（推荐 22+）、npm 和 Playwright Chromium。进入项目根目录后依次执行：</p>
-      <div>
+      <div class="command">
         <pre><code>npm install
 npx playwright install chromium
 cp config.example.json config.local.json</code></pre>
@@ -143,7 +499,7 @@ cp config.example.json config.local.json</code></pre>
 
       <h3>2. 登录飞影并保存登录态</h3>
       <p>首次使用或登录失效后执行：</p>
-      <div>
+      <div class="command">
         <pre><code>npm run login</code></pre>
       </div>
       <ol>
@@ -169,7 +525,7 @@ cp config.example.json config.local.json</code></pre>
         <li>以上都没有时，按本地配置退回飞影弹窗中的推荐人物。</li>
       </ol>
       <p>人物池支持 JPG、JPEG、PNG。推荐将人物图按品类放置，例如：</p>
-      <div>
+      <div class="command">
         <pre><code>assets/person_pool/fresh_food/
 assets/person_pool/beauty/
 assets/person_pool/snacks/
@@ -178,13 +534,13 @@ assets/person_pool/default/</code></pre>
 
       <h3>5. 生成前校验</h3>
       <p>在消耗积分前必须运行：</p>
-      <div>
+      <div class="command">
         <pre><code>npm run validate</code></pre>
       </div>
       <p>校验会检查必填字段、商品图路径、显式人物图路径，以及无人物图时是否存在匹配的品类池、默认池或允许使用飞影推荐人物。</p>
 
       <h3>6. 开始批量生成</h3>
-      <div>
+      <div class="command">
         <pre><code>npm run run</code></pre>
       </div>
       <p>脚本会逐条进入 <strong>手里有货</strong> 页面，并按照下方流程处理。建议首次校准批次保持 5 至 10 条，确认成片质量和下载规则后再扩大批量。</p>
@@ -207,7 +563,7 @@ assets/person_pool/default/</code></pre>
       </aside>
 
       <h3>7. 下载、归档与质检</h3>
-      <div>
+      <div class="table-wrap">
         <table>
           <thead><tr><th>目录</th><th>内容</th><th>运营动作</th></tr></thead>
           <tbody>
@@ -259,7 +615,7 @@ assets/person_pool/default/</code></pre>
       <h2>附录</h2>
 
       <h3>常用命令</h3>
-      <div>
+      <div class="command">
         <pre><code>npm install
 npx playwright install chromium
 npm run login
@@ -280,5 +636,53 @@ npm run package</code></pre>
       <p><a href="#top">返回顶部</a></p>
     </section>
   </main>
+  <script>
+    (function () {
+      function setButtonText(button, text) {
+        button.textContent = text;
+        window.setTimeout(function () {
+          button.textContent = "复制";
+        }, 1600);
+      }
+
+      function fallbackCopy(text) {
+        var textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        var copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        return copied;
+      }
+
+      document.querySelectorAll(".command").forEach(function (block) {
+        var button = document.createElement("button");
+        button.className = "copy-button";
+        button.type = "button";
+        button.textContent = "复制";
+        button.setAttribute("aria-label", "复制此命令或路径");
+        button.addEventListener("click", function () {
+          var text = block.querySelector("code").textContent.trim();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () {
+              setButtonText(button, "已复制");
+            }).catch(function () {
+              setButtonText(button, fallbackCopy(text) ? "已复制" : "请手动复制命令");
+            });
+            return;
+          }
+          setButtonText(button, fallbackCopy(text) ? "已复制" : "请手动复制命令");
+        });
+        block.appendChild(button);
+      });
+
+      document.querySelector("[data-print]").addEventListener("click", function () {
+        window.print();
+      });
+    }());
+  </script>
 </body>
 </html>
