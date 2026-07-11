@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { acquireExecutionLock } from "../src/core/execution-lock.js";
+import { acquireExecutionLock, assertExecutionLockOwnership } from "../src/core/execution-lock.js";
 
 async function withRoot(run) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-lock-"));
@@ -84,5 +84,54 @@ test("heartbeat preserves ownership and advances heartbeat time", async () => {
     assert.equal(after.batchId, "batch-a");
     assert.ok(Date.parse(after.heartbeatAt) > Date.parse(before.heartbeatAt));
     await handle.release();
+  });
+});
+
+test("only an acquired handle passes the private lock verifier", async () => {
+  await withRoot(async (root) => {
+    const handle = await acquireExecutionLock({
+      root,
+      batchId: "batch-a",
+      instanceId: "instance-a",
+      heartbeatIntervalMs: 10_000
+    });
+    const forged = {
+      metadata: { ...handle.metadata },
+      inspect: () => handle.inspect(),
+      heartbeat: () => handle.heartbeat()
+    };
+
+    await assert.rejects(assertExecutionLockOwnership(forged, { batchId: "batch-a" }), /genuine acquired lock/i);
+    await assert.doesNotReject(assertExecutionLockOwnership(handle, { batchId: "batch-a" }));
+    await handle.release();
+  });
+});
+
+test("public lock mutation cannot bypass private ownership validation", async () => {
+  await withRoot(async (root) => {
+    const handle = await acquireExecutionLock({
+      root,
+      batchId: "batch-a",
+      instanceId: "instance-a",
+      heartbeatIntervalMs: 10_000
+    });
+    const lockPath = path.join(root, "execution.lock");
+    try {
+      assert.throws(() => {
+        handle.metadata.batchId = "other-batch";
+      }, TypeError);
+      assert.throws(() => {
+        handle.inspect = async () => ({ batchId: "batch-a" });
+      }, TypeError);
+
+      const metadata = JSON.parse(await readFile(lockPath, "utf8"));
+      await writeFile(lockPath, JSON.stringify({ ...metadata, batchId: "other-batch" }));
+      await assert.rejects(
+        assertExecutionLockOwnership(handle, { batchId: "batch-a" }),
+        /ownership|identity/i
+      );
+    } finally {
+      handle.stopHeartbeat();
+    }
   });
 });

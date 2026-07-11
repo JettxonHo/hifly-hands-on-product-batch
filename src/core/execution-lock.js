@@ -3,6 +3,7 @@ import { mkdir, open, readFile, unlink } from "node:fs/promises";
 
 const DEFAULT_HEARTBEAT_MS = 5_000;
 const DEFAULT_SUSPICIOUS_MS = 30_000;
+const acquiredHandles = new WeakMap();
 
 export class ExecutionLockError extends Error {
   constructor(message, details = {}) {
@@ -27,6 +28,38 @@ function owns(metadata, identity) {
 function isSuspicious(metadata, now, thresholdMs) {
   const heartbeat = Date.parse(metadata?.heartbeatAt);
   return !Number.isFinite(heartbeat) || now - heartbeat > thresholdMs;
+}
+
+function hasFreshHeartbeat(metadata, thresholdMs) {
+  const heartbeat = Date.parse(metadata?.heartbeatAt);
+  return Number.isFinite(heartbeat) && Date.now() - heartbeat <= thresholdMs;
+}
+
+export async function assertExecutionLockOwnership(handle, { batchId } = {}) {
+  const acquisition = acquiredHandles.get(handle);
+  if (!acquisition) {
+    throw new Error("A genuine acquired lock is required");
+  }
+  const { identity, inspect, heartbeat, suspiciousAfterMs } = acquisition;
+  if (identity.batchId !== batchId) {
+    throw new Error("Lock ownership does not match this batch");
+  }
+
+  try {
+    const inspected = await inspect();
+    if (!owns(inspected, identity) || !hasFreshHeartbeat(inspected, suspiciousAfterMs)) {
+      throw new Error("Lock ownership is no longer live");
+    }
+    const heartbeated = await heartbeat();
+    if (!owns(heartbeated, identity)) throw new Error("Lock heartbeat lost ownership");
+    const current = await inspect();
+    if (!owns(current, identity) || !hasFreshHeartbeat(current, suspiciousAfterMs)) {
+      throw new Error("Lock ownership changed during verification");
+    }
+    return current;
+  } catch (error) {
+    throw new Error(`A genuine acquired live lock is required: ${error.message}`);
+  }
 }
 
 export async function acquireExecutionLock({
@@ -124,14 +157,21 @@ export async function acquireExecutionLock({
   }, heartbeatIntervalMs);
   timer.unref?.();
 
-  return {
+  const lock = Object.freeze({
     lockPath,
-    metadata: { ...metadata },
+    metadata: Object.freeze({ ...metadata }),
     inspect,
     heartbeat,
     stopHeartbeat,
     release
-  };
+  });
+  acquiredHandles.set(lock, Object.freeze({
+    identity: Object.freeze({ ...identity }),
+    inspect,
+    heartbeat,
+    suspiciousAfterMs
+  }));
+  return lock;
 }
 
 export const EXECUTION_LOCK_DEFAULTS = Object.freeze({

@@ -45,21 +45,81 @@ export class HiflyHandsOnProductPage {
     }
   }
 
-  async submitAndDownload(product) {
+  async prepareAsset(product) {
+    await this.openWorkbench();
+    await this.enterHandsOnProductMode();
+    await this.fillProduct(product);
+    return { asset_id: `hifly-asset-${product.task_id || product.sku}` };
+  }
+
+  async submitVideo(product, { asset, checkpoint } = {}) {
+    const before = await this.listLatestWorks();
+    const observedAt = new Date().toISOString();
+    await checkpoint?.({
+      phase: "remote_submit_pre",
+      evidence: {
+        observed_at: observedAt,
+        work_keys: before.map((work) => work.work_key),
+        works: before
+      }
+    });
+
     await this.captureStep(product, "before-submit");
     await this.clickSubmitButton();
     await this.captureStep(product, "after-submit");
 
+    const after = await this.listLatestWorks();
+    const prior = new Set(before.map((work) => work.work_key));
+    const candidates = after.filter((work) => !prior.has(work.work_key));
+    return { status: "ambiguous", candidates };
+  }
+
+  async querySubmission(remoteEvidence) {
+    const candidates = await this.matchLatestWorks(remoteEvidence);
+    if (candidates.length > 1) return { status: "ambiguous", candidates };
+    if (candidates.length === 0) return { status: "submitted", remoteEvidence };
+    return {
+      status: "ready",
+      remoteEvidence: {
+        ...remoteEvidence,
+        candidate: candidates[0],
+        last_observed_at: new Date().toISOString()
+      }
+    };
+  }
+
+  async reconcileSubmission(_product, checkpoint) {
+    const evidence = checkpoint?.remote_evidence ?? checkpoint?.submit_checkpoint?.evidence ?? {};
+    return { candidates: await this.matchLatestWorks(evidence) };
+  }
+
+  async downloadArtifact(remoteEvidence, destination) {
+    const candidates = await this.matchLatestWorks(remoteEvidence);
+    if (candidates.length !== 1) {
+      const error = new Error("Could not uniquely match a remote work for download");
+      error.code = "REMOTE_WORK_AMBIGUOUS";
+      throw error;
+    }
+
     const timeout = this.config.batch.generationTimeoutMs;
     const downloadPromise = this.page.waitForEvent("download", { timeout });
-    await this.clickLatestWorkDownload(timeout);
+    await this.clickWorkDownload(candidates[0], timeout);
     const download = await downloadPromise;
     const suggested = download.suggestedFilename();
-    const outputName = `${sanitizeFileName(product.sku)}-${sanitizeFileName(product.product_name)}-${suggested}`;
-    const outputPath = path.join(this.config.downloadDir, outputName);
-
+    const outputPath = path.join(destination ?? this.config.downloadDir, suggested);
     await download.saveAs(outputPath);
-    return outputPath;
+
+    return {
+      artifact_id: candidates[0].remote_id ?? candidates[0].work_key,
+      relative_path: path.relative(this.config.__rootDir ?? process.cwd(), outputPath)
+    };
+  }
+
+  async submitAndDownload(product) {
+    const submitted = await this.submitVideo(product);
+    if (submitted.status !== "submitted") throw new Error("Remote work could not be uniquely identified after submission");
+    const artifact = await this.downloadArtifact(submitted.remoteEvidence, this.config.downloadDir);
+    return path.join(this.config.__rootDir ?? process.cwd(), artifact.relative_path);
   }
 
   async clickByText(text, options = {}) {
@@ -147,20 +207,55 @@ export class HiflyHandsOnProductPage {
     await this.clickByText(this.config.hiflyUi.submitText);
   }
 
-  async clickLatestWorkDownload(timeout) {
-    await this.page.getByText("最新作品", { exact: false }).first().waitFor({ state: "visible", timeout });
-
+  async listLatestWorks() {
     const latestPanel = this.page.locator(".auto-main-right").first();
-    const iconButtons = latestPanel.locator("button.download");
-    const buttonCount = await iconButtons.count();
-    if (buttonCount > 0) {
-      await iconButtons.nth(buttonCount - 1).click({ timeout, force: true });
-      return;
+    const buttons = latestPanel.locator("button.download");
+    const works = await buttons.evaluateAll((nodes) => nodes.map((button, index) => {
+      const card = button.closest("[data-work-id], [data-task-id], [data-id], li, article, .work-item, .card") || button.parentElement;
+      const attributes = ["data-work-id", "data-task-id", "data-video-id", "data-id"];
+      const remoteId = attributes.map((name) => card?.getAttribute(name) || button.getAttribute(name)).find(Boolean) || null;
+      const link = card?.querySelector("a[href]") || button.closest("a[href]");
+      const remoteUrl = link?.getAttribute("href") || null;
+      const label = (card?.textContent || button.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
+      const workKey = remoteId || remoteUrl || `${index}:${label}`;
+      return { index, remote_id: remoteId, remote_url: remoteUrl, label, work_key: workKey };
+    }));
+    return works;
+  }
+
+  async matchLatestWorks(remoteEvidence = {}) {
+    const works = await this.listLatestWorks();
+    const target = remoteEvidence.candidate ?? remoteEvidence;
+    if (target.remote_id) return works.filter((work) => work.remote_id === target.remote_id);
+    if (target.remote_url) return works.filter((work) => work.remote_url === target.remote_url);
+    return [];
+  }
+
+  async clickWorkDownload(work, timeout) {
+    await this.page.getByText("最新作品", { exact: false }).first().waitFor({ state: "visible", timeout });
+    const target = work.candidate ?? work;
+    const latestPanel = this.page.locator(".auto-main-right").first();
+    let button;
+
+    if (target.remote_id) {
+      const value = JSON.stringify(target.remote_id);
+      const selectors = ["data-work-id", "data-task-id", "data-video-id", "data-id"].flatMap((attribute) => [
+        `button.download[${attribute}=${value}]`,
+        `[${attribute}=${value}] button.download`
+      ]);
+      button = latestPanel.locator(selectors.join(", ")).first();
+    } else if (target.remote_url) {
+      const link = latestPanel.locator(`a[href=${JSON.stringify(target.remote_url)}]`).first();
+      const card = link.locator(
+        "xpath=ancestor-or-self::*[@data-work-id or @data-task-id or @data-video-id or @data-id or self::li or self::article or contains(concat(' ', normalize-space(@class), ' '), ' work-item ') or contains(concat(' ', normalize-space(@class), ' '), ' card ')][1]"
+      );
+      button = card.locator("button.download").first();
+    } else {
+      throw new Error("A stable remote work identity is required for download");
     }
 
-    const box = await latestPanel.boundingBox();
-    if (!box) throw new Error("Could not find latest work card download area.");
-    await this.page.mouse.click(box.x + box.width - 72, box.y + 456);
+    await button.waitFor({ state: "visible", timeout });
+    await button.click({ timeout, force: true });
   }
 
   async uploadFile(label, filePath) {
