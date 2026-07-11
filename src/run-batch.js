@@ -1,4 +1,5 @@
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import { loadConfig, resolveFromRoot } from "./config.js";
 import { readCsv } from "./csv.js";
@@ -6,44 +7,54 @@ import { BatchLogger, timestampForFile } from "./logger.js";
 import { HiflyHandsOnProductPage } from "./hifly-page.js";
 import { assignPersonImages } from "./person-pool.js";
 
-const config = loadConfig();
-const logger = new BatchLogger(config);
-const products = assignPersonImages(
-  selectProducts(readCsv(resolveFromRoot(config, config.productsCsv)), config),
-  config,
-  logger
-);
+export async function main() {
+  const config = loadConfig();
+  const logger = new BatchLogger(config);
+  const products = assignPersonImages(
+    selectProducts(readCsv(resolveFromRoot(config, config.productsCsv)), config),
+    config,
+    logger
+  );
 
-if (products.length === 0) {
-  logger.info("no_products_to_process", { productsCsv: config.productsCsv });
-  process.exit(0);
-}
-
-const context = await chromium.launchPersistentContext(
-  resolveFromRoot(config, config.browser.profileDir),
-  {
-    headless: config.browser.headless,
-    slowMo: config.browser.slowMoMs,
-    viewport: config.browser.viewport,
-    acceptDownloads: true
+  if (products.length === 0) {
+    logger.info("no_products_to_process", { productsCsv: config.productsCsv });
+    return { count: 0 };
   }
-);
 
-const page = context.pages()[0] || await context.newPage();
-page.setDefaultTimeout(config.batch.defaultTimeoutMs);
-const hifly = new HiflyHandsOnProductPage(page, config, logger);
+  const context = await chromium.launchPersistentContext(
+    resolveFromRoot(config, config.browser.profileDir),
+    {
+      headless: config.browser.headless,
+      slowMo: config.browser.slowMoMs,
+      viewport: config.browser.viewport,
+      acceptDownloads: true
+    }
+  );
 
-logger.info("batch_started", {
-  count: products.length,
-  configPath: config.__configPath
-});
+  try {
+    const page = context.pages()[0] || await context.newPage();
+    page.setDefaultTimeout(config.batch.defaultTimeoutMs);
+    const hifly = new HiflyHandsOnProductPage(page, config, logger);
 
-for (const product of products) {
-  await processProduct(hifly, product, config, logger);
+    logger.info("batch_started", {
+      count: products.length,
+      configPath: config.__configPath
+    });
+
+    for (const product of products) {
+      await processProduct(hifly, product, config, logger);
+    }
+
+    logger.info("batch_finished", { count: products.length });
+    return { count: products.length };
+  } finally {
+    await context.close();
+  }
 }
 
-await context.close();
-logger.info("batch_finished", { count: products.length });
+if (isDirectExecution()) {
+  await main();
+}
 
 function selectProducts(allProducts, currentConfig) {
   const pending = allProducts.filter((product) => {
@@ -93,4 +104,8 @@ async function processProduct(hifly, product, currentConfig, currentLogger) {
       screenshotPath
     });
   }
+}
+
+function isDirectExecution() {
+  return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 }
