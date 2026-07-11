@@ -319,6 +319,7 @@ export async function runBatch({
       type: "CONFIRM_ASSET",
       changes: { asset_evidence: asset, paused_auth: false }
     }, "asset_confirmation");
+    if (signal?.aborted) return transition(task, { type: "STOP_SAFE" }, "safe_stop");
     return submitKnownAsset(task, asset);
   }
 

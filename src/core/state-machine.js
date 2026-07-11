@@ -12,7 +12,8 @@ const TRANSITIONS = Object.freeze({
   asset_confirmed: {
     MARK_SUBMITTED: "submitted",
     FAIL_PRE_SUBMIT: "failed_pre_submit",
-    INTERRUPT_UNKNOWN: "interrupted_unknown"
+    INTERRUPT_UNKNOWN: "interrupted_unknown",
+    STOP_SAFE: "pending"
   },
   submitted: {
     MARK_DOWNLOAD_PENDING: "download_pending",
