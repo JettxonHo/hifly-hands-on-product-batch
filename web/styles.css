@@ -425,6 +425,16 @@ dialog::backdrop {
     padding: 16px;
   }
 
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .tab {
+    width: 100%;
+  }
+
   .grid-form,
   .workbench-grid {
     grid-template-columns: 1fr;
