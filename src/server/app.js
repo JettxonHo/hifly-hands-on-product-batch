@@ -65,6 +65,8 @@ export async function buildApp({
   openBrowser = null,
   allowedHost = "127.0.0.1:4317",
   uploadLimits = null,
+  executionLock = {},
+  pointsEstimate = {},
   webRoot = path.join(getProjectRoot(), "web")
 } = {}) {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("root is required");
@@ -73,7 +75,13 @@ export async function buildApp({
   const staticRoot = path.resolve(webRoot);
   const store = createBatchStore(batchRoot);
   const security = createRequestSecurity({ allowedHost });
-  const coordinator = createExecutionCoordinator({ batchRoot, executor, store });
+  const coordinator = createExecutionCoordinator({
+    batchRoot,
+    executor,
+    store,
+    lockOptions: executionLock,
+    pointsEstimate
+  });
 
   app.decorate("workbench", { batchRoot, executor, openBrowser, store });
   app.decorate("stopExecutions", coordinator.stop);

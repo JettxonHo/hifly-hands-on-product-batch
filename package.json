@@ -5,12 +5,12 @@
   "type": "module",
   "description": "Browser automation workflow for Hifly one-click 'hands-on product' batch video production.",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "gui": "node src/server/start.js",
     "login": "node src/login.js",
     "validate": "node src/validate-products.js",
     "run": "node src/run-batch.js",
-    "check": "node --check src/*.js scripts/*.mjs",
+    "check": "node scripts/check-js.mjs",
     "package": "node scripts/package-artifacts.mjs"
   },
   "dependencies": {

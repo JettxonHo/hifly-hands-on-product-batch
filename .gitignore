@@ -13,4 +13,5 @@ outputs/*
 !outputs/.gitkeep
 tmp/*
 !tmp/.gitkeep
+batches/
 config.local.json

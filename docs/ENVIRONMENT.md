@@ -1,13 +1,13 @@
-# 运行环境打包说明
+# 运行环境与交付打包说明
 
 ## 本地依赖
 
+- macOS 12+ 或 Windows 10+
 - Node.js 20+，推荐 22+
 - npm
 - Playwright Chromium
 - 飞影账号，且账号可访问 `https://hifly.cc/goods`
 - GitHub CLI `gh`，仅在需要推送 GitHub 或创建 PR 时使用
-- 可选人物素材池：`assets/person_pool/<category>/`
 
 ## 首次安装
 
@@ -23,44 +23,115 @@ cp config.example.json config.local.json
 npm run login
 ```
 
-在弹出的浏览器中登录飞影。确认能进入 `https://hifly.cc/goods` 后，回到终端按 Enter 保存登录态。
+在弹出的浏览器中登录飞影。确认可以进入 `https://hifly.cc/goods` 后，回到终端按 Enter 保存登录态。
 
-## 批量生产
+## GUI 启动
+
+Mac 和 Windows 使用同一个命令：
+
+```bash
+npm run gui
+```
+
+启动后终端会打印本地地址，例如：
+
+```bash
+Local workbench: http://127.0.0.1:4317
+```
+
+工作台只绑定 `127.0.0.1`。如果 `4317` 被占用，会自动尝试下一个端口。也可以临时指定端口：
+
+```bash
+HIFLY_GUI_PORT=4320 npm run gui
+```
+
+Windows PowerShell 可使用：
+
+```powershell
+$env:HIFLY_GUI_PORT=4320; npm run gui
+```
+
+## GUI 使用路径
+
+1. 打开 `npm run gui` 输出的本地地址。
+2. 单条录入商品，或上传 CSV/XLSX 与商品图片。
+3. 在「待执行任务」检查批次和商品。
+4. 点击「开始生成」，在确认弹窗中再次确认。
+5. 等待自动化浏览器完成飞影页面的上传、确认、提交和下载。
+
+CSV/XLSX 批量导入时，图片文件名建议与 `sku` 一致；也可以在 `image_path` 填写上传图片文件名。
+
+## 配置项
+
+`config.local.json` 从 `config.example.json` 复制而来，只在本机使用，不提交 Git。
+
+- `gui.port`：默认本地端口，默认 `4317`。
+- `gui.openBrowser`：是否启动后自动打开浏览器。
+- `uploadLimits`：GUI 上传文件数量、大小和像素上限。
+- `executionLock`：同一时间只允许一个批次执行的锁心跳与可疑阈值。
+- `pointsEstimate`：积分估算版本。飞影视频创作积分可能变化，未知项用 `null`，不要按 0 估算。
+- `hiflyUi`：飞影页面按钮和文案校准项。
+- `personPool`：CLI 和运营人物素材池配置。
+
+## 高级 CLI 路径
+
+GUI 是推荐入口。需要排障或沿用传统商品表时，可使用：
 
 ```bash
 npm run validate
 npm run run
 ```
 
-输出目录：
+传统 CLI 读取 `products/products.csv` 或相关配置中的商品表路径，适合运营本机维护人物池和调试飞影页面 selector。
 
-- `downloads/`：下载的视频样片或成片
-- `logs/`：JSONL 运行日志
-- `screenshots/`：失败截图
-- `outputs/`：最终交付打包目录
-- `assets/person_pool/`：按商品品类轮换的人物/背景图，建议入库目录结构，真实客户素材按项目合规要求处理。
+## 输出目录
+
+- `workspace/` 或 `batches/`：GUI 批次状态、上传副本和批次产物。
+- `downloads/`：CLI 路径下载的视频样片或成片。
+- `logs/`：CLI JSONL 运行日志。
+- `screenshots/`：失败截图和调试截图。
+- `outputs/`：最终交付打包目录。
+- `assets/person_pool/`：按商品品类轮换的人物/背景图。
 
 ## 不入库内容
 
-以下内容涉及账号、环境或大文件，不提交到 Git：
+以下内容涉及账号、环境、本地状态或大文件，不提交到 Git，也不进入交付包：
 
 - `config.local.json`
 - `playwright/profile/`
 - `playwright/.auth/`
+- `workspace/`
+- `batches/`
 - `downloads/`
 - `logs/`
 - `screenshots/`
 - `outputs/`
 - `node_modules/`
 
+## 打包交付
+
+```bash
+npm run package
+```
+
+交付包输出到：
+
+```text
+outputs/hifly-hands-on-product-batch.tar.gz
+```
+
+包内包含 `web/`、`src/`、`scripts/`、`docs/`、示例配置和示例商品表；不包含浏览器登录态、真实下载视频、日志、截图和本地配置。
+
 ## GitHub 发布前检查
 
 ```bash
+npm test
 npm run check
 npm run validate
+npm run package
 ```
 
-GitHub CLI 需要重新认证：
+GitHub CLI 需要认证：
 
 ```bash
 gh auth login -h github.com

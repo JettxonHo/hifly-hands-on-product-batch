@@ -46,7 +46,7 @@ async function approvedImagePath(batch, batchDirectory, artifactId) {
   return realImagePath;
 }
 
-async function prepareExecution({ batchId, batchDirectory, store }) {
+async function prepareExecution({ batchId, batchDirectory, store, pointsEstimate = {} }) {
   const batch = await store.read(batchId);
   if (!Array.isArray(batch.items) || batch.items.length === 0 || batch.items.some((item) => item.status !== "pending")) {
     throw executionError("BATCH_NOT_READY", 400);
@@ -56,7 +56,7 @@ async function prepareExecution({ batchId, batchDirectory, store }) {
     image_path: await approvedImagePath(batch, batchDirectory, item.product_image_artifact_id)
   })));
   const confirmedAt = new Date().toISOString();
-  const execution = { projectRoot: batchDirectory, confirmedAt };
+  const execution = { ...pointsEstimate, projectRoot: batchDirectory, confirmedAt };
   const snapshot = await createExecutionSnapshot(items, execution);
   return store.update(batchId, (current) => {
     const confirmedItems = items.map((item) => transitionTask(item, {
@@ -86,7 +86,7 @@ function requestFields(body) {
   return { batchId, idempotencyKey: body.idempotencyKey };
 }
 
-export function createExecutionCoordinator({ batchRoot, executor, store }) {
+export function createExecutionCoordinator({ batchRoot, executor, store, lockOptions = {}, pointsEstimate = {} }) {
   let active = null;
   let stopping = false;
   const idempotencyKeys = new Set();
@@ -108,7 +108,8 @@ export function createExecutionCoordinator({ batchRoot, executor, store }) {
         lock = await acquireExecutionLock({
           root: batchRoot,
           batchId,
-          instanceId: `server-${randomUUID()}`
+          instanceId: `server-${randomUUID()}`,
+          ...lockOptions
         });
         execution.lock = lock;
       } catch (error) {
@@ -118,7 +119,7 @@ export function createExecutionCoordinator({ batchRoot, executor, store }) {
 
       let batch;
       try {
-        batch = await prepareExecution({ batchId, batchDirectory, store });
+        batch = await prepareExecution({ batchId, batchDirectory, store, pointsEstimate });
       } catch (error) {
         await lock.release().catch(() => {});
         throw error;

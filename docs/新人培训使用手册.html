@@ -384,7 +384,7 @@
       <h2>这份手册解决什么</h2>
       <div>
         <p>项目通过飞影网页的“一键成片 - 手里有货”模式批量制作商品种草视频。该模式当前没有开放官方 API，因此使用浏览器自动化完成批量上传、生成和下载。</p>
-        <p>客户负责提供可用素材和商品信息；运营负责校验素材、维护人物图池、运行任务和质检成片。登录、验证码、页面改版和生成排队等外部状态，仍需要人工关注。</p>
+        <p>客户团队通常自带运营角色，因此本手册把客户与运营视为同一执行方：同一位使用者可以在本地网页工具中上传素材、提交任务、启动生成并完成质检。登录、验证码、页面改版和生成排队等外部状态，仍需要人工关注。</p>
       </div>
 
       <h3>开始前检查</h3>
@@ -404,7 +404,7 @@
     <section id="client">
       <p>给客户和合作方</p>
       <h2>客户协作区</h2>
-      <p>客户只需按下面的规则提交素材。内部运营会在导入前再次校验，素材越完整，批量出片的稳定性和差异化越高。</p>
+      <p>客户或客户自己的运营可以直接在本地网页工作台提交素材，也可以整理 CSV/XLSX 后批量导入。素材越完整，批量出片的稳定性和差异化越高。</p>
 
       <h3>客户需提交的内容</h3>
       <div>
@@ -508,7 +508,34 @@ cp config.example.json config.local.json</code></pre>
         <li>回到终端按 Enter，脚本保存当前浏览器登录态。</li>
       </ol>
 
-      <h3>3. 准备商品信息与素材</h3>
+      <h3>3. 启动本地网页工作台</h3>
+      <p>Mac 和 Windows 都使用同一个命令：</p>
+      <div class="command">
+        <pre><code>npm run gui</code></pre>
+      </div>
+      <p>终端会显示本地地址，例如 <code>http://127.0.0.1:4317</code>。如果默认端口被占用，系统会自动换到下一个可用端口。工作台只在本机浏览器访问，不开放给公网或局域网。</p>
+
+      <h3>4. 在 GUI 中提交商品信息与素材</h3>
+      <div>
+        <h3>单条录入</h3>
+        <ol>
+          <li>打开「新建商品」页签。</li>
+          <li>填写产品名称、核心卖点和品类；SKU 可填写，也可由系统自动生成。</li>
+          <li>上传商品图。商品图必须是 JPG/PNG，且不超过配置中的上传上限。</li>
+          <li>点击「加入待执行」，系统会自动生成本批次需要的导入表。</li>
+        </ol>
+      </div>
+      <div>
+        <h3>批量导入</h3>
+        <ol>
+          <li>打开「批量导入」页签。</li>
+          <li>上传 CSV/XLSX 商品表和对应商品图片。</li>
+          <li>商品表中的 <code>image_path</code> 可填写上传图片文件名；若留空，建议图片文件名与 <code>sku</code> 一致。</li>
+          <li>导入完成后到「待执行任务」检查批次、商品名、卖点和状态。</li>
+        </ol>
+      </div>
+
+      <h3>5. 传统文件方式（高级/排障）</h3>
       <ol>
         <li>把商品图放入 <code>products/images/</code>，建议按 SKU 命名。</li>
         <li>填写 <code>products/products.csv</code> 或 <code>products/商品信息表.xlsx</code>。</li>
@@ -516,7 +543,7 @@ cp config.example.json config.local.json</code></pre>
         <li>新任务将 <code>status</code> 填为 <code>pending</code>。</li>
       </ol>
 
-      <h3>4. 配置人物素材池</h3>
+      <h3>6. 配置人物素材池</h3>
       <p>人物图的选择顺序固定如下：</p>
       <ol>
         <li>商品表中明确填写的 <code>person_image_path</code>。</li>
@@ -532,14 +559,15 @@ assets/person_pool/snacks/
 assets/person_pool/default/</code></pre>
       </div>
 
-      <h3>5. 生成前校验</h3>
-      <p>在消耗积分前必须运行：</p>
+      <h3>7. 生成前校验</h3>
+      <p>使用 GUI 时，导入和上传会先做基础校验；使用传统文件方式时，在消耗积分前必须运行：</p>
       <div class="command">
         <pre><code>npm run validate</code></pre>
       </div>
       <p>校验会检查必填字段、商品图路径、显式人物图路径，以及无人物图时是否存在匹配的品类池、默认池或允许使用飞影推荐人物。</p>
 
-      <h3>6. 开始批量生成</h3>
+      <h3>8. 开始批量生成</h3>
+      <p>推荐在 GUI 的「待执行任务」页点击「开始生成」，并在确认弹窗中再次确认。传统 CLI 路径可运行：</p>
       <div class="command">
         <pre><code>npm run run</code></pre>
       </div>
@@ -562,12 +590,13 @@ assets/person_pool/default/</code></pre>
         <p>弹窗中的“确认”不是可选动作。若生成完成后没有点击它，下一次点击“上传人物+产品图”时，会继续停留在上一条商品的完成弹窗，批处理无法进入下一条。只点击右上角关闭或直接重新上传都不应作为正常流程。</p>
       </aside>
 
-      <h3>7. 下载、归档与质检</h3>
+      <h3>9. 下载、归档与质检</h3>
       <div class="table-wrap">
         <table>
           <thead><tr><th>目录</th><th>内容</th><th>运营动作</th></tr></thead>
           <tbody>
-            <tr><td><code>downloads/</code></td><td>下载的视频样片或成片</td><td>检查文件能否播放并按项目规则归档。</td></tr>
+            <tr><td><code>batches/</code></td><td>GUI 批次状态、上传副本和批次产物</td><td>按批次检查任务状态和产物。</td></tr>
+            <tr><td><code>downloads/</code></td><td>CLI 路径下载的视频样片或成片</td><td>检查文件能否播放并按项目规则归档。</td></tr>
             <tr><td><code>logs/</code></td><td>JSONL 运行日志和失败原因</td><td>定位失败商品与页面状态。</td></tr>
             <tr><td><code>screenshots/</code></td><td>异常截图和调试截图</td><td>复核页面报错、弹窗或下载状态。</td></tr>
             <tr><td><code>outputs/</code></td><td>最终交付打包目录</td><td>在质检通过后输出给项目负责人。</td></tr>
@@ -580,6 +609,14 @@ assets/person_pool/default/</code></pre>
       <p>遇到异常时按这里处理</p>
       <h2>常见问题排查</h2>
 
+      <details>
+        <summary>本地网页工作台打不开</summary>
+        <p>先确认终端里 <code>npm run gui</code> 没有退出，并复制终端打印的完整本地地址。若提示端口占用，使用系统自动给出的新端口。工作台只支持 <code>127.0.0.1</code> 本机访问，不要把地址改成局域网 IP。</p>
+      </details>
+      <details>
+        <summary>GUI 导入后找不到商品图</summary>
+        <p>批量导入时要同时上传商品表和图片。建议图片文件名与 <code>sku</code> 一致，或在商品表 <code>image_path</code> 中填写本次上传的图片文件名。GUI 不接受客户电脑上的绝对路径作为执行依据。</p>
+      </details>
       <details>
         <summary>登录失效、要求验证码或无法进入手里有货页面</summary>
         <p>重新执行 <code>npm run login</code>，在浏览器中人工完成登录或验证码，然后按 Enter 保存登录态。确认浏览器可以访问 <code>https://hifly.cc/goods</code> 后再运行批次。</p>
@@ -619,6 +656,7 @@ assets/person_pool/default/</code></pre>
         <pre><code>npm install
 npx playwright install chromium
 npm run login
+npm run gui
 npm run validate
 npm run run
 npm run check

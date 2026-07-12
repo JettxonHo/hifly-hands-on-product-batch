@@ -77,10 +77,21 @@ export async function startServer({
   port = process.env.HIFLY_GUI_PORT ?? DEFAULT_PORT,
   executor = createLazyHiflyExecutor(root),
   openBrowser = open,
-  handleSignals = true
+  handleSignals = true,
+  uploadLimits = null,
+  executionLock = {},
+  pointsEstimate = {}
 } = {}) {
   const selectedPort = await findAvailablePort(port);
-  const app = await buildApp({ root, executor, openBrowser, allowedHost: `127.0.0.1:${selectedPort}` });
+  const app = await buildApp({
+    root,
+    executor,
+    openBrowser,
+    allowedHost: `127.0.0.1:${selectedPort}`,
+    uploadLimits,
+    executionLock,
+    pointsEstimate
+  });
   await app.listen({ host: "127.0.0.1", port: selectedPort });
   const url = `http://127.0.0.1:${selectedPort}`;
   console.log(`Local workbench: ${url}`);
@@ -114,4 +125,18 @@ function isDirectExecution() {
   return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
-if (isDirectExecution()) await startServer();
+if (isDirectExecution()) {
+  const root = getProjectRoot();
+  const config = loadConfig(path.join(root, "config.local.json"));
+  const openBrowser = config.gui?.openBrowser === false
+    ? async (url) => console.log(`Open this URL in a browser: ${url}`)
+    : open;
+  await startServer({
+    root,
+    port: process.env.HIFLY_GUI_PORT ?? config.gui?.port ?? DEFAULT_PORT,
+    openBrowser,
+    uploadLimits: config.uploadLimits,
+    executionLock: config.executionLock,
+    pointsEstimate: config.pointsEstimate
+  });
+}
