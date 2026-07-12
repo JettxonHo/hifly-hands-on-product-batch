@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>飞影批量工作台</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">本地服务 · 手里有货</p>
+          <h1>飞影批量工作台</h1>
+        </div>
+        <div class="status-strip" aria-live="polite">
+          <span id="sessionStatus" class="status-pill">初始化会话</span>
+          <span id="batchStatus" class="status-pill muted">0 个批次</span>
+        </div>
+      </header>
+
+      <nav class="tabs" role="tablist" aria-label="工作台视图">
+        <button class="tab active" type="button" role="tab" aria-selected="true" aria-controls="panel-single" data-tab="single">新建商品</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-import" data-tab="import">批量导入</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-queue" data-tab="queue">待执行任务</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-records" data-tab="records">运行记录</button>
+      </nav>
+
+      <main>
+        <section id="panel-single" class="panel active" role="tabpanel" aria-labelledby="tab-single">
+          <div class="section-head">
+            <div>
+              <h2>单条录入</h2>
+              <p>填写商品信息，上传商品图，系统会创建一个可执行批次。</p>
+            </div>
+            <button id="resetSingle" class="ghost-button" type="button">清空</button>
+          </div>
+
+          <form id="singleForm" class="grid-form">
+            <label>
+              <span>SKU</span>
+              <input id="sku" name="sku" autocomplete="off" placeholder="留空自动生成">
+            </label>
+            <label>
+              <span>产品名称</span>
+              <input id="productName" name="productName" required autocomplete="off" placeholder="例如：云感保湿乳">
+            </label>
+            <label class="wide">
+              <span>核心卖点</span>
+              <textarea id="sellingPoints" name="sellingPoints" rows="4" placeholder="每条卖点可用顿号、逗号或换行分隔"></textarea>
+            </label>
+            <label>
+              <span>品类</span>
+              <input id="category" name="category" autocomplete="off" placeholder="例如：beauty">
+            </label>
+            <label class="file-control">
+              <span>商品图</span>
+              <input id="productImage" name="productImage" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
+            </label>
+            <label class="file-control">
+              <span>人物图</span>
+              <input id="personImage" name="personImage" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+            </label>
+            <div class="form-actions wide">
+              <p id="singleHint" class="hint">人物图当前作为本地预留素材展示；执行时由系统人物池或飞影推荐图处理。</p>
+              <button class="primary-button" type="submit">加入待执行</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="panel-import" class="panel" role="tabpanel" hidden>
+          <div class="section-head">
+            <div>
+              <h2>批量导入</h2>
+              <p>上传 CSV/XLSX 和商品图片，一次生成一个批次。</p>
+            </div>
+          </div>
+          <form id="importForm" class="grid-form">
+            <label class="file-control">
+              <span>商品表格</span>
+              <input id="tableFile" name="tableFile" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+            </label>
+            <label class="file-control wide">
+              <span>商品图片</span>
+              <input id="imageFiles" name="imageFiles" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" multiple required>
+            </label>
+            <div class="form-actions wide">
+              <p class="hint">表格里的 image_path 填上传图片原始文件名，或留空后按 SKU 文件名匹配。</p>
+              <button class="primary-button" type="submit">导入批次</button>
+            </div>
+          </form>
+          <div id="importErrors" class="notice error" hidden></div>
+        </section>
+
+        <section id="panel-queue" class="panel" role="tabpanel" hidden>
+          <div class="section-head">
+            <div>
+              <h2>待执行任务</h2>
+              <p>检查批次、任务状态和预计积分，确认后再启动飞影自动化。</p>
+            </div>
+            <button id="refreshBatches" class="ghost-button" type="button">刷新</button>
+          </div>
+          <div class="workbench-grid">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>批次</th>
+                    <th>状态</th>
+                    <th>商品</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="batchTable"></tbody>
+              </table>
+            </div>
+            <aside class="side-panel" aria-live="polite">
+              <h3>批次详情</h3>
+              <div id="batchDetail" class="detail-empty">选择一个批次查看商品。</div>
+              <button id="startExecution" class="danger-button" type="button" disabled>开始生成</button>
+            </aside>
+          </div>
+        </section>
+
+        <section id="panel-records" class="panel" role="tabpanel" hidden>
+          <div class="section-head">
+            <div>
+              <h2>运行记录</h2>
+              <p>查看已提交、失败、下载完成和需要人工核对的任务。</p>
+            </div>
+          </div>
+          <div id="recordList" class="record-list"></div>
+        </section>
+      </main>
+
+      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    </div>
+
+    <dialog id="confirmDialog" aria-labelledby="confirmTitle">
+      <form method="dialog" class="dialog-panel">
+        <h2 id="confirmTitle">确认开始生成</h2>
+        <p id="confirmSummary"></p>
+        <ul id="confirmItems" class="confirm-items"></ul>
+        <div class="dialog-actions">
+          <button id="cancelConfirm" class="ghost-button" value="cancel" type="submit">取消</button>
+          <button id="confirmExecution" class="danger-button" value="confirm" type="button">确认生成</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/api.js" defer></script>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

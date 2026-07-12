@@ -1,8 +1,10 @@
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
+import staticFiles from "@fastify/static";
 import path from "node:path";
 
 import { createBatchStore } from "../core/batch-store.js";
+import { getProjectRoot } from "../core/project-root.js";
 import { createRequestSecurity } from "./request-security.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { registerBatchRoutes } from "./routes/batches.js";
@@ -62,11 +64,13 @@ export async function buildApp({
   executor = null,
   openBrowser = null,
   allowedHost = "127.0.0.1:4317",
-  uploadLimits = null
+  uploadLimits = null,
+  webRoot = path.join(getProjectRoot(), "web")
 } = {}) {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("root is required");
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
   const batchRoot = path.join(path.resolve(root), "batches");
+  const staticRoot = path.resolve(webRoot);
   const store = createBatchStore(batchRoot);
   const security = createRequestSecurity({ allowedHost });
   const coordinator = createExecutionCoordinator({ batchRoot, executor, store });
@@ -88,5 +92,13 @@ export async function buildApp({
   await registerImportRoutes(app, { batchRoot, store, uploadLimits });
   await registerExecutionRoutes(app, { coordinator });
   await registerArtifactRoutes(app, { batchRoot, store });
+  await app.register(staticFiles, {
+    root: staticRoot,
+    prefix: "/",
+    index: ["index.html"],
+    dotfiles: "deny",
+    maxAge: 0,
+    immutable: false
+  });
   return app;
 }
