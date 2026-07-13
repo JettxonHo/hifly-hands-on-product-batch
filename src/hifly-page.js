@@ -68,9 +68,20 @@ export class HiflyHandsOnProductPage {
     await this.clickSubmitButton();
     await this.captureStep(product, "after-submit");
 
-    const after = await this.listLatestWorks();
-    const prior = new Set(before.map((work) => work.work_key));
-    const candidates = after.filter((work) => !prior.has(work.work_key));
+    const candidates = await this.waitForNewLatestWorks(before);
+    if (candidates.length === 1 && (candidates[0].remote_id || candidates[0].remote_url)) {
+      return {
+        status: "submitted",
+        remoteEvidence: {
+          evidence_source: "direct_submission",
+          remote_id: candidates[0].remote_id,
+          remote_url: candidates[0].remote_url,
+          work_key: candidates[0].work_key,
+          observed_at: new Date().toISOString()
+        }
+      };
+    }
+
     return { status: "ambiguous", candidates };
   }
 
@@ -220,7 +231,22 @@ export class HiflyHandsOnProductPage {
       const workKey = remoteId || remoteUrl || `${index}:${label}`;
       return { index, remote_id: remoteId, remote_url: remoteUrl, label, work_key: workKey };
     }));
-    return works;
+    return dedupeWorks(works);
+  }
+
+  async waitForNewLatestWorks(before, timeout = this.config.batch.generationTimeoutMs) {
+    const prior = new Set(before.map((work) => work.work_key));
+    const startedAt = Date.now();
+    let latestCandidates = [];
+
+    while (Date.now() - startedAt < timeout) {
+      const after = await this.listLatestWorks();
+      latestCandidates = after.filter((work) => !prior.has(work.work_key));
+      if (latestCandidates.length > 0) return latestCandidates;
+      await this.page.waitForTimeout(5000);
+    }
+
+    return latestCandidates;
   }
 
   async matchLatestWorks(remoteEvidence = {}) {
@@ -624,6 +650,17 @@ export function sanitizeFileName(value) {
     .replace(/[\\/:*?"<>|]/g, "_")
     .replace(/\s+/g, "_")
     .slice(0, 80);
+}
+
+function dedupeWorks(works) {
+  const seen = new Set();
+  const unique = [];
+  for (const work of works) {
+    if (!work.work_key || seen.has(work.work_key)) continue;
+    seen.add(work.work_key);
+    unique.push(work);
+  }
+  return unique;
 }
 
 function escapeRegExp(value) {

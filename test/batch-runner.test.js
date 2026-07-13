@@ -419,13 +419,21 @@ test("download clicks the current stable work identity after list reordering", a
   assert.ok(selectors.some((selector) => selector.includes("wanted-work")));
 });
 
-test("submitVideo leaves a sole stable-id post-checkpoint list delta ambiguous", async () => {
-  const adapter = new HiflyHandsOnProductPage({}, { batch: { defaultTimeoutMs: 10 } }, { info() {} });
+test("submitVideo waits for a sole stable new latest work and returns direct evidence", async () => {
+  const actions = [];
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout(ms) {
+      actions.push(`wait:${ms}`);
+    }
+  }, { batch: { defaultTimeoutMs: 10, generationTimeoutMs: 20000 } }, { info() {} });
   let observations = 0;
   const checkpoints = [];
-  adapter.listLatestWorks = async () => observations++ === 0
-    ? [{ work_key: "existing-work" }]
-    : [{ work_key: "existing-work" }, { work_key: "remote-new", remote_id: "remote-new" }];
+  adapter.listLatestWorks = async () => {
+    observations += 1;
+    if (observations === 1) return [{ work_key: "existing-work" }];
+    if (observations === 2) return [{ work_key: "existing-work" }];
+    return [{ work_key: "existing-work" }, { work_key: "remote-new", remote_id: "remote-new" }];
+  };
   adapter.captureStep = async () => {};
   adapter.clickSubmitButton = async () => {};
 
@@ -433,9 +441,10 @@ test("submitVideo leaves a sole stable-id post-checkpoint list delta ambiguous",
     checkpoint: async (value) => checkpoints.push(value)
   });
 
-  assert.equal(result.status, "ambiguous");
-  assert.equal(result.remoteEvidence, undefined);
-  assert.deepEqual(result.candidates, [{ work_key: "remote-new", remote_id: "remote-new" }]);
+  assert.equal(result.status, "submitted");
+  assert.equal(result.remoteEvidence.evidence_source, "direct_submission");
+  assert.equal(result.remoteEvidence.remote_id, "remote-new");
+  assert.deepEqual(actions, ["wait:5000"]);
   assert.equal(checkpoints[0].phase, "remote_submit_pre");
 });
 
