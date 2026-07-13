@@ -83,6 +83,94 @@ async function fixtureRun({ executor, initialStatus = "confirmed" } = {}) {
   };
 }
 
+function fakeElement(tagName, { attrs = {}, text = "", html = "", children = [] } = {}) {
+  const element = {
+    tagName: tagName.toUpperCase(),
+    attrs,
+    innerText: text,
+    textContent: text || children.map((child) => child.textContent || "").join(" "),
+    innerHTML: html,
+    children,
+    clicked: false,
+    getAttribute(name) {
+      return this.attrs[name] ?? null;
+    },
+    getBoundingClientRect() {
+      return { width: 120, height: 32 };
+    },
+    click() {
+      this.clicked = true;
+    },
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] ?? null;
+    },
+    querySelectorAll(selector) {
+      const selectors = selector.split(",").map((part) => part.trim()).filter(Boolean);
+      const descendants = [];
+      const visit = (node) => {
+        for (const child of node.children || []) {
+          descendants.push(child);
+          visit(child);
+        }
+      };
+      visit(this);
+      return descendants.filter((node) => selectors.some((candidate) => fakeMatches(node, candidate)));
+    }
+  };
+
+  for (const child of children) child.parentElement = element;
+  return element;
+}
+
+function fakeMatches(element, selector) {
+  if (selector === "button") return element.tagName === "BUTTON";
+  if (selector === "a[href]") return element.tagName === "A" && Boolean(element.getAttribute("href"));
+  if (selector === "button, a") return element.tagName === "BUTTON" || element.tagName === "A";
+  if (selector === "svg use") return false;
+  if (/^\[[^\]]+\]$/.test(selector)) {
+    return Boolean(element.getAttribute(selector.slice(1, -1)));
+  }
+  if (/^\.[\w-]+$/.test(selector)) {
+    return String(element.getAttribute("class") || "").split(/\s+/).includes(selector.slice(1));
+  }
+  if (["li", "article"].includes(selector)) return element.tagName === selector.toUpperCase();
+  return false;
+}
+
+function createDownloadTestAdapter(cards) {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const panel = fakeElement("section", { attrs: { class: "auto-main-right" }, children: cards });
+
+  globalThis.window = {
+    getComputedStyle() {
+      return { display: "block", visibility: "visible", opacity: "1" };
+    }
+  };
+  globalThis.document = {
+    querySelector(selector) {
+      return selector === ".auto-main-right" ? panel : null;
+    }
+  };
+
+  const page = {
+    getByText() {
+      return { first: () => ({ waitFor: async () => {} }) };
+    },
+    async evaluate(fn, arg) {
+      try {
+        return fn(arg);
+      } finally {
+        if (arg) {
+          globalThis.window = previousWindow;
+          globalThis.document = previousDocument;
+        }
+      }
+    }
+  };
+  return new HiflyHandsOnProductPage(page, { batch: { defaultTimeoutMs: 10 } }, { info() {} });
+}
+
 test("persists checkpoints around submit and download", async () => {
   const fixture = await fixtureRun({ executor: createFakeExecutor({ remoteId: "remote-1" }) });
   try {
@@ -380,43 +468,50 @@ test("a completed prior item does not invalidate the next confirmed item's snaps
   }
 });
 
-test("download clicks the current stable work identity after list reordering", async () => {
-  const selectors = [];
-  let clicked = false;
-  const stableButton = {
-    async waitFor() {},
-    async click() {
-      clicked = true;
-    }
-  };
-  const latestPanel = {
-    locator(selector) {
-      selectors.push(selector);
-      if (selector === "button.download") {
-        return {
-          nth() {
-            throw new Error("download must not select a stale list index");
-          }
-        };
-      }
-      return { first: () => stableButton };
-    }
-  };
-  const page = {
-    getByText() {
-      return { first: () => ({ waitFor: async () => {} }) };
-    },
-    locator(selector) {
-      assert.equal(selector, ".auto-main-right");
-      return { first: () => latestPanel };
-    }
-  };
-  const adapter = new HiflyHandsOnProductPage(page, { batch: { defaultTimeoutMs: 10 } }, { info() {} });
+test("download clicks only a safe download action for the current stable work identity", async () => {
+  const deleteButton = fakeElement("button", {
+    attrs: { "aria-label": "delete", class: "ant-btn icon-delete" },
+    html: '<span aria-label="delete" class="anticon-delete"></span>'
+  });
+  const dropdownButton = fakeElement("button", {
+    attrs: { class: "ant-btn ant-dropdown-trigger" },
+    html: '<span class="ant-dropdown-trigger"></span>'
+  });
+  const downloadButton = fakeElement("button", {
+    attrs: { class: "ant-btn download" },
+    html: '<span aria-label="download" class="anticon-download" data-icon="download"></span>'
+  });
+  const card = fakeElement("article", {
+    attrs: { "data-work-id": "wanted-work" },
+    text: "2026-07-13 23:36:27",
+    children: [deleteButton, dropdownButton, downloadButton]
+  });
+  const adapter = createDownloadTestAdapter([card]);
 
   await adapter.clickWorkDownload({ remote_id: "wanted-work", index: 0 }, 10);
 
-  assert.equal(clicked, true);
-  assert.ok(selectors.some((selector) => selector.includes("wanted-work")));
+  assert.equal(deleteButton.clicked, false);
+  assert.equal(dropdownButton.clicked, false);
+  assert.equal(downloadButton.clicked, true);
+});
+
+test("download refuses to click when a matched work exposes only destructive actions", async () => {
+  const deleteButton = fakeElement("button", {
+    attrs: { "aria-label": "delete", class: "ant-btn icon-delete" },
+    html: '<span aria-label="delete" class="anticon-delete"></span>'
+  });
+  const card = fakeElement("article", {
+    attrs: { "data-work-id": "wanted-work" },
+    text: "2026-07-13 23:36:27",
+    children: [deleteButton]
+  });
+  const adapter = createDownloadTestAdapter([card]);
+
+  await assert.rejects(
+    adapter.clickWorkDownload({ remote_id: "wanted-work", index: 0 }, 10),
+    /safe download button/
+  );
+  assert.equal(deleteButton.clicked, false);
 });
 
 test("submitVideo waits for a sole stable new latest work and returns direct evidence", async () => {

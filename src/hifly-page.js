@@ -260,28 +260,30 @@ export class HiflyHandsOnProductPage {
   async clickWorkDownload(work, timeout) {
     await this.page.getByText("最新作品", { exact: false }).first().waitFor({ state: "visible", timeout });
     const target = work.candidate ?? work;
-    const latestPanel = this.page.locator(".auto-main-right").first();
-    let button;
-
-    if (target.remote_id) {
-      const value = JSON.stringify(target.remote_id);
-      const selectors = ["data-work-id", "data-task-id", "data-video-id", "data-id"].flatMap((attribute) => [
-        `button.download[${attribute}=${value}]`,
-        `[${attribute}=${value}] button.download`
-      ]);
-      button = latestPanel.locator(selectors.join(", ")).first();
-    } else if (target.remote_url) {
-      const link = latestPanel.locator(`a[href=${JSON.stringify(target.remote_url)}]`).first();
-      const card = link.locator(
-        "xpath=ancestor-or-self::*[@data-work-id or @data-task-id or @data-video-id or @data-id or self::li or self::article or contains(concat(' ', normalize-space(@class), ' '), ' work-item ') or contains(concat(' ', normalize-space(@class), ' '), ' card ')][1]"
-      );
-      button = card.locator("button.download").first();
-    } else {
+    if (!target.remote_id && !target.remote_url && !target.work_key) {
       throw new Error("A stable remote work identity is required for download");
     }
 
-    await button.waitFor({ state: "visible", timeout });
-    await button.click({ timeout, force: true });
+    await this.ensureSafeWorkDownloadClicker();
+    const result = await this.page.evaluate((expected) => {
+      return window.__hiflyClickSafeWorkDownload(expected);
+    }, {
+      remote_id: target.remote_id ?? null,
+      remote_url: target.remote_url ?? null,
+      work_key: target.work_key ?? null
+    });
+
+    this.logger.info("download_button_resolution", result);
+    if (!result.clicked) {
+      const error = new Error(`Could not find a safe download button: ${result.reason}`);
+      error.code = "DOWNLOAD_BUTTON_NOT_FOUND";
+      error.evidence = result;
+      throw error;
+    }
+  }
+
+  async ensureSafeWorkDownloadClicker() {
+    await this.page.evaluate(installSafeWorkDownloadClicker);
   }
 
   async uploadFile(label, filePath) {
@@ -836,4 +838,88 @@ function dedupeWorks(works) {
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function installSafeWorkDownloadClicker() {
+  window.__hiflyClickSafeWorkDownload = (expected) => {
+    const visible = (element) => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== "none" &&
+        style.visibility !== "hidden" && style.opacity !== "0";
+    };
+
+    const norm = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const tokenText = (element) => norm([
+      element.innerText,
+      element.textContent,
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.getAttribute("class"),
+      element.getAttribute("data-icon"),
+      element.querySelector("svg use")?.getAttribute("href"),
+      element.querySelector("svg use")?.getAttribute("xlink:href"),
+      element.querySelector("img")?.getAttribute("alt"),
+      element.querySelector("img")?.getAttribute("src"),
+      element.innerHTML
+    ].filter(Boolean).join(" "));
+
+    const isDangerButton = (button) => /删除|delete|trash|remove|del-|icon-delete/i.test(tokenText(button));
+    const isDownloadButton = (button) => /下载|download|icon-download|anticon-download|cloud-download|arrow-down/i.test(tokenText(button));
+    const workIdentity = (card, index) => {
+      const attributes = ["data-work-id", "data-task-id", "data-video-id", "data-id"];
+      const remoteId = attributes
+        .map((name) => card?.getAttribute(name) || card?.querySelector(`[${name}]`)?.getAttribute(name))
+        .find(Boolean) || null;
+      const link = card?.querySelector("a[href]");
+      const remoteUrl = link?.getAttribute("href") || null;
+      const label = norm(card?.textContent);
+      return {
+        remote_id: remoteId,
+        remote_url: remoteUrl,
+        work_key: remoteId || remoteUrl || `${index}:${label}`,
+        label
+      };
+    };
+
+    const panel = document.querySelector(".auto-main-right");
+    if (!panel) return { clicked: false, reason: "latest panel not found" };
+
+    const rawCards = Array.from(panel.querySelectorAll(
+      "[data-work-id], [data-task-id], [data-video-id], [data-id], li, article, .work-item, .card, .ant-card"
+    )).filter((card) => visible(card) && card.querySelector("button, a"));
+    const cards = rawCards.length ? rawCards : Array.from(panel.children).filter((card) => visible(card));
+
+    const inspected = [];
+    for (const [index, card] of cards.entries()) {
+      const identity = workIdentity(card, index);
+      const matches = expected.remote_id
+        ? identity.remote_id === expected.remote_id
+        : expected.remote_url
+          ? identity.remote_url === expected.remote_url
+          : identity.work_key === expected.work_key;
+      if (!matches) continue;
+
+      const actions = Array.from(card.querySelectorAll("button, a[href]")).filter(visible);
+      const summaries = actions.map((action, actionIndex) => ({
+        actionIndex,
+        text: norm(action.innerText || action.textContent),
+        ariaLabel: action.getAttribute("aria-label"),
+        title: action.getAttribute("title"),
+        className: action.getAttribute("class"),
+        html: norm(action.innerHTML).slice(0, 160),
+        isDanger: isDangerButton(action),
+        isDownload: isDownloadButton(action)
+      }));
+      inspected.push({ identity, actions: summaries });
+
+      const downloadButton = actions.find((action) => isDownloadButton(action) && !isDangerButton(action));
+      if (!downloadButton) continue;
+
+      downloadButton.click();
+      return { clicked: true, identity, action: summaries[actions.indexOf(downloadButton)] };
+    }
+
+    return { clicked: false, reason: "safe download button not found", inspected };
+  };
 }
