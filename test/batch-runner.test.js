@@ -676,6 +676,43 @@ test("hasGeneratedImageReady detects split confirm text from modal content", asy
   ]);
 });
 
+test("hasGeneratedImageReady ignores generated keywords outside the modal", async () => {
+  const actions = [];
+  const dialog = {
+    getByText(text) {
+      actions.push(`dialog-text:${text}`);
+      return {
+        last() {
+          return {
+            async isVisible() {
+              actions.push("dialog-text-hidden");
+              return false;
+            }
+          };
+        }
+      };
+    },
+    async evaluate() {
+      actions.push("dialog-empty");
+      return "";
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { modalConfirmText: "确认" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+
+  assert.equal(await adapter.hasGeneratedImageReady(), false);
+  assert.deepEqual(actions, [
+    "dialog-text:/确\\s*认/",
+    "dialog-text-hidden",
+    "dialog-text:再次生成",
+    "dialog-text-hidden",
+    "dialog-empty"
+  ]);
+});
+
 test("clickModalConfirm prefers the visible confirm button by text", async () => {
   const actions = [];
   const dialog = {
@@ -758,6 +795,183 @@ test("clickModalConfirm prefers the visible confirm button by text", async () =>
     "mask:.ant-modal-mask",
     "mask-wait:hidden:12345",
     "wait:25"
+  ]);
+});
+
+test("clickModalConfirm falls back to the modal footer confirm button", async () => {
+  const actions = [];
+  const footerButton = {
+    async isVisible() {
+      actions.push("footer-visible");
+      return true;
+    },
+    async boundingBox() {
+      actions.push("footer-box");
+      return { x: 790, y: 458, width: 96, height: 36 };
+    },
+    async click(options) {
+      actions.push(`footer-click:${options.timeout}`);
+    }
+  };
+  let visibleChecks = 0;
+  const dialog = {
+    async waitFor(options) {
+      actions.push(`dialog-wait:${options.state}:${options.timeout}`);
+    },
+    locator(selector) {
+      actions.push(`dialog-locator:${selector}`);
+      return {
+        filter(options) {
+          actions.push(`dialog-filter:${options.hasText}`);
+          return {
+            last() {
+              return footerButton;
+            }
+          };
+        }
+      };
+    },
+    async isVisible() {
+      visibleChecks += 1;
+      actions.push(`dialog-visible:${visibleChecks}`);
+      return visibleChecks === 1;
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout(ms) {
+      actions.push(`wait:${ms}`);
+    },
+    mouse: {
+      async click(x, y) {
+        actions.push(`mouse:${x}:${y}`);
+      }
+    },
+    locator(selector) {
+      actions.push(`mask:${selector}`);
+      return {
+        last() {
+          return {
+            async waitFor(options) {
+              actions.push(`mask-wait:${options.state}:${options.timeout}`);
+            }
+          };
+        }
+      };
+    }
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 10000 },
+    behavior: { postConfirmWaitMs: 0 },
+    hiflyUi: { modalConfirmText: "确认" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+  adapter.clickModalConfirmButton = async () => {
+    actions.push("button-click-missed");
+    return false;
+  };
+
+  await adapter.clickModalConfirm(12345);
+
+  assert.deepEqual(actions, [
+    "dialog-wait:visible:12345",
+    "button-click-missed",
+    "dialog-locator:.ant-modal-footer button, button",
+    "dialog-filter:/确\\s*认/",
+    "footer-visible",
+    "footer-box",
+    "footer-click:12345",
+    "wait:300",
+    "dialog-visible:1",
+    "mouse:838:476",
+    "wait:800",
+    "dialog-visible:2",
+    "dialog-wait:hidden:12345",
+    "mask:.ant-modal-mask",
+    "mask-wait:hidden:12345",
+    "wait:0"
+  ]);
+});
+
+test("clickModalConfirm final fallback stays inside the modal bounds", async () => {
+  const actions = [];
+  const dialog = {
+    async waitFor(options) {
+      actions.push(`dialog-wait:${options.state}:${options.timeout}`);
+    },
+    locator(selector) {
+      actions.push(`dialog-locator:${selector}`);
+      return {
+        filter(options) {
+          actions.push(`dialog-filter:${options.hasText}`);
+          return {
+            last() {
+              return {
+                async isVisible() {
+                  actions.push("footer-hidden");
+                  return false;
+                }
+              };
+            }
+          };
+        }
+      };
+    },
+    async boundingBox() {
+      actions.push("dialog-box");
+      return { x: 290, y: 106, width: 616, height: 406 };
+    },
+    async isVisible() {
+      actions.push("dialog-hidden-after-fallback");
+      return false;
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout(ms) {
+      actions.push(`wait:${ms}`);
+    },
+    mouse: {
+      async click(x, y) {
+        actions.push(`mouse:${x}:${y}`);
+      }
+    },
+    locator(selector) {
+      actions.push(`mask:${selector}`);
+      return {
+        last() {
+          return {
+            async waitFor(options) {
+              actions.push(`mask-wait:${options.state}:${options.timeout}`);
+            }
+          };
+        }
+      };
+    }
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 10000 },
+    behavior: { postConfirmWaitMs: 0 },
+    hiflyUi: { modalConfirmText: "确认" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+  adapter.clickModalConfirmButton = async () => {
+    actions.push("button-click-missed");
+    return false;
+  };
+
+  await adapter.clickModalConfirm(12345);
+
+  assert.deepEqual(actions, [
+    "dialog-wait:visible:12345",
+    "button-click-missed",
+    "dialog-locator:.ant-modal-footer button, button",
+    "dialog-filter:/确\\s*认/",
+    "footer-hidden",
+    "dialog-box",
+    "mouse:820:469",
+    "wait:800",
+    "dialog-hidden-after-fallback",
+    "dialog-wait:hidden:12345",
+    "mask:.ant-modal-mask",
+    "mask-wait:hidden:12345",
+    "wait:0"
   ]);
 });
 

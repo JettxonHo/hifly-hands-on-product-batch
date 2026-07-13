@@ -487,9 +487,11 @@ export class HiflyHandsOnProductPage {
     const dialogText = await dialog.evaluate((element) => {
       return (element.innerText || element.textContent || "").replace(/\s+/g, "");
     }).catch(() => "");
-    return dialogText.includes("再次生成")
+    if (dialogText.includes("再次生成")
       && dialogText.includes("重新编辑")
-      && dialogText.includes("确认");
+      && dialogText.includes("确认")) return true;
+
+    return false;
   }
 
   async isHandsOnModalReadyForGenerate() {
@@ -507,16 +509,12 @@ export class HiflyHandsOnProductPage {
     await dialog.waitFor({ state: "visible", timeout });
     const clickedConfirm = await this.clickModalConfirmButton(dialog, timeout).catch(() => false);
     if (!clickedConfirm) {
-      const box = await dialog.boundingBox();
-      if (!box) throw new Error("Confirm dialog has no bounding box.");
-      await this.page.mouse.click(box.x + box.width - 86, box.y + box.height - 43);
+      await this.clickModalConfirmFallback(dialog, timeout);
     }
 
     await this.page.waitForTimeout(800);
     if (await dialog.isVisible().catch(() => false)) {
-      const box = await dialog.boundingBox();
-      if (!box) throw new Error("Confirm dialog stayed open and has no bounding box.");
-      await this.page.mouse.click(box.x + box.width - 86, box.y + box.height - 43);
+      await this.clickModalConfirmFallback(dialog, timeout);
     }
 
     await dialog.waitFor({ state: "hidden", timeout });
@@ -525,6 +523,21 @@ export class HiflyHandsOnProductPage {
       timeout
     }).catch(() => {});
     await this.page.waitForTimeout(this.config.behavior?.postConfirmWaitMs ?? 0);
+  }
+
+  async clickModalConfirmFallback(dialog, timeout = this.config.batch.defaultTimeoutMs) {
+    const footerConfirm = dialog.locator?.(".ant-modal-footer button, button").filter?.({
+      hasText: /确\s*认/
+    }).last?.();
+    if (footerConfirm && await footerConfirm.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await this.clickLocatorAndVerifyDialog(footerConfirm, dialog, timeout);
+      return true;
+    }
+
+    const box = await dialog.boundingBox();
+    if (!box) throw new Error("Confirm dialog has no bounding box.");
+    await this.page.mouse.click(box.x + box.width - 86, box.y + box.height - 43);
+    return true;
   }
 
   async clickModalConfirmButton(dialog, timeout = this.config.batch.defaultTimeoutMs) {
