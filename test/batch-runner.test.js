@@ -494,21 +494,34 @@ test("resetGeneratedHandsOnImage retries by coordinates when edit click does not
     }
   };
   const editButton = {
-    async waitFor() {
-      actions.push("edit-visible");
-    },
     async click() {
-      actions.push("edit-click");
-    },
-    async boundingBox() {
-      actions.push("edit-box");
-      return { x: 10, y: 20, width: 100, height: 40 };
+      actions.push("edit-text-click");
     }
   };
   const dialog = {
+    getByText() {
+      return {
+        first: () => ({
+          async isVisible() {
+            actions.push("edit-text-visible");
+            return true;
+          },
+          async click() {
+            return editButton.click();
+          }
+        })
+      };
+    },
     getByRole(_role, options) {
       const name = String(options?.name || "");
       return name.includes("上传商品") ? { first: () => uploadButton } : { first: () => editButton };
+    },
+    async waitFor() {
+      actions.push("dialog-visible");
+    },
+    async boundingBox() {
+      actions.push("dialog-box");
+      return { x: 100, y: 200, width: 500, height: 300 };
     }
   };
   const page = {
@@ -530,10 +543,11 @@ test("resetGeneratedHandsOnImage retries by coordinates when edit click does not
   await adapter.resetGeneratedHandsOnImage();
 
   assert.deepEqual(actions, [
-    "edit-visible",
-    "edit-click",
-    "edit-box",
-    "mouse:60:40",
+    "edit-text-visible",
+    "edit-text-click",
+    "dialog-visible",
+    "dialog-box",
+    "mouse:310:457",
     "upload-visible",
     "wait:500"
   ]);

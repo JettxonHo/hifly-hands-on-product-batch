@@ -395,9 +395,7 @@ export class HiflyHandsOnProductPage {
   async resetGeneratedHandsOnImage() {
     const timeout = this.config.batch.defaultTimeoutMs;
     const dialog = this.dialogLocator();
-    const editButton = dialog.getByRole("button", { name: /重新编辑|重\s*新\s*编\s*辑/ }).first();
-    await editButton.waitFor({ state: "visible", timeout });
-    await editButton.click({ timeout, force: true });
+    await this.clickModalEditButton(dialog, timeout);
 
     const uploadProductButton = dialog.getByRole("button", {
       name: new RegExp(escapeRegExp(this.config.hiflyUi.uploadProductText))
@@ -405,12 +403,31 @@ export class HiflyHandsOnProductPage {
     try {
       await uploadProductButton.waitFor({ state: "visible", timeout });
     } catch (error) {
-      const box = await editButton.boundingBox();
-      if (!box) throw error;
-      await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await this.clickModalEditFallback(dialog, timeout);
       await uploadProductButton.waitFor({ state: "visible", timeout });
     }
     await this.page.waitForTimeout(500);
+  }
+
+  async clickModalEditButton(dialog, timeout = this.config.batch.defaultTimeoutMs) {
+    const editText = dialog.getByText(/重新编辑|重\s*新\s*编\s*辑/).first();
+    if (await editText.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await editText.click({ timeout, force: true }).catch(async () => {
+        const box = await editText.boundingBox();
+        if (!box) throw new Error("Edit text has no bounding box.");
+        await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      });
+      return;
+    }
+
+    await this.clickModalEditFallback(dialog, timeout);
+  }
+
+  async clickModalEditFallback(dialog, timeout = this.config.batch.defaultTimeoutMs) {
+    await dialog.waitFor({ state: "visible", timeout });
+    const box = await dialog.boundingBox();
+    if (!box) throw new Error("Hands-on modal has no bounding box for edit fallback.");
+    await this.page.mouse.click(box.x + box.width * 0.42, box.y + box.height - 43);
   }
 
   async hasGeneratedImageReady() {
