@@ -713,6 +713,97 @@ test("hasGeneratedImageReady ignores generated keywords outside the modal", asyn
   ]);
 });
 
+test("hasGeneratedImageReady detects a generated UUID preview image", async () => {
+  const dialog = {
+    getByText() {
+      return {
+        last() {
+          return {
+            async isVisible() {
+              return false;
+            }
+          };
+        }
+      };
+    },
+    async evaluate(callback) {
+      return callback({
+        innerText: "手持商品图",
+        textContent: "手持商品图",
+        querySelectorAll(selector) {
+          if (selector === "button") {
+            return [
+              { innerText: "", textContent: "", getAttribute: () => "" },
+              { innerText: "", textContent: "", getAttribute: () => "" },
+              { innerText: "", textContent: "", getAttribute: () => "" }
+            ];
+          }
+          if (selector === "img") {
+            return [{
+              currentSrc: "https://cdn.hifly.cc/5965ae5a-86d4-49ac-bd73-29fed9f93bc7.png",
+              src: "",
+              getAttribute: () => ""
+            }];
+          }
+          return [];
+        }
+      });
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { modalConfirmText: "确认" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+
+  assert.equal(await adapter.hasGeneratedImageReady(), true);
+});
+
+test("hasGeneratedImageReady does not treat upload recommendations as generated preview", async () => {
+  const dialog = {
+    getByText() {
+      return {
+        last() {
+          return {
+            async isVisible() {
+              return false;
+            }
+          };
+        }
+      };
+    },
+    async evaluate(callback) {
+      return callback({
+        innerText: "手持商品图 上传人物 上传商品 推荐： 立即生成 150积分",
+        textContent: "手持商品图 上传人物 上传商品 推荐： 立即生成 150积分",
+        querySelectorAll(selector) {
+          if (selector === "button") {
+            return [
+              { innerText: "上传人物", textContent: "上传人物", getAttribute: () => "" },
+              { innerText: "上传商品", textContent: "上传商品", getAttribute: () => "" },
+              { innerText: "立即生成", textContent: "立即生成", getAttribute: () => "" }
+            ];
+          }
+          if (selector === "img") {
+            return [
+              { currentSrc: "https://hifly.cc/rec_1_w6A56STL.png", src: "", getAttribute: () => "" },
+              { currentSrc: "https://hifly.cc/pd1.jpg", src: "", getAttribute: () => "" }
+            ];
+          }
+          return [];
+        }
+      });
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { modalConfirmText: "确认" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+
+  assert.equal(await adapter.hasGeneratedImageReady(), false);
+});
+
 test("clickModalConfirm prefers the visible confirm button by text", async () => {
   const actions = [];
   const dialog = {
@@ -973,6 +1064,29 @@ test("clickModalConfirm final fallback stays inside the modal bounds", async () 
     "mask-wait:hidden:12345",
     "wait:0"
   ]);
+});
+
+test("dialogLocator only targets the visible hands-on modal", () => {
+  const selectors = [];
+  const filtered = {
+    last() {
+      return "visible-dialog";
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({
+    locator(selector) {
+      selectors.push(selector);
+      return {
+        filter(options) {
+          assert.equal(options.hasText, "手持商品图");
+          return filtered;
+        }
+      };
+    }
+  }, {}, { info() {} });
+
+  assert.equal(adapter.dialogLocator(), "visible-dialog");
+  assert.deepEqual(selectors, [".ant-modal:visible, [role='dialog']:visible"]);
 });
 
 test("resetExistingUpload clicks the outer delete control even when upload button is visible", async () => {

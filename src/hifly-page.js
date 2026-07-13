@@ -426,8 +426,22 @@ export class HiflyHandsOnProductPage {
 
   async waitForGeneratedHandsOnImage(timeout = this.config.batch.generationTimeoutMs) {
     const startedAt = Date.now();
+    let lastLoggedAt = 0;
     while (Date.now() - startedAt < timeout) {
       if (await this.hasGeneratedImageReady()) return;
+      if (Date.now() - lastLoggedAt > 10000) {
+        lastLoggedAt = Date.now();
+        const state = await this.inspectVisibleGeneratedModalState();
+        this.logger.info("generated_modal_wait_state", {
+          elapsedMs: Date.now() - startedAt,
+          visible: state.visible,
+          ready: state.ready,
+          textPreview: state.text?.slice?.(0, 120) ?? "",
+          buttonTexts: state.buttonTexts,
+          imageCount: state.imageSources?.length ?? 0,
+          imagePreview: state.imageSources?.slice?.(0, 5) ?? []
+        });
+      }
       await this.page.waitForTimeout(2000);
     }
 
@@ -475,6 +489,10 @@ export class HiflyHandsOnProductPage {
   }
 
   async hasGeneratedImageReady() {
+    const visibleState = await this.inspectVisibleGeneratedModalState();
+    if (visibleState.ready) return true;
+    if (visibleState.visible) return false;
+
     const confirmPattern = /确\s*认/;
     const dialog = this.dialogLocator();
     const confirmText = dialog.getByText(confirmPattern).last();
@@ -484,14 +502,47 @@ export class HiflyHandsOnProductPage {
       return true;
     }
 
-    const dialogText = await dialog.evaluate((element) => {
-      return (element.innerText || element.textContent || "").replace(/\s+/g, "");
-    }).catch(() => "");
-    if (dialogText.includes("再次生成")
-      && dialogText.includes("重新编辑")
-      && dialogText.includes("确认")) return true;
+    const state = await this.inspectGeneratedModalState(dialog);
+    if (state.ready) return true;
 
     return false;
+  }
+
+  async inspectGeneratedModalState(dialog) {
+    return dialog.evaluate((element) => {
+      const normalize = (value) => String(value || "").replace(/\s+/g, "");
+      const text = normalize(element.innerText || element.textContent || "");
+      const querySelectorAll = element.querySelectorAll?.bind(element) ?? (() => []);
+      const buttonTexts = Array.from(querySelectorAll("button"))
+        .map((button) => normalize(button.innerText || button.textContent || button.getAttribute("aria-label")))
+        .filter(Boolean);
+      const imageSources = Array.from(querySelectorAll("img"))
+        .map((image) => image.currentSrc || image.src || image.getAttribute("src") || "")
+        .filter(Boolean);
+
+      const hasReadyActions = text.includes("再次生成") &&
+        text.includes("重新编辑") &&
+        text.includes("确认");
+      const hasUploadActions = text.includes("上传人物") ||
+        text.includes("上传商品") ||
+        text.includes("立即生成");
+      const hasGeneratedImage = imageSources.some((source) => {
+        const filename = source.split("?")[0].split("/").pop() || "";
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpe?g|webp)$/i.test(filename);
+      });
+
+      return {
+        ready: hasReadyActions || (hasGeneratedImage && !hasUploadActions),
+        text,
+        buttonTexts,
+        imageSources
+      };
+    }).catch(() => ({
+      ready: false,
+      text: "",
+      buttonTexts: [],
+      imageSources: []
+    }));
   }
 
   async isHandsOnModalReadyForGenerate() {
@@ -505,6 +556,8 @@ export class HiflyHandsOnProductPage {
   }
 
   async clickModalConfirm(timeout = this.config.batch.defaultTimeoutMs) {
+    if (await this.clickVisibleModalConfirmByDom(timeout)) return;
+
     const dialog = this.dialogLocator();
     await dialog.waitFor({ state: "visible", timeout });
     const clickedConfirm = await this.clickModalConfirmButton(dialog, timeout).catch(() => false);
@@ -523,6 +576,111 @@ export class HiflyHandsOnProductPage {
       timeout
     }).catch(() => {});
     await this.page.waitForTimeout(this.config.behavior?.postConfirmWaitMs ?? 0);
+  }
+
+  async inspectVisibleGeneratedModalState() {
+    if (typeof this.page.evaluate !== "function") {
+      return {
+        ready: false,
+        visible: false,
+        text: "",
+        buttonTexts: [],
+        imageSources: []
+      };
+    }
+
+    await this.ensureVisibleModalInspector();
+    return this.page.evaluate(() => {
+      const { element: _element, ...state } = window.__hiflyGetVisibleHandsOnModalState();
+      return state;
+    }).catch(() => ({
+      ready: false,
+      visible: false,
+      text: "",
+      buttonTexts: [],
+      imageSources: []
+    }));
+  }
+
+  async clickVisibleModalConfirmByDom(timeout = this.config.batch.defaultTimeoutMs) {
+    if (typeof this.page.evaluate !== "function") return false;
+
+    await this.ensureVisibleModalInspector();
+    const clicked = await this.page.evaluate(() => {
+      const state = window.__hiflyGetVisibleHandsOnModalState();
+      if (!state.ready || !state.buttonTexts.length) return false;
+      const buttons = Array.from(state.element.querySelectorAll("button"));
+      const normalize = (value) => String(value || "").replace(/\s+/g, "");
+      const confirmButton = buttons.find((button) => normalize(button.innerText || button.textContent).includes("确认")) ||
+        buttons.at(-1);
+      confirmButton?.click();
+      return Boolean(confirmButton);
+    }).catch(() => false);
+
+    if (!clicked) return false;
+
+    await this.page.waitForFunction(() => {
+      return !window.__hiflyGetVisibleHandsOnModalState?.().visible;
+    }, null, { timeout }).catch(() => {});
+    await this.page.waitForTimeout(this.config.behavior?.postConfirmWaitMs ?? 0);
+    return true;
+  }
+
+  async ensureVisibleModalInspector() {
+    await this.page.evaluate(() => {
+      window.__hiflyGetVisibleHandsOnModalState = () => {
+        const normalize = (value) => String(value || "").replace(/\s+/g, "");
+        const candidates = Array.from(document.querySelectorAll(".ant-modal, [role='dialog']"));
+        const element = candidates.find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          const style = window.getComputedStyle(candidate);
+          const text = normalize(candidate.innerText || candidate.textContent || "");
+          return rect.width > 0 &&
+            rect.height > 0 &&
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            style.opacity !== "0" &&
+            text.includes("手持商品图");
+        });
+
+        if (!element) {
+          return {
+            ready: false,
+            visible: false,
+            text: "",
+            buttonTexts: [],
+            imageSources: []
+          };
+        }
+
+        const text = normalize(element.innerText || element.textContent || "");
+        const buttonTexts = Array.from(element.querySelectorAll("button"))
+          .map((button) => normalize(button.innerText || button.textContent || button.getAttribute("aria-label")))
+          .filter(Boolean);
+        const imageSources = Array.from(element.querySelectorAll("img"))
+          .map((image) => image.currentSrc || image.src || image.getAttribute("src") || "")
+          .filter(Boolean);
+        const hasReadyActions = text.includes("再次生成") &&
+          text.includes("重新编辑") &&
+          text.includes("确认");
+        const hasUploadActions = text.includes("上传人物") ||
+          text.includes("上传商品") ||
+          text.includes("立即生成");
+        const hasGeneratedImage = imageSources.some((source) => {
+          const filename = source.split("?")[0].split("/").pop() || "";
+          return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpe?g|webp)$/i.test(filename);
+        });
+
+        return {
+          ready: hasReadyActions || (hasGeneratedImage && !hasUploadActions),
+          visible: true,
+          text,
+          buttonTexts,
+          imageSources,
+          element
+        };
+      };
+    }).catch(() => {});
   }
 
   async clickModalConfirmFallback(dialog, timeout = this.config.batch.defaultTimeoutMs) {
@@ -652,7 +810,7 @@ export class HiflyHandsOnProductPage {
   }
 
   dialogLocator() {
-    return this.page.locator(".ant-modal, [role='dialog']").filter({
+    return this.page.locator(".ant-modal:visible, [role='dialog']:visible").filter({
       hasText: "手持商品图"
     }).last();
   }
