@@ -552,3 +552,72 @@ test("resetGeneratedHandsOnImage retries by coordinates when edit click does not
     "wait:500"
   ]);
 });
+
+test("resetExistingUpload clicks the outer delete control even when upload button is visible", async () => {
+  const actions = [];
+  const adapter = new HiflyHandsOnProductPage({
+    locator(selector) {
+      assert.equal(selector, ".controls-panel");
+      return {
+        locator(xpath) {
+          assert.match(xpath, /手持商品图/);
+          return {
+            locator() {
+              return {
+                filter() {
+                  return {
+                    first() {
+                      return {
+                        async isVisible() {
+                          actions.push("delete-hidden");
+                          return false;
+                        }
+                      };
+                    }
+                  };
+                }
+              };
+            },
+            async boundingBox() {
+              actions.push("card-box");
+              return { x: 100, y: 200, width: 540, height: 220 };
+            }
+          };
+        }
+      };
+    },
+    mouse: {
+      async click(x, y) {
+        actions.push(`mouse:${x}:${y}`);
+      }
+    },
+    async waitForTimeout(ms) {
+      actions.push(`wait:${ms}`);
+    }
+  }, {
+    batch: { defaultTimeoutMs: 10 },
+    behavior: { resetUploadBeforeEachProduct: true },
+    hiflyUi: { uploadLabel: "上传人物+产品图" }
+  }, { info() {} });
+  adapter.uploadButton = () => ({
+    async isVisible() {
+      actions.push("upload-visible");
+      return true;
+    },
+    async waitFor() {
+      actions.push("upload-restored");
+    }
+  });
+  adapter.closeHandsOnModalIfOpen = async () => actions.push("close-modal");
+
+  await adapter.resetExistingUpload();
+
+  assert.deepEqual(actions, [
+    "close-modal",
+    "card-box",
+    "delete-hidden",
+    "mouse:558:296",
+    "wait:500",
+    "upload-restored"
+  ]);
+});

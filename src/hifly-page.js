@@ -466,17 +466,47 @@ export class HiflyHandsOnProductPage {
   async resetExistingUpload() {
     if (!this.config.behavior?.resetUploadBeforeEachProduct) return;
 
-    if (await this.uploadButton().isVisible().catch(() => false)) {
-      return;
-    }
+    await this.closeHandsOnModalIfOpen();
 
     const uploadCard = this.page.locator(".controls-panel").locator("xpath=.//*[contains(normalize-space(.), '手持商品图')]/ancestor::*[contains(@class, 'controls-panel')][1]");
     const fallbackBox = await uploadCard.boundingBox().catch(() => null);
 
     if (!fallbackBox) return;
 
-    await this.page.mouse.click(fallbackBox.x + 458, fallbackBox.y + 96).catch(() => {});
+    const deleteButton = uploadCard.locator("button").filter({
+      has: uploadCard.locator("svg, .anticon, [class*='delete'], [class*='trash']")
+    }).first();
+    if (await deleteButton.isVisible().catch(() => false)) {
+      await deleteButton.click({ force: true }).catch(async () => {
+        await this.page.mouse.click(fallbackBox.x + fallbackBox.width - 82, fallbackBox.y + 96);
+      });
+    } else {
+      await this.page.mouse.click(fallbackBox.x + fallbackBox.width - 82, fallbackBox.y + 96).catch(() => {});
+    }
+
     await this.page.waitForTimeout(500);
+    await this.uploadButton().waitFor({
+      state: "visible",
+      timeout: this.config.batch.defaultTimeoutMs
+    }).catch(() => {});
+  }
+
+  async closeHandsOnModalIfOpen() {
+    const dialog = this.dialogLocator();
+    if (!await dialog.isVisible().catch(() => false)) return;
+
+    await this.page.keyboard?.press?.("Escape").catch(() => {});
+    await dialog.waitFor({
+      state: "hidden",
+      timeout: this.config.batch.defaultTimeoutMs
+    }).catch(async () => {
+      const box = await dialog.boundingBox().catch(() => null);
+      if (box) await this.page.mouse.click(box.x + box.width - 36, box.y + 28).catch(() => {});
+    });
+    await this.page.locator(".ant-modal-mask").last().waitFor({
+      state: "hidden",
+      timeout: this.config.batch.defaultTimeoutMs
+    }).catch(() => {});
   }
 
   async openFileChooser(label, timeout) {
