@@ -596,6 +596,38 @@ test("uploadModalFile accepts an already uploaded modal that is ready to generat
   ]);
 });
 
+test("confirmGeneratedHandsOnImage waits for generated preview before confirming", async () => {
+  const actions = [];
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout(ms) {
+      actions.push(`wait:${ms}`);
+    }
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 10000 },
+    hiflyUi: { modalSubmitText: "立即生成" }
+  }, { info() {} });
+  let checks = 0;
+  adapter.hasGeneratedImageReady = async () => {
+    checks += 1;
+    actions.push(`ready-check:${checks}`);
+    return checks >= 3;
+  };
+  adapter.clickModalConfirm = async (timeout) => {
+    actions.push(`confirm:${timeout}`);
+  };
+
+  await adapter.confirmGeneratedHandsOnImage();
+
+  assert.deepEqual(actions, [
+    "ready-check:1",
+    "wait:2000",
+    "ready-check:2",
+    "wait:2000",
+    "ready-check:3",
+    "confirm:10000"
+  ]);
+});
+
 test("resetExistingUpload clicks the outer delete control even when upload button is visible", async () => {
   const actions = [];
   const adapter = new HiflyHandsOnProductPage({

@@ -389,12 +389,23 @@ export class HiflyHandsOnProductPage {
       name: new RegExp(escapeRegExp(this.config.hiflyUi.modalSubmitText))
     }).last();
     await generateButton.waitFor({ state: "visible", timeout });
-    await generateButton.click({ timeout });
+    await generateButton.click({ timeout, force: true });
   }
 
   async confirmGeneratedHandsOnImage() {
     const timeout = this.config.batch.generationTimeoutMs;
+    await this.waitForGeneratedHandsOnImage(timeout);
     await this.clickModalConfirm(timeout);
+  }
+
+  async waitForGeneratedHandsOnImage(timeout = this.config.batch.generationTimeoutMs) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeout) {
+      if (await this.hasGeneratedImageReady()) return;
+      await this.page.waitForTimeout(2000);
+    }
+
+    throw new Error(`Timed out waiting for generated hands-on image after ${timeout}ms`);
   }
 
   async resetGeneratedHandsOnImage() {
