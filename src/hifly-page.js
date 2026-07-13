@@ -450,10 +450,11 @@ export class HiflyHandsOnProductPage {
 
   async hasGeneratedImageReady() {
     const confirmPattern = /确\s*认/;
-    const confirmText = this.page.getByText(confirmPattern).last();
+    const dialog = this.dialogLocator();
+    const confirmText = dialog.getByText(confirmPattern).last();
     if (await confirmText.isVisible().catch(() => false)) return true;
 
-    return this.page.getByText("再次生成", { exact: false }).last().isVisible().catch(() => false);
+    return dialog.getByText("再次生成", { exact: false }).last().isVisible().catch(() => false);
   }
 
   async isHandsOnModalReadyForGenerate() {
@@ -469,8 +470,7 @@ export class HiflyHandsOnProductPage {
   async clickModalConfirm(timeout = this.config.batch.defaultTimeoutMs) {
     const dialog = this.dialogLocator();
     await dialog.waitFor({ state: "visible", timeout });
-    const confirmButton = dialog.locator("button").last();
-    await confirmButton.click({ timeout, force: true }).catch(async () => {
+    await this.clickModalConfirmButton(dialog, timeout).catch(async () => {
       const box = await dialog.boundingBox();
       if (!box) throw new Error("Confirm dialog has no bounding box.");
       await this.page.mouse.click(box.x + box.width - 86, box.y + box.height - 43);
@@ -483,12 +483,30 @@ export class HiflyHandsOnProductPage {
       await this.page.mouse.click(box.x + box.width - 86, box.y + box.height - 43);
     }
 
-    await dialog.waitFor({ state: "hidden", timeout: this.config.batch.defaultTimeoutMs });
+    await dialog.waitFor({ state: "hidden", timeout });
     await this.page.locator(".ant-modal-mask").last().waitFor({
       state: "hidden",
-      timeout: this.config.batch.defaultTimeoutMs
+      timeout
     }).catch(() => {});
     await this.page.waitForTimeout(this.config.behavior?.postConfirmWaitMs ?? 0);
+  }
+
+  async clickModalConfirmButton(dialog, timeout = this.config.batch.defaultTimeoutMs) {
+    const confirmText = this.config.hiflyUi?.modalConfirmText || "确认";
+    const confirmPattern = new RegExp(escapeRegExp(confirmText).split("").join("\\s*"));
+    const roleButton = dialog.getByRole("button", { name: confirmPattern }).last();
+    if (await roleButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await roleButton.click({ timeout, force: true });
+      return;
+    }
+
+    const textButton = dialog.getByText(confirmPattern).last();
+    if (await textButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await textButton.click({ timeout, force: true });
+      return;
+    }
+
+    await dialog.locator("button").last().click({ timeout, force: true });
   }
 
   async resetExistingUpload() {

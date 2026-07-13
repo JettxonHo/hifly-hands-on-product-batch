@@ -628,6 +628,72 @@ test("confirmGeneratedHandsOnImage waits for generated preview before confirming
   ]);
 });
 
+test("clickModalConfirm prefers the visible confirm button by text", async () => {
+  const actions = [];
+  const dialog = {
+    async waitFor(options) {
+      actions.push(`dialog-wait:${options.state}:${options.timeout}`);
+    },
+    getByRole(role, options) {
+      actions.push(`${role}:${options.name}`);
+      return {
+        last() {
+          return {
+            async isVisible() {
+              actions.push("confirm-visible");
+              return true;
+            },
+            async click(options) {
+              actions.push(`confirm-click:${options.timeout}`);
+            }
+          };
+        }
+      };
+    },
+    async isVisible() {
+      actions.push("dialog-hidden-after-click");
+      return false;
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout(ms) {
+      actions.push(`wait:${ms}`);
+    },
+    locator(selector) {
+      actions.push(`mask:${selector}`);
+      return {
+        last() {
+          return {
+            async waitFor(options) {
+              actions.push(`mask-wait:${options.state}:${options.timeout}`);
+            }
+          };
+        }
+      };
+    }
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 10000 },
+    behavior: { postConfirmWaitMs: 25 },
+    hiflyUi: { modalConfirmText: "确认" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+
+  await adapter.clickModalConfirm(12345);
+
+  assert.deepEqual(actions, [
+    "dialog-wait:visible:12345",
+    "button:/确\\s*认/",
+    "confirm-visible",
+    "confirm-click:12345",
+    "wait:800",
+    "dialog-hidden-after-click",
+    "dialog-wait:hidden:12345",
+    "mask:.ant-modal-mask",
+    "mask-wait:hidden:12345",
+    "wait:25"
+  ]);
+});
+
 test("resetExistingUpload clicks the outer delete control even when upload button is visible", async () => {
   const actions = [];
   const adapter = new HiflyHandsOnProductPage({
