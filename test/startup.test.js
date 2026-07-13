@@ -82,6 +82,47 @@ test("default port collision advances to the next available port", async (t) => 
   assert.equal(selectedPort, startPort + 1);
 });
 
+test("concurrent workbench starts from the same port choose distinct ports", async (t) => {
+  const rootA = await mkdtemp(path.join(os.tmpdir(), "hifly-startup-a-"));
+  const rootB = await mkdtemp(path.join(os.tmpdir(), "hifly-startup-b-"));
+  const startPort = await findAvailablePort(4317);
+  const servers = [];
+  t.after(async () => {
+    await Promise.all(servers.map((server) => server.close()));
+    await rm(rootA, { recursive: true, force: true });
+    await rm(rootB, { recursive: true, force: true });
+  });
+
+  try {
+    const started = await Promise.all([
+      startServer({
+        root: rootA,
+        executor: createFakeExecutor(),
+        port: startPort,
+        openBrowser: async () => {},
+        handleSignals: false
+      }),
+      startServer({
+        root: rootB,
+        executor: createFakeExecutor(),
+        port: startPort,
+        openBrowser: async () => {},
+        handleSignals: false
+      })
+    ]);
+    servers.push(...started);
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  assert.equal(new Set(servers.map((server) => server.port)).size, 2);
+  assert.ok(servers.every((server) => server.url === `http://127.0.0.1:${server.port}`));
+});
+
 test("delivery package includes GUI assets and excludes local state", async (t) => {
   const outputRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-package-"));
   t.after(async () => {

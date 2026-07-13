@@ -82,17 +82,27 @@ export async function startServer({
   executionLock = {},
   pointsEstimate = {}
 } = {}) {
-  const selectedPort = await findAvailablePort(port);
-  const app = await buildApp({
-    root,
-    executor,
-    openBrowser,
-    allowedHost: `127.0.0.1:${selectedPort}`,
-    uploadLimits,
-    executionLock,
-    pointsEstimate
-  });
-  await app.listen({ host: "127.0.0.1", port: selectedPort });
+  let selectedPort = await findAvailablePort(port);
+  let app;
+  while (true) {
+    app = await buildApp({
+      root,
+      executor,
+      openBrowser,
+      allowedHost: `127.0.0.1:${selectedPort}`,
+      uploadLimits,
+      executionLock,
+      pointsEstimate
+    });
+    try {
+      await app.listen({ host: "127.0.0.1", port: selectedPort });
+      break;
+    } catch (error) {
+      await app.close();
+      if (error?.code !== "EADDRINUSE") throw error;
+      selectedPort = await findAvailablePort(selectedPort + 1);
+    }
+  }
   const url = `http://127.0.0.1:${selectedPort}`;
   console.log(`Local workbench: ${url}`);
   try {
