@@ -352,6 +352,7 @@ export class HiflyHandsOnProductPage {
 
     await uploadProductButton.waitFor({ state: "visible", timeout }).catch(async (error) => {
       if (await this.hasGeneratedImageReady()) return;
+      if (await this.isHandsOnModalReadyForGenerate()) return;
       throw error;
     });
   }
@@ -361,6 +362,10 @@ export class HiflyHandsOnProductPage {
     const button = this.page.getByRole("button", {
       name: new RegExp(escapeRegExp(label))
     }).first();
+    if (!await button.isVisible({ timeout: 1000 }).catch(() => false)) {
+      if (await this.isHandsOnModalReadyForGenerate()) return;
+      await button.waitFor({ state: "visible", timeout });
+    }
     const chooserPromise = this.page.waitForEvent("filechooser", { timeout });
     await button.click({ timeout });
     const chooser = await chooserPromise;
@@ -403,7 +408,9 @@ export class HiflyHandsOnProductPage {
     try {
       await uploadProductButton.waitFor({ state: "visible", timeout });
     } catch (error) {
+      if (await this.isHandsOnModalReadyForGenerate()) return;
       await this.clickModalEditFallback(dialog, timeout);
+      if (await this.isHandsOnModalReadyForGenerate()) return;
       await uploadProductButton.waitFor({ state: "visible", timeout });
     }
     await this.page.waitForTimeout(500);
@@ -436,6 +443,16 @@ export class HiflyHandsOnProductPage {
     if (await confirmText.isVisible().catch(() => false)) return true;
 
     return this.page.getByText("再次生成", { exact: false }).last().isVisible().catch(() => false);
+  }
+
+  async isHandsOnModalReadyForGenerate() {
+    const submitText = this.config.hiflyUi?.modalSubmitText;
+    if (!submitText) return false;
+    const dialog = this.dialogLocator();
+    const generateButton = dialog.getByRole("button", {
+      name: new RegExp(escapeRegExp(submitText))
+    }).last();
+    return generateButton.isVisible().catch(() => false);
   }
 
   async clickModalConfirm(timeout = this.config.batch.defaultTimeoutMs) {

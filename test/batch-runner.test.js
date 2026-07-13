@@ -553,6 +553,49 @@ test("resetGeneratedHandsOnImage retries by coordinates when edit click does not
   ]);
 });
 
+test("uploadModalFile accepts an already uploaded modal that is ready to generate", async () => {
+  const actions = [];
+  const adapter = new HiflyHandsOnProductPage({
+    getByRole(role, options) {
+      actions.push(`${role}:${options.name}`);
+      return {
+        first() {
+          return {
+            async isVisible() {
+              actions.push("upload-hidden");
+              return false;
+            },
+            async waitFor() {
+              actions.push("unexpected-wait");
+            },
+            async click() {
+              actions.push("unexpected-click");
+            }
+          };
+        }
+      };
+    },
+    async waitForEvent() {
+      actions.push("unexpected-filechooser");
+    }
+  }, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadProductText: "上传商品", modalSubmitText: "立即生成" }
+  }, { info() {} });
+  adapter.isHandsOnModalReadyForGenerate = async () => {
+    actions.push("generate-ready");
+    return true;
+  };
+
+  await adapter.uploadModalFile("上传商品", "/tmp/product.png");
+
+  assert.deepEqual(actions, [
+    "button:/上传商品/",
+    "upload-hidden",
+    "generate-ready"
+  ]);
+});
+
 test("resetExistingUpload clicks the outer delete control even when upload button is visible", async () => {
   const actions = [];
   const adapter = new HiflyHandsOnProductPage({
