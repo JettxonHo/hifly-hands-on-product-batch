@@ -454,7 +454,16 @@ export class HiflyHandsOnProductPage {
     const confirmText = dialog.getByText(confirmPattern).last();
     if (await confirmText.isVisible().catch(() => false)) return true;
 
-    return dialog.getByText("再次生成", { exact: false }).last().isVisible().catch(() => false);
+    if (await dialog.getByText("再次生成", { exact: false }).last().isVisible().catch(() => false)) {
+      return true;
+    }
+
+    const dialogText = await dialog.evaluate((element) => {
+      return (element.innerText || element.textContent || "").replace(/\s+/g, "");
+    }).catch(() => "");
+    return dialogText.includes("再次生成")
+      && dialogText.includes("重新编辑")
+      && dialogText.includes("确认");
   }
 
   async isHandsOnModalReadyForGenerate() {

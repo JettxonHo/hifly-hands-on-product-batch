@@ -628,6 +628,45 @@ test("confirmGeneratedHandsOnImage waits for generated preview before confirming
   ]);
 });
 
+test("hasGeneratedImageReady detects split confirm text from modal content", async () => {
+  const actions = [];
+  const dialog = {
+    getByText(text) {
+      actions.push(`text:${text}`);
+      return {
+        last() {
+          return {
+            async isVisible() {
+              actions.push("text-hidden");
+              return false;
+            }
+          };
+        }
+      };
+    },
+    async evaluate(callback) {
+      actions.push("dialog-text");
+      return callback({
+        innerText: "手持商品图 再次生成 150积分 重新编辑 确 认"
+      });
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { modalConfirmText: "确认" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+
+  assert.equal(await adapter.hasGeneratedImageReady(), true);
+  assert.deepEqual(actions, [
+    "text:/确\\s*认/",
+    "text-hidden",
+    "text:再次生成",
+    "text-hidden",
+    "dialog-text"
+  ]);
+});
+
 test("clickModalConfirm prefers the visible confirm button by text", async () => {
   const actions = [];
   const dialog = {
