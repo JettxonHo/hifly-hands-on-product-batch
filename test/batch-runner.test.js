@@ -438,3 +438,47 @@ test("submitVideo leaves a sole stable-id post-checkpoint list delta ambiguous",
   assert.deepEqual(result.candidates, [{ work_key: "remote-new", remote_id: "remote-new" }]);
   assert.equal(checkpoints[0].phase, "remote_submit_pre");
 });
+
+test("createHandsOnImage edits a stale generated modal before uploading the current product", async () => {
+  const calls = [];
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    behavior: { useRecommendedPersonWhenMissing: true },
+    personPool: { fallbackToRecommended: true },
+    hiflyUi: {
+      uploadPersonText: "上传人物",
+      uploadProductText: "上传商品"
+    }
+  }, { info() {} });
+
+  adapter.openHandsOnModal = async () => calls.push("open");
+  adapter.captureStep = async (_product, step) => calls.push(`capture:${step}`);
+  adapter.hasGeneratedImageReady = async () => calls.push("ready") && true;
+  adapter.resetGeneratedHandsOnImage = async () => calls.push("reset-stale");
+  adapter.selectRecommendedPerson = async () => calls.push("select-person");
+  adapter.uploadModalFile = async (label, filePath) => calls.push(`upload:${label}:${filePath}`);
+  adapter.clickModalGenerate = async () => calls.push("generate");
+  adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
+  adapter.clickModalConfirm = async () => {
+    throw new Error("stale generated result must not be confirmed before re-upload");
+  };
+
+  await adapter.createHandsOnImage({
+    sku: "SKU001",
+    image_path: "/tmp/current-product.png"
+  });
+
+  assert.deepEqual(calls, [
+    "open",
+    "capture:modal-open",
+    "ready",
+    "reset-stale",
+    "capture:modal-reset",
+    "select-person",
+    "upload:上传商品:/tmp/current-product.png",
+    "capture:modal-ready",
+    "generate",
+    "capture:modal-after-generate",
+    "confirm"
+  ]);
+});

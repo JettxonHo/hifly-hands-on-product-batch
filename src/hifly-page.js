@@ -308,8 +308,8 @@ export class HiflyHandsOnProductPage {
     await this.captureStep(product, "modal-open");
 
     if (await this.hasGeneratedImageReady()) {
-      await this.clickModalConfirm();
-      return;
+      await this.resetGeneratedHandsOnImage();
+      await this.captureStep(product, "modal-reset");
     }
 
     const personImagePath = product.__resolved_person_image_path || product.person_image_path;
@@ -390,6 +390,20 @@ export class HiflyHandsOnProductPage {
   async confirmGeneratedHandsOnImage() {
     const timeout = this.config.batch.generationTimeoutMs;
     await this.clickModalConfirm(timeout);
+  }
+
+  async resetGeneratedHandsOnImage() {
+    const timeout = this.config.batch.defaultTimeoutMs;
+    const dialog = this.dialogLocator();
+    const editButton = dialog.getByRole("button", { name: /重新编辑|重\s*新\s*编\s*辑/ }).first();
+    await editButton.waitFor({ state: "visible", timeout });
+    await editButton.click({ timeout, force: true });
+
+    const uploadProductButton = dialog.getByRole("button", {
+      name: new RegExp(escapeRegExp(this.config.hiflyUi.uploadProductText))
+    }).first();
+    await uploadProductButton.waitFor({ state: "visible", timeout });
+    await this.page.waitForTimeout(500);
   }
 
   async hasGeneratedImageReady() {
