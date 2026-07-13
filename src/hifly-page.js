@@ -470,11 +470,12 @@ export class HiflyHandsOnProductPage {
   async clickModalConfirm(timeout = this.config.batch.defaultTimeoutMs) {
     const dialog = this.dialogLocator();
     await dialog.waitFor({ state: "visible", timeout });
-    await this.clickModalConfirmButton(dialog, timeout).catch(async () => {
+    const clickedConfirm = await this.clickModalConfirmButton(dialog, timeout).catch(() => false);
+    if (!clickedConfirm) {
       const box = await dialog.boundingBox();
       if (!box) throw new Error("Confirm dialog has no bounding box.");
       await this.page.mouse.click(box.x + box.width - 86, box.y + box.height - 43);
-    });
+    }
 
     await this.page.waitForTimeout(800);
     if (await dialog.isVisible().catch(() => false)) {
@@ -496,17 +497,29 @@ export class HiflyHandsOnProductPage {
     const confirmPattern = new RegExp(escapeRegExp(confirmText).split("").join("\\s*"));
     const roleButton = dialog.getByRole("button", { name: confirmPattern }).last();
     if (await roleButton.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await roleButton.click({ timeout, force: true });
-      return;
+      await this.clickLocatorAndVerifyDialog(roleButton, dialog, timeout);
+      return true;
     }
 
     const textButton = dialog.getByText(confirmPattern).last();
     if (await textButton.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await textButton.click({ timeout, force: true });
-      return;
+      await this.clickLocatorAndVerifyDialog(textButton, dialog, timeout);
+      return true;
     }
 
-    await dialog.locator("button").last().click({ timeout, force: true });
+    const fallbackButton = dialog.locator("button").last();
+    await this.clickLocatorAndVerifyDialog(fallbackButton, dialog, timeout);
+    return true;
+  }
+
+  async clickLocatorAndVerifyDialog(locator, dialog, timeout = this.config.batch.defaultTimeoutMs) {
+    const box = await locator.boundingBox().catch(() => null);
+    await locator.click({ timeout, force: true });
+    await this.page.waitForTimeout(300);
+    if (await dialog.isVisible().catch(() => false)) {
+      if (!box) return;
+      await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    }
   }
 
   async resetExistingUpload() {

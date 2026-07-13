@@ -643,6 +643,10 @@ test("clickModalConfirm prefers the visible confirm button by text", async () =>
               actions.push("confirm-visible");
               return true;
             },
+            async boundingBox() {
+              actions.push("confirm-box");
+              return { x: 700, y: 450, width: 160, height: 48 };
+            },
             async click(options) {
               actions.push(`confirm-click:${options.timeout}`);
             }
@@ -658,6 +662,11 @@ test("clickModalConfirm prefers the visible confirm button by text", async () =>
   const adapter = new HiflyHandsOnProductPage({
     async waitForTimeout(ms) {
       actions.push(`wait:${ms}`);
+    },
+    mouse: {
+      async click(x, y) {
+        actions.push(`mouse:${x}:${y}`);
+      }
     },
     locator(selector) {
       actions.push(`mask:${selector}`);
@@ -677,6 +686,12 @@ test("clickModalConfirm prefers the visible confirm button by text", async () =>
     hiflyUi: { modalConfirmText: "确认" }
   }, { info() {} });
   adapter.dialogLocator = () => dialog;
+  let visibleChecks = 0;
+  dialog.isVisible = async () => {
+    visibleChecks += 1;
+    actions.push(`dialog-visible:${visibleChecks}`);
+    return visibleChecks === 1;
+  };
 
   await adapter.clickModalConfirm(12345);
 
@@ -684,9 +699,13 @@ test("clickModalConfirm prefers the visible confirm button by text", async () =>
     "dialog-wait:visible:12345",
     "button:/确\\s*认/",
     "confirm-visible",
+    "confirm-box",
     "confirm-click:12345",
+    "wait:300",
+    "dialog-visible:1",
+    "mouse:780:474",
     "wait:800",
-    "dialog-hidden-after-click",
+    "dialog-visible:2",
     "dialog-wait:hidden:12345",
     "mask:.ant-modal-mask",
     "mask-wait:hidden:12345",
