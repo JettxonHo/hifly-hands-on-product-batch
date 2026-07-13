@@ -402,7 +402,14 @@ export class HiflyHandsOnProductPage {
     const uploadProductButton = dialog.getByRole("button", {
       name: new RegExp(escapeRegExp(this.config.hiflyUi.uploadProductText))
     }).first();
-    await uploadProductButton.waitFor({ state: "visible", timeout });
+    try {
+      await uploadProductButton.waitFor({ state: "visible", timeout });
+    } catch (error) {
+      const box = await editButton.boundingBox();
+      if (!box) throw error;
+      await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await uploadProductButton.waitFor({ state: "visible", timeout });
+    }
     await this.page.waitForTimeout(500);
   }
 

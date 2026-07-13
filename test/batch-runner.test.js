@@ -482,3 +482,59 @@ test("createHandsOnImage edits a stale generated modal before uploading the curr
     "confirm"
   ]);
 });
+
+test("resetGeneratedHandsOnImage retries by coordinates when edit click does not reveal upload controls", async () => {
+  const actions = [];
+  let attempts = 0;
+  const uploadButton = {
+    async waitFor() {
+      attempts += 1;
+      if (attempts === 1) throw new Error("upload controls still hidden");
+      actions.push("upload-visible");
+    }
+  };
+  const editButton = {
+    async waitFor() {
+      actions.push("edit-visible");
+    },
+    async click() {
+      actions.push("edit-click");
+    },
+    async boundingBox() {
+      actions.push("edit-box");
+      return { x: 10, y: 20, width: 100, height: 40 };
+    }
+  };
+  const dialog = {
+    getByRole(_role, options) {
+      const name = String(options?.name || "");
+      return name.includes("上传商品") ? { first: () => uploadButton } : { first: () => editButton };
+    }
+  };
+  const page = {
+    mouse: {
+      async click(x, y) {
+        actions.push(`mouse:${x}:${y}`);
+      }
+    },
+    async waitForTimeout(ms) {
+      actions.push(`wait:${ms}`);
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage(page, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadProductText: "上传商品" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+
+  await adapter.resetGeneratedHandsOnImage();
+
+  assert.deepEqual(actions, [
+    "edit-visible",
+    "edit-click",
+    "edit-box",
+    "mouse:60:40",
+    "upload-visible",
+    "wait:500"
+  ]);
+});
