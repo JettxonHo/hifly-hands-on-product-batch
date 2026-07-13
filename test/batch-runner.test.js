@@ -609,6 +609,7 @@ test("resetExistingUpload clicks the outer delete control even when upload butto
     }
   });
   adapter.closeHandsOnModalIfOpen = async () => actions.push("close-modal");
+  adapter.reloadHandsOnProductMode = async () => actions.push("reload-goods");
 
   await adapter.resetExistingUpload();
 
@@ -618,6 +619,7 @@ test("resetExistingUpload clicks the outer delete control even when upload butto
     "delete-hidden",
     "mouse:558:296",
     "wait:500",
+    "reload-goods",
     "upload-restored"
   ]);
 });

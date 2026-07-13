@@ -485,10 +485,26 @@ export class HiflyHandsOnProductPage {
     }
 
     await this.page.waitForTimeout(500);
+    await this.reloadHandsOnProductMode();
     await this.uploadButton().waitFor({
       state: "visible",
       timeout: this.config.batch.defaultTimeoutMs
     }).catch(() => {});
+  }
+
+  async reloadHandsOnProductMode() {
+    if (this.config.handsOnProductUrl) {
+      await this.page.goto(this.config.handsOnProductUrl, { waitUntil: "domcontentloaded" });
+      await this.page.waitForLoadState("networkidle", {
+        timeout: this.config.batch.defaultTimeoutMs
+      }).catch(() => {});
+    } else {
+      await this.page.reload({ waitUntil: "domcontentloaded" });
+      await this.page.waitForLoadState("networkidle", {
+        timeout: this.config.batch.defaultTimeoutMs
+      }).catch(() => {});
+    }
+    await this.closeHandsOnModalIfOpen();
   }
 
   async closeHandsOnModalIfOpen() {
