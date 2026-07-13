@@ -117,11 +117,13 @@ export class HiflyHandsOnProductPage {
     await this.clickWorkDownload(candidates[0], timeout);
     const download = await downloadPromise;
     const suggested = download.suggestedFilename();
-    const outputPath = path.join(destination ?? this.config.downloadDir, suggested);
+    const artifactId = candidates[0].remote_id ?? candidates[0].work_key;
+    const outputName = `${timestampForFile()}-${sanitizeFileName(artifactId)}-${sanitizeFileName(suggested)}`;
+    const outputPath = path.join(destination ?? this.config.downloadDir, outputName);
     await download.saveAs(outputPath);
 
     return {
-      artifact_id: candidates[0].remote_id ?? candidates[0].work_key,
+      artifact_id: artifactId,
       relative_path: path.relative(this.config.__rootDir ?? process.cwd(), outputPath)
     };
   }

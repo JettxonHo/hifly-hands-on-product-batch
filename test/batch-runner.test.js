@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -512,6 +512,42 @@ test("download refuses to click when a matched work exposes only destructive act
     /safe download button/
   );
   assert.equal(deleteButton.clicked, false);
+});
+
+test("downloadArtifact prefixes repeated suggested filenames with the remote id", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-download-"));
+  try {
+    await mkdir(path.join(root, "downloads"));
+    let savedAs;
+    const page = {
+      waitForEvent() {
+        return Promise.resolve({
+          suggestedFilename() {
+            return "未命名.mp4";
+          },
+          async saveAs(outputPath) {
+            savedAs = outputPath;
+            await writeFile(outputPath, "video");
+          }
+        });
+      }
+    };
+    const adapter = new HiflyHandsOnProductPage(page, {
+      __rootDir: root,
+      downloadDir: path.join(root, "downloads"),
+      batch: { generationTimeoutMs: 10 }
+    }, { info() {} });
+    adapter.matchLatestWorks = async () => [{ remote_id: "remote-1", work_key: "remote-1" }];
+    adapter.clickWorkDownload = async () => {};
+
+    const artifact = await adapter.downloadArtifact({ remote_id: "remote-1" }, path.join(root, "downloads"));
+
+    assert.match(path.basename(savedAs), /remote-1.*未命名_mp4|remote-1.*未命名\.mp4/);
+    assert.equal(artifact.artifact_id, "remote-1");
+    assert.match(artifact.relative_path, /^downloads\//);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("submitVideo waits for a sole stable new latest work and returns direct evidence", async () => {
