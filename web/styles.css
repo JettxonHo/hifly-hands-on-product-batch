@@ -320,6 +320,26 @@ tr.selected {
   list-style: none;
 }
 
+.execution-plan {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: 8px;
+  background: #ecfdf9;
+  padding: 12px;
+}
+
+.execution-plan strong {
+  font-size: 13px;
+}
+
+.execution-plan span {
+  color: var(--accent-strong);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .task-item,
 .record-card {
   border: 1px solid var(--line);

@@ -84,8 +84,10 @@ test("single-product GUI path creates a pending batch", async (t) => {
 
   await assertVisible(page.getByRole("heading", { name: "待执行任务" }));
   await assertVisible(page.getByText("云感保湿乳"));
+  await assertVisible(page.getByText("按当前批次全部商品执行：1 个商品生成 1 条视频。"));
   await page.getByRole("button", { name: "开始生成" }).click();
   await assertVisible(page.getByRole("heading", { name: "确认开始生成" }));
+  await assertVisible(page.getByText(/一商品一条片.*1 条视频/));
   await page.getByRole("button", { name: "确认生成" }).click();
   await assertVisible(page.getByRole("heading", { name: "运行记录" }));
 });

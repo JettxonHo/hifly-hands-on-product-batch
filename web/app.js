@@ -182,15 +182,23 @@
       return;
     }
     nodes.batchDetail.className = "";
+    const itemCount = batch.items?.length || 0;
     const summary = document.createElement("p");
     summary.className = "task-meta";
-    setText(summary, `状态：${statusLabel(batch.status)} · 商品 ${batch.items?.length || 0} 条`);
+    setText(summary, `状态：${statusLabel(batch.status)} · 商品 ${itemCount} 条`);
+    const executionPlan = document.createElement("div");
+    executionPlan.className = "execution-plan";
+    const executionTitle = document.createElement("strong");
+    setText(executionTitle, "执行设置");
+    const executionCopy = document.createElement("span");
+    setText(executionCopy, `按当前批次全部商品执行：${itemCount} 个商品生成 ${itemCount} 条视频。`);
+    executionPlan.append(executionTitle, executionCopy);
     const list = document.createElement("ul");
     list.className = "task-list";
     for (const item of batch.items || []) {
       list.append(taskItem(item));
     }
-    nodes.batchDetail.append(summary, list);
+    nodes.batchDetail.append(summary, executionPlan, list);
   }
 
   function taskItem(item) {
@@ -338,7 +346,10 @@
   function openConfirmDialog() {
     const batch = activeBatch();
     if (!batch) return;
-    setText(nodes.confirmSummary, `批次 ${batch.batch_id} 将提交 ${batch.items.length} 条商品。预计积分以飞影页面最终显示为准。`);
+    setText(
+      nodes.confirmSummary,
+      `批次 ${batch.batch_id} 含 ${batch.items.length} 条商品，将按“一商品一条片”生成 ${batch.items.length} 条视频。预计积分以飞影页面最终显示为准。`
+    );
     nodes.confirmItems.textContent = "";
     for (const item of batch.items) {
       const li = document.createElement("li");
