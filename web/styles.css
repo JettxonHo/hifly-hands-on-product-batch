@@ -222,6 +222,13 @@ textarea:focus {
   gap: 16px;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .primary-button,
 .ghost-button,
 .danger-button {
@@ -318,6 +325,41 @@ tr.selected {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.bulk-rows {
+  display: grid;
+  gap: 14px;
+}
+
+.bulk-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(180px, 1.2fr) minmax(120px, 0.8fr) minmax(180px, 1fr);
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 14px;
+}
+
+.bulk-row-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bulk-row-head strong {
+  font-size: 15px;
+}
+
+.bulk-selling-points {
+  grid-column: 1 / -1;
+}
+
+.bulk-actions {
+  margin-top: 16px;
 }
 
 .execution-plan {
@@ -432,7 +474,8 @@ dialog::backdrop {
 
   .topbar,
   .section-head,
-  .form-actions {
+  .form-actions,
+  .button-row {
     display: grid;
     justify-content: stretch;
   }
@@ -456,7 +499,8 @@ dialog::backdrop {
   }
 
   .grid-form,
-  .workbench-grid {
+  .workbench-grid,
+  .bulk-row {
     grid-template-columns: 1fr;
   }
 

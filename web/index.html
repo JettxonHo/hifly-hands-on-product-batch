@@ -21,6 +21,7 @@
 
       <nav class="tabs" role="tablist" aria-label="工作台视图">
         <button class="tab active" type="button" role="tab" aria-selected="true" aria-controls="panel-single" data-tab="single">新建商品</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-bulk" data-tab="bulk">批量录入</button>
         <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-import" data-tab="import">批量导入</button>
         <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-queue" data-tab="queue">待执行任务</button>
         <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-records" data-tab="records">运行记录</button>
@@ -66,6 +67,27 @@
               <button class="primary-button" type="submit">加入待执行</button>
             </div>
           </form>
+        </section>
+
+        <section id="panel-bulk" class="panel" role="tabpanel" hidden>
+          <div class="section-head">
+            <div>
+              <h2>批量录入</h2>
+              <p>直接在网页里填写多条商品信息，每个商品上传一张图，提交后生成一个批次。</p>
+            </div>
+            <button id="resetBulk" class="ghost-button" type="button">重置</button>
+          </div>
+          <form id="bulkForm">
+            <div id="bulkRows" class="bulk-rows"></div>
+            <div class="form-actions bulk-actions">
+              <p class="hint">一行商品会生成一条视频。商品图会按 SKU 自动重命名上传，避免重名图片匹配失败。</p>
+              <div class="button-row">
+                <button id="addBulkRow" class="ghost-button" type="button">新增一行</button>
+                <button class="primary-button" type="submit">生成批次</button>
+              </div>
+            </div>
+          </form>
+          <div id="bulkErrors" class="notice error" hidden></div>
         </section>
 
         <section id="panel-import" class="panel" role="tabpanel" hidden>

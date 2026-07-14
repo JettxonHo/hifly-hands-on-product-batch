@@ -13,6 +13,11 @@
     panels: Array.from(document.querySelectorAll(".panel")),
     singleForm: document.querySelector("#singleForm"),
     resetSingle: document.querySelector("#resetSingle"),
+    bulkForm: document.querySelector("#bulkForm"),
+    bulkRows: document.querySelector("#bulkRows"),
+    addBulkRow: document.querySelector("#addBulkRow"),
+    resetBulk: document.querySelector("#resetBulk"),
+    bulkErrors: document.querySelector("#bulkErrors"),
     importForm: document.querySelector("#importForm"),
     importErrors: document.querySelector("#importErrors"),
     batchTable: document.querySelector("#batchTable"),
@@ -45,6 +50,7 @@
     for (const button of document.querySelectorAll("button")) {
       if (button.id !== "cancelConfirm") button.disabled = isBusy || button.dataset.disabled === "true";
     }
+    updateBulkDeleteButtons();
     updateStartButton();
   }
 
@@ -65,6 +71,18 @@
       fields.join(","),
       ...rows.map((row) => fields.map((field) => csvCell(row[field])).join(","))
     ].join("\n");
+  }
+
+  function imageExtension(file) {
+    const name = file?.name || "";
+    const match = name.match(/\.[a-z0-9]+$/i);
+    return match ? match[0].toLowerCase() : ".png";
+  }
+
+  function safeUploadStem(value, fallback) {
+    const text = String(value || "").trim().normalize("NFC");
+    const safe = text.replace(/[^\p{Letter}\p{Number}._-]+/gu, "-").replace(/^-+|-+$/g, "");
+    return safe || fallback;
   }
 
   function statusLabel(status) {
@@ -272,6 +290,133 @@
     return api.importBatch(formData);
   }
 
+  function bulkRowTemplate(rowId) {
+    const row = document.createElement("article");
+    row.className = "bulk-row";
+    row.dataset.rowId = rowId;
+    row.innerHTML = `
+      <div class="bulk-row-head">
+        <strong>商品</strong>
+        <button class="ghost-button bulk-remove" type="button">删除</button>
+      </div>
+      <label>
+        <span>SKU</span>
+        <input name="bulkSku" autocomplete="off" placeholder="留空自动生成">
+      </label>
+      <label>
+        <span>产品名称</span>
+        <input name="bulkProductName" required autocomplete="off" placeholder="例如：云感保湿乳">
+      </label>
+      <label>
+        <span>品类</span>
+        <input name="bulkCategory" autocomplete="off" placeholder="例如：beauty">
+      </label>
+      <label class="file-control">
+        <span>商品图</span>
+        <input name="bulkProductImage" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
+      </label>
+      <label class="bulk-selling-points">
+        <span>核心卖点</span>
+        <textarea name="bulkSellingPoints" rows="3" placeholder="每条卖点可用顿号、逗号或换行分隔"></textarea>
+      </label>
+    `;
+    row.querySelector(".bulk-remove").addEventListener("click", () => {
+      row.remove();
+      updateBulkDeleteButtons();
+    });
+    return row;
+  }
+
+  function updateBulkDeleteButtons() {
+    const rows = Array.from(nodes.bulkRows.querySelectorAll(".bulk-row"));
+    for (const button of nodes.bulkRows.querySelectorAll(".bulk-remove")) {
+      button.disabled = rows.length <= 1 || state.busy;
+    }
+  }
+
+  function addBulkEntry() {
+    const row = bulkRowTemplate(safeId("bulk-row"));
+    nodes.bulkRows.append(row);
+    updateBulkDeleteButtons();
+  }
+
+  function resetBulkForm() {
+    nodes.bulkRows.textContent = "";
+    nodes.bulkErrors.hidden = true;
+    nodes.bulkErrors.textContent = "";
+    addBulkEntry();
+  }
+
+  function bulkFormRows() {
+    return Array.from(nodes.bulkRows.querySelectorAll(".bulk-row")).map((row, index) => {
+      const sku = row.querySelector("[name='bulkSku']").value.trim() || safeId(`sku-${index + 1}`);
+      const image = row.querySelector("[name='bulkProductImage']").files[0];
+      const imageName = `${safeUploadStem(sku, `sku-${index + 1}`)}${imageExtension(image)}`;
+      return {
+        rowNumber: index + 1,
+        image,
+        uploadName: imageName,
+        product: {
+          sku,
+          product_name: row.querySelector("[name='bulkProductName']").value.trim(),
+          selling_points: row.querySelector("[name='bulkSellingPoints']").value.trim(),
+          category: row.querySelector("[name='bulkCategory']").value.trim() || "default",
+          image_path: imageName
+        }
+      };
+    });
+  }
+
+  function validateBulkRows(rows) {
+    const errors = [];
+    const seenSkus = new Set();
+    for (const row of rows) {
+      if (!row.product.product_name) errors.push(`第 ${row.rowNumber} 行：请填写产品名称`);
+      if (!row.image) errors.push(`第 ${row.rowNumber} 行：请上传商品图`);
+      const key = row.product.sku.toLocaleLowerCase("und");
+      if (seenSkus.has(key)) errors.push(`第 ${row.rowNumber} 行：SKU 重复`);
+      seenSkus.add(key);
+    }
+    return errors;
+  }
+
+  async function handleBulkSubmit(event) {
+    event.preventDefault();
+    const rows = bulkFormRows();
+    const errors = validateBulkRows(rows);
+    nodes.bulkErrors.hidden = true;
+    nodes.bulkErrors.textContent = "";
+    if (errors.length > 0) {
+      setText(nodes.bulkErrors, errors.join("\n"));
+      nodes.bulkErrors.hidden = false;
+      showToast("批量录入信息不完整");
+      return;
+    }
+
+    const table = new File([makeCsv(rows.map((row) => row.product))], "products.csv", { type: "text/csv" });
+    const formData = new FormData();
+    formData.append("batchId", "pending");
+    formData.append("files", table);
+    for (const row of rows) formData.append("files", row.image, row.uploadName);
+
+    setBusy(true);
+    try {
+      const payload = await createBatchAndImport(formData);
+      state.selectedBatchId = payload.batch.batch_id;
+      resetBulkForm();
+      await refreshBatches({ silent: true });
+      switchTab("queue");
+      showToast(`批量录入成功：${rows.length} 个商品`);
+    } catch (error) {
+      const message = error.payload?.errors ? importErrors(error.payload.errors) : error.message;
+      setText(nodes.bulkErrors, message);
+      nodes.bulkErrors.hidden = false;
+      showToast("批量录入失败，请查看错误明细");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleSingleSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -385,8 +530,11 @@
       tab.addEventListener("click", () => switchTab(tab.dataset.tab));
     }
     nodes.singleForm.addEventListener("submit", handleSingleSubmit);
+    nodes.bulkForm.addEventListener("submit", handleBulkSubmit);
     nodes.importForm.addEventListener("submit", handleBatchImport);
     nodes.resetSingle.addEventListener("click", () => nodes.singleForm.reset());
+    nodes.addBulkRow.addEventListener("click", addBulkEntry);
+    nodes.resetBulk.addEventListener("click", resetBulkForm);
     nodes.refreshBatches.addEventListener("click", () => refreshBatches());
     nodes.startExecution.addEventListener("click", openConfirmDialog);
     nodes.confirmExecution.addEventListener("click", confirmExecution);
@@ -394,6 +542,7 @@
 
   async function init() {
     bindEvents();
+    resetBulkForm();
     try {
       await api.ensureSession();
       setText(nodes.sessionStatus, "会话已就绪");
