@@ -48,6 +48,10 @@
       method: "POST",
       body: formData
     }),
+    retryBatch: ({ batchId }) => request(`/api/batches/${encodeURIComponent(batchId)}/retry`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true })
+    }),
     startExecution: ({ batchId, idempotencyKey }) => request("/api/executions", {
       method: "POST",
       body: JSON.stringify({ batchId, idempotencyKey, confirm: true })

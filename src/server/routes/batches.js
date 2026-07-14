@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { summarizeBatch, transitionTask } from "../../core/state-machine.js";
+
 const BATCH_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const INTERNAL_ITEM_FIELDS = new Set([
   "image_path",
@@ -26,6 +28,10 @@ function publicItem(item) {
 function sanitizeMessage(value) {
   if (typeof value !== "string") return value;
   return value.replace(/(?:[A-Za-z]:[\\/]|\/)[^\s"'<>]*/g, "[local path]");
+}
+
+function batchError(code, statusCode = 400) {
+  return Object.assign(new Error(code), { code, statusCode });
 }
 
 function publicExecutionSnapshot(snapshot) {
@@ -70,6 +76,45 @@ export async function registerBatchRoutes(app, { store }) {
     const batchId = request.body.batchId === undefined ? `batch-${randomUUID()}` : assertBatchId(request.body.batchId);
     const batch = await store.create({ batch_id: batchId, status: "needs_input", items: [], uploads: [] });
     reply.code(201);
+    return { batch: publicBatch(batch) };
+  });
+
+  app.post("/api/batches/:batchId/retry", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    if (!isPlainObject(request.body) || Object.keys(request.body).some((key) => key !== "confirm")) {
+      throw batchError("INVALID_RETRY_REQUEST");
+    }
+    if (request.body.confirm !== true) throw batchError("EXPLICIT_CONFIRMATION_REQUIRED");
+
+    const batch = await store.update(batchId, (current) => {
+      const items = Array.isArray(current.items) ? current.items : [];
+      if (items.length === 0 || !items.every((item) => item.status === "failed_pre_submit")) {
+        throw batchError("BATCH_NOT_RETRYABLE", 409);
+      }
+      const retriedItems = items.map((item) => transitionTask(item, {
+        type: "RETRY_GENERATION",
+        changes: {
+          retry_count: Number(item.retry_count || 0) + 1,
+          paused_auth: false,
+          error_message: null,
+          error_phase: null,
+          asset_evidence: undefined,
+          submit_checkpoint: undefined,
+          remote_evidence: undefined,
+          remote_candidates: undefined,
+          output_path: undefined,
+          submitted_at: undefined
+        }
+      }));
+      return {
+        ...current,
+        status: summarizeBatch(retriedItems),
+        execution_error: null,
+        execution_snapshot: undefined,
+        estimated_points: undefined,
+        items: retriedItems
+      };
+    });
     return { batch: publicBatch(batch) };
   });
 }

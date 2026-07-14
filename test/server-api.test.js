@@ -302,6 +302,50 @@ test("execution error messages redact local filesystem paths", async (t) => {
   assert.equal(JSON.stringify(batch.json()).includes("[local path]"), true);
 });
 
+test("retries a failed pre-submit batch without re-importing products", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-retry",
+    status: "failed",
+    execution_error: "browser launch failed",
+    execution_snapshot: { executionKey: "old" },
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      product_name: "Alpha",
+      selling_points: "Useful",
+      category: "beauty",
+      status: "failed_pre_submit",
+      retry_count: 1,
+      execution_key: "old",
+      confirmed_at: "2026-07-14T00:00:00.000Z",
+      error_message: "browser launch failed",
+      error_phase: "asset_generation",
+      asset_evidence: { asset_id: "stale" }
+    }]
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-retry/retry",
+    headers: headers(session),
+    payload: { confirm: true }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().batch.status, "pending");
+  assert.equal(response.json().batch.items[0].status, "pending");
+  assert.equal(response.json().batch.items[0].retry_count, 2);
+  assert.equal(response.json().batch.items[0].execution_key, null);
+  assert.equal(response.json().batch.items[0].error_message, null);
+  assert.equal("execution_snapshot" in response.json().batch, false);
+});
+
 test("upload limit failures are client errors, not internal errors", async (t) => {
   const byteFixture = await fixture(createFakeExecutor(), {
     uploadLimits: { maxImageBytes: 1024, maxBatchFiles: 2, maxBatchBytes: 64 }

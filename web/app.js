@@ -107,6 +107,10 @@
     return state.batches.find((batch) => batch.batch_id === state.selectedBatchId) || null;
   }
 
+  function canRetryBatch(batch) {
+    return Boolean(batch?.items?.length) && batch.items.every((item) => item.status === "failed_pre_submit");
+  }
+
   function switchTab(name) {
     for (const tab of nodes.tabs) {
       const active = tab.dataset.tab === name;
@@ -216,7 +220,18 @@
     for (const item of batch.items || []) {
       list.append(taskItem(item));
     }
-    nodes.batchDetail.append(summary, executionPlan, list);
+    nodes.batchDetail.append(summary, executionPlan);
+    if (canRetryBatch(batch)) nodes.batchDetail.append(retryBatchButton(batch));
+    nodes.batchDetail.append(list);
+  }
+
+  function retryBatchButton(batch) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary-button full-width-action";
+    setText(button, "重试失败批次");
+    button.addEventListener("click", () => retryBatch(batch.batch_id));
+    return button;
   }
 
   function taskItem(item) {
@@ -522,6 +537,21 @@
       showToast(`启动失败：${error.message}`);
     } finally {
       nodes.confirmExecution.disabled = false;
+    }
+  }
+
+  async function retryBatch(batchId) {
+    setBusy(true);
+    try {
+      const payload = await api.retryBatch({ batchId });
+      state.selectedBatchId = payload.batch.batch_id;
+      await refreshBatches({ silent: true });
+      switchTab("queue");
+      showToast("失败批次已恢复为待执行，可以重新开始生成");
+    } catch (error) {
+      showToast(`重试失败：${error.message}`);
+    } finally {
+      setBusy(false);
     }
   }
 

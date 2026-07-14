@@ -264,6 +264,11 @@ textarea:focus {
   background: var(--danger-strong);
 }
 
+.full-width-action {
+  width: 100%;
+  margin: 0 0 12px;
+}
+
 .workbench-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
