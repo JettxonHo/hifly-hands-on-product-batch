@@ -46,3 +46,22 @@ Status: DONE
 - `git diff --check`: PASS.
 
 No GUI or real Hifly/Yingdao execution was run; no points were consumed. Existing untracked `docs/resume/` was left untouched.
+
+## Reviewer Fix Report (2026-07-16, second fix)
+
+### Changes
+
+- `callbackUrl` now accepts `localhost`, `127.0.0.1`, `::1`, and `[::1]` while continuing to require the `http:` protocol.
+- Added a regression test confirming `http://[::1]:4317` produces `http://[::1]:4317/api/rpa/callback`.
+
+### Commit
+
+- `d753b0c` (`fix: accept bracketed ipv6 callback loopback`)
+
+### Verification
+
+- `node --test test/rpa-task-package.test.js`: PASS, 7/7 tests.
+- `npm run check`: PASS, checked 46 JavaScript files.
+- `git diff --check`: PASS.
+
+No GUI or real Hifly/Yingdao execution was run; no points were consumed.
