@@ -197,6 +197,7 @@ export async function runBatch({
       batchId,
       taskId: task.task_id,
       executionKey: task.execution_key,
+      batchOptions: config.execution?.batchOptions,
       instanceId,
       signal,
       emit: ({ type, phase: eventPhase, evidence }) => emit(task, type, eventPhase ?? phase, evidence),
@@ -307,6 +308,16 @@ export async function runBatch({
     } catch (error) {
       if (error instanceof ExecutorSafetyError) throw error;
       return interruptUnknown(task, error, "remote_submit");
+    }
+    if (result?.status === "failed") {
+      task = await transition(task, {
+        type: "MARK_SUBMITTED",
+        changes: { submitted_at: now(), paused_auth: false }
+      }, "remote_submit");
+      return transition(task, {
+        type: "FAIL_REMOTE",
+        changes: { error_message: result.error?.message ?? "Remote generation failed" }
+      }, "remote_submit");
     }
     if (!isSubmittedEvidence(result)) {
       return interruptUnknown(task, new Error("Remote submission did not produce unique evidence"), "remote_submit", {

@@ -23,6 +23,7 @@ function directEvidence(remoteEvidence) {
 function batchStrategies(context, config, task) {
   const sources = [
     context.batch,
+    context.batchOptions,
     context.batchMetadata,
     config.execution?.batch,
     config.execution?.batchMetadata,
@@ -74,12 +75,13 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
         batchDirectory: dir,
         callbackBaseUrl
       });
+      const packagePath = path.join(dir, "rpa", "tasks", `${task.task_id}.json`);
       await writeRpaState(dir, task.task_id, {
         status: "generating_asset",
-        callback_token: packageData.callback_token
+        callback_token: packageData.callback_token,
+        package_path: packagePath
       });
-      const packagePath = await writeRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
-      await writeRpaState(dir, task.task_id, { package_path: packagePath });
+      await writeRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
       const state = await waitFor(
         dir,
         task.task_id,
@@ -103,6 +105,9 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
         rpa.submitTimeoutMs ?? config.batch?.generationTimeoutMs ?? 1200000,
         "remote_submit"
       );
+      if (state.status === "failed_remote") {
+        return { status: "failed", error: state.error };
+      }
       if (state.status !== "submitted" || !state.remote_evidence?.remote_id) {
         return { status: "ambiguous", candidates: state.remote_candidates || [] };
       }
@@ -118,7 +123,10 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
         (candidate) => ["download_pending", "completed", "failed_remote", "interrupted_unknown"].includes(candidate.status),
         rpa.queryTimeoutMs ?? 120000,
         "remote_query"
-      ).catch(() => null);
+      ).catch((error) => {
+        if (error?.code === "YINGDAO_RPA_TIMEOUT") return null;
+        throw error;
+      });
       if (!state) return { status: "submitted", remoteEvidence };
       if (state.status === "failed_remote") return { status: "failed" };
       if (state.status === "interrupted_unknown") return { status: "unknown" };

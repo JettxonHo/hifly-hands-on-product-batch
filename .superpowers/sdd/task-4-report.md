@@ -42,3 +42,10 @@ DONE
 - Preserved batch person/script strategies when creating RPA packages, accepting context batch metadata, execution configuration, and task metadata before falling back to Task 2 defaults.
 - Published token-bearing RPA state before the task package to prevent a callback race, and made `failed_remote` terminate asset polling immediately.
 - Added focused local-state regressions for strategy propagation, asset remote failure, and query/reconciliation behavior.
+
+## Review Fix Round 2
+
+- `runBatch` now supplies per-run `execution.batchOptions` to executor context, and the RPA executor uses that context when creating task packages.
+- Initial RPA state now publishes `callback_token` and the precomputed package path together before package publication, avoiding a post-publication state write that could overwrite a callback update.
+- A `failed_remote` submit result now transitions the batch item to `failed_remote`; `querySubmission` only suppresses `YINGDAO_RPA_TIMEOUT` and propagates state read errors.
+- Verification: `node --test test/yingdao-rpa-executor.test.js test/batch-runner.test.js test/rpa-task-package.test.js test/rpa-callbacks.test.js` passed 75/75; `npm run check` and `git diff --check` passed.

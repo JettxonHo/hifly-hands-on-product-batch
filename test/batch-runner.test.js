@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,7 +9,9 @@ import { acquireExecutionLock } from "../src/core/execution-lock.js";
 import { createExecutionSnapshot } from "../src/core/execution-snapshot.js";
 import { runBatch } from "../src/core/batch-runner.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
+import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
 import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
+import { readRpaState, writeRpaState } from "../src/rpa/rpa-state.js";
 
 async function fixtureRun({ executor, initialStatus = "confirmed", itemOverrides = {} } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-runner-"));
@@ -183,6 +185,89 @@ test("persists checkpoints around submit and download", async () => {
     assert.equal(result.items[0].remote_evidence.remote_id, "remote-1");
     assert.equal(result.items[0].output_path, "downloads/remote-1.mp4");
     assert.equal(result.items[0].submit_checkpoint.phase, "remote_submit_pre");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("runBatch passes execution batch options into Yingdao RPA packages", async () => {
+  const fixture = await fixtureRun();
+  try {
+    const packageImage = path.join(fixture.paths.projectRoot, "batches", "batch-1", "uploads", "product.png");
+    await mkdir(path.dirname(packageImage), { recursive: true });
+    await writeFile(packageImage, "product-image");
+    const packageItem = { ...fixture.items[0], image_path: packageImage };
+    const snapshot = await createExecutionSnapshot([packageItem], fixture.config.execution);
+    await fixture.store.update("batch-1", (batch) => ({
+      ...batch,
+      execution_snapshot: snapshot,
+      items: [{ ...packageItem, execution_key: snapshot.executionKey }]
+    }));
+    fixture.items = [packageItem];
+    fixture.config.execution.batchOptions = {
+      person_strategy: "fixed_upload",
+      script_strategy: "provided_script"
+    };
+    const rpaExecutor = createYingdaoRpaExecutor({
+      root: fixture.paths.projectRoot,
+      config: { rpa: { pollIntervalMs: 1, assetTimeoutMs: 500 } }
+    });
+    fixture.executor = {
+      async createAsset(task, context) {
+        const pending = rpaExecutor.createAsset(task, context);
+        let state;
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          state = await readRpaState(path.join(fixture.paths.projectRoot, "batches", "batch-1"), task.task_id);
+          if (state?.package_path) {
+            try {
+              const packageData = JSON.parse(await readFile(state.package_path, "utf8"));
+              assert.equal(packageData.person_strategy, "fixed_upload");
+              assert.equal(packageData.script_strategy, "provided_script");
+              await writeRpaState(path.join(fixture.paths.projectRoot, "batches", "batch-1"), task.task_id, {
+                callback_token: state.callback_token,
+                status: "asset_confirmed",
+                asset: { asset_id: "rpa-asset-1" }
+              });
+              return pending;
+            } catch (error) {
+              if (error?.code !== "ENOENT") throw error;
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        throw new Error("Yingdao RPA package was not published");
+      },
+      async submitVideo() {
+        return { status: "submitted", remoteEvidence: { remote_id: "remote-1", evidence_source: "direct_submission" } };
+      },
+      async querySubmission(remoteEvidence) {
+        return { status: "ready", remoteEvidence };
+      },
+      async downloadArtifact() {
+        return { artifact_id: "remote-1", relative_path: "downloads/remote-1.mp4" };
+      },
+      async reconcileSubmission() {
+        return { candidates: [] };
+      }
+    };
+
+    const result = await runBatch(fixture);
+
+    assert.equal(result.items[0].status, "completed");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a failed submit response transitions the task to remote failure", async () => {
+  const executor = createFakeExecutor({ remoteId: "remote-1" });
+  executor.submitVideo = async () => ({ status: "failed" });
+  const fixture = await fixtureRun({ executor });
+  try {
+    const result = await runBatch(fixture);
+
+    assert.equal(result.items[0].status, "failed_remote");
+    assert.equal(result.items[0].error_phase, undefined);
   } finally {
     await fixture.cleanup();
   }

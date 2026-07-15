@@ -1,5 +1,12 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 影刀 RPA Task 4 第二轮 review fix
+
+- 修复 `runBatch` 到影刀 executor 的 per-run `batchOptions` 传递，RPA task package 现在会保留 `fixed_upload` / `provided_script`，并新增正常 `runBatch` 路径回归。
+- 初始 RPA state 现在在 package 发布前一次性写入 callback token 和预计算 package path；提交回调 `failed_remote` 映射为 batch `failed_remote`；`querySubmission` 只吞 `YINGDAO_RPA_TIMEOUT`，其他 state 读取错误上抛。
+- 验证：`node --test test/yingdao-rpa-executor.test.js test/batch-runner.test.js test/rpa-task-package.test.js test/rpa-callbacks.test.js` 为 75/75 通过；`npm run check`（48 个 JS 文件）和 `git diff --check` 通过。
+- 本轮仅运行本地状态和单元测试；未启动 GUI、未访问影刀或飞影、未执行真实生成、未消耗积分。`docs/resume/` 保持未跟踪且未触碰。
+
 ## 2026-07-16 影刀 RPA Task 4 review fix
 
 - 修复策略传播、资产阶段 `failed_remote` 快速失败和 task package/state 发布竞态：token-bound 初始 state 现在先于 package 写入；package 策略接受 context、执行配置或 task 元数据，缺失时才使用默认值。

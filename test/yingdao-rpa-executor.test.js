@@ -104,6 +104,27 @@ test("submitVideo returns direct submission evidence from rpa state", async () =
   }
 });
 
+test("submitVideo maps failed_remote state to a remote failure result", async () => {
+  const f = await fixture();
+  try {
+    await writeRpaState(f.batchDirectory, "task-1", {
+      callback_token: "token",
+      status: "failed_remote",
+      error: { message: "Yingdao reported remote failure" }
+    });
+
+    const result = await f.executor.submitVideo(f.task, { asset_id: "asset" }, {
+      batchId: "batch-1",
+      checkpoint: async () => {}
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.error.message, "Yingdao reported remote failure");
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
 test("downloadArtifact returns artifact from completed rpa state", async () => {
   const f = await fixture();
   try {
@@ -136,6 +157,21 @@ test("querySubmission and reconcileSubmission reflect local remote state", async
     const reconciliation = await f.executor.reconcileSubmission(f.task, {}, { batchId: "batch-1" });
     assert.equal(query.status, "failed");
     assert.deepEqual(reconciliation.candidates, [{ remote_id: "632410", work_key: "632410" }]);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("querySubmission rethrows non-timeout RPA state read errors", async () => {
+  const f = await fixture();
+  try {
+    await mkdir(path.join(f.batchDirectory, "rpa", "state"), { recursive: true });
+    await writeFile(path.join(f.batchDirectory, "rpa", "state", "task-1.json"), "not-json");
+
+    await assert.rejects(
+      () => f.executor.querySubmission({ remote_id: "632410", task_id: "task-1" }, { batchId: "batch-1", taskId: "task-1" }),
+      SyntaxError
+    );
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
