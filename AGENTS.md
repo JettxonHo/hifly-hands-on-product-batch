@@ -143,4 +143,3 @@ npm run check
 ```bash
 node -e "const fs=require('fs');const p='batches/batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f/batch.json';const b=JSON.parse(fs.readFileSync(p,'utf8')); console.log(JSON.stringify({status:b.status,execution_error:b.execution_error,items:b.items.map(i=>({sku:i.sku,status:i.status,error_phase:i.error_phase,error_message:i.error_message,output_path:i.output_path,submit_checkpoint:i.submit_checkpoint&&{phase:i.submit_checkpoint.phase,observed_at:i.submit_checkpoint.observed_at}}))},null,2));"
 ```
-
