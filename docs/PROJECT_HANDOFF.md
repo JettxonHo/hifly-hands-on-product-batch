@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 影刀 RPA Task 4 完成
+
+- 已提交 `1673503`（`feat: poll yingdao rpa state`）：`src/executors/yingdao-rpa-executor.js` 已由占位错误替换为本地 mock bridge，并满足 `executor-adapter` 的五个方法契约。
+- `createAsset` 会落 Task 2 task package 和 `generating_asset` state，随后轮询 Task 3 callback 写入的 state；提交、查询、下载和恢复均仅读取本地 RPA state，不会调用影刀或飞影。
+- 成功提交将回调中的远端证据归一为 `evidence_source=direct_submission`，满足 batch runner 的显式提交证据保护；超时可通过短 `rpa.*TimeoutMs` 和 `pollIntervalMs` 配置稳定测试，超时错误码为 `YINGDAO_RPA_TIMEOUT`。
+- 验证：`node --test test/yingdao-rpa-executor.test.js test/rpa-task-package.test.js test/rpa-callbacks.test.js` 为 16/16 通过；`npm run check` 通过（48 个 JavaScript 文件）；`git diff --check` 通过。
+- 未启动 GUI、未访问飞影或影刀、未执行真实生成、未消耗积分。`docs/resume/` 保持未跟踪且未触碰。下一步为 Task 5，将 timeout 映射到可恢复的 `interrupted_unknown` batch 状态。
+
 ## 2026-07-16 影刀 RPA Task 3 完成
 
 - 已提交 `ebc0c3e`、`3cff441`、`acaa2b8`：新增 RPA callback route、状态转换守卫、artifact 路径校验和 token-only 回调安全放行。
