@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "source": "hifly_goods",
+  "captured_at": "2026-07-16T00:00:00Z",
+  "sanitized": true,
+  "notes": "脱敏示例 manifest，仅用于本地回放测试，不含真实 cookie/token/签名",
+  "steps": [
+    {
+      "id": "upload_product_image",
+      "phase": "asset_generation",
+      "method": "POST",
+      "url_template": "https://hifly.cc/api/goods/upload",
+      "placeholders": ["{{product_image_path}}"],
+      "response": { "status": 200, "body": { "code": 0, "data": { "image_id": "img-sample-001" } } },
+      "produces": { "product_image_id": "$response.body.data.image_id" }
+    },
+    {
+      "id": "create_hands_on_image",
+      "phase": "asset_generation",
+      "method": "POST",
+      "url_template": "https://hifly.cc/api/goods/hands-on",
+      "placeholders": ["{{product_image_id}}", "{{person_image_id}}"],
+      "response": { "status": 200, "body": { "code": 0, "data": { "asset_id": "asset-sample-001" } } },
+      "produces": { "asset_id": "$response.body.data.asset_id" }
+    },
+    {
+      "id": "submit_video",
+      "phase": "remote_submit",
+      "method": "POST",
+      "url_template": "https://hifly.cc/api/goods/submit",
+      "placeholders": ["{{asset_id}}"],
+      "response": { "status": 200, "body": { "code": 0, "data": { "work_id": "632410" } } },
+      "produces": { "remote_id": "$response.body.data.work_id" }
+    },
+    {
+      "id": "poll_video_status",
+      "phase": "remote_query",
+      "method": "GET",
+      "url_template": "https://hifly.cc/api/goods/status/{{remote_id}}",
+      "placeholders": ["{{remote_id}}"],
+      "response": { "status": 200, "body": { "code": 0, "data": { "status": "ready" } } },
+      "produces": {}
+    },
+    {
+      "id": "download_video",
+      "phase": "download",
+      "method": "GET",
+      "url_template": "https://hifly.cc/api/goods/download/{{remote_id}}",
+      "placeholders": ["{{remote_id}}"],
+      "response": { "status": 200, "body": { "code": 0, "data": { "filename": "632410.mp4", "size": 12345 } } },
+      "produces": { "artifact_filename": "$response.body.data.filename" }
+    }
+  ]
+}
