@@ -8,12 +8,12 @@ Commit: `HEAD` (`docs: document yingdao rpa bridge`)
 
 - Added `GET /api/runtime`, returning the configured `executionBackend` or the `playwright` default.
 - Added GUI runtime badge support that renders `影刀 RPA`, `Playwright`, or `未知` when the request fails.
-- Added server API coverage for the configured `yingdao_rpa` backend.
+- Added server API coverage for the configured `yingdao_rpa` backend and default `playwright` fallback.
 - Documented the local task-package/callback/mock scope, required Yingdao client setup, and required user approval before real Hifly point consumption.
 
 ## Verification
 
-- `node --test test/rpa-task-package.test.js test/rpa-callbacks.test.js test/yingdao-rpa-executor.test.js test/batch-runner.test.js test/server-api.test.js`: 112 passed, 0 failed.
+- `node --test test/rpa-task-package.test.js test/rpa-callbacks.test.js test/yingdao-rpa-executor.test.js test/batch-runner.test.js test/server-api.test.js`: 113 passed, 0 failed.
 - `npm run check`: passed; 48 JavaScript files checked.
 - `git diff --check`: passed.
 
