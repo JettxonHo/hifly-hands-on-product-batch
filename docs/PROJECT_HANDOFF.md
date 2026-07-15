@@ -1,5 +1,16 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 抓包 RPA 状态检查：尚未实现，Claude Code 从 HTTP capture 设计开始
+
+- 当前主工作区已按用户要求回到 `3f5b755 docs: record rpa final review approval`，分支为 `codex/yingdao-rpa-version`；保护分支 `codex/playwright-stable-3f5b755` 也指向同一提交，用于保留已跑通的 Playwright/RPA bridge 稳定点。
+- 当前代码状态：Playwright 仍是默认 `executionBackend: "playwright"`；`yingdao_rpa` bridge/mock 已完成并通过测试；抓包 HTTP RPA 还没有业务实现，仓库中没有 `src/rpa/capture/*`、`capture_http` backend、manifest parser、mock HTTP client 或网络回放 flow。
+- 已检查 Claude worktree：`.claude/worktrees/jovial-lichterman-64ab62` 当前在 `e493ad3 docs: plan local GUI workbench implementation`，没有抓包 RPA 实现，也没有相关测试目录。
+- 当前只存在历史设计：`docs/superpowers/specs/2026-07-16-yingdao-rpa-executor-design.md` 与 `docs/CALIBRATION.md` 中提到“抓包 HTTP 化需要先采集飞影上传、手持图生成、视频提交、状态轮询和下载请求”。这些是设计方向，不是完成代码。
+- 之前 Codex 写过一份抓包 HTTP RPA 草案，但未提交到当前稳定分支；目前保存在 stash：`stash@{0}`，名称为 `wip capture-http-rpa docs before returning to 3f5b755`，其中包含 `docs/superpowers/specs/2026-07-16-capture-http-rpa-design.md`。如 Claude Code 需要参考，可只恢复该文档，不要直接套用全部 stash。
+- 后续实施建议：不要做 TagUI；不要安装或开发 `tagui_rpa`；在现有 `yingdao_rpa` bridge 上增加显式 `rpa.mode: "capture_http"` 或等价分支，先做 manifest parser、脱敏规则、mock HTTP client 和本地无积分测试，再考虑真实飞影抓包校准。
+- Git 保护要求：不要改坏 `executionBackend: "playwright"` 默认路径。每个切片提交前至少跑 `node --test test/execution-backend-config.test.js test/rpa-task-package.test.js test/rpa-callbacks.test.js test/yingdao-rpa-executor.test.js test/batch-runner.test.js`、`npm run check`、`git diff --check`。真实飞影执行前必须再次获得用户明确授权。
+- 本轮仅做检查和接力文档更新；未启动 GUI、未访问飞影、未执行真实生成、未消耗积分；关键批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 未触碰。
+
 ## 2026-07-16 影刀 RPA 分支最终 review 通过
 
 - 当前分支：`codex/yingdao-rpa-version`，最新提交 `a49ccaf`（`docs: trim agents trailing blank`）。
