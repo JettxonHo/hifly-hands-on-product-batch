@@ -9,6 +9,14 @@
 - 本轮未启动 GUI、未访问飞影、未执行真实生成、未消耗积分。
 - 下一步由后续 Task 实现 Yingdao RPA task package/callback/executor 业务；当前 Task 1 的 adapter 仍会以 `YINGDAO_RPA_NOT_IMPLEMENTED` 明确失败。
 
+## 2026-07-16 影刀 RPA Task 2 完成
+
+- 已提交 `da89eab`、`bb9c912`、`d753b0c` 及对应报告提交：新增 `src/rpa/task-package.js`、`src/rpa/rpa-state.js` 和 `test/rpa-task-package.test.js`。
+- Task package 已支持 `schema_version=1`、任务字段、固定 `download_dir=batchDirectory`、本地 callback URL 与 `callback_token`。RPA state 文件写入 `batches/<batch_id>/rpa/state/<task_id>.json`。
+- 安全 review 已通过：task ID 防路径穿越、`packageData.task_id === taskId`、product/person 图片 symlink escape 防护、callback URL 仅允许 `http` localhost 并支持 `http://[::1]:4317`。
+- 验证：`node --test test/rpa-task-package.test.js` 7/7 通过；`npm run check` 通过；`git diff --check` 通过。
+- 未启动 GUI、未访问飞影、未执行真实生成、未消耗积分。下一步 Task 3 实现 RPA callback route 和状态守卫。
+
 ## 2026-07-16 影刀 RPA 执行器设计已写入
 
 - 当前分支：`codex/yingdao-rpa-version`。
