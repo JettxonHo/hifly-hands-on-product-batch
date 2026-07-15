@@ -1,25 +1,24 @@
-# Task 5 Report: Custom Hifly Script Automation
+# Task 5 Report: End-To-End Mock State Machine And Timeout Recovery
 
 ## Status
 
-Completed.
+DONE
 
 ## Commit
 
-- `aa5949c feat: apply custom Hifly scripts safely`
-- Follow-up review fix: `test: cover custom script pre-submit failure`
+- `f39b3d3 fix: recover from rpa execution timeouts`
 
 ## Changes
 
-- `src/hifly-page.js`: custom script mode disables Hifly AI script generation, fills the supplied script, and verifies the entered value before asset preparation can complete.
-- `test/batch-runner.test.js`: runner coverage now uses the real `HiflyHandsOnProductPage.prepareAsset` and `applyScriptMode` path with a local page double that makes `verifyScriptText` fail. It verifies the item becomes `failed_pre_submit` and `submitVideo` is never called.
+- `src/core/batch-runner.js`: maps only `YINGDAO_RPA_TIMEOUT` from the pre-submit RPA asset flow to recoverable `interrupted_unknown`; all other pre-submit errors continue to become `failed_pre_submit`.
+- `test/batch-runner.test.js`: adds a timeout regression test and a mock RPA lifecycle test through `runBatch` for `confirmed -> generating_asset -> asset_confirmed -> submitted -> download_pending -> completed`.
 
 ## Verification
 
-- `node --test test/batch-runner.test.js`: passed.
-- `npm run check`: passed.
+- `node --test test/batch-runner.test.js test/yingdao-rpa-executor.test.js`: 65/65 passed.
+- `npm run check`: passed (48 JavaScript files).
 - `git diff --check`: passed.
 
-## Hifly Credits
+## Real Execution
 
-No real Hifly page, Playwright browser, or paid generation was used. No Hifly credits were consumed.
+No GUI was started. No Yingdao or Hifly service was accessed, and no credits were consumed.

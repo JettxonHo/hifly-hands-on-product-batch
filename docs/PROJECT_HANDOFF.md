@@ -1,5 +1,12 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 影刀 RPA Task 5 完成
+
+- 已提交 `f39b3d3`（`fix: recover from rpa execution timeouts`）：`YINGDAO_RPA_TIMEOUT` 在资产生成的 RPA 超时时会进入可恢复的 `interrupted_unknown`，不会把批次永久留在 active；其他 pre-submit 错误仍保持 `failed_pre_submit`。
+- 新增纯本地 mock `runBatch` 生命周期和 timeout 回归：完整状态为 `confirmed -> generating_asset -> asset_confirmed -> submitted -> download_pending -> completed`。
+- 验证：`node --test test/batch-runner.test.js test/yingdao-rpa-executor.test.js` 为 65/65 通过；`npm run check`（48 个 JavaScript 文件）及 `git diff --check` 通过。
+- 未启动 GUI、未访问影刀或飞影、未执行真实生成、未消耗积分；`docs/resume/` 保持未跟踪且未触碰。
+
 ## 2026-07-16 影刀 RPA Task 4 第二轮 review fix
 
 - 修复 `runBatch` 到影刀 executor 的 per-run `batchOptions` 传递，RPA task package 现在会保留 `fixed_upload` / `provided_script`，并新增正常 `runBatch` 路径回归。
