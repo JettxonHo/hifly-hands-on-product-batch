@@ -1,5 +1,27 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 抓包 HTTP RPA Phase 1 完成（Claude Code，无积分本地实现）
+
+- 抓包 HTTP RPA 第一阶段（无积分本地实现）已全部完成并通过测试。Playwright 默认主链路未触碰，`yingdao_rpa` 现有 bridge 未改动。
+- 新增文件：
+  - `src/rpa/capture/sensitive.js`：敏感键名检测（cookie/authorization/csrf/token-like），manifest 门禁与 redact 共用。
+  - `src/rpa/capture/manifest.js`：manifest 解析 + 脱敏门禁 + `selectStepsByPhase`/`findStep`。
+  - `src/rpa/capture/redact.js`：离线脱敏工具（删除敏感 header/body 字段、URL query，输出可过门禁的 manifest + path-only report）。
+  - `src/rpa/capture/mock-http-client.js`：按 stepId 离线回放录制响应 + `{{var}}` 替换 + produces 提取，绝不发起网络请求。
+  - `src/executors/capture-http-executor.js`：capture_http 执行器，复用 task package / callback token / rpa-state，靠 mock client 推进 `asset_confirmed → submitted → completed`。
+  - `rpa/capture/fixtures/hifly-goods-sample.json`：脱敏示例 manifest（upload_product/person、create_hands_on、submit、poll、download 五类六步，覆盖四阶段）。
+  - 测试：`test/rpa-capture-sensitive.test.js`、`test/rpa-capture-manifest.test.js`、`test/rpa-capture-redact.test.js`、`test/rpa-capture-mock-http.test.js`、`test/capture-http-executor.test.js`。
+- 接入方式：`createExecutorForBackend`（`src/server/start.js`）在 `executionBackend === "yingdao_rpa"` 且 `config.rpa.mode === "capture_http"` 时返回 capture executor；缺省 playwright、`yingdao_rpa` 默认 bridge 均不变。`config.example.json` 的 `rpa` 块新增 `mode: "default"` 与 `manifestPath` 示例（默认仍走现有 bridge）。
+- 设计/计划文档：`docs/superpowers/specs/2026-07-16-capture-http-rpa-design.md`、`docs/superpowers/plans/2026-07-16-capture-http-rpa.md`。
+- 实施中相对 plan 的两处合理偏差（代码以仓库为准）：
+  1. `redact.js` 改为**删除**敏感 body 字段而非掩码为 `[REDACTED]`——因为 manifest 门禁是按键名判断的，掩码后键名仍在会被拒；删除才能让脱敏产物通过门禁。
+  2. mock client 的「未知 step / 缺变量」测试改为断言 `err.code`（`CAPTURE_STEP_NOT_FOUND` / `CAPTURE_MISSING_VARIABLE`），而不是 message 正则。
+  3. capture executor 的 `setCallbackBaseUrl` 用闭包变量实现（与 yingdao bridge 一致），而非 plan 里的 `this.__callbackBaseUrl`。
+- 验证：`node --test test/execution-backend-config.test.js test/rpa-task-package.test.js test/rpa-callbacks.test.js test/yingdao-rpa-executor.test.js test/batch-runner.test.js test/capture-http-executor.test.js test/rpa-capture-sensitive.test.js test/rpa-capture-manifest.test.js test/rpa-capture-redact.test.js test/rpa-capture-mock-http.test.js` 为 118/118 通过；`npm run check` 通过（54 个 JS 文件）；`git diff --check` 通过。
+- 安全边界遵守：未做 TagUI；mock client 不调 `fetch`/`http`/`https`/`net`；未提交 HAR/cookie/token/登录态/批次数据/视频/日志/截图/outputs/node_modules；示例 fixture 已脱敏并通过门禁。
+- 未启动 GUI、未访问飞影或影刀、未执行真实生成、未消耗积分；关键批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 未触碰；`docs/resume/` 保持未跟踪且未触碰。
+- 下一步（需用户授权积分后再单独立计划）：真实采集「手里有货」HAR → `redactCaptureSource` 脱敏并人工复核 → 把 `rpa.mode` 切到 `capture_http`、`manifestPath` 指向真实 manifest → 只跑 1 条商品验证回放能否复现远端 work_id；若某步骤依赖动态签名/一次性 token/风控，标记 `api_unavailable` 并保留网页自动化兜底。
+
 ## 2026-07-16 抓包 HTTP RPA 设计 spec + 实现 plan 已落盘（Claude Code）
 
 - 接手后已确认：抓包 HTTP RPA 此前**未实现**（仓库无 `src/rpa/capture/*`、`capture_http` 分支、manifest parser、mock HTTP client）。

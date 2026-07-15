@@ -79,3 +79,5 @@ assets/person_pool/fresh_food/host_02.jpg
 ## 影刀 / 抓包校准
 
 影刀版先跑 mock 回调，不直接消耗飞影积分。抓包 HTTP 化需要先采集飞影上传、手持图生成、视频提交、状态轮询和下载请求。若任一请求依赖动态签名、一次性 token 或风控，保持网页自动化兜底。
+
+抓包本地回放链路已具备（Phase 1，无积分）：`executionBackend: "yingdao_rpa"` + `rpa.mode: "capture_http"` 时，执行器读取脱敏 manifest（`rpa.manifestPath`），用 mock HTTP client 离线回放上传/手持图/提交/轮询/下载步骤并推进 rpa-state，绝不发起真实网络请求。真实采集前仍需先抓 HAR、用 `redactCaptureSource` 脱敏、人工复核 `report`，且需用户授权积分后只跑 1 条商品。设计依据见 `docs/superpowers/specs/2026-07-16-capture-http-rpa-design.md`。
