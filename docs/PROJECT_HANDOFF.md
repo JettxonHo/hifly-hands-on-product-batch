@@ -1,5 +1,23 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-15 Task 4/5/6 完成：策略执行、文档与本地验证
+
+- GUI 人物与文案策略已实现：默认仍为 `auto_pool + mixed`；人物按 `category` 轮换并支持 `default` / 飞影推荐兜底，填写 `script` 时尝试使用自定义口播。
+- 自定义文案真实飞影链路尚需 1 条积分样片校准，重点确认页面“AI 自动生成”开关、`script-filled` 证据和提交前失败保护。
+- 本轮未启动 GUI、未运行真实飞影、未消耗积分。
+- 本轮文档覆盖 `docs/SOP.md` 的人物与文案策略、`docs/CALIBRATION.md` 的自定义文案校准，以及本节接力状态。
+- 最近实现提交范围：`144314d..716bcb4`，包括执行前策略校验、人物路径加固、自定义飞影口播提交和提交前失败测试；相关提交为 `144314d`、`dc0f2a0`、`aa5949c`、`716bcb4`。
+- 当前关键排障批次仍为 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f`：`batch status=interrupted_unknown`、`item status=interrupted_unknown`、`error_phase=remote_submit`、`error_message=Remote submission did not produce unique evidence`；不要将其误判为商品录入失败，也不要为验证按钮重新完整提交。
+
+## 2026-07-15 Task 3 完成：GUI 策略控件与口播文案录入
+
+- `web/index.html`：单条录入、批量录入和批量导入面板均新增人物来源及文案来源选择；单条录入新增口播文案，批量行新增逐商品口播文案。
+- `web/app.js`：单条、批量与导入提交均显式传递 `person_strategy` 和 `script_strategy` 至创建和导入 API；批量与单条生成的 CSV 均含 `script` 列。
+- `web/styles.css`：策略选择框沿用现有表单样式，批量口播文案占整行，避免压缩既有商品字段。
+- `test/server-api.test.js`：新增表格 `script` 列持久化到商品项的覆盖。
+- 验证：`npm run check` 通过（43 个 JS 文件）；`node --test test/server-api.test.js` 通过（23/23）；`git diff --check` 通过。
+- 未启动 GUI、未运行真实飞影链路、未消耗积分。下一步为 Task 4 的执行前校验与策略冻结。
+
 ## 2026-07-15 Task 2 完成：GUI/API 策略持久化
 
 - 用户澄清：Task 2 必须保留既有安全契约，即 `fixture()`/session 鉴权测试、`POST /api/batches` 返回 `201`、不引入 `name`。创建接口白名单仅扩展为 `batchId`、`person_strategy`、`script_strategy`、`fixed_person_image_artifact_id`，其他字段（如 `root`）继续拒绝。
