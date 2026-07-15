@@ -11,7 +11,7 @@ import { runBatch } from "../src/core/batch-runner.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
 
-async function fixtureRun({ executor, initialStatus = "confirmed" } = {}) {
+async function fixtureRun({ executor, initialStatus = "confirmed", itemOverrides = {} } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-runner-"));
   const image = path.join(root, "product.png");
   await writeFile(image, "product-image");
@@ -30,7 +30,7 @@ async function fixtureRun({ executor, initialStatus = "confirmed" } = {}) {
     selling_points: "Useful",
     category: "beauty",
     image_path: image,
-    image_path: image
+    ...itemOverrides
   };
   const snapshot = await createExecutionSnapshot([sourceItem], execution);
   const item = {
@@ -319,15 +319,76 @@ test("submit-boundary failure remains unknown after its checkpoint", async () =>
   }
 });
 
-test("an asset-stage custom script verification failure stops before video submission", async () => {
-  const executor = createFakeExecutor({ failAt: "createAsset" });
-  const fixture = await fixtureRun({ executor });
+test("a real custom script verification failure stops before video submission", async () => {
+  const calls = [];
+  const toggle = {
+    first() { return this; },
+    async count() { return 1; },
+    async getAttribute() { return "false"; },
+    async click() { calls.push("toggle-click"); }
+  };
+  const scriptField = {
+    first() { return this; },
+    async count() { return 1; },
+    async inputValue() { return "not the requested script"; }
+  };
+  const page = {
+    locator() {
+      return {
+        first() {
+          return { getByRole: () => toggle };
+        }
+      };
+    },
+    getByLabel() { return scriptField; },
+    getByPlaceholder() { return scriptField; },
+    async waitForTimeout() {}
+  };
+  const adapter = new HiflyHandsOnProductPage(page, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { scriptLabel: "文案" }
+  }, { info() {} });
+  adapter.openWorkbench = async () => calls.push("open-workbench");
+  adapter.enterHandsOnProductMode = async () => calls.push("enter-mode");
+  adapter.resetExistingUpload = async () => calls.push("reset-upload");
+  adapter.createHandsOnImage = async () => calls.push("create-image");
+  adapter.captureStep = async (_product, step) => calls.push(`capture:${step}`);
+  adapter.fillOptionalField = async (_label, _value, field) => calls.push(`fill:${field}`);
+
+  const executor = {
+    submitVideoCalls: 0,
+    async createAsset(task) {
+      return adapter.prepareAsset(task);
+    },
+    async submitVideo() {
+      this.submitVideoCalls += 1;
+      throw new Error("submitVideo must not be reached after script verification failure");
+    },
+    async querySubmission() { throw new Error("querySubmission must not be reached"); },
+    async downloadArtifact() { throw new Error("downloadArtifact must not be reached"); },
+    async reconcileSubmission() { throw new Error("reconcileSubmission must not be reached"); }
+  };
+  const fixture = await fixtureRun({
+    executor,
+    itemOverrides: { script: "指定口播。", resolved_script_mode: "custom" }
+  });
   try {
     const result = await runBatch(fixture);
 
     assert.equal(result.items[0].status, "failed_pre_submit");
     assert.equal(result.items[0].error_phase, "asset_generation");
-    assert.deepEqual(executor.calls.map((call) => call.method), ["createAsset"]);
+    assert.equal(executor.submitVideoCalls, 0);
+    assert.deepEqual(calls, [
+      "open-workbench",
+      "enter-mode",
+      "reset-upload",
+      "create-image",
+      "capture:after-upload",
+      "fill:product_name",
+      "fill:selling_points",
+      "fill:script",
+      "capture:script-fill-not-verified"
+    ]);
   } finally {
     await fixture.cleanup();
   }
