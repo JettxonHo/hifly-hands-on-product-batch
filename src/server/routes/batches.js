@@ -37,8 +37,8 @@ function batchError(code, statusCode = 400) {
 }
 
 export function normalizeBatchStrategies(body = {}) {
-  const person_strategy = body.person_strategy || "auto_pool";
-  const script_strategy = body.script_strategy || "mixed";
+  const person_strategy = body.person_strategy === undefined ? "auto_pool" : body.person_strategy;
+  const script_strategy = body.script_strategy === undefined ? "mixed" : body.script_strategy;
   if (!PERSON_STRATEGIES.has(person_strategy)) throw batchError("INVALID_BATCH", 400);
   if (!SCRIPT_STRATEGIES.has(script_strategy)) throw batchError("INVALID_BATCH", 400);
   return {
@@ -60,6 +60,9 @@ export function publicBatch(batch) {
   const { artifacts = [], uploads = [], items = [], ...rest } = batch;
   return {
     ...rest,
+    person_strategy: rest.person_strategy === undefined ? "auto_pool" : rest.person_strategy,
+    script_strategy: rest.script_strategy === undefined ? "mixed" : rest.script_strategy,
+    fixed_person_image_artifact_id: rest.fixed_person_image_artifact_id === undefined ? null : rest.fixed_person_image_artifact_id,
     execution_error: sanitizeMessage(rest.execution_error),
     execution_snapshot: publicExecutionSnapshot(rest.execution_snapshot),
     items: items.map(publicItem),

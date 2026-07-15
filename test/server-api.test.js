@@ -152,6 +152,49 @@ test("rejects invalid batch strategy values", async (t) => {
   assert.equal(response.statusCode, 400);
 });
 
+test("rejects supplied non-string and empty batch strategy values", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  for (const payload of [
+    { person_strategy: false },
+    { person_strategy: 0 },
+    { person_strategy: "" },
+    { script_strategy: false },
+    { script_strategy: 0 },
+    { script_strategy: "" }
+  ]) {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/batches",
+      headers: headers(session),
+      payload
+    });
+
+    assert.equal(response.statusCode, 400);
+  }
+});
+
+test("exposes strategy defaults for legacy batches", async (t) => {
+  const { app, root } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({ batch_id: "batch-legacy-strategies", status: "needs_input", items: [], uploads: [] });
+
+  const response = await app.inject({ method: "GET", url: "/api/batches/batch-legacy-strategies", headers: { host: HOST } });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().batch.person_strategy, "auto_pool");
+  assert.equal(response.json().batch.script_strategy, "mixed");
+  assert.equal(response.json().batch.fixed_person_image_artifact_id, null);
+});
+
 test("imports a server-stored table and image without accepting source paths", async (t) => {
   const { app, root, session } = await fixture();
   t.after(async () => {
@@ -193,6 +236,48 @@ test("preserves batch strategies through multipart imports", async (t) => {
   assert.equal(response.json().batch.person_strategy, "fixed_upload");
   assert.equal(response.json().batch.script_strategy, "provided_script");
   assert.equal(response.json().batch.fixed_person_image_artifact_id, "artifact-person-1");
+});
+
+test("preserves creation-time strategies when multipart metadata is omitted", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: {
+      batchId: "batch-import-creation-strategies",
+      person_strategy: "hifly_recommended",
+      script_strategy: "provided_script",
+      fixed_person_image_artifact_id: "artifact-person-1"
+    }
+  });
+  assert.equal(created.statusCode, 201);
+
+  const response = await importInto(app, session, "batch-import-creation-strategies");
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().batch.person_strategy, "hifly_recommended");
+  assert.equal(response.json().batch.script_strategy, "provided_script");
+  assert.equal(response.json().batch.fixed_person_image_artifact_id, "artifact-person-1");
+});
+
+test("rejects invalid multipart strategy metadata", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await createBatch(app, session, "batch-invalid-import-strategies");
+
+  const response = await importInto(app, session, "batch-invalid-import-strategies", "SKU-1.png", {
+    person_strategy: ""
+  });
+
+  assert.equal(response.statusCode, 400);
 });
 
 test("rejects customer-provided person image paths during API import", async (t) => {

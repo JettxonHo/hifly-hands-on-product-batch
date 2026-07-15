@@ -45,8 +45,8 @@
       body: JSON.stringify(typeof payload === "string" ? { batchId: payload } : payload)
     }),
     importBatch: (formData, options = {}) => {
-      formData.append("person_strategy", options.person_strategy || "auto_pool");
-      formData.append("script_strategy", options.script_strategy || "mixed");
+      if (options.person_strategy !== undefined) formData.append("person_strategy", options.person_strategy);
+      if (options.script_strategy !== undefined) formData.append("script_strategy", options.script_strategy);
       return request("/api/imports", { method: "POST", body: formData });
     },
     retryBatch: ({ batchId, allowUnknown = false }) => request(`/api/batches/${encodeURIComponent(batchId)}/retry`, {

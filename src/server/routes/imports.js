@@ -83,8 +83,8 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
             await mkdir(path.join(batchDirectory, "uploads"), { recursive: true, mode: 0o700 });
             continue;
           }
-          if (part.fieldname === "person_strategy") metadata.person_strategy = String(part.value || "auto_pool");
-          else if (part.fieldname === "script_strategy") metadata.script_strategy = String(part.value || "mixed");
+          if (part.fieldname === "person_strategy") metadata.person_strategy = part.value;
+          else if (part.fieldname === "script_strategy") metadata.script_strategy = part.value;
           else throw importError("INVALID_IMPORT_FIELDS");
           continue;
         }
