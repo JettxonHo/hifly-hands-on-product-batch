@@ -2,9 +2,30 @@
 
 ## 更新时间
 
-2026-07-15（第九次更新，时区 Asia/Shanghai），**已进入优化设计阶段**。当前分支 `codex/person-script-strategy` 基于已验证 checkpoint `57f0d3f`，本轮只确定“人物策略 + 文案策略”的设计，不改业务代码。设计文档写入 `docs/superpowers/specs/2026-07-15-person-script-strategy-design.md`。
+2026-07-15（第十次更新，时区 Asia/Shanghai），**人物/文案策略实现计划已写好**。计划文件为 `docs/superpowers/plans/2026-07-15-person-script-strategy.md`，当前仍未改业务代码；下一步等待用户选择 subagent-driven 或 inline execution。
 
-## 2026-07-15 Codex 人物/文案策略设计（最新）
+## 2026-07-15 Codex 人物/文案策略实现计划（最新）
+
+用户已确认 `docs/superpowers/specs/2026-07-15-person-script-strategy-design.md`。Codex 根据 writing-plans 规范拆出实现计划：
+
+```text
+docs/superpowers/plans/2026-07-15-person-script-strategy.md
+```
+
+计划分为 6 个任务：
+
+1. 核心策略解析：`person-strategy.js`、`script-strategy.js`。
+2. API/导入持久化：批次保存 `person_strategy`、`script_strategy`。
+3. GUI 控件：人物来源、文案来源、单条/批量 `script` 输入。
+4. 校验与执行准备：执行前冻结 resolved person/script。
+5. 飞影自定义文案自动化：关闭 AI 自动生成、填入并校验文案；失败停在提交前。
+6. 文档与验证。
+
+重要边界：计划仍要求真实飞影验证前必须再次获得用户确认，因为会消耗积分。
+
+## 2026-07-15 Codex 人物/文案策略设计
+
+2026-07-15（第九次更新，时区 Asia/Shanghai），**已进入优化设计阶段**。当前分支 `codex/person-script-strategy` 基于已验证 checkpoint `57f0d3f`，本轮只确定“人物策略 + 文案策略”的设计，不改业务代码。设计文档写入 `docs/superpowers/specs/2026-07-15-person-script-strategy-design.md`。
 
 用户确认 3 条小批量验证成功后，提出两个优化方向：
 
