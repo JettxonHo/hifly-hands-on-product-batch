@@ -39,10 +39,63 @@ export class HiflyHandsOnProductPage {
 
     await this.fillOptionalField(ui.productNameLabel, product.product_name, "product_name");
     await this.fillOptionalField(ui.sellingPointsLabel, product.selling_points, "selling_points");
+    await this.applyScriptMode(product);
+  }
 
-    if (product.script && ui.scriptLabel) {
-      await this.fillOptionalField(ui.scriptLabel, product.script, "script");
+  async applyScriptMode(product) {
+    const mode = product.resolved_script_mode || (product.script ? "custom" : "hifly_ai");
+    if (mode === "hifly_ai") return;
+
+    const script = String(product.script || "").trim();
+    if (!script) {
+      throw new Error("Custom script mode requires product.script before Hifly submission.");
     }
+    if (!this.config.hiflyUi?.scriptLabel) {
+      throw new Error("hiflyUi.scriptLabel is required for custom script mode.");
+    }
+
+    await this.disableAiScriptGeneration(product);
+    await this.fillOptionalField(this.config.hiflyUi.scriptLabel, script, "script");
+    await this.verifyScriptText(product);
+  }
+
+  async disableAiScriptGeneration(product) {
+    const timeout = this.config.batch.defaultTimeoutMs;
+    const section = this.page.locator(
+      "xpath=.//*[contains(normalize-space(.), 'AI 自动生成')]/ancestor::*[self::div or self::section][1]"
+    ).first();
+    const toggle = section.getByRole("switch").first();
+
+    if (!await toggle.count().catch(() => 0)) {
+      await this.captureStep(product, "script-ai-toggle-missing");
+      throw new Error("Could not find AI 自动生成 switch before filling custom script.");
+    }
+
+    const checked = await toggle.getAttribute("aria-checked").catch(() => null);
+    if (checked !== "false") {
+      await toggle.click({ timeout, force: true });
+      await this.page.waitForTimeout(500);
+    }
+
+    const after = await toggle.getAttribute("aria-checked").catch(() => null);
+    if (after !== "false") {
+      await this.captureStep(product, "script-ai-toggle-not-disabled");
+      throw new Error("AI 自动生成 switch did not turn off before filling custom script.");
+    }
+  }
+
+  async verifyScriptText(product) {
+    const label = this.config.hiflyUi?.scriptLabel;
+    if (!label) throw new Error("hiflyUi.scriptLabel is required for custom script mode.");
+
+    const expected = String(product.script || "").trim();
+    const value = await this.readFieldValue(label).catch(() => "");
+    const sample = expected.slice(0, Math.min(20, expected.length));
+    if (!String(value || "").includes(sample)) {
+      await this.captureStep(product, "script-fill-not-verified");
+      throw new Error("Custom script text could not be verified after filling.");
+    }
+    await this.captureStep(product, "script-filled");
   }
 
   async prepareAsset(product) {
@@ -177,6 +230,16 @@ export class HiflyHandsOnProductPage {
       await byPlaceholder.fill(value, { timeout });
       return;
     }
+
+    throw new Error(`Could not find input for label or placeholder: ${label}`);
+  }
+
+  async readFieldValue(label) {
+    const byLabel = this.page.getByLabel(label, { exact: false }).first();
+    if (await byLabel.count()) return await byLabel.inputValue();
+
+    const byPlaceholder = this.page.getByPlaceholder(label, { exact: false }).first();
+    if (await byPlaceholder.count()) return await byPlaceholder.inputValue();
 
     throw new Error(`Could not find input for label or placeholder: ${label}`);
   }

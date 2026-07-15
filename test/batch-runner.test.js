@@ -319,6 +319,20 @@ test("submit-boundary failure remains unknown after its checkpoint", async () =>
   }
 });
 
+test("an asset-stage custom script verification failure stops before video submission", async () => {
+  const executor = createFakeExecutor({ failAt: "createAsset" });
+  const fixture = await fixtureRun({ executor });
+  try {
+    const result = await runBatch(fixture);
+
+    assert.equal(result.items[0].status, "failed_pre_submit");
+    assert.equal(result.items[0].error_phase, "asset_generation");
+    assert.deepEqual(executor.calls.map((call) => call.method), ["createAsset"]);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test("a lock without live ownership verification cannot invoke an executor", async () => {
   const fixture = await fixtureRun();
   try {
@@ -672,6 +686,65 @@ test("submitVideo persists wait checkpoints without clicking submit twice", asyn
   } finally {
     Date.now = realNow;
   }
+});
+
+test("fillProduct applies custom script mode before submit", async () => {
+  const calls = [];
+  const adapter = new HiflyHandsOnProductPage({}, {
+    hiflyUi: { productNameLabel: "产品名称", sellingPointsLabel: "核心卖点", scriptLabel: "文案" },
+    behavior: {},
+    batch: { defaultTimeoutMs: 1000 },
+    debug: { captureSteps: false }
+  }, { info() {} });
+  adapter.resetExistingUpload = async () => calls.push("reset");
+  adapter.createHandsOnImage = async () => calls.push("asset");
+  adapter.fillOptionalField = async (_label, _value, field) => calls.push(`fill:${field}`);
+  adapter.applyScriptMode = async (product) => calls.push(`script:${product.resolved_script_mode}`);
+
+  await adapter.fillProduct({
+    sku: "A",
+    product_name: "Alpha",
+    selling_points: "Useful",
+    script: "指定口播。",
+    resolved_script_mode: "custom"
+  });
+
+  assert.deepEqual(calls, ["reset", "asset", "fill:product_name", "fill:selling_points", "script:custom"]);
+});
+
+test("applyScriptMode preserves the default Hifly AI script path", async () => {
+  const adapter = new HiflyHandsOnProductPage({}, {
+    hiflyUi: { scriptLabel: "文案" },
+    batch: { defaultTimeoutMs: 1000 }
+  }, { info() {} });
+  adapter.disableAiScriptGeneration = async () => {
+    throw new Error("default mode must not change the AI switch");
+  };
+  adapter.fillOptionalField = async () => {
+    throw new Error("default mode must not fill a custom script");
+  };
+
+  await adapter.applyScriptMode({ resolved_script_mode: "hifly_ai", script: "ignored" });
+});
+
+test("applyScriptMode rejects an unverified custom script before video submission", async () => {
+  const calls = [];
+  const adapter = new HiflyHandsOnProductPage({}, {
+    hiflyUi: { scriptLabel: "文案" },
+    batch: { defaultTimeoutMs: 1000 }
+  }, { info() {} });
+  adapter.disableAiScriptGeneration = async () => calls.push("disable-ai");
+  adapter.fillOptionalField = async () => calls.push("fill-script");
+  adapter.verifyScriptText = async () => {
+    calls.push("verify-script");
+    throw new Error("Custom script text could not be verified after filling.");
+  };
+
+  await assert.rejects(
+    adapter.applyScriptMode({ resolved_script_mode: "custom", script: "指定口播。" }),
+    /could not be verified/i
+  );
+  assert.deepEqual(calls, ["disable-ai", "fill-script", "verify-script"]);
 });
 
 test("createHandsOnImage edits a stale generated modal before uploading the current product", async () => {
