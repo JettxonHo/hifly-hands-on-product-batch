@@ -153,7 +153,7 @@ GitHub CLI 需要认证：
 gh auth login -h github.com
 gh auth status
 ```
-# 影刀 RPA 执行器
+## 影刀 RPA 执行器
 
 默认执行器仍是 Playwright。要启用影刀桥接版本，在 `config.local.json` 设置：
 

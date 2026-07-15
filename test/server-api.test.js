@@ -130,6 +130,19 @@ test("runtime endpoint exposes execution backend", async (t) => {
   assert.equal(response.json().executionBackend, "yingdao_rpa");
 });
 
+test("runtime endpoint defaults to playwright backend", async (t) => {
+  const { app, root } = await fixture(createFakeExecutor());
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const response = await app.inject({ method: "GET", url: "/api/runtime", headers: { host: HOST } });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().executionBackend, "playwright");
+});
+
 test("accepts token-only localhost RPA callbacks while other POST routes require a session", async (t) => {
   const { app, root } = await fixture();
   t.after(async () => {
