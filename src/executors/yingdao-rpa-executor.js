@@ -20,6 +20,27 @@ function directEvidence(remoteEvidence) {
   };
 }
 
+function batchStrategies(context, config, task) {
+  const sources = [
+    context.batch,
+    context.batchMetadata,
+    config.execution?.batch,
+    config.execution?.batchMetadata,
+    config.execution?.batchOptions,
+    task
+  ];
+  const strategy = (field, fallback) => {
+    for (const source of sources) {
+      if (typeof source?.[field] === "string" && source[field].length > 0) return source[field];
+    }
+    return fallback;
+  };
+  return {
+    person_strategy: strategy("person_strategy", "auto_pool"),
+    script_strategy: strategy("script_strategy", "mixed")
+  };
+}
+
 export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
   if (!root) throw new TypeError("createYingdaoRpaExecutor requires root");
 
@@ -28,6 +49,9 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
   const callbackBaseUrl = rpa.callbackBaseUrl ?? "http://127.0.0.1:4317";
 
   function batchDirectory(batchId) {
+    if (typeof batchId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(batchId)) {
+      throw new TypeError("context.batchId must be a valid local batch id");
+    }
     return path.join(root, "batches", batchId);
   }
 
@@ -45,21 +69,21 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
     async createAsset(task, context = {}) {
       const dir = batchDirectory(context.batchId);
       const packageData = createRpaTaskPackage({
-        batch: { batch_id: context.batchId, person_strategy: "auto_pool", script_strategy: "mixed" },
+        batch: { batch_id: context.batchId, ...batchStrategies(context, config, task) },
         task,
         batchDirectory: dir,
         callbackBaseUrl
       });
-      const packagePath = await writeRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
       await writeRpaState(dir, task.task_id, {
         status: "generating_asset",
-        callback_token: packageData.callback_token,
-        package_path: packagePath
+        callback_token: packageData.callback_token
       });
+      const packagePath = await writeRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
+      await writeRpaState(dir, task.task_id, { package_path: packagePath });
       const state = await waitFor(
         dir,
         task.task_id,
-        (candidate) => ["asset_confirmed", "failed_pre_submit", "interrupted_unknown"].includes(candidate.status),
+        (candidate) => ["asset_confirmed", "failed_pre_submit", "failed_remote", "interrupted_unknown"].includes(candidate.status),
         rpa.assetTimeoutMs ?? config.batch?.defaultTimeoutMs ?? 600000,
         "asset_generation"
       );

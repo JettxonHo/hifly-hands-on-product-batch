@@ -36,3 +36,9 @@ DONE
 
 - None for Task 4 scope. Task 5 remains responsible for batch-runner timeout recovery mapping.
 - No GUI, real Yingdao RPA, Feiying automation, or credit-consuming generation was started. `docs/resume/` remained untracked and untouched.
+
+## Review Fix
+
+- Preserved batch person/script strategies when creating RPA packages, accepting context batch metadata, execution configuration, and task metadata before falling back to Task 2 defaults.
+- Published token-bearing RPA state before the task package to prevent a callback race, and made `failed_remote` terminate asset polling immediately.
+- Added focused local-state regressions for strategy propagation, asset remote failure, and query/reconciliation behavior.

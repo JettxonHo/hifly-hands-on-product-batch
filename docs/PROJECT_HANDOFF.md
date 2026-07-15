@@ -1,5 +1,11 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 影刀 RPA Task 4 review fix
+
+- 修复策略传播、资产阶段 `failed_remote` 快速失败和 task package/state 发布竞态：token-bound 初始 state 现在先于 package 写入；package 策略接受 context、执行配置或 task 元数据，缺失时才使用默认值。
+- 补充本地 mock 回归：策略 package、资产远端失败、query/reconcile 状态；验证 `node --test test/yingdao-rpa-executor.test.js test/rpa-task-package.test.js test/rpa-callbacks.test.js` 18/18 通过，`npm run check` 和 `git diff --check` 通过。
+- 未启动 GUI、未访问影刀或飞影、未执行真实生成、未消耗积分；`docs/resume/` 保持未跟踪且未触碰。
+
 ## 2026-07-16 影刀 RPA Task 4 完成
 
 - 已提交 `1673503`（`feat: poll yingdao rpa state`）：`src/executors/yingdao-rpa-executor.js` 已由占位错误替换为本地 mock bridge，并满足 `executor-adapter` 的五个方法契约。
