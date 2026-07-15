@@ -1,5 +1,16 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 抓包 HTTP RPA 设计 spec + 实现 plan 已落盘（Claude Code）
+
+- 接手后已确认：抓包 HTTP RPA 此前**未实现**（仓库无 `src/rpa/capture/*`、`capture_http` 分支、manifest parser、mock HTTP client）。
+- **重要更正**：交接文档旧版称 `stash@{0}` 含 `docs/superpowers/specs/2026-07-16-capture-http-rpa-design.md`，实际 stash 只含 `2026-07-16-tagui-rpa-cli-design.md`（TagUI，已废弃，用户不做）。该 stash 已注明实施依据应改为 capture-http spec，但那份 spec 从未落盘。因此本轮 Claude Code **新写**了设计文档，不是从 stash 恢复。整个 stash 未应用。
+- 新增设计 spec：`docs/superpowers/specs/2026-07-16-capture-http-rpa-design.md`。核心：在 `yingdao_rpa` bridge 下新增 `rpa.mode: "capture_http"` 分支（不新增顶层 `executionBackend`），复用 task package / callback token / `/api/rpa/callback` / rpa-state / executor adapter 五方法；第一阶段纯本地无积分（manifest parser、脱敏规则、mock HTTP client、capture flow 测试），mock client 绝不发起网络请求。
+- 新增实现 plan：`docs/superpowers/plans/2026-07-16-capture-http-rpa.md`，拆为 7 个 TDD 任务：sensitive.js → manifest.js → redact.js → mock-http-client.js → sample fixture → capture-http-executor.js + start.js 分支 + 集成测试 → config/doc。
+- 安全边界（plan 内 Global Constraints）：不改默认 `executionBackend: "playwright"`；不删/不重写 Playwright 或 yingdao bridge；不做 TagUI；不提交 HAR/cookie/token/登录态/批次数据/视频/日志/截图/outputs/node_modules；mock client 不调 `fetch`/`http`/`https`/`net`。
+- 本轮**只新增文档**（spec + plan + 本接力章节），未改任何 `src/` 或 `test/` 代码。基线验证：`node --test test/execution-backend-config.test.js test/rpa-task-package.test.js test/rpa-callbacks.test.js test/yingdao-rpa-executor.test.js test/batch-runner.test.js` 为 91/91 通过；`npm run check` 通过（49 个 JS 文件）；`git diff --check` 通过。
+- 未启动 GUI、未访问飞影或影刀、未执行真实生成、未消耗积分；关键批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 未触碰；`docs/resume/` 保持未跟踪且未触碰。
+- 下一步：按 plan 从 Task 1（sensitive.js）开始 TDD 实现，每个切片提交前跑指定测试 + `npm run check` + `git diff --check`；真实抓包/生成需用户授权积分后再单独立计划。
+
 ## 2026-07-16 抓包 RPA 状态检查：尚未实现，Claude Code 从 HTTP capture 设计开始
 
 - 当前主工作区已按用户要求回到 `3f5b755 docs: record rpa final review approval`，分支为 `codex/yingdao-rpa-version`；保护分支 `codex/playwright-stable-3f5b755` 也指向同一提交，用于保留已跑通的 Playwright/RPA bridge 稳定点。
