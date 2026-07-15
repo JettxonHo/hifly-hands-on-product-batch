@@ -44,11 +44,13 @@ DONE
 
 ### Commit
 
-- Pending.
+- `3cff441` (`fix: harden rpa callback guards`)
 
 ### Verification
 
-- Pending final focused tests, `npm run check`, and `git diff --check`.
+- `node --test test/rpa-callbacks.test.js test/server-api.test.js`: PASS, 39/39 tests.
+- `npm run check`: PASS, checked 48 JavaScript files.
+- `git diff --check` and `git diff --cached --check`: PASS.
 
 ### Concerns
 
