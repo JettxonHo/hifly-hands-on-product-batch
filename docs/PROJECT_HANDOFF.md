@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 影刀 RPA Task 1 完成
+
+- 当前分支：`codex/yingdao-rpa-version`。
+- 已提交 `4c21b48`（`feat: select execution backend`）：新增 `executionBackend`/`rpa` 示例配置，导出 `createExecutorForBackend(root, config)`，接入 `yingdao_rpa` 临时 executor stub，并新增后端选择测试。
+- 验证：`node --test test/execution-backend-config.test.js` 3/3 通过；`npm run check` 通过（44 个 JavaScript 文件）；`git diff --check` 通过；配置 JSON 解析通过。
+- 完整 `npm test` 为 183/184；唯一失败是既有 `test/gui-smoke.test.js` 单条录入 `getByLabel('SKU')` 严格匹配冲突，与本轮改动无关。
+- 本轮未启动 GUI、未访问飞影、未执行真实生成、未消耗积分。
+- 下一步由后续 Task 实现 Yingdao RPA task package/callback/executor 业务；当前 Task 1 的 adapter 仍会以 `YINGDAO_RPA_NOT_IMPLEMENTED` 明确失败。
+
 ## 2026-07-16 影刀 RPA 执行器设计已写入
 
 - 当前分支：`codex/yingdao-rpa-version`。
