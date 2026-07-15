@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-15 最终 whole-branch review 修复完成
+
+- 提交 `f2b1900` 修复 4 项 review findings：`verifyScriptText()` 现在比较完整规范化文案；后半截不一致会停在 `failed_pre_submit`，回归测试确认 `submitVideo=0`。
+- `hifly_ai` 路径现在显式确认“AI 自动生成”开关已开启；自定义文案路径仍在填入前确认开关已关闭。固定人物上传和商品图安全模型未改动。
+- `provided_script` 在导入阶段逐行校验空文案，返回 `422/SCRIPT_REQUIRED`，并在批次进入 `pending` 前保持 `needs_input` 和空 items；GUI 单条/批量录入预先提示，文件导入显示明确错误。
+- GUI 批次详情与积分确认框显示人物、文案策略的可读名称及持久化枚举值（`auto_pool` / `fixed_upload` / `hifly_recommended`；`hifly_ai` / `provided_script` / `mixed`）。
+- 验证：`node --test test/person-strategy.test.js test/script-strategy.test.js test/product-validation.test.js test/batch-runner.test.js test/state-machine.test.js test/server-api.test.js` 为 106/106 通过；`npm run check` 通过（43 个 JS 文件）；`git diff --check` 通过。
+- 本轮未启动 GUI、未访问飞影、未执行真实生成、未消耗积分。
+- 当前关键排障批次保持不变：`batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 仍为 `interrupted_unknown` / `remote_submit`，本轮未触碰该批次。
+
 ## 2026-07-15 Task 4/5/6 完成：策略执行、文档与本地验证
 
 - GUI 人物与文案策略已实现：默认仍为 `auto_pool + mixed`；人物按 `category` 轮换并支持 `default` / 飞影推荐兜底，填写 `script` 时尝试使用自定义口播。
