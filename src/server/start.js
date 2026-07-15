@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 
 import { loadConfig, resolveFromRoot } from "../config.js";
 import { createHiflyExecutor } from "../executors/hifly-executor.js";
+import { createYingdaoRpaExecutor } from "../executors/yingdao-rpa-executor.js";
 import { HiflyHandsOnProductPage } from "../hifly-page.js";
 import { BatchLogger } from "../logger.js";
 import { getProjectRoot } from "../core/project-root.js";
@@ -47,6 +48,19 @@ function createLazyHiflyExecutor(root) {
     async reconcileSubmission(...args) { return (await ensureDelegate()).reconcileSubmission(...args); },
     async close() { await context?.close(); }
   };
+}
+
+export function createExecutorForBackend(root, config = {}) {
+  const backend = config.executionBackend || "playwright";
+  if (backend === "playwright") {
+    const executor = createLazyHiflyExecutor(root);
+    return Object.assign(executor, { backend: "playwright" });
+  }
+  if (backend === "yingdao_rpa") {
+    const executor = createYingdaoRpaExecutor({ root, config });
+    return Object.assign(executor, { backend: "yingdao_rpa" });
+  }
+  throw new Error(`Unsupported executionBackend: ${backend}`);
 }
 
 async function isPortAvailable(port) {
@@ -142,11 +156,13 @@ function isDirectExecution() {
 if (isDirectExecution()) {
   const root = getProjectRoot();
   const config = loadConfig(path.join(root, "config.local.json"));
+  const executor = createExecutorForBackend(root, config);
   const openBrowser = config.gui?.openBrowser === false
     ? async (url) => console.log(`Open this URL in a browser: ${url}`)
     : open;
   await startServer({
     root,
+    executor,
     port: process.env.HIFLY_GUI_PORT ?? config.gui?.port ?? DEFAULT_PORT,
     openBrowser,
     uploadLimits: config.uploadLimits,

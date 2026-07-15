@@ -1,4 +1,13 @@
 {
+  "executionBackend": "playwright",
+  "rpa": {
+    "callbackBaseUrl": "http://127.0.0.1:4317",
+    "assetTimeoutMs": 600000,
+    "submitTimeoutMs": 1200000,
+    "queryTimeoutMs": 120000,
+    "downloadTimeoutMs": 1200000,
+    "pollIntervalMs": 1000
+  },
   "hiflyWorkbenchUrl": "https://hifly.cc",
   "handsOnProductUrl": "https://hifly.cc/goods",
   "productsCsv": "products/products.csv",
