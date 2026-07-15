@@ -117,6 +117,9 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
       if (fixedPersonUpload && strategies.person_strategy !== "fixed_upload") {
         throw importError("FIXED_PERSON_FILE_REQUIRES_FIXED_UPLOAD");
       }
+      if (strategies.person_strategy === "fixed_upload" && !fixedPersonUpload) {
+        throw importError("FIXED_PERSON_FILE_REQUIRED");
+      }
       const proposedUploads = [...(Array.isArray(current.uploads) ? current.uploads : []), ...newUploads];
       const matches = matchUploads(parsed.rows, proposedUploads.filter((upload) => upload !== fixedPersonUpload));
       const issues = [...parsed.errors, ...personPathIssues(parsed.rows), ...matches.errors];

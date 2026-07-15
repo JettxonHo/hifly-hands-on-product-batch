@@ -31,3 +31,10 @@ No GUI or real Hifly execution was started. No points were consumed.
 ## Concerns
 
 Browser-level GUI helper coverage remains out of scope for this codebase; the server tests exercise the multipart payload contract used by single, bulk, and import submissions. Task 4 remains responsible for execution-time fixed-artifact path resolution and strategy freezing.
+
+## Re-review Fix: Fixed Person Artifact Ownership
+
+- `POST /api/batches` now rejects `fixed_person_image_artifact_id`; clients cannot assign arbitrary artifact IDs during batch creation.
+- A resolved `fixed_upload` strategy now requires exactly one newly uploaded, valid `fixed_person_file` in the multipart import. Existing or forged stored IDs do not bypass this requirement.
+- Added regression coverage for creation-time ID rejection, missing fixed-person uploads, forged stored IDs, and successful server-owned fixed-person artifact binding.
+- No GUI or real Hifly execution was started. No points were consumed.

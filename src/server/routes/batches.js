@@ -43,8 +43,7 @@ export function normalizeBatchStrategies(body = {}) {
   if (!SCRIPT_STRATEGIES.has(script_strategy)) throw batchError("INVALID_BATCH", 400);
   return {
     person_strategy,
-    script_strategy,
-    fixed_person_image_artifact_id: body.fixed_person_image_artifact_id || null
+    script_strategy
   };
 }
 
@@ -90,8 +89,7 @@ export async function registerBatchRoutes(app, { store }) {
     if (Object.keys(request.body).some((key) => ![
       "batchId",
       "person_strategy",
-      "script_strategy",
-      "fixed_person_image_artifact_id"
+      "script_strategy"
     ].includes(key))) {
       throw Object.assign(new Error("Only batchId is accepted"), { code: "INVALID_BATCH" });
     }

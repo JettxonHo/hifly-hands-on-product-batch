@@ -124,15 +124,36 @@ test("creates batches with person and script strategies", async (t) => {
     payload: {
       batchId: "batch-strategies",
       person_strategy: "hifly_recommended",
-      script_strategy: "mixed",
-      fixed_person_image_artifact_id: "artifact-person-1"
+      script_strategy: "mixed"
     }
   });
 
   assert.equal(response.statusCode, 201);
   assert.equal(response.json().batch.person_strategy, "hifly_recommended");
   assert.equal(response.json().batch.script_strategy, "mixed");
-  assert.equal(response.json().batch.fixed_person_image_artifact_id, "artifact-person-1");
+  assert.equal(response.json().batch.fixed_person_image_artifact_id, null);
+});
+
+test("rejects fixed person artifact IDs supplied during batch creation", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: {
+      batchId: "batch-forged-person-artifact",
+      person_strategy: "fixed_upload",
+      fixed_person_image_artifact_id: "artifact-person-1"
+    }
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error, "INVALID_BATCH");
 });
 
 test("rejects invalid batch strategy values", async (t) => {
@@ -283,6 +304,48 @@ test("binds one fixed person image uploaded with a fixed-upload import", async (
   assert.equal(batch.uploads.find((upload) => upload.artifact_id === batch.fixed_person_image_artifact_id).kind, "image");
 });
 
+test("requires a fixed person image for fixed-upload imports", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: { batchId: "batch-fixed-person-required", person_strategy: "fixed_upload" }
+  });
+
+  const response = await importInto(app, session, "batch-fixed-person-required");
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error, "FIXED_PERSON_FILE_REQUIRED");
+});
+
+test("does not let a forged stored fixed person artifact bypass upload", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-forged-fixed-person",
+    status: "needs_input",
+    items: [],
+    uploads: [],
+    person_strategy: "fixed_upload",
+    script_strategy: "mixed",
+    fixed_person_image_artifact_id: "artifact-forged"
+  });
+
+  const response = await importInto(app, session, "batch-forged-fixed-person");
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error, "FIXED_PERSON_FILE_REQUIRED");
+});
+
 test("rejects multiple fixed person files", async (t) => {
   const { app, root, session } = await fixture();
   t.after(async () => {
@@ -369,21 +432,20 @@ test("preserves batch strategies through multipart imports", async (t) => {
     payload: {
       batchId: "batch-import-strategies",
       person_strategy: "hifly_recommended",
-      script_strategy: "mixed",
-      fixed_person_image_artifact_id: "artifact-person-1"
+      script_strategy: "mixed"
     }
   });
   assert.equal(created.statusCode, 201);
 
   const response = await importInto(app, session, "batch-import-strategies", "SKU-1.png", {
-    person_strategy: "fixed_upload",
+    person_strategy: "hifly_recommended",
     script_strategy: "provided_script"
   });
 
   assert.equal(response.statusCode, 200);
-  assert.equal(response.json().batch.person_strategy, "fixed_upload");
+  assert.equal(response.json().batch.person_strategy, "hifly_recommended");
   assert.equal(response.json().batch.script_strategy, "provided_script");
-  assert.equal(response.json().batch.fixed_person_image_artifact_id, "artifact-person-1");
+  assert.equal(response.json().batch.fixed_person_image_artifact_id, null);
 });
 
 test("preserves creation-time strategies when multipart metadata is omitted", async (t) => {
@@ -399,8 +461,7 @@ test("preserves creation-time strategies when multipart metadata is omitted", as
     payload: {
       batchId: "batch-import-creation-strategies",
       person_strategy: "hifly_recommended",
-      script_strategy: "provided_script",
-      fixed_person_image_artifact_id: "artifact-person-1"
+      script_strategy: "provided_script"
     }
   });
   assert.equal(created.statusCode, 201);
@@ -410,7 +471,7 @@ test("preserves creation-time strategies when multipart metadata is omitted", as
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().batch.person_strategy, "hifly_recommended");
   assert.equal(response.json().batch.script_strategy, "provided_script");
-  assert.equal(response.json().batch.fixed_person_image_artifact_id, "artifact-person-1");
+  assert.equal(response.json().batch.fixed_person_image_artifact_id, null);
 });
 
 test("rejects invalid multipart strategy metadata", async (t) => {
