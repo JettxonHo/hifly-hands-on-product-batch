@@ -76,3 +76,6 @@ assets/person_pool/fresh_food/host_02.jpg
 - **手持商品图是账号级持久化残留**：上一个商品生成的手持图会残留在账号里，新商品打开「手持商品图」弹窗时看到的是上一个商品的残留已生成图（不是空上传界面）。`page.reload` / 重新导航都清不掉——残留是服务端/会话维度。这是「新商品生成却复用上一个商品（如青菜/白菜）素材」bug 的根因。
 - **删残留图会关弹窗**：在弹窗里点残留图的垃圾桶删除，会把弹窗也关闭（回到外层「手里有货」页面）。代码对策：`resetGeneratedHandsOnImage` 清残留后会重新 `openHandsOnModal` 打开干净上传界面（见 `src/hifly-page.js`），并有 `verifyProductImageReplaced` 安全网在上传后验证商品图真的被替换，未替换则在上传阶段抛错、不会走到「立即生成」消耗积分。
 - **调试定位别靠视觉截图**：`getByRole` 匹配的是 accessible name（aria-label / innerText），不是可见像素。不要用「截图里看不到按钮文字」推断「`getByRole` 匹配不到」。飞影上传入口可能是图标按钮（如紫色「+」），按文字匹配不到时要加 `input[type='file']` 兜底。看真实 DOM 用 `dumpModalDomSnapshot`（落盘 `logs/batch-*.jsonl` 的 `modal_dom_snapshot` 事件，含所有按钮 text+aria-label+图片 src）。
+# 影刀 / 抓包校准
+
+影刀版先跑 mock 回调，不直接消耗飞影积分。抓包 HTTP 化需要先采集飞影上传、手持图生成、视频提交、状态轮询和下载请求。若任一请求依赖动态签名、一次性 token 或风控，保持网页自动化兜底。

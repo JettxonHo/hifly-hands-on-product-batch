@@ -153,3 +153,19 @@ GitHub CLI 需要认证：
 gh auth login -h github.com
 gh auth status
 ```
+# 影刀 RPA 执行器
+
+默认执行器仍是 Playwright。要启用影刀桥接版本，在 `config.local.json` 设置：
+
+```json
+{
+  "executionBackend": "yingdao_rpa"
+}
+```
+
+第一版只保证本地任务包、回调和 mock 流程。真实影刀客户端联调前需要：
+
+1. 安装并登录影刀客户端。
+2. 确认影刀流程能读取 `batches/<batch_id>/rpa/tasks/<task_id>.json`。
+3. 确认影刀流程能 POST 到 `http://127.0.0.1:<port>/api/rpa/callback`。
+4. 用户明确允许消耗飞影积分后再跑真实商品。

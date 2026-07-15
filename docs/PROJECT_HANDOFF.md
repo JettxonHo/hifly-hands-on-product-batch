@@ -951,3 +951,10 @@ GUI 前端：
 - 不要把 `config.local.json`、登录态、`batches/`、`downloads/`、`logs/`、`screenshots/`、`outputs/` 提交到 Git。
 - 不要切换到内部未公开 API 作为主链路，除非用户明确批准并接受账号风控风险。
 - 不要重构大范围架构。当前目标是 GUI 可用、异常可恢复、端到端跑通。
+## 2026-07-16 Task 6：影刀 RPA GUI 可见性与文档完成
+
+- `GET /api/runtime` 公开当前 `executionBackend`；未配置时返回 `playwright`。GUI 顶栏显示“执行引擎：影刀 RPA”或“执行引擎：Playwright”，无法读取时显示“未知”。
+- 已新增 runtime endpoint 的 server API 覆盖，并补充影刀 bridge-first 限制、影刀客户端前置条件和真实联调积分许可要求。
+- 本轮仅修改本地代码和文档；未启动 GUI、未访问飞影或影刀、未运行真实商品、未消耗积分。关键排障批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 未触碰。
+- 本地验证：`node --test test/rpa-task-package.test.js test/rpa-callbacks.test.js test/yingdao-rpa-executor.test.js test/batch-runner.test.js test/server-api.test.js` 为 112/112 通过；`npm run check` 通过，检查 48 个 JavaScript 文件；`git diff --check` 通过。
+- 提交：`docs: document yingdao rpa bridge`（提交号见 Git 历史）。

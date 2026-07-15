@@ -11,6 +11,7 @@
   const nodes = {
     sessionStatus: document.querySelector("#sessionStatus"),
     batchStatus: document.querySelector("#batchStatus"),
+    runtimeBackendBadge: document.querySelector("#runtimeBackendBadge"),
     tabs: Array.from(document.querySelectorAll(".tab")),
     panels: Array.from(document.querySelectorAll(".panel")),
     singleForm: document.querySelector("#singleForm"),
@@ -226,6 +227,19 @@
       state.pollFailures += 1;
       if (!silent) showToast(`刷新失败：${error.message}`);
       if (state.pollFailures < 3) schedulePolling();
+    }
+  }
+
+  async function loadRuntimeInfo() {
+    if (!nodes.runtimeBackendBadge) return;
+    try {
+      const runtime = await api.getRuntime();
+      setText(
+        nodes.runtimeBackendBadge,
+        `执行引擎：${runtime.executionBackend === "yingdao_rpa" ? "影刀 RPA" : "Playwright"}`
+      );
+    } catch {
+      setText(nodes.runtimeBackendBadge, "执行引擎：未知");
     }
   }
 
@@ -775,6 +789,7 @@
     try {
       await api.ensureSession();
       setText(nodes.sessionStatus, "会话已就绪");
+      await loadRuntimeInfo();
       await refreshBatches({ silent: true });
       if (shouldOpenQueueOnInit(activeBatch())) switchTab("queue");
     } catch (error) {

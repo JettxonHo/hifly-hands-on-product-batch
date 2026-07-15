@@ -101,6 +101,9 @@ export async function buildApp({
   });
 
   app.get("/api/session", async (request, reply) => security.bootstrap(reply));
+  app.get("/api/runtime", async () => ({
+    executionBackend: generationConfig.executionBackend || "playwright"
+  }));
   await registerBatchRoutes(app, { store });
   await registerImportRoutes(app, { batchRoot, store, uploadLimits });
   await registerExecutionRoutes(app, { coordinator });

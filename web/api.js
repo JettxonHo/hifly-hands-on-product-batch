@@ -39,6 +39,7 @@
 
   window.HiflyApi = {
     ensureSession,
+    getRuntime: () => request("/api/runtime"),
     getBatches: () => request("/api/batches"),
     createBatch: (payload = {}) => request("/api/batches", {
       method: "POST",
