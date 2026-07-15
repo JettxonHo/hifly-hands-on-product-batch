@@ -10,6 +10,7 @@ import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { registerBatchRoutes } from "./routes/batches.js";
 import { createExecutionCoordinator, registerExecutionRoutes } from "./routes/executions.js";
 import { registerImportRoutes } from "./routes/imports.js";
+import { registerRpaCallbackRoutes } from "./routes/rpa-callbacks.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -38,9 +39,11 @@ const CLIENT_ERROR_CODES = new Set([
   "INVALID_TABLE_SIGNATURE",
   "INVALID_UPLOAD_FIELD",
   "INVALID_UPLOAD_NAME",
+  "INVALID_RPA_CALLBACK",
   "JSON_OR_MULTIPART_REQUIRED",
   "SERVER_STOPPING",
   "SYMLINK_UPLOAD_NOT_ALLOWED",
+  "TASK_NOT_FOUND",
   "UNAUTHORIZED_PRODUCT_IMAGE",
   "UNSAFE_TABLE_REFERENCE",
   "UNSUPPORTED_UPLOAD_TYPE",
@@ -102,6 +105,7 @@ export async function buildApp({
   await registerImportRoutes(app, { batchRoot, store, uploadLimits });
   await registerExecutionRoutes(app, { coordinator });
   await registerArtifactRoutes(app, { batchRoot, store });
+  await registerRpaCallbackRoutes(app, { batchRoot, store });
   await app.register(staticFiles, {
     root: staticRoot,
     prefix: "/",
