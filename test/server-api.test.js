@@ -8,6 +8,7 @@ import sharp from "sharp";
 import { buildApp } from "../src/server/app.js";
 import { createBatchStore } from "../src/core/batch-store.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
+import { readRpaState, writeRpaState } from "../src/rpa/rpa-state.js";
 
 const HOST = "127.0.0.1:4317";
 const ORIGIN = `http://${HOST}`;
@@ -40,6 +41,29 @@ async function createBatch(app, session, batchId) {
   });
   assert.equal(response.statusCode, 201);
   return response.json().batch;
+}
+
+async function createRpaCallbackTask(root, batchId = "batch-rpa-callback") {
+  const store = createBatchStore(path.join(root, "batches"));
+  const task = { task_id: "task-1", execution_key: "key-1", status: "asset_confirmed" };
+  await store.create({ batch_id: batchId, status: "active", items: [task], uploads: [] });
+  await writeRpaState(path.join(root, "batches", batchId), task.task_id, {
+    callback_token: "token-1",
+    status: task.status
+  });
+  return { batchId, task };
+}
+
+function rpaCallbackPayload({ batchId, task, ...extra }) {
+  return {
+    schema_version: 1,
+    batch_id: batchId,
+    task_id: task.task_id,
+    execution_key: task.execution_key,
+    status: "submitted",
+    phase: "remote_submit",
+    ...extra
+  };
 }
 
 function multipart(parts, boundary = "server-api-boundary") {
@@ -90,6 +114,78 @@ async function importOne(app, session, batchId) {
   assert.equal(response.statusCode, 200);
   return response.json().batch;
 }
+
+test("accepts token-only localhost RPA callbacks while other POST routes require a session", async (t) => {
+  const { app, root } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const { batchId, task } = await createRpaCallbackTask(root);
+
+  const callback = await app.inject({
+    method: "POST",
+    url: "/api/rpa/callback",
+    headers: {
+      host: HOST,
+      "content-type": "application/json",
+      "x-rpa-callback-token": "token-1"
+    },
+    payload: rpaCallbackPayload({ batchId, task })
+  });
+  const protectedPost = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: { host: HOST, origin: ORIGIN, "content-type": "application/json" },
+    payload: { batchId: "session-still-required" }
+  });
+
+  assert.equal(callback.statusCode, 200);
+  assert.equal(callback.json().ok, true);
+  assert.equal((await readRpaState(path.join(root, "batches", batchId), task.task_id)).status, "submitted");
+  assert.equal(protectedPost.statusCode, 403);
+  assert.equal(protectedPost.json().error, "SESSION_PROOF_REQUIRED");
+});
+
+test("returns client errors for invalid RPA callbacks and rejects unsafe artifacts", async (t) => {
+  const { app, root } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const { batchId, task } = await createRpaCallbackTask(root);
+  const callbackHeaders = {
+    host: HOST,
+    "content-type": "application/json",
+    "x-rpa-callback-token": "token-1"
+  };
+  const unsafeArtifact = await app.inject({
+    method: "POST",
+    url: "/api/rpa/callback",
+    headers: callbackHeaders,
+    payload: rpaCallbackPayload({ batchId, task, artifact: { relative_path: "/tmp/outside.mp4" } })
+  });
+  const invalidToken = await app.inject({
+    method: "POST",
+    url: "/api/rpa/callback",
+    headers: { ...callbackHeaders, "x-rpa-callback-token": "wrong-token" },
+    payload: rpaCallbackPayload({ batchId, task })
+  });
+  const taskNotFound = await app.inject({
+    method: "POST",
+    url: "/api/rpa/callback",
+    headers: callbackHeaders,
+    payload: rpaCallbackPayload({ batchId, task: { ...task, task_id: "missing-task" } })
+  });
+
+  assert.equal(unsafeArtifact.statusCode, 400);
+  assert.deepEqual(unsafeArtifact.json(), { error: "INVALID_RPA_CALLBACK" });
+  assert.equal(invalidToken.statusCode, 400);
+  assert.deepEqual(invalidToken.json(), { error: "INVALID_RPA_CALLBACK" });
+  assert.equal(taskNotFound.statusCode, 404);
+  assert.deepEqual(taskNotFound.json(), { error: "TASK_NOT_FOUND" });
+  assert.equal((await readRpaState(path.join(root, "batches", batchId), task.task_id)).status, "asset_confirmed");
+});
 
 test("creates and lists server-owned batches without accepting disk paths", async (t) => {
   const { app, root, session } = await fixture();

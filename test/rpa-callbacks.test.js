@@ -97,3 +97,51 @@ test("duplicate callback is idempotent and older callback does not regress", asy
     await rm(f.root, { recursive: true, force: true });
   }
 });
+
+test("ignores illegal forward jumps without changing callback state", async () => {
+  const f = await fixture();
+  try {
+    const result = await applyRpaCallback({
+      batchDirectory: f.batchDirectory,
+      currentTask: f.task,
+      token: "token-1",
+      requestIp: "127.0.0.1",
+      callback: {
+        schema_version: 1,
+        batch_id: "batch-1",
+        task_id: "task-1",
+        execution_key: "key-1",
+        status: "completed"
+      }
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.ignored, true);
+    assert.equal((await readRpaState(f.batchDirectory, "task-1")).status, "asset_confirmed");
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects artifact paths outside the batch directory", async () => {
+  const f = await fixture();
+  try {
+    await assert.rejects(() => applyRpaCallback({
+      batchDirectory: f.batchDirectory,
+      currentTask: f.task,
+      token: "token-1",
+      requestIp: "127.0.0.1",
+      callback: {
+        schema_version: 1,
+        batch_id: "batch-1",
+        task_id: "task-1",
+        execution_key: "key-1",
+        status: "submitted",
+        artifact: { relative_path: "../outside.mp4" }
+      }
+    }), /safe batch-relative path/);
+    assert.equal((await readRpaState(f.batchDirectory, "task-1")).status, "asset_confirmed");
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});

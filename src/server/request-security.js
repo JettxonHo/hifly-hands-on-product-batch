@@ -47,6 +47,10 @@ function reject(reply, statusCode, code) {
   reply.code(statusCode).send({ error: code });
 }
 
+function isRpaCallback(request) {
+  return request.method === "POST" && request.url.split("?", 1)[0] === "/api/rpa/callback";
+}
+
 export function createRequestSecurity({ allowedHost = null } = {}) {
   const token = randomBytes(32).toString("base64url");
 
@@ -70,6 +74,15 @@ export function createRequestSecurity({ allowedHost = null } = {}) {
     }
 
     const origin = request.headers.origin;
+    if (isRpaCallback(request)) {
+      if (!validContentType(request.headers["content-type"])) {
+        reject(reply, 415, "JSON_OR_MULTIPART_REQUIRED");
+        return;
+      }
+      done();
+      return;
+    }
+
     if (origin !== undefined && !validOrigin(host, origin)) {
       reject(reply, 403, "SAME_ORIGIN_REQUIRED");
       return;

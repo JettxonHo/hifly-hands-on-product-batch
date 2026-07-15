@@ -1,40 +1,55 @@
-# Task 3 Report: GUI Strategy Controls And Script Entry
+# Task 3 Report: RPA Callback Route And State Guards
 
 ## Status
 
-Completed.
+DONE
 
 ## Changes
 
-- Added person and script strategy controls to single, bulk, and import forms.
-- Added single and per-row bulk script fields; generated CSV tables include `script`.
-- Sent selected strategies explicitly to both batch creation and multipart import.
-- Added API coverage for table-script persistence.
+- Added `src/rpa/callbacks.js` with localhost, callback-token, task ID, execution-key, status-order, duplicate, and regression guards for `applyRpaCallback`.
+- Added `src/server/routes/rpa-callbacks.js` with `POST /api/rpa/callback`.
+- Registered the callback route before static files in `src/server/app.js` and added the minimal `INVALID_RPA_CALLBACK` / `TASK_NOT_FOUND` client error codes.
+- Added `test/rpa-callbacks.test.js` covering valid submission, invalid token/non-local source/stale execution key, duplicate callbacks, and status regression.
 
-## Review Fixes
+## Commit
 
-- Made `fixed_upload` usable: single, bulk, and table-import forms now require a batch-level fixed person image when that strategy is selected and submit it as `fixed_person_file`.
-- The multipart import route accepts exactly one `fixed_person_file`, validates it through the existing upload service as an image, stores it as a batch upload/artifact, and binds its artifact ID to `fixed_person_image_artifact_id`.
-- A fixed-person upload with any other person strategy now returns `400 FIXED_PERSON_FILE_REQUIRES_FIXED_UPLOAD`; fixed-person uploads are excluded from product-image matching.
-- Expanded server API coverage for single-style and bulk-style script/strategy payload persistence, fixed-person artifact binding, and strategy/file conflict rejection.
+`ebc0c3e feat: accept rpa callbacks safely`
 
-## Verification
+## TDD And Verification
 
-- `node --test test/server-api.test.js`: passed, 27 tests.
-- `npm run check`: passed, 43 JavaScript files checked.
-- `git diff --check`: passed.
-
-## Hifly Usage
-
-No GUI or real Hifly execution was started. No points were consumed.
+1. `node --test test/rpa-callbacks.test.js`
+   - Red: failed as expected with `ERR_MODULE_NOT_FOUND` for `src/rpa/callbacks.js` before implementation.
+2. `node --test test/rpa-callbacks.test.js`
+   - Green: 3 tests passed, 0 failed.
+3. `node --test test/rpa-callbacks.test.js test/server-api.test.js`
+   - Passed: 35 tests passed, 0 failed.
+4. `npm run check`
+   - Passed: checked 48 JavaScript files.
+5. `git diff --check` and `git diff --cached --check`
+   - Passed with no whitespace errors.
 
 ## Concerns
 
-Browser-level GUI helper coverage remains out of scope for this codebase; the server tests exercise the multipart payload contract used by single, bulk, and import submissions. Task 4 remains responsible for execution-time fixed-artifact path resolution and strategy freezing.
+- None for Task 3 scope.
+- No GUI, real Yingdao RPA, Feiying automation, or credit-consuming generation was started. `docs/resume/` remained untracked and was not included in the commit.
 
-## Re-review Fix: Fixed Person Artifact Ownership
+## Reviewer Fix Report (2026-07-16)
 
-- `POST /api/batches` now rejects `fixed_person_image_artifact_id`; clients cannot assign arbitrary artifact IDs during batch creation.
-- A resolved `fixed_upload` strategy now requires exactly one newly uploaded, valid `fixed_person_file` in the multipart import. Existing or forged stored IDs do not bypass this requirement.
-- Added regression coverage for creation-time ID rejection, missing fixed-person uploads, forged stored IDs, and successful server-owned fixed-person artifact binding.
-- No GUI or real Hifly execution was started. No points were consumed.
+### Changes
+
+- Limited the request-security session bypass to `POST /api/rpa/callback`; it retains strict local Host and JSON/content-type checks, while the callback boundary continues to require localhost source and `X-RPA-Callback-Token`.
+- Replaced numeric callback status ordering with the explicit transition matrix from the RPA design. Illegal forward jumps, regressions, and terminal-state transitions are ignored without writing state.
+- Validated callback artifact paths before any state write: `relative_path` must be a non-empty, safe batch-relative path, never absolute, traversal-based, or outside the batch directory.
+- Added callback HTTP tests for token-only routing, unchanged session protection on other POST routes, `400 INVALID_RPA_CALLBACK` and `404 TASK_NOT_FOUND` error responses, and unsafe artifact rejection.
+
+### Commit
+
+- Pending.
+
+### Verification
+
+- Pending final focused tests, `npm run check`, and `git diff --check`.
+
+### Concerns
+
+- No GUI, real Yingdao RPA, Feiying automation, or credit-consuming generation was started. `docs/resume/` remains untracked and excluded.
