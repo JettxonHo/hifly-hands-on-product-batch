@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import { loadConfig, resolveFromRoot } from "../config.js";
 import { createHiflyExecutor } from "../executors/hifly-executor.js";
 import { createYingdaoRpaExecutor } from "../executors/yingdao-rpa-executor.js";
+import { createCaptureHttpExecutor } from "../executors/capture-http-executor.js";
 import { HiflyHandsOnProductPage } from "../hifly-page.js";
 import { BatchLogger } from "../logger.js";
 import { getProjectRoot } from "../core/project-root.js";
@@ -57,6 +58,10 @@ export function createExecutorForBackend(root, config = {}) {
     return Object.assign(executor, { backend: "playwright" });
   }
   if (backend === "yingdao_rpa") {
+    if (config.rpa?.mode === "capture_http") {
+      const executor = createCaptureHttpExecutor({ root, config });
+      return Object.assign(executor, { backend: "yingdao_rpa", mode: "capture_http" });
+    }
     const executor = createYingdaoRpaExecutor({ root, config });
     return Object.assign(executor, { backend: "yingdao_rpa" });
   }

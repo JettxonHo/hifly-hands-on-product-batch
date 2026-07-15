@@ -15,6 +15,15 @@
       "produces": { "product_image_id": "$response.body.data.image_id" }
     },
     {
+      "id": "upload_person_image",
+      "phase": "asset_generation",
+      "method": "POST",
+      "url_template": "https://hifly.cc/api/goods/upload",
+      "placeholders": ["{{person_image_path}}"],
+      "response": { "status": 200, "body": { "code": 0, "data": { "image_id": "img-sample-person-002" } } },
+      "produces": { "person_image_id": "$response.body.data.image_id" }
+    },
+    {
       "id": "create_hands_on_image",
       "phase": "asset_generation",
       "method": "POST",

@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createExecutorForBackend } from "../src/server/start.js";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE = path.resolve(here, "..", "rpa", "capture", "fixtures", "hifly-goods-sample.json");
 
 test("execution backend defaults to playwright", () => {
   const executor = createExecutorForBackend(process.cwd(), {});
@@ -23,4 +28,27 @@ test("unknown execution backend throws a clear error", () => {
     () => createExecutorForBackend(process.cwd(), { executionBackend: "robot_surprise" }),
     /Unsupported executionBackend/
   );
+});
+
+test("yingdao_rpa defaults to the existing bridge when rpa.mode is unset", () => {
+  const executor = createExecutorForBackend(process.cwd(), { executionBackend: "yingdao_rpa" });
+  assert.equal(executor.backend, "yingdao_rpa");
+  assert.equal(executor.mode, undefined);
+});
+
+test("yingdao_rpa with rpa.mode capture_http selects the capture executor", () => {
+  const executor = createExecutorForBackend(process.cwd(), {
+    executionBackend: "yingdao_rpa",
+    rpa: { mode: "capture_http", manifestPath: FIXTURE }
+  });
+  assert.equal(executor.backend, "yingdao_rpa");
+  assert.equal(executor.mode, "capture_http");
+});
+
+test("playwright default is unaffected by rpa.mode capture_http", () => {
+  const executor = createExecutorForBackend(process.cwd(), {
+    executionBackend: "playwright",
+    rpa: { mode: "capture_http", manifestPath: FIXTURE }
+  });
+  assert.equal(executor.backend, "playwright");
 });
