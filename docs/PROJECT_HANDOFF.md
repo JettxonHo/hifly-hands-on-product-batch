@@ -5,7 +5,8 @@
 - 当前分支：`codex/yingdao-rpa-version`。
 - 用户已确认影刀版方向：本地 GUI 继续作为任务台，新增影刀 RPA 执行器；抓包/HTTP 请求优先，影刀网页自动化兜底；不删除现有 Playwright 执行器。
 - 设计文档：`docs/superpowers/specs/2026-07-16-yingdao-rpa-executor-design.md`。
-- 第一版范围：新增执行器选择、RPA 任务包协议、回调协议、RPA state 文件、无积分模拟测试；真实飞影联调前仍需用户确认消耗积分。
+- 已与本机 Claude Code 2.1.84 做独立审阅。Claude 认可可替换执行器方向，但指出必须补齐超时、回调状态转换、幂等、`download_dir` 安全限制和 `callback_token` 生命周期。
+- 设计文档已按上述 review 更新：第一版明确“桥接优先，抓包随后”，先完成执行器选择、RPA 任务包、回调接口、RPA state、mock 无积分测试和超时恢复；真实飞影联调前仍需用户确认消耗积分。
 - 当前未实现业务代码，下一步应按该 spec 写 implementation plan，再分任务实施。
 
 ## 2026-07-16 自动化路线调整讨论：抓包 / 影刀 RPA

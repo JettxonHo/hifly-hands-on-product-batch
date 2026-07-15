@@ -32,7 +32,7 @@
 ## 设计原则
 
 - 不污染已跑通版本：影刀能力通过新执行器接入，不删除 Playwright。
-- 抓包优先：能用 HTTP 请求稳定复放的步骤不再用按钮点击。
+- 桥接优先，抓包随后：第一版先把任务包、回调、状态恢复和 mock 验证跑通；能用 HTTP 请求稳定复放的飞影步骤再逐步替换网页动作。
 - RPA 兜底：遇到签名、一次性 token、风控或接口无法复放时，影刀执行网页动作。
 - 状态以 GUI 为准：影刀只负责执行和回传结果，不直接改批次 JSON。
 - 真实飞影执行仍需用户确认，因为会消耗积分。
@@ -114,7 +114,9 @@ batches/<batch_id>/rpa/tasks/<task_id>.json
 安全要求：
 
 - 路径必须是服务端已批准的素材路径，沿用现有 `approvedImagePath` 规则。
+- `download_dir` 必须等于当前批次目录，不能由任务包或影刀指定到任意绝对路径。
 - `callback_token` 每次执行生成，不能写入 git。
+- `callback_token` 只对当前 `batch_id + task_id + execution_key` 有效；任务完成、失败、超时或服务停止后失效。服务重启后旧 token 不自动恢复，恢复流程只能读取 RPA state，不自动接受旧回调。
 - 任务包不包含飞影账号密码、cookie 或浏览器登录态。
 
 ## 回调协议
@@ -170,6 +172,33 @@ X-RPA-Callback-Token: <callback_token>
 
 回调必须校验 `batch_id`、`task_id`、`execution_key` 与当前批次一致，避免旧任务污染新批次。
 
+回调还必须满足：
+
+- 请求来源应限制为本机地址，例如 `127.0.0.1` 或 `::1`。
+- 同一 `task_id`、同一 `execution_key`、同一 `status` 的重复回调必须幂等处理；如果内容完全一致，返回成功但不重复推进状态。
+- 同一任务收到更早阶段的乱序回调时，不回退状态，只写入 RPA state 的诊断记录。
+- 同一任务收到与当前 `execution_key` 不一致的回调时拒绝。
+
+### 回调状态转换
+
+影刀回调不能任意改写批次状态，只能按下表推进：
+
+| 当前本地状态 | 允许回调 | 结果 |
+| --- | --- | --- |
+| `generating_asset` | `asset_confirmed` | executor 返回 asset，状态机推进到 `asset_confirmed`。 |
+| `generating_asset` | `failed_pre_submit` | 进入 `failed_pre_submit`。 |
+| `asset_confirmed` | `submitted` | 记录稳定 `remoteEvidence`，状态机推进到 `submitted`。 |
+| `submitted` | `download_pending` | 状态机推进到 `download_pending`。 |
+| `submitted` / `download_pending` | `completed` | 注册 artifact，状态机推进到 `completed`。 |
+| 任意未完成状态 | `failed_remote` | 进入 `failed_remote`。 |
+| 任意提交边界不明状态 | `interrupted_unknown` | 进入 `interrupted_unknown`，需要人工核对。 |
+
+不允许的回调：
+
+- `failed_pre_submit` 之后收到 `submitted` 或 `completed`：标记为冲突回调，保留证据但不自动改状态。
+- `completed` 之后收到任何非 `completed` 状态：忽略并记录。
+- `submitted` 之后收到 `asset_confirmed`：忽略并记录。
+
 ## 影刀执行模式
 
 ### 抓包 HTTP 模式
@@ -213,6 +242,17 @@ X-RPA-Callback-Token: <callback_token>
 - `reconcileSubmission(product, checkpoint)`：根据影刀回调、任务包状态和下载目录恢复中断状态。
 
 第一版可以先做“单任务同步等待”：本地发出任务包后等待回调。后续再升级为真正的队列并发。
+
+每个方法必须有超时，不能无限等待影刀：
+
+| 方法 | 默认超时 | 超时处理 |
+| --- | --- | --- |
+| `createAsset` | 以 `batch.defaultTimeoutMs` 或专用 `rpa.assetTimeoutMs` 为准 | 标记 `interrupted_unknown`，错误阶段 `rpa_asset_timeout`。 |
+| `submitVideo` | 以 `batch.generationTimeoutMs` 或专用 `rpa.submitTimeoutMs` 为准 | 标记 `interrupted_unknown`，错误阶段 `rpa_submit_timeout`。 |
+| `querySubmission` | 短轮询超时，例如 `rpa.queryTimeoutMs` | 返回 `submitted` 或 `unknown`，不新建远端任务。 |
+| `downloadArtifact` | 以 `batch.generationTimeoutMs` 或专用 `rpa.downloadTimeoutMs` 为准 | 保持 `download_pending` 或标记 `interrupted_unknown`，不重新生成。 |
+
+`reconcileSubmission` 的第一版语义是读取 RPA state 文件和下载目录，不要求调用影刀 API。如果 RPA state 中已有稳定远端证据或 artifact，则恢复对应阶段；如果证据不足，保持 `interrupted_unknown`。
 
 ## 状态恢复
 
@@ -259,6 +299,9 @@ batches/<batch_id>/rpa/state/<task_id>.json
 - 回调 `failed_pre_submit` 不进入外层提交状态。
 - 回调 `interrupted_unknown` 后 GUI 可显示异常并允许人工核对。
 - 服务重启后从 RPA state 文件恢复，不自动重跑。
+- 回调重复、乱序、旧 `execution_key` 和非法来源均不会污染批次。
+- `download_dir` 越界时拒绝生成任务包。
+- 影刀无响应时按超时进入可恢复状态，不让 GUI 永远卡在 active。
 
 人工/真实测试：
 
@@ -282,3 +325,14 @@ batches/<batch_id>/rpa/state/<task_id>.json
 - 影刀本机客户端尚未安装，需要用户安装并登录后才能做真实联调。
 - 影刀是否提供本地 CLI / webhook 触发能力需要实机确认；如果没有，就先通过共享任务包目录和手动启动影刀流程联调。
 - 飞影私有接口是否可稳定复放未知；需要先采集 HAR 或由影刀流程记录请求，再决定哪些步骤可 HTTP 化。
+
+## 第一版实施顺序
+
+1. 执行器选择与配置：新增 `executionBackend`，默认仍为 `playwright`。
+2. 任务包与 RPA state：生成本地任务包、写入 state、完成路径和 token 安全校验。
+3. 回调接口：实现鉴权、状态转换约束、幂等和乱序处理。
+4. `YingdaoRpaExecutor` 骨架：用 mock 回调驱动完整状态流转。
+5. 超时与恢复：覆盖影刀不响应、服务重启、下载待恢复。
+6. GUI 提示与文档：展示执行引擎、RPA 阶段、最后回调和异常原因。
+
+抓包 HTTP 化和影刀实机网页动作不阻塞第一版桥接骨架。等桥接骨架通过无积分测试后，再安装影刀客户端并做一条真实样片联调。
