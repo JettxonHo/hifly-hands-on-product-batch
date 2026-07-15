@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 影刀 RPA Task 3 完成
+
+- 已提交 `ebc0c3e`、`3cff441`、`acaa2b8`：新增 RPA callback route、状态转换守卫、artifact 路径校验和 token-only 回调安全放行。
+- 回调入口为 `POST /api/rpa/callback`，仅该路径允许使用 `callback_token` 绕过普通 GUI session；其他受保护 POST 仍要求正常会话安全头。
+- RPA 状态转换改为显式 transition matrix，拒绝非法倒退；下载 artifact 的 `relative_path` 只能落在批次目录下，防止回调路径穿越。
+- 验证：`node --test test/rpa-callbacks.test.js test/server-api.test.js` 39/39 通过；`npm run check` 通过；`git diff --check` 通过。完整 `npm test` 仍有既有 `test/gui-smoke.test.js` 标签严格匹配失败，与本轮无关。
+- 未启动 GUI、未访问飞影、未执行真实生成、未消耗积分。下一步 Task 4 实现 Yingdao RPA executor 的 mock flow。
+
 ## 2026-07-16 影刀 RPA Task 1 完成
 
 - 当前分支：`codex/yingdao-rpa-version`。
