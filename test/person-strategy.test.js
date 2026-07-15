@@ -48,6 +48,29 @@ test("auto_pool rotates category images and falls back to default", async () => 
   });
 });
 
+test("auto_pool resolves mixed-case categories against a relative pool root", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "person-strategy-relative-"));
+  try {
+    await fs.mkdir(path.join(root, "assets", "person_pool", "toy"), { recursive: true });
+    await fs.writeFile(path.join(root, "assets", "person_pool", "toy", "toy-a.jpg"), "x");
+    const [product] = resolvePersonStrategies([
+      { sku: "A", category: "Toy" }
+    ], {
+      __rootDir: root,
+      personPool: {
+        enabled: true,
+        rootDir: "assets/person_pool",
+        defaultCategory: "default",
+        fallbackToRecommended: true
+      }
+    }, { person_strategy: "auto_pool" });
+    assert.equal(product.__resolved_person_image_path, "assets/person_pool/toy/toy-a.jpg");
+    assert.equal(product.resolved_person_source, "category_pool");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("hifly_recommended leaves path empty and records source", async () => {
   const products = resolvePersonStrategies([
     { sku: "A", category: "toy" }

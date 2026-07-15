@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { resolveFromRoot } from "../config.js";
 
 const DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 const PERSON_STRATEGIES = new Set(["auto_pool", "fixed_upload", "hifly_recommended"]);
@@ -71,19 +72,20 @@ function nextImage(images, key, counters) {
 
 function listPoolImages(config, category) {
   const rootDir = config.personPool?.rootDir || "assets/person_pool";
-  const dir = path.join(rootDir, category);
-  if (!fs.existsSync(dir)) return [];
+  const absoluteDir = path.join(resolveFromRoot(config, rootDir), category);
+  const returnedDir = path.join(rootDir, category);
+  if (!fs.existsSync(absoluteDir)) return [];
   const allowed = new Set((config.personPool?.allowedExtensions || DEFAULT_EXTENSIONS).map((ext) => ext.toLowerCase()));
-  return fs.readdirSync(dir)
+  return fs.readdirSync(absoluteDir)
     .filter((file) => allowed.has(path.extname(file).toLowerCase()))
     .sort((left, right) => left.localeCompare(right))
-    .map((file) => path.join(dir, file));
+    .map((file) => path.join(returnedDir, file));
 }
 
 function normalizePathSegment(value) {
   return String(value || "default")
     .trim()
-    .normalize("NFC")
-    .replace(/[^A-Za-z0-9._-]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "default";
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, "_")
+    .toLowerCase();
 }
