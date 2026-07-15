@@ -80,6 +80,10 @@ async function importInto(app, session, batchId, imageName = "SKU-1.png", metada
   return response;
 }
 
+async function pngBuffer() {
+  return sharp({ create: { width: 2, height: 2, channels: 3, background: "white" } }).png().toBuffer();
+}
+
 async function importOne(app, session, batchId) {
   await createBatch(app, session, batchId);
   const response = await importInto(app, session, batchId);
@@ -208,18 +212,148 @@ test("imports a server-stored table and image without accepting source paths", a
   assert.equal("image_path" in batch.items[0], false);
 });
 
-test("imports a product script from the table", async (t) => {
+test("persists scripts and strategies from single and bulk import payloads", async (t) => {
   const { app, root, session } = await fixture();
   t.after(async () => {
     await app.close();
     await rm(root, { recursive: true, force: true });
   });
 
-  await createBatch(app, session, "batch-item-script");
-  const response = await importInto(app, session, "batch-item-script", "SKU-1.png", {}, "自定义口播文案");
+  await createBatch(app, session, "batch-single-script");
+  const single = await importInto(app, session, "batch-single-script", "SKU-1.png", {
+    person_strategy: "hifly_recommended",
+    script_strategy: "provided_script"
+  }, "单条口播文案");
+  await createBatch(app, session, "batch-bulk-script");
+  const imageOne = await pngBuffer();
+  const imageTwo = await pngBuffer();
+  const form = multipart([
+    { name: "batchId", value: "batch-bulk-script" },
+    { name: "person_strategy", value: "auto_pool" },
+    { name: "script_strategy", value: "mixed" },
+    {
+      name: "files", filename: "products.csv", contentType: "text/csv",
+      value: "sku,product_name,selling_points,category,image_path,script\nSKU-1,Alpha,Useful,beauty,SKU-1.png,批量口播一\nSKU-2,Beta,Useful,toy,SKU-2.png,批量口播二\n"
+    },
+    { name: "files", filename: "SKU-1.png", contentType: "image/png", value: imageOne },
+    { name: "files", filename: "SKU-2.png", contentType: "image/png", value: imageTwo }
+  ]);
+  const bulk = await app.inject({
+    method: "POST", url: "/api/imports",
+    headers: headers(session, { "content-type": `multipart/form-data; boundary=${form.boundary}` }),
+    payload: form.body
+  });
 
-  assert.equal(response.statusCode, 200);
-  assert.equal(response.json().batch.items[0].script, "自定义口播文案");
+  assert.equal(single.statusCode, 200);
+  assert.equal(single.json().batch.person_strategy, "hifly_recommended");
+  assert.equal(single.json().batch.script_strategy, "provided_script");
+  assert.equal(single.json().batch.items[0].script, "单条口播文案");
+  assert.equal(bulk.statusCode, 200);
+  assert.equal(bulk.json().batch.person_strategy, "auto_pool");
+  assert.equal(bulk.json().batch.script_strategy, "mixed");
+  assert.deepEqual(bulk.json().batch.items.map((item) => item.script), ["批量口播一", "批量口播二"]);
+});
+
+test("binds one fixed person image uploaded with a fixed-upload import", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await createBatch(app, session, "batch-fixed-person");
+  const product = await pngBuffer();
+  const fixed = await pngBuffer();
+  const form = multipart([
+    { name: "batchId", value: "batch-fixed-person" },
+    { name: "person_strategy", value: "fixed_upload" },
+    { name: "fixed_person_file", filename: "person.png", contentType: "image/png", value: fixed },
+    { name: "files", filename: "products.csv", contentType: "text/csv", value: "sku,product_name,selling_points,category,image_path\nSKU-1,Alpha,Useful,beauty,SKU-1.png\n" },
+    { name: "files", filename: "SKU-1.png", contentType: "image/png", value: product }
+  ]);
+  const imported = await app.inject({
+    method: "POST", url: "/api/imports",
+    headers: headers(session, { "content-type": `multipart/form-data; boundary=${form.boundary}` }),
+    payload: form.body
+  });
+
+  assert.equal(imported.statusCode, 200);
+  const batch = imported.json().batch;
+  assert.equal(batch.person_strategy, "fixed_upload");
+  assert.equal(batch.fixed_person_image_artifact_id.length > 0, true);
+  assert.equal(batch.uploads.find((upload) => upload.artifact_id === batch.fixed_person_image_artifact_id).kind, "image");
+});
+
+test("rejects multiple fixed person files", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await createBatch(app, session, "batch-multiple-fixed-persons");
+  const first = await pngBuffer();
+  const second = await pngBuffer();
+  const form = multipart([
+    { name: "batchId", value: "batch-multiple-fixed-persons" },
+    { name: "person_strategy", value: "fixed_upload" },
+    { name: "fixed_person_file", filename: "person-one.png", contentType: "image/png", value: first },
+    { name: "fixed_person_file", filename: "person-two.png", contentType: "image/png", value: second }
+  ]);
+  const response = await app.inject({
+    method: "POST", url: "/api/imports",
+    headers: headers(session, { "content-type": `multipart/form-data; boundary=${form.boundary}` }),
+    payload: form.body
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error, "EXACTLY_ONE_FIXED_PERSON_FILE");
+});
+
+test("rejects non-image fixed person files", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await createBatch(app, session, "batch-invalid-fixed-person");
+  const form = multipart([
+    { name: "batchId", value: "batch-invalid-fixed-person" },
+    { name: "person_strategy", value: "fixed_upload" },
+    { name: "fixed_person_file", filename: "person.csv", contentType: "text/csv", value: "name\nnot-an-image\n" }
+  ]);
+  const response = await app.inject({
+    method: "POST", url: "/api/imports",
+    headers: headers(session, { "content-type": `multipart/form-data; boundary=${form.boundary}` }),
+    payload: form.body
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error, "FIXED_PERSON_FILE_MUST_BE_IMAGE");
+});
+
+test("rejects fixed person files outside the fixed-upload strategy", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await createBatch(app, session, "batch-fixed-person-conflict");
+  const product = await pngBuffer();
+  const fixed = await pngBuffer();
+  const form = multipart([
+    { name: "batchId", value: "batch-fixed-person-conflict" },
+    { name: "person_strategy", value: "auto_pool" },
+    { name: "files", filename: "products.csv", contentType: "text/csv", value: "sku,product_name,selling_points,category,image_path\nSKU-1,Alpha,Useful,beauty,SKU-1.png\n" },
+    { name: "fixed_person_file", filename: "person.png", contentType: "image/png", value: fixed },
+    { name: "files", filename: "SKU-1.png", contentType: "image/png", value: product }
+  ]);
+  const response = await app.inject({
+    method: "POST", url: "/api/imports",
+    headers: headers(session, { "content-type": `multipart/form-data; boundary=${form.boundary}` }),
+    payload: form.body
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error, "FIXED_PERSON_FILE_REQUIRES_FIXED_UPLOAD");
 });
 
 test("preserves batch strategies through multipart imports", async (t) => {

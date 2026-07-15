@@ -515,14 +515,27 @@
     return errors;
   }
 
+  function appendFixedPersonFile(formData, file, options, errors) {
+    if (options.person_strategy !== "fixed_upload") return;
+    if (!file) {
+      errors.push("选择固定人物时，请上传固定人物图");
+      return;
+    }
+    formData.append("fixed_person_file", file, file.name);
+  }
+
   async function handleBulkSubmit(event) {
     event.preventDefault();
     const options = {
       person_strategy: new FormData(event.currentTarget).get("personStrategy") || "auto_pool",
       script_strategy: new FormData(event.currentTarget).get("scriptStrategy") || "mixed"
     };
+    const fixedPersonImage = event.currentTarget.bulkFixedPersonImage.files[0];
     const rows = bulkFormRows();
     const errors = validateBulkRows(rows);
+    const formData = new FormData();
+    formData.append("batchId", "pending");
+    appendFixedPersonFile(formData, fixedPersonImage, options, errors);
     nodes.bulkErrors.hidden = true;
     nodes.bulkErrors.textContent = "";
     if (errors.length > 0) {
@@ -533,8 +546,6 @@
     }
 
     const table = new File([makeCsv(rows.map((row) => row.product))], "products.csv", { type: "text/csv" });
-    const formData = new FormData();
-    formData.append("batchId", "pending");
     formData.append("files", table);
     for (const row of rows) formData.append("files", row.image, row.uploadName);
 
@@ -571,6 +582,11 @@
       person_strategy: values.get("personStrategy") || "auto_pool",
       script_strategy: values.get("scriptStrategy") || "mixed"
     };
+    const fixedPersonImage = form.personImage.files[0];
+    if (options.person_strategy === "fixed_upload" && !fixedPersonImage) {
+      showToast("选择固定人物时，请上传固定人物图");
+      return;
+    }
     const row = {
       sku,
       product_name: form.productName.value,
@@ -582,6 +598,9 @@
     const table = new File([makeCsv([row])], "products.csv", { type: "text/csv" });
     const formData = new FormData();
     formData.append("batchId", "pending");
+    if (options.person_strategy === "fixed_upload") {
+      formData.append("fixed_person_file", fixedPersonImage, fixedPersonImage.name);
+    }
     formData.append("files", table);
     formData.append("files", image, image.name);
 
@@ -610,14 +629,24 @@
     };
     const tableFile = form.tableFile.files[0];
     const images = Array.from(form.imageFiles.files || []);
+    const fixedPersonImage = form.importFixedPersonImage.files[0];
     nodes.importErrors.hidden = true;
     nodes.importErrors.textContent = "";
     if (!tableFile || images.length === 0) {
       showToast("请上传表格和商品图片");
       return;
     }
+    if (options.person_strategy === "fixed_upload" && !fixedPersonImage) {
+      setText(nodes.importErrors, "选择固定人物时，请上传固定人物图");
+      nodes.importErrors.hidden = false;
+      showToast("批量导入信息不完整");
+      return;
+    }
     const formData = new FormData();
     formData.append("batchId", "pending");
+    if (options.person_strategy === "fixed_upload") {
+      formData.append("fixed_person_file", fixedPersonImage, fixedPersonImage.name);
+    }
     formData.append("files", tableFile, tableFile.name);
     for (const image of images) formData.append("files", image, image.name);
 

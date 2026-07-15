@@ -27,7 +27,7 @@ function publicUpload(record) {
 }
 
 async function storeMultipartUpload(part, batchDirectory, uploadLimits) {
-  if (part.fieldname !== "file" && part.fieldname !== "files") {
+  if (part.fieldname !== "file" && part.fieldname !== "files" && part.fieldname !== "fixed_person_file") {
     part.file.resume();
     throw importError("INVALID_UPLOAD_FIELD");
   }
@@ -71,6 +71,7 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
     let batchDirectory = null;
     const newUploads = [];
     const metadata = {};
+    let fixedPersonUpload = null;
 
     try {
       for await (const part of request.parts()) {
@@ -92,7 +93,16 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
           part.file.resume();
           throw importError("BATCH_ID_MUST_PRECEDE_FILES");
         }
-        newUploads.push(await storeMultipartUpload(part, batchDirectory, uploadLimits));
+        if (part.fieldname === "fixed_person_file" && fixedPersonUpload) {
+          part.file.resume();
+          throw importError("EXACTLY_ONE_FIXED_PERSON_FILE");
+        }
+        const upload = await storeMultipartUpload(part, batchDirectory, uploadLimits);
+        newUploads.push(upload);
+        if (part.fieldname === "fixed_person_file") {
+          if (upload.kind !== "image") throw importError("FIXED_PERSON_FILE_MUST_BE_IMAGE");
+          fixedPersonUpload = upload;
+        }
       }
 
       if (!batchId || newUploads.length === 0) throw importError("IMPORT_FILES_REQUIRED");
@@ -104,8 +114,11 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
       const parsed = await importProductTable(path.join(batchDirectory, "uploads", table.storage_name));
       const current = await store.read(batchId);
       const strategies = normalizeBatchStrategies({ ...current, ...metadata });
+      if (fixedPersonUpload && strategies.person_strategy !== "fixed_upload") {
+        throw importError("FIXED_PERSON_FILE_REQUIRES_FIXED_UPLOAD");
+      }
       const proposedUploads = [...(Array.isArray(current.uploads) ? current.uploads : []), ...newUploads];
-      const matches = matchUploads(parsed.rows, proposedUploads);
+      const matches = matchUploads(parsed.rows, proposedUploads.filter((upload) => upload !== fixedPersonUpload));
       const issues = [...parsed.errors, ...personPathIssues(parsed.rows), ...matches.errors];
       if (issues.length > 0) {
         await cleanupUploads(batchDirectory, newUploads);
@@ -119,6 +132,7 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
           ...value,
           status: "pending",
           ...strategies,
+          ...(fixedPersonUpload ? { fixed_person_image_artifact_id: fixedPersonUpload.artifact_id } : {}),
           uploads: [...(Array.isArray(value.uploads) ? value.uploads : []), ...newUploads],
           artifacts: [
             ...(Array.isArray(value.artifacts) ? value.artifacts : []),

@@ -59,7 +59,7 @@
               <input id="productImage" name="productImage" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
             </label>
             <label class="file-control">
-              <span>人物图</span>
+              <span>固定人物图</span>
               <input id="personImage" name="personImage" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
             </label>
             <fieldset class="strategy-panel">
@@ -86,7 +86,7 @@
               <textarea id="script" name="script" rows="4" placeholder="可选。填写后可按文案策略提交给飞影。"></textarea>
             </label>
             <div class="form-actions wide">
-              <p id="singleHint" class="hint">人物图当前作为本地预留素材展示；执行时由系统人物池或飞影推荐图处理。</p>
+              <p id="singleHint" class="hint">选择“固定人物”时，请上传固定人物图；其他人物来源不使用此图片。</p>
               <button class="primary-button" type="submit">加入待执行</button>
             </div>
           </form>
@@ -120,6 +120,10 @@
                 </select>
               </label>
             </fieldset>
+            <label class="file-control">
+              <span>固定人物图</span>
+              <input id="bulkFixedPersonImage" name="bulkFixedPersonImage" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+            </label>
             <div id="bulkRows" class="bulk-rows"></div>
             <div class="form-actions bulk-actions">
               <p class="hint">一行商品会生成一条视频。商品图会按 SKU 自动重命名上传，避免重名图片匹配失败。</p>
@@ -167,6 +171,10 @@
                 </select>
               </label>
             </fieldset>
+            <label class="file-control wide">
+              <span>固定人物图</span>
+              <input id="importFixedPersonImage" name="importFixedPersonImage" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+            </label>
             <div class="form-actions wide">
               <p class="hint">表格里的 image_path 填上传图片原始文件名，或留空后按 SKU 文件名匹配。</p>
               <button class="primary-button" type="submit">导入批次</button>
