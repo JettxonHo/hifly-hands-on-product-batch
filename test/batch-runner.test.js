@@ -222,6 +222,43 @@ test("resolved generation strategies are preserved and bound to the execution sn
   }
 });
 
+test("snapshot verification uses an internal absolute pool image path", async () => {
+  const fixture = await fixtureRun();
+  const configRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-config-root-"));
+  try {
+    const poolPath = path.join(configRoot, "assets", "person_pool", "default", "host.png");
+    await mkdir(path.dirname(poolPath), { recursive: true });
+    await writeFile(poolPath, "person-image");
+    const item = {
+      ...fixture.items[0],
+      __resolved_person_image_path: poolPath,
+      resolved_person_image_path: "assets/person_pool/default/host.png",
+      resolved_person_source: "default_pool"
+    };
+    const execution = fixture.config.execution;
+    const snapshot = await createExecutionSnapshot([item], execution);
+    await fixture.store.update("batch-1", (batch) => ({
+      ...batch,
+      execution_snapshot: snapshot,
+      items: [{
+        ...item,
+        status: "confirmed",
+        execution_key: snapshot.executionKey,
+        confirmed_at: execution.confirmedAt
+      }]
+    }));
+    fixture.items = [item];
+    fixture.config.execution = execution;
+
+    const result = await runBatch(fixture);
+
+    assert.equal(result.items[0].status, "completed");
+  } finally {
+    await rm(configRoot, { recursive: true, force: true });
+    await fixture.cleanup();
+  }
+});
+
 for (const status of [
   "confirmed",
   "generating_asset",

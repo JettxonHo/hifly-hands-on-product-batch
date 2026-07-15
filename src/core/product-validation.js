@@ -95,7 +95,9 @@ function requireValue(errors, product, field, code, row) {
 }
 
 function validatePersonFallback(errors, product, config, row) {
-  if (product.person_image_path || !config.personPool?.enabled) return;
+  if (product.person_image_path ||
+    product.resolved_person_source && product.resolved_person_source !== "unresolved" ||
+    !config.personPool?.enabled) return;
 
   const category = normalizeCategory(product.category, config);
   const defaultCategory = config.personPool?.defaultCategory || "default";

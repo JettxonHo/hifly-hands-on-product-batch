@@ -155,3 +155,33 @@ test("provided_script strategy requires script before execution", () => {
     fixture.cleanup();
   }
 });
+
+test("validation accepts a resolved fixed-upload person when fallbacks are disabled", () => {
+  const fixture = createFixture();
+  try {
+    fs.writeFileSync(path.join(fixture.root, "product.png"), "fixture");
+    fixture.config.personPool.enabled = false;
+    fixture.config.personPool.fallbackToRecommended = false;
+    fixture.config.behavior.useRecommendedPersonWhenMissing = false;
+
+    const result = validateProducts({
+      products: [{
+        sku: "A",
+        product_name: "Alpha",
+        selling_points: "One",
+        category: "toy",
+        image_path: "product.png",
+        status: "pending",
+        resolved_person_source: "fixed_upload",
+        resolved_person_image_path: path.join(fixture.root, "fixed-person.png")
+      }],
+      config: fixture.config,
+      batchPaths: fixture.batchPaths
+    });
+
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.some((error) => error.code === "PERSON_IMAGE_UNAVAILABLE"), false);
+  } finally {
+    fixture.cleanup();
+  }
+});

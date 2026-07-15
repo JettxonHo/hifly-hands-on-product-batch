@@ -55,6 +55,22 @@ async function resolveFixedPersonPath(batch, batchDirectory) {
   return approvedImagePath(batch, batchDirectory, artifactId);
 }
 
+function resolvePoolPersonPaths(items, config) {
+  const root = config.__rootDir ?? process.cwd();
+  return items.map((item) => {
+    const isPoolSource = item.resolved_person_source === "category_pool" ||
+      item.resolved_person_source === "default_pool";
+    if (!isPoolSource ||
+      !item.__resolved_person_image_path || path.isAbsolute(item.__resolved_person_image_path)) {
+      return item;
+    }
+    return {
+      ...item,
+      __resolved_person_image_path: path.resolve(root, item.__resolved_person_image_path)
+    };
+  });
+}
+
 async function prepareExecution({ batchId, batchDirectory, store, config = {}, logger, pointsEstimate = {} }) {
   const batch = await store.read(batchId);
   if (!Array.isArray(batch.items) || batch.items.length === 0 || batch.items.some((item) => item.status !== "pending")) {
@@ -68,6 +84,7 @@ async function prepareExecution({ batchId, batchDirectory, store, config = {}, l
     person_strategy: batch.person_strategy || "auto_pool",
     fixed_person_image_path: await resolveFixedPersonPath(batch, batchDirectory)
   }, logger);
+  items = resolvePoolPersonPaths(items, config);
   items = resolveScriptStrategies(items, {
     script_strategy: batch.script_strategy || "mixed"
   });
@@ -83,7 +100,12 @@ async function prepareExecution({ batchId, batchDirectory, store, config = {}, l
     script_strategy: batch.script_strategy || "mixed",
     fixed_person_image_artifact_id: batch.fixed_person_image_artifact_id || null
   };
-  const execution = { ...pointsEstimate, projectRoot: batchDirectory, confirmedAt, batchOptions };
+  const execution = {
+    ...pointsEstimate,
+    projectRoot: batchDirectory,
+    confirmedAt,
+    batchOptions
+  };
   const snapshot = await createExecutionSnapshot(items, execution);
   return store.update(batchId, (current) => {
     const confirmedItems = items.map((item) => transitionTask(item, {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -576,6 +576,70 @@ test("execution responses and batch reads redact local snapshot paths", async (t
   assert.equal(execution.statusCode, 202);
   assert.equal(JSON.stringify(execution.json()).includes(root), false);
   assert.equal(JSON.stringify(batchRead.json()).includes(root), false);
+});
+
+test("auto-pool execution resolves pool images from the generation configuration root", async (t) => {
+  const configRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-generation-config-"));
+  const poolPath = path.join(configRoot, "assets", "person_pool", "beauty", "host.png");
+  await mkdir(path.dirname(poolPath), { recursive: true });
+  await writeFile(poolPath, "person-image");
+  const { app, root, session } = await fixture(undefined, {
+    generationConfig: {
+      __rootDir: configRoot,
+      behavior: { useRecommendedPersonWhenMissing: false },
+      personPool: {
+        enabled: true,
+        rootDir: "assets/person_pool",
+        defaultCategory: "default",
+        fallbackToRecommended: false
+      }
+    }
+  });
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(configRoot, { recursive: true, force: true });
+  });
+  await importOne(app, session, "batch-auto-pool-root");
+
+  const response = await app.inject({
+    method: "POST", url: "/api/executions", headers: headers(session),
+    payload: { batchId: "batch-auto-pool-root", idempotencyKey: "execution-auto-pool", confirm: true }
+  });
+
+  assert.equal(response.statusCode, 202);
+});
+
+test("batch reads redact internal fixed-person paths", async (t) => {
+  const { app, root } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const internalPath = path.join(root, "batches", "batch-fixed-person-private", "uploads", "person.png");
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-fixed-person-private",
+    status: "pending",
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "pending",
+      __resolved_person_image_path: internalPath,
+      resolved_person_image_path: internalPath,
+      resolved_person_source: "fixed_upload"
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET", url: "/api/batches/batch-fixed-person-private", headers: { host: HOST }
+  });
+  const item = response.json().batch.items[0];
+
+  assert.equal(response.statusCode, 200);
+  assert.equal("__resolved_person_image_path" in item, false);
+  assert.equal("resolved_person_image_path" in item, false);
+  assert.equal(JSON.stringify(response.json()).includes(internalPath), false);
 });
 
 test("server stop waits for execution preparation before returning", async (t) => {

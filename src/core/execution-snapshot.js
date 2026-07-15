@@ -77,7 +77,7 @@ export async function createExecutionSnapshot(items, estimateConfig = {}) {
     const normalized = normalizeTask(item);
     normalized.image_digest = await digestImage(item.image_path, projectRoot);
     normalized.person_image_digest = await digestImage(
-      item.resolved_person_image_path || item.person_image_path,
+      item.__resolved_person_image_path || item.resolved_person_image_path || item.person_image_path,
       projectRoot
     );
     normalizedItems.push(normalized);
