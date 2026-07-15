@@ -39,6 +39,13 @@ npm test
 
 No Hifly browser execution was performed and no real Hifly points were consumed.
 
+## Re-review Fix
+
+- Updated `src/core/person-strategy.js` to use the legacy `localeCompare(other, "zh-Hans-CN")` comparator for person-pool filenames.
+- Added regression coverage with Chinese filenames to verify default pool rotation remains compatible with `src/person-pool.js`.
+
+Verification for this fix is recorded in the final task response. No Hifly browser execution was performed and no real Hifly points were consumed.
+
 ## Scope and Concerns
 
 The change is limited to the five Task 1 implementation/test files. Existing `listPersonPoolFiles`, `normalizeCategory`, and related exports remain available. Legacy no-override uploads continue to use the same resolved person path or Hifly recommendation branch; the resolver additionally records resolution metadata. The existing GUI smoke selector failure remains outside Task 1 scope.

@@ -1,5 +1,25 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-15 Task 1 re-review 修复
+
+- 修复 `src/core/person-strategy.js` 人物池文件名排序：恢复 legacy `localeCompare(..., "zh-Hans-CN")`，保持中文/非 ASCII 文件名轮换顺序兼容。
+- `test/person-strategy.test.js` 新增中文文件名回归测试。
+- 验证：人物/文案/产品校验测试 13/13 通过；`npm run check` 通过；`git diff --check` 通过。
+- 未执行飞影真实链路，未消耗积分。下一步：提交本次 re-review 修复。
+
+## 2026-07-15 Task 1 核心人物/文案策略解析完成
+
+本轮完成 `.superpowers/sdd/task-1-brief.md` 的 Task 1：
+
+- 新增 `src/core/person-strategy.js`：支持显式人物图、`fixed_upload`、`auto_pool`、`hifly_recommended`，人物池按品类轮换并支持 default fallback，写入 `__resolved_person_image_path`、`resolved_person_image_path`、`resolved_person_source`。
+- 新增 `src/core/script-strategy.js`：支持 `hifly_ai`、`provided_script`、`mixed`，写入 `resolved_script_mode`，并提供 `SCRIPT_REQUIRED` 校验。
+- `src/person-pool.js` 的 `assignPersonImages` 已委托给核心人物策略；保留 `listPersonPoolFiles`、`normalizeCategory` 等现有导出供产品校验使用。
+- 新增 `test/person-strategy.test.js`、`test/script-strategy.test.js`。
+
+验证：先运行 `node --test test/person-strategy.test.js test/script-strategy.test.js`，按预期因模块不存在失败；实现后运行 `node --test test/person-strategy.test.js test/script-strategy.test.js test/product-validation.test.js`，11/11 通过；`npm run check` 通过（43 个 JavaScript 文件）。完整 `npm test` 为 152/153，通过项包含全部 Task 1 测试；唯一失败是预存在的 `gui-smoke.test.js` 单条录入 `getByLabel('SKU')` 严格匹配冲突（单条和批量两个 SKU 输入框），与本轮改动无关。未执行飞影真实链路，未消耗积分。
+
+当前卡点：无。下一步是 Task 2 的 API/导入持久化，需继续遵守 GUI 优先和真实积分执行前明确确认规则。
+
 ## 更新时间
 
 2026-07-15（第十次更新，时区 Asia/Shanghai），**人物/文案策略实现计划已写好**。计划文件为 `docs/superpowers/plans/2026-07-15-person-script-strategy.md`，当前仍未改业务代码；下一步等待用户选择 subagent-driven 或 inline execution。

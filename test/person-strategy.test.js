@@ -48,6 +48,29 @@ test("auto_pool rotates category images and falls back to default", async () => 
   });
 });
 
+test("auto_pool keeps legacy Chinese filename ordering", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "person-strategy-chinese-"));
+  try {
+    await fs.mkdir(path.join(root, "toy"), { recursive: true });
+    for (const fileName of ["张.jpg", "阿.jpg", "李.jpg"]) {
+      await fs.writeFile(path.join(root, "toy", fileName), "x");
+    }
+    const products = resolvePersonStrategies([
+      { sku: "A", category: "toy" },
+      { sku: "B", category: "toy" },
+      { sku: "C", category: "toy" }
+    ], {
+      personPool: { enabled: true, rootDir: root, defaultCategory: "default" }
+    }, { person_strategy: "auto_pool" });
+    assert.deepEqual(
+      products.map((product) => path.basename(product.__resolved_person_image_path)),
+      ["阿.jpg", "李.jpg", "张.jpg"]
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("auto_pool resolves mixed-case categories against a relative pool root", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "person-strategy-relative-"));
   try {

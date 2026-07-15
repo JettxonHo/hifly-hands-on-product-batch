@@ -78,7 +78,7 @@ function listPoolImages(config, category) {
   const allowed = new Set((config.personPool?.allowedExtensions || DEFAULT_EXTENSIONS).map((ext) => ext.toLowerCase()));
   return fs.readdirSync(absoluteDir)
     .filter((file) => allowed.has(path.extname(file).toLowerCase()))
-    .sort((left, right) => left.localeCompare(right))
+    .sort((left, right) => left.localeCompare(right, "zh-Hans-CN"))
     .map((file) => path.join(returnedDir, file));
 }
 
