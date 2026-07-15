@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 影刀 RPA 分支最终 review 通过
+
+- 当前分支：`codex/yingdao-rpa-version`，最新提交 `a49ccaf`（`docs: trim agents trailing blank`）。
+- whole-branch final review 已通过：上一轮 Critical/Important findings 已由 `4be237e` / `19a7e51` 修复，最终 reviewer 结论为 `APPROVED`。
+- 本地最终验证：`npm test` 为 224/224 通过；`npm run check` 通过，检查 49 个 JavaScript 文件；`git diff --check e493ad34509fc12200ad2b43c932d8b423ff1e7e..HEAD` 通过；工作区仅剩未跟踪用户目录 `docs/resume/`。
+- 本轮未访问真实飞影或影刀，未执行真实生成，未消耗积分；关键批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 未触碰。
+- 剩余可选优化：GUI 目前还未展示经过脱敏的 RPA `phase` / `last_callback`；当前 GUI 已显示 `error_phase` / `error_message`，若后续要展示 RPA state，需要新增受控公共投影，避免暴露 token、绝对路径等内部字段。
+
 ## 2026-07-16 影刀 RPA whole-branch final review fix
 
 - 已提交 `4be237e`（`fix: harden yingdao rpa recovery`）：RPA `querySubmission` / `downloadArtifact` 超时现在进入 `interrupted_unknown`，不再让批次永久保持 active；普通 Playwright 下载失败仍保持原有 `download_pending` 重试语义。
