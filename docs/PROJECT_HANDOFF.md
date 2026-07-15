@@ -1,5 +1,21 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-15 自定义文案真实校准第一次结果
+
+- 批次：`batch-custom-script-20260715155417`
+- 商品：`IPAD-CUSTOM-SCRIPT-001` / `便携高清平板电脑`
+- 策略：`person_strategy=auto_pool`，`script_strategy=provided_script`
+- 结果：`failed_pre_submit`
+- 阶段：`asset_generation`
+- 错误：`Custom script text could not be verified after filling.`
+- 关键结论：真实飞影「手里有货」页面的文案输入区标题为 `文案`，而当时 `config.local.json` / `config.example.json` 的 `hiflyUi.scriptLabel` 为 `脚本文案`，导致自动化无法定位并替换自定义文案。系统按安全策略停在外层视频提交前，没有继续点击外层「立即生成」。
+- 证据：
+  - 日志：`logs/batch-2026-07-15T15-54-33-449Z.jsonl`
+  - 失败截图：`screenshots/2026-07-15T15-57-26-713Z-IPAD-CUSTOM-SCRIPT-001-script-fill-not-verified.png`
+  - 商品图已验证截图：`screenshots/2026-07-15T15-56-26-042Z-IPAD-CUSTOM-SCRIPT-001-product-verify.png`
+- 已处理：将 `config.local.json`、`config.example.json`、`docs/CALIBRATION.md` 中的 `hiflyUi.scriptLabel` 校准为 `文案`。
+- 注意：本次已经完成弹窗内手持商品图生成阶段，可能已消耗图片数字人/手持图部分积分；没有进入外层视频生成和下载。若继续验证，需要用户再次明确允许重跑。
+
 ## 2026-07-15 最终 whole-branch review 修复完成
 
 - 提交 `f2b1900` 修复 4 项 review findings：`verifyScriptText()` 现在比较完整规范化文案；后半截不一致会停在 `failed_pre_submit`，回归测试确认 `submitVideo=0`。

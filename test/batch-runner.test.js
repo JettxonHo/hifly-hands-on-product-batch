@@ -328,8 +328,12 @@ test("a real custom script verification failure stops before video submission", 
     async click() { calls.push("toggle-click"); }
   };
   const scriptField = {
+    value: "",
     first() { return this; },
     async count() { return 1; },
+    async fill(value) {
+      this.value = value;
+    },
     async inputValue() { return "这是一个足够长的指定口播文案前缀内容，需要在二十个字符之后却被替换。"; }
   };
   const page = {
@@ -389,7 +393,7 @@ test("a real custom script verification failure stops before video submission", 
       "capture:after-upload",
       "fill:product_name",
       "fill:selling_points",
-      "fill:script",
+      "capture:script-field-filled",
       "capture:script-fill-not-verified"
     ]);
   } finally {
@@ -798,7 +802,7 @@ test("applyScriptMode rejects an unverified custom script before video submissio
     batch: { defaultTimeoutMs: 1000 }
   }, { info() {} });
   adapter.disableAiScriptGeneration = async () => calls.push("disable-ai");
-  adapter.fillOptionalField = async () => calls.push("fill-script");
+  adapter.fillScriptField = async () => calls.push("fill-script");
   adapter.verifyScriptText = async () => {
     calls.push("verify-script");
     throw new Error("Custom script text could not be verified after filling.");
@@ -809,6 +813,58 @@ test("applyScriptMode rejects an unverified custom script before video submissio
     /could not be verified/i
   );
   assert.deepEqual(calls, ["disable-ai", "fill-script", "verify-script"]);
+});
+
+test("applyScriptMode falls back to the real Hifly script label", async () => {
+  const calls = [];
+  const script = "这是一条指定口播，会完整写入飞影文案输入框。";
+  const scriptField = {
+    value: "",
+    first() { return this; },
+    async count() { return 1; },
+    async fill(value) {
+      this.value = value;
+      calls.push(`fill:${value}`);
+    },
+    async inputValue() {
+      calls.push("read");
+      return this.value;
+    }
+  };
+  const missingField = {
+    first() { return this; },
+    async count() { return 0; }
+  };
+  const adapter = new HiflyHandsOnProductPage({
+    getByLabel(label) {
+      return label === "文案" ? scriptField : missingField;
+    },
+    getByPlaceholder() {
+      return missingField;
+    }
+  }, {
+    hiflyUi: { scriptLabel: "脚本文案" },
+    batch: { defaultTimeoutMs: 1000 },
+    debug: { captureSteps: false }
+  }, {
+    info(event, details) {
+      calls.push(`${event}:${details.fieldName}:${details.label}:${details.match}`);
+    }
+  });
+  adapter.disableAiScriptGeneration = async () => calls.push("disable-ai");
+  adapter.captureStep = async (_product, step) => calls.push(`capture:${step}`);
+
+  await adapter.applyScriptMode({ resolved_script_mode: "custom", script });
+
+  assert.deepEqual(calls, [
+    "disable-ai",
+    `fill:${script}`,
+    "field_filled:script:文案:label",
+    "capture:script-field-filled",
+    "field_read:script:文案:label",
+    "read",
+    "capture:script-filled"
+  ]);
 });
 
 test("createHandsOnImage edits a stale generated modal before uploading the current product", async () => {

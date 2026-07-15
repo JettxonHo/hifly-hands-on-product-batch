@@ -15,7 +15,7 @@ cp config.example.json config.local.json
 - `handsOnProductUrl`：默认 `https://hifly.cc/goods`
 - `hiflyUi.productNameLabel`：产品名称输入框的 label 或 placeholder
 - `hiflyUi.sellingPointsLabel`：核心卖点输入框的 label 或 placeholder
-- `hiflyUi.scriptLabel`：脚本文案输入框的 label 或 placeholder
+- `hiflyUi.scriptLabel`：文案输入框的 label 或 placeholder。当前「手里有货」页面实测为 `文案`。
 - `hiflyUi.uploadLabel`：上传商品图按钮文案
 - `hiflyUi.uploadPersonText`：弹窗内上传人物图按钮文案
 - `hiflyUi.uploadProductText`：弹窗内上传商品图按钮文案

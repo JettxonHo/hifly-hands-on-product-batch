@@ -1,0 +1,2 @@
+sku,product_name,selling_points,category,image_path,person_image_path,script,avatar,voice,duration_seconds,status,retry_count,output_path,error_message
+IPAD-CUSTOM-SCRIPT-001,便携高清平板电脑,"高清大屏；轻薄便携；学习办公娱乐都方便",electronics,IPAD-CUSTOM-SCRIPT-001.png,,"这款便携高清平板电脑，屏幕清晰，机身轻薄，日常看课、处理资料和追剧都很顺手。出门放进包里也不占地方，想要一台简单好用的平板，可以重点看看。",,,20,pending,0,,

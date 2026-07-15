@@ -6,6 +6,18 @@ function normalizeScriptText(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ").normalize("NFC");
 }
 
+function uniqueLabels(values) {
+  const labels = [];
+  const seen = new Set();
+  for (const value of values) {
+    const label = String(value ?? "").trim();
+    if (!label || seen.has(label)) continue;
+    labels.push(label);
+    seen.add(label);
+  }
+  return labels;
+}
+
 export class HiflyHandsOnProductPage {
   constructor(page, config, logger) {
     this.page = page;
@@ -57,13 +69,19 @@ export class HiflyHandsOnProductPage {
     if (!script) {
       throw new Error("Custom script mode requires product.script before Hifly submission.");
     }
-    if (!this.config.hiflyUi?.scriptLabel) {
-      throw new Error("hiflyUi.scriptLabel is required for custom script mode.");
-    }
-
     await this.disableAiScriptGeneration(product);
-    await this.fillOptionalField(this.config.hiflyUi.scriptLabel, script, "script");
+    await this.fillScriptField(product, script);
     await this.verifyScriptText(product);
+  }
+
+  scriptLabelCandidates() {
+    return uniqueLabels([
+      this.config.hiflyUi?.scriptLabel,
+      "文案",
+      "脚本文案",
+      "请输入文案",
+      "文案内容"
+    ]);
   }
 
   async disableAiScriptGeneration(product) {
@@ -102,16 +120,18 @@ export class HiflyHandsOnProductPage {
   }
 
   async verifyScriptText(product) {
-    const label = this.config.hiflyUi?.scriptLabel;
-    if (!label) throw new Error("hiflyUi.scriptLabel is required for custom script mode.");
-
     const expected = normalizeScriptText(product.script);
-    const value = normalizeScriptText(await this.readFieldValue(label).catch(() => ""));
+    const value = normalizeScriptText(await this.readFieldValueFromLabels(this.scriptLabelCandidates(), "script"));
     if (value !== expected) {
       await this.captureStep(product, "script-fill-not-verified");
       throw new Error("Custom script text could not be verified after filling.");
     }
     await this.captureStep(product, "script-filled");
+  }
+
+  async fillScriptField(product, script) {
+    await this.fillRequiredField(this.scriptLabelCandidates(), script, "script");
+    await this.captureStep(product, "script-field-filled");
   }
 
   async prepareAsset(product) {
@@ -234,30 +254,57 @@ export class HiflyHandsOnProductPage {
 
   async fillByLabel(label, value) {
     const timeout = this.config.batch.defaultTimeoutMs;
+    const field = await this.findFieldByLabel(label);
+    await field.locator.fill(value, { timeout });
+  }
+
+  async findFieldByLabel(label) {
     const byLabel = this.page.getByLabel(label, { exact: false }).first();
     const byPlaceholder = this.page.getByPlaceholder(label, { exact: false }).first();
 
     if (await byLabel.count()) {
-      await byLabel.fill(value, { timeout });
-      return;
+      return { locator: byLabel, label, match: "label" };
     }
 
     if (await byPlaceholder.count()) {
-      await byPlaceholder.fill(value, { timeout });
-      return;
+      return { locator: byPlaceholder, label, match: "placeholder" };
     }
 
     throw new Error(`Could not find input for label or placeholder: ${label}`);
   }
 
   async readFieldValue(label) {
-    const byLabel = this.page.getByLabel(label, { exact: false }).first();
-    if (await byLabel.count()) return await byLabel.inputValue();
+    return (await this.findFieldByLabel(label)).locator.inputValue();
+  }
 
-    const byPlaceholder = this.page.getByPlaceholder(label, { exact: false }).first();
-    if (await byPlaceholder.count()) return await byPlaceholder.inputValue();
+  async fillRequiredField(labels, value, fieldName) {
+    const timeout = this.config.batch.defaultTimeoutMs;
+    let lastError;
+    for (const label of labels) {
+      try {
+        const field = await this.findFieldByLabel(label);
+        await field.locator.fill(value, { timeout });
+        this.logger.info("field_filled", { fieldName, label: field.label, match: field.match });
+        return field;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw new Error(`Could not find required ${fieldName} input. Tried labels: ${labels.join(", ")}. ${lastError?.message || ""}`);
+  }
 
-    throw new Error(`Could not find input for label or placeholder: ${label}`);
+  async readFieldValueFromLabels(labels, fieldName) {
+    let lastError;
+    for (const label of labels) {
+      try {
+        const field = await this.findFieldByLabel(label);
+        this.logger.info("field_read", { fieldName, label: field.label, match: field.match });
+        return await field.locator.inputValue();
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw new Error(`Could not find required ${fieldName} input. Tried labels: ${labels.join(", ")}. ${lastError?.message || ""}`);
   }
 
   async fillOptionalField(label, value, fieldName) {
