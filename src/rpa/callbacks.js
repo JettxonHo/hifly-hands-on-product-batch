@@ -1,5 +1,10 @@
 import { readRpaState, writeRpaState } from "./rpa-state.js";
+import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
+import {
+  isRpaCallbackTokenActive,
+  revokeRpaCallbackToken
+} from "./callback-token-registry.js";
 
 const CALLBACK_STATUSES = new Set([
   "asset_confirmed",
@@ -22,6 +27,13 @@ const ALLOWED_TRANSITIONS = new Map([
   ["interrupted_unknown", new Set()]
 ]);
 
+const TERMINAL_STATUSES = new Set([
+  "completed",
+  "failed_pre_submit",
+  "failed_remote",
+  "interrupted_unknown"
+]);
+
 function invalidCallback(message) {
   return Object.assign(new Error(message), { code: "INVALID_RPA_CALLBACK", statusCode: 400 });
 }
@@ -39,10 +51,19 @@ function isInside(parent, child) {
   return relative !== "" && !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
 }
 
-function assertSafeArtifact(batchDirectory, artifact) {
-  if (artifact === undefined || artifact === null) return;
+async function assertSafeArtifact(batchDirectory, artifact, required) {
+  if (artifact === undefined || artifact === null) {
+    if (required) throw invalidCallback("RPA completed callback requires a valid existing artifact");
+    return;
+  }
   const relativePath = artifact?.relative_path;
+  const artifactKeys = Object.keys(artifact ?? {}).sort();
   if (
+    artifactKeys.length !== 2 ||
+    artifactKeys[0] !== "artifact_id" ||
+    artifactKeys[1] !== "relative_path" ||
+    typeof artifact?.artifact_id !== "string" ||
+    artifact.artifact_id.length === 0 ||
     typeof relativePath !== "string" ||
     relativePath.length === 0 ||
     path.isAbsolute(relativePath) ||
@@ -50,7 +71,26 @@ function assertSafeArtifact(batchDirectory, artifact) {
     relativePath.split(/[\\/]+/).some((segment) => segment === "" || segment === "..") ||
     !isInside(path.resolve(batchDirectory), path.resolve(batchDirectory, relativePath))
   ) {
-    throw invalidCallback("RPA callback artifact must use a safe batch-relative path");
+    throw invalidCallback(required
+      ? "RPA completed callback requires a valid existing artifact"
+      : "RPA callback artifact must use a safe batch-relative path");
+  }
+
+  try {
+    const batchPath = path.resolve(batchDirectory);
+    const artifactPath = path.resolve(batchPath, relativePath);
+    const [batchRealPath, artifactRealPath, info] = await Promise.all([
+      realpath(batchPath),
+      realpath(artifactPath),
+      lstat(artifactPath)
+    ]);
+    if (info.isSymbolicLink() || !info.isFile() || !isInside(batchRealPath, artifactRealPath)) {
+      throw new Error("unsafe artifact");
+    }
+  } catch {
+    throw invalidCallback(required
+      ? "RPA completed callback requires a valid existing artifact"
+      : "RPA callback artifact must reference an existing regular file");
   }
 }
 
@@ -61,8 +101,14 @@ export async function applyRpaCallback({ batchDirectory, currentTask, callback, 
   if (callback.execution_key !== currentTask.execution_key) throw invalidCallback("RPA callback execution_key mismatch");
   if (callback.task_id !== currentTask.task_id) throw invalidCallback("RPA callback task_id mismatch");
   if (!CALLBACK_STATUSES.has(callback.status)) throw invalidCallback(`Invalid RPA callback status: ${callback.status}`);
-  assertSafeArtifact(batchDirectory, callback.artifact);
-
+  if (!isRpaCallbackTokenActive({
+    batchDirectory,
+    taskId: currentTask.task_id,
+    executionKey: currentTask.execution_key,
+    token
+  })) {
+    throw invalidCallback("No active RPA callback session for this token");
+  }
   if (state.last_callback && sameJson(state.last_callback, callback)) {
     return { accepted: true, duplicate: true, state };
   }
@@ -71,6 +117,7 @@ export async function applyRpaCallback({ batchDirectory, currentTask, callback, 
   if (!ALLOWED_TRANSITIONS.get(currentStatus)?.has(callback.status)) {
     return { accepted: false, ignored: true, state };
   }
+  await assertSafeArtifact(batchDirectory, callback.artifact, callback.status === "completed");
 
   const nextState = await writeRpaState(batchDirectory, currentTask.task_id, {
     status: callback.status,
@@ -80,5 +127,12 @@ export async function applyRpaCallback({ batchDirectory, currentTask, callback, 
     error: callback.error || null,
     last_callback: callback
   });
+  if (TERMINAL_STATUSES.has(callback.status)) {
+    revokeRpaCallbackToken({
+      batchDirectory,
+      taskId: currentTask.task_id,
+      executionKey: currentTask.execution_key
+    });
+  }
   return { accepted: true, duplicate: false, state: nextState };
 }

@@ -1,6 +1,10 @@
 import path from "node:path";
 import { assertExecutorAdapter } from "../core/executor-adapter.js";
 import { createRpaTaskPackage, writeRpaTaskPackage } from "../rpa/task-package.js";
+import {
+  registerRpaCallbackToken,
+  revokeRpaCallbackToken
+} from "../rpa/callback-token-registry.js";
 import { readRpaState, writeRpaState } from "../rpa/rpa-state.js";
 
 function sleep(ms) {
@@ -10,6 +14,13 @@ function sleep(ms) {
 function timeoutError(phase) {
   const error = new Error(`Yingdao RPA timed out at ${phase}`);
   error.code = "YINGDAO_RPA_TIMEOUT";
+  return error;
+}
+
+function stateError(state) {
+  const error = new Error(state.error?.message || `RPA execution ended with ${state.status}`);
+  if (state.status === "failed_remote") error.code = "YINGDAO_RPA_FAILED_REMOTE";
+  if (state.status === "interrupted_unknown") error.code = "YINGDAO_RPA_INTERRUPTED_UNKNOWN";
   return error;
 }
 
@@ -47,7 +58,7 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
 
   const rpa = config.rpa || {};
   const pollIntervalMs = rpa.pollIntervalMs ?? 1000;
-  const callbackBaseUrl = rpa.callbackBaseUrl ?? "http://127.0.0.1:4317";
+  let callbackBaseUrl = rpa.callbackBaseUrl ?? "http://127.0.0.1:4317";
 
   function batchDirectory(batchId) {
     if (typeof batchId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(batchId)) {
@@ -66,7 +77,26 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
     throw timeoutError(phase);
   }
 
+  async function waitForTask(batchDir, task, predicate, timeoutMs, phase) {
+    try {
+      return await waitFor(batchDir, task.task_id, predicate, timeoutMs, phase);
+    } catch (error) {
+      if (error?.code === "YINGDAO_RPA_TIMEOUT") {
+        revokeRpaCallbackToken({
+          batchDirectory: batchDir,
+          taskId: task.task_id,
+          executionKey: task.execution_key
+        });
+      }
+      throw error;
+    }
+  }
+
   const executor = {
+    setCallbackBaseUrl(value) {
+      callbackBaseUrl = value;
+    },
+
     async createAsset(task, context = {}) {
       const dir = batchDirectory(context.batchId);
       const packageData = createRpaTaskPackage({
@@ -76,21 +106,33 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
         callbackBaseUrl
       });
       const packagePath = path.join(dir, "rpa", "tasks", `${task.task_id}.json`);
-      await writeRpaState(dir, task.task_id, {
-        status: "generating_asset",
-        callback_token: packageData.callback_token,
-        package_path: packagePath
-      });
-      await writeRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
-      const state = await waitFor(
+      const tokenScope = {
+        batchDirectory: dir,
+        taskId: task.task_id,
+        executionKey: task.execution_key,
+        token: packageData.callback_token
+      };
+      registerRpaCallbackToken(tokenScope);
+      try {
+        await writeRpaState(dir, task.task_id, {
+          status: "generating_asset",
+          callback_token: packageData.callback_token,
+          package_path: packagePath
+        });
+        await writeRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
+      } catch (error) {
+        revokeRpaCallbackToken(tokenScope);
+        throw error;
+      }
+      const state = await waitForTask(
         dir,
-        task.task_id,
+        task,
         (candidate) => ["asset_confirmed", "failed_pre_submit", "failed_remote", "interrupted_unknown"].includes(candidate.status),
         rpa.assetTimeoutMs ?? config.batch?.defaultTimeoutMs ?? 600000,
         "asset_generation"
       );
       if (state.status !== "asset_confirmed") {
-        throw new Error(state.error?.message || `RPA asset failed with ${state.status}`);
+        throw stateError(state);
       }
       return state.asset || { asset_id: `rpa-asset-${task.task_id}` };
     },
@@ -98,9 +140,9 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
     async submitVideo(task, asset, context = {}) {
       const dir = batchDirectory(context.batchId);
       await context.checkpoint?.({ phase: "remote_submit_pre", evidence: { source: "yingdao_rpa" } });
-      const state = await waitFor(
+      const state = await waitForTask(
         dir,
-        task.task_id,
+        task,
         (candidate) => ["submitted", "failed_remote", "interrupted_unknown"].includes(candidate.status),
         rpa.submitTimeoutMs ?? config.batch?.generationTimeoutMs ?? 1200000,
         "remote_submit"
@@ -117,17 +159,14 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
     async querySubmission(remoteEvidence, context = {}) {
       const dir = batchDirectory(context.batchId);
       const taskId = context.taskId || remoteEvidence.task_id;
-      const state = await waitFor(
+      const task = { task_id: taskId, execution_key: context.executionKey };
+      const state = await waitForTask(
         dir,
-        taskId,
+        task,
         (candidate) => ["download_pending", "completed", "failed_remote", "interrupted_unknown"].includes(candidate.status),
         rpa.queryTimeoutMs ?? 120000,
         "remote_query"
-      ).catch((error) => {
-        if (error?.code === "YINGDAO_RPA_TIMEOUT") return null;
-        throw error;
-      });
-      if (!state) return { status: "submitted", remoteEvidence };
+      );
       if (state.status === "failed_remote") return { status: "failed" };
       if (state.status === "interrupted_unknown") return { status: "unknown" };
       return { status: "ready", remoteEvidence };
@@ -136,13 +175,15 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
     async downloadArtifact(remoteEvidence, destination, context = {}) {
       const dir = batchDirectory(context.batchId);
       const taskId = context.taskId || remoteEvidence.task_id;
-      const state = await waitFor(
+      const task = { task_id: taskId, execution_key: context.executionKey };
+      const state = await waitForTask(
         dir,
-        taskId,
-        (candidate) => candidate.status === "completed" && candidate.artifact,
+        task,
+        (candidate) => ["completed", "failed_remote", "interrupted_unknown"].includes(candidate.status),
         rpa.downloadTimeoutMs ?? config.batch?.generationTimeoutMs ?? 1200000,
         "download"
       );
+      if (state.status !== "completed" || !state.artifact) throw stateError(state);
       return state.artifact;
     },
 

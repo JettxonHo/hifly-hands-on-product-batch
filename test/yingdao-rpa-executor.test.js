@@ -40,6 +40,7 @@ async function fixture(rpa = {}) {
 test("createAsset writes package with batch strategies and resolves after asset_confirmed state", async () => {
   const f = await fixture();
   try {
+    f.executor.setCallbackBaseUrl("http://127.0.0.1:4399");
     const pending = f.executor.createAsset(f.task, {
       batchId: "batch-1",
       batch: { person_strategy: "fixed_upload", script_strategy: "provided_script" },
@@ -50,6 +51,7 @@ test("createAsset writes package with batch strategies and resolves after asset_
     const packageData = JSON.parse(await readFile(state.package_path, "utf8"));
     assert.equal(packageData.person_strategy, "fixed_upload");
     assert.equal(packageData.script_strategy, "provided_script");
+    assert.equal(packageData.callback_url, "http://127.0.0.1:4399/api/rpa/callback");
     await writeRpaState(f.batchDirectory, "task-1", {
       callback_token: state.callback_token,
       status: "asset_confirmed",
@@ -74,8 +76,32 @@ test("createAsset surfaces failed_remote without waiting for its timeout", async
       status: "failed_remote",
       error: { message: "Remote asset generation failed" }
     });
-    await assert.rejects(pending, /Remote asset generation failed/);
+    await assert.rejects(
+      pending,
+      (error) => error.code === "YINGDAO_RPA_FAILED_REMOTE" && /Remote asset generation failed/.test(error.message)
+    );
     assert.ok(Date.now() - started < 200);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("createAsset preserves interrupted_unknown from rpa state", async () => {
+  const f = await fixture({ assetTimeoutMs: 500, pollIntervalMs: 5 });
+  try {
+    const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const state = await readRpaState(f.batchDirectory, "task-1");
+    await writeRpaState(f.batchDirectory, "task-1", {
+      callback_token: state.callback_token,
+      status: "interrupted_unknown",
+      error: { message: "RPA asset state is unknown" }
+    });
+
+    await assert.rejects(
+      pending,
+      (error) => error.code === "YINGDAO_RPA_INTERRUPTED_UNKNOWN" && /state is unknown/.test(error.message)
+    );
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
@@ -171,6 +197,32 @@ test("querySubmission rethrows non-timeout RPA state read errors", async () => {
     await assert.rejects(
       () => f.executor.querySubmission({ remote_id: "632410", task_id: "task-1" }, { batchId: "batch-1", taskId: "task-1" }),
       SyntaxError
+    );
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("querySubmission and downloadArtifact surface configured RPA timeouts", async () => {
+  const f = await fixture({ queryTimeoutMs: 20, downloadTimeoutMs: 20, pollIntervalMs: 5 });
+  try {
+    await writeRpaState(f.batchDirectory, "task-1", { status: "submitted" });
+    await assert.rejects(
+      () => f.executor.querySubmission(
+        { remote_id: "632410", task_id: "task-1" },
+        { batchId: "batch-1", taskId: "task-1" }
+      ),
+      (error) => error.code === "YINGDAO_RPA_TIMEOUT" && /remote_query/.test(error.message)
+    );
+
+    await writeRpaState(f.batchDirectory, "task-1", { status: "download_pending" });
+    await assert.rejects(
+      () => f.executor.downloadArtifact(
+        { remote_id: "632410", task_id: "task-1" },
+        f.batchDirectory,
+        { batchId: "batch-1", taskId: "task-1" }
+      ),
+      (error) => error.code === "YINGDAO_RPA_TIMEOUT" && /download/.test(error.message)
     );
   } finally {
     await rm(f.root, { recursive: true, force: true });

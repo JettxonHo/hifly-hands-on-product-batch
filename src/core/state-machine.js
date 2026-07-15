@@ -6,12 +6,14 @@ const TRANSITIONS = Object.freeze({
   generating_asset: {
     CONFIRM_ASSET: "asset_confirmed",
     FAIL_PRE_SUBMIT: "failed_pre_submit",
+    FAIL_REMOTE: "failed_remote",
     INTERRUPT_UNKNOWN: "interrupted_unknown",
     STOP_SAFE: "pending"
   },
   asset_confirmed: {
     MARK_SUBMITTED: "submitted",
     FAIL_PRE_SUBMIT: "failed_pre_submit",
+    FAIL_REMOTE: "failed_remote",
     INTERRUPT_UNKNOWN: "interrupted_unknown",
     STOP_SAFE: "pending"
   },

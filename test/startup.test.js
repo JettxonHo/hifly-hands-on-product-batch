@@ -82,6 +82,32 @@ test("default port collision advances to the next available port", async (t) => 
   assert.equal(selectedPort, startPort + 1);
 });
 
+test("server passes the actual fallback port to the RPA executor", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-rpa-port-"));
+  const occupied = await listenOnLoopback(0);
+  const startPort = occupied.address().port;
+  const callbackBaseUrls = [];
+  const executor = createFakeExecutor();
+  executor.setCallbackBaseUrl = (value) => callbackBaseUrls.push(value);
+  let server;
+  t.after(async () => {
+    await server?.close();
+    await closeServer(occupied);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  server = await startServer({
+    root,
+    executor,
+    port: startPort,
+    openBrowser: async () => {},
+    handleSignals: false
+  });
+
+  assert.equal(server.port, startPort + 1);
+  assert.equal(callbackBaseUrls.at(-1), `http://127.0.0.1:${server.port}`);
+});
+
 test("concurrent workbench starts from the same port choose distinct ports", async (t) => {
   const rootA = await mkdtemp(path.join(os.tmpdir(), "hifly-startup-a-"));
   const rootB = await mkdtemp(path.join(os.tmpdir(), "hifly-startup-b-"));

@@ -241,6 +241,48 @@ test("rpa timeout becomes interrupted_unknown instead of hanging active forever"
   }
 });
 
+test("rpa query and download timeouts become interrupted_unknown", async () => {
+  for (const timeoutMethod of ["querySubmission", "downloadArtifact"]) {
+    const executor = createScriptedRpaExecutor();
+    executor[timeoutMethod] = async () => {
+      const error = new Error(`Yingdao RPA timed out at ${timeoutMethod}`);
+      error.code = "YINGDAO_RPA_TIMEOUT";
+      throw error;
+    };
+    const fixture = await fixtureRun({ executor });
+    try {
+      const result = await runBatch(fixture);
+      assert.equal(result.items[0].status, "interrupted_unknown", timeoutMethod);
+      assert.equal(result.status, "interrupted_unknown", timeoutMethod);
+      assert.equal(result.items[0].error_phase, timeoutMethod === "querySubmission" ? "remote_query" : "download");
+    } finally {
+      await fixture.cleanup();
+    }
+  }
+});
+
+test("rpa asset terminal states preserve their batch semantics", async () => {
+  for (const [code, expectedStatus] of [
+    ["YINGDAO_RPA_INTERRUPTED_UNKNOWN", "interrupted_unknown"],
+    ["YINGDAO_RPA_FAILED_REMOTE", "failed_remote"]
+  ]) {
+    const executor = createScriptedRpaExecutor();
+    executor.createAsset = async () => {
+      const error = new Error(`RPA asset ended as ${expectedStatus}`);
+      error.code = code;
+      throw error;
+    };
+    const fixture = await fixtureRun({ executor });
+    try {
+      const result = await runBatch(fixture);
+      assert.equal(result.items[0].status, expectedStatus, code);
+      assert.equal(result.items[0].error_phase, "asset_generation");
+    } finally {
+      await fixture.cleanup();
+    }
+  }
+});
+
 test("rpa executor can drive the normal runBatch lifecycle", async () => {
   const fixture = await fixtureRun({ executor: createScriptedRpaExecutor() });
   try {

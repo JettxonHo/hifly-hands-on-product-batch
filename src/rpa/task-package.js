@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { lstatSync, realpathSync } from "node:fs";
+import { constants, copyFileSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { assertTaskId } from "./rpa-state.js";
+
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png"]);
 
 function contained(parent, child) {
   const relative = path.relative(parent, child);
@@ -22,6 +24,54 @@ function requireInsideBatch(batchDirectory, filePath, label) {
     throw new Error(`${label} is outside batch directory`);
   }
   return absolute;
+}
+
+function requireSafeDirectory(parentRealPath, directoryPath, label) {
+  const existing = lstatSync(directoryPath, { throwIfNoEntry: false });
+  if (existing?.isSymbolicLink() || existing && !existing.isDirectory()) {
+    throw new Error(`${label} must be a regular directory`);
+  }
+  if (!existing) mkdirSync(directoryPath);
+  const realDirectoryPath = realpathSync(directoryPath);
+  if (!contained(parentRealPath, realDirectoryPath)) {
+    throw new Error(`${label} is outside batch directory`);
+  }
+  return realDirectoryPath;
+}
+
+function copyPersonImageIntoBatch(batchDirectory, taskId, filePath) {
+  if (!filePath) return "";
+  const absolute = path.resolve(filePath);
+  const batchRealPath = realpathSync(batchDirectory);
+  const info = lstatSync(absolute);
+  if (info.isSymbolicLink()) {
+    const target = realpathSync(absolute);
+    if (!contained(batchRealPath, target)) throw new Error("person_image_path is outside batch directory");
+    throw new Error("person_image_path must be a supported image file");
+  }
+  const extension = path.extname(absolute).toLowerCase();
+  if (!info.isFile() || !IMAGE_EXTENSIONS.has(extension)) {
+    throw new Error("person_image_path must be a supported image file");
+  }
+
+  const rpaDirectory = requireSafeDirectory(
+    batchRealPath,
+    path.join(path.resolve(batchDirectory), "rpa"),
+    "RPA directory"
+  );
+  const inputRealPath = requireSafeDirectory(
+    batchRealPath,
+    path.join(rpaDirectory, "inputs"),
+    "RPA inputs directory"
+  );
+
+  const destination = path.join(inputRealPath, `${taskId}-person-${randomUUID()}${extension}`);
+  copyFileSync(absolute, destination, constants.COPYFILE_EXCL);
+  const copiedRealPath = realpathSync(destination);
+  if (!lstatSync(destination).isFile() || !contained(batchRealPath, copiedRealPath)) {
+    throw new Error("Copied person_image_path is outside batch directory");
+  }
+  return destination;
 }
 
 function callbackUrl(baseUrl) {
@@ -49,7 +99,7 @@ export function createRpaTaskPackage({ batch, task, batchDirectory, callbackBase
     selling_points: task.selling_points || "",
     category: task.category || "",
     product_image_path: productImagePath,
-    person_image_path: personImagePath ? requireInsideBatch(batchDirectory, personImagePath, "person_image_path") : "",
+    person_image_path: copyPersonImageIntoBatch(batchDirectory, task.task_id, personImagePath),
     person_strategy: batch.person_strategy || "auto_pool",
     script_strategy: batch.script_strategy || "mixed",
     script: task.script || "",

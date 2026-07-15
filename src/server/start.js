@@ -102,6 +102,7 @@ export async function startServer({
   let selectedPort = await findAvailablePort(port);
   let app;
   while (true) {
+    executor.setCallbackBaseUrl?.(`http://127.0.0.1:${selectedPort}`);
     app = await buildApp({
       root,
       executor,

@@ -76,11 +76,12 @@ test("single-product GUI path creates a pending batch", async (t) => {
   await page.goto(server.url);
   await assertVisible(page.getByRole("heading", { name: "飞影批量工作台" }));
   await page.getByRole("tab", { name: "新建商品" }).click();
-  await page.getByLabel("SKU").fill("SKU-GUI");
-  await page.getByLabel("产品名称").fill("云感保湿乳");
-  await page.getByLabel("核心卖点").fill("轻薄好吸收，通勤补水");
-  await page.getByLabel("品类").fill("beauty");
-  await page.getByLabel("商品图", { exact: true }).setInputFiles(imagePath);
+  const singleForm = page.locator("#singleForm");
+  await singleForm.getByLabel("SKU", { exact: true }).fill("SKU-GUI");
+  await singleForm.getByLabel("产品名称").fill("云感保湿乳");
+  await singleForm.getByLabel("核心卖点").fill("轻薄好吸收，通勤补水");
+  await singleForm.getByLabel("品类").fill("beauty");
+  await singleForm.getByLabel("商品图", { exact: true }).setInputFiles(imagePath);
   await page.getByRole("button", { name: "加入待执行" }).click();
 
   await assertVisible(page.getByRole("heading", { name: "待执行任务" }));

@@ -8,6 +8,7 @@ import sharp from "sharp";
 import { buildApp } from "../src/server/app.js";
 import { createBatchStore } from "../src/core/batch-store.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
+import { registerRpaCallbackToken } from "../src/rpa/callback-token-registry.js";
 import { readRpaState, writeRpaState } from "../src/rpa/rpa-state.js";
 
 const HOST = "127.0.0.1:4317";
@@ -50,6 +51,12 @@ async function createRpaCallbackTask(root, batchId = "batch-rpa-callback") {
   await writeRpaState(path.join(root, "batches", batchId), task.task_id, {
     callback_token: "token-1",
     status: task.status
+  });
+  registerRpaCallbackToken({
+    batchDirectory: path.join(root, "batches", batchId),
+    taskId: task.task_id,
+    executionKey: task.execution_key,
+    token: "token-1"
   });
   return { batchId, task };
 }

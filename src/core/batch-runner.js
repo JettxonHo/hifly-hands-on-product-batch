@@ -19,8 +19,12 @@ function isPause(error) {
   return error?.code === "PAUSED_AUTH";
 }
 
-function isRecoverableRpaTimeout(error) {
-  return error?.code === "YINGDAO_RPA_TIMEOUT";
+function isRecoverableRpaInterruption(error) {
+  return ["YINGDAO_RPA_TIMEOUT", "YINGDAO_RPA_INTERRUPTED_UNKNOWN"].includes(error?.code);
+}
+
+function isRpaRemoteFailure(error) {
+  return error?.code === "YINGDAO_RPA_FAILED_REMOTE";
 }
 
 function hasStableRemoteIdentity(value) {
@@ -237,8 +241,14 @@ export async function runBatch({
     if (isPause(error)) {
       return annotate(task, { paused_auth: true, error_message: error.message }, phase);
     }
-    if (isRecoverableRpaTimeout(error)) {
+    if (isRecoverableRpaInterruption(error)) {
       return interruptUnknown(task, error, phase);
+    }
+    if (isRpaRemoteFailure(error)) {
+      return transition(task, {
+        type: "FAIL_REMOTE",
+        changes: { error_message: error.message, error_phase: phase }
+      }, phase);
     }
     return transition(task, {
       type: "FAIL_PRE_SUBMIT",
@@ -279,6 +289,13 @@ export async function runBatch({
       }, "download");
     } catch (error) {
       if (error instanceof ExecutorSafetyError) throw error;
+      if (isRecoverableRpaInterruption(error)) return interruptUnknown(task, error, "download");
+      if (isRpaRemoteFailure(error)) {
+        return transition(task, {
+          type: "FAIL_REMOTE",
+          changes: { error_message: error.message, error_phase: "download" }
+        }, "download");
+      }
       return annotate(task, { error_message: error.message, error_phase: "download" }, "download");
     }
   }

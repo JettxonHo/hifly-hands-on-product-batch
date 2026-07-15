@@ -15,6 +15,7 @@ test("execution backend can select yingdao_rpa", () => {
   });
   assert.equal(executor.backend, "yingdao_rpa");
   assert.equal(typeof executor.createAsset, "function");
+  assert.equal(typeof executor.setCallbackBaseUrl, "function");
 });
 
 test("unknown execution backend throws a clear error", () => {

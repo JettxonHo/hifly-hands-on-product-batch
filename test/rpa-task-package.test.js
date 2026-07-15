@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile, mkdir, symlink } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile, mkdir, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -98,6 +98,111 @@ test("rejects person image symlinks that resolve outside the batch directory", a
       batchDirectory: f.batchDirectory,
       callbackBaseUrl: "http://127.0.0.1:4317"
     }), /outside batch directory/);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("copies external person images into batch-local rpa inputs", async () => {
+  const f = await fixture();
+  try {
+    const personImage = path.join(f.root, "person-pool", "host.jpg");
+    await mkdir(path.dirname(personImage), { recursive: true });
+    await writeFile(personImage, "person-image");
+
+    const pkg = createRpaTaskPackage({
+      batch: { batch_id: "batch-1", person_strategy: "auto_pool" },
+      task: {
+        task_id: "task-1",
+        execution_key: "key-1",
+        sku: "SKU-1",
+        image_path: f.imagePath,
+        __resolved_person_image_path: personImage
+      },
+      batchDirectory: f.batchDirectory,
+      callbackBaseUrl: "http://127.0.0.1:4317"
+    });
+
+    assert.match(pkg.person_image_path, /rpa[\\/]inputs[\\/]task-1-person-[\w-]+\.jpg$/);
+    assert.equal(pkg.person_image_path.startsWith(await realpath(f.batchDirectory)), true);
+    assert.equal(await readFile(pkg.person_image_path, "utf8"), "person-image");
+    assert.equal(JSON.stringify(pkg).includes(personImage), false);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("copies batch-local fixed person images into isolated rpa inputs", async () => {
+  const f = await fixture();
+  try {
+    const personImage = path.join(f.batchDirectory, "uploads", "fixed-person.png");
+    await writeFile(personImage, "person-image");
+
+    const pkg = createRpaTaskPackage({
+      batch: { batch_id: "batch-1", person_strategy: "fixed_upload" },
+      task: {
+        task_id: "task-1",
+        execution_key: "key-1",
+        sku: "SKU-1",
+        image_path: f.imagePath,
+        person_image_path: personImage
+      },
+      batchDirectory: f.batchDirectory,
+      callbackBaseUrl: "http://127.0.0.1:4317"
+    });
+
+    assert.match(pkg.person_image_path, /rpa[\\/]inputs[\\/]task-1-person-[\w-]+\.png$/);
+    assert.notEqual(pkg.person_image_path, personImage);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects non-image person files outside the batch", async () => {
+  const f = await fixture();
+  try {
+    const personFile = path.join(f.root, "person.txt");
+    await writeFile(personFile, "not-an-image");
+
+    assert.throws(() => createRpaTaskPackage({
+      batch: { batch_id: "batch-1" },
+      task: {
+        task_id: "task-1",
+        execution_key: "key-1",
+        sku: "SKU-1",
+        image_path: f.imagePath,
+        person_image_path: personFile
+      },
+      batchDirectory: f.batchDirectory,
+      callbackBaseUrl: "http://127.0.0.1:4317"
+    }), /supported image file/);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects an rpa inputs directory symlink before copying a person image", async () => {
+  const f = await fixture();
+  try {
+    const personImage = path.join(f.root, "person.jpg");
+    const outsideDirectory = path.join(f.root, "outside-inputs");
+    await writeFile(personImage, "person-image");
+    await mkdir(path.join(f.batchDirectory, "rpa"));
+    await mkdir(outsideDirectory);
+    await symlink(outsideDirectory, path.join(f.batchDirectory, "rpa", "inputs"));
+
+    assert.throws(() => createRpaTaskPackage({
+      batch: { batch_id: "batch-1" },
+      task: {
+        task_id: "task-1",
+        execution_key: "key-1",
+        sku: "SKU-1",
+        image_path: f.imagePath,
+        person_image_path: personImage
+      },
+      batchDirectory: f.batchDirectory,
+      callbackBaseUrl: "http://127.0.0.1:4317"
+    }), /RPA inputs directory must be a regular directory/);
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
