@@ -61,14 +61,14 @@ function multipart(parts, boundary = "server-api-boundary") {
   return { boundary, body: Buffer.concat(chunks) };
 }
 
-async function importInto(app, session, batchId, imageName = "SKU-1.png", metadata = {}) {
+async function importInto(app, session, batchId, imageName = "SKU-1.png", metadata = {}, script = "") {
   const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: "white" } }).png().toBuffer();
   const form = multipart([
     { name: "batchId", value: batchId },
     ...Object.entries(metadata).map(([name, value]) => ({ name, value })),
     {
       name: "files", filename: "products.csv", contentType: "text/csv",
-      value: `sku,product_name,selling_points,category,image_path\nSKU-1,Alpha,Useful,beauty,${imageName}\n`
+      value: `sku,product_name,selling_points,category,image_path,script\nSKU-1,Alpha,Useful,beauty,${imageName},${script}\n`
     },
     { name: "files", filename: imageName, contentType: "image/png", value: image }
   ]);
@@ -206,6 +206,20 @@ test("imports a server-stored table and image without accepting source paths", a
   assert.equal(batch.items.length, 1);
   assert.equal(batch.items[0].product_image_artifact_id.length > 0, true);
   assert.equal("image_path" in batch.items[0], false);
+});
+
+test("imports a product script from the table", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  await createBatch(app, session, "batch-item-script");
+  const response = await importInto(app, session, "batch-item-script", "SKU-1.png", {}, "自定义口播文案");
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().batch.items[0].script, "自定义口播文案");
 });
 
 test("preserves batch strategies through multipart imports", async (t) => {

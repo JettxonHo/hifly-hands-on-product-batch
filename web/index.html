@@ -62,6 +62,29 @@
               <span>人物图</span>
               <input id="personImage" name="personImage" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
             </label>
+            <fieldset class="strategy-panel">
+              <legend>生成策略</legend>
+              <label>
+                <span>人物来源</span>
+                <select name="personStrategy">
+                  <option value="auto_pool" selected>自动匹配人物池</option>
+                  <option value="fixed_upload">固定人物</option>
+                  <option value="hifly_recommended">飞影推荐人物</option>
+                </select>
+              </label>
+              <label>
+                <span>文案来源</span>
+                <select name="scriptStrategy">
+                  <option value="mixed" selected>混合模式</option>
+                  <option value="hifly_ai">飞影 AI 自动文案</option>
+                  <option value="provided_script">使用导入文案</option>
+                </select>
+              </label>
+            </fieldset>
+            <label class="wide">
+              <span>口播文案</span>
+              <textarea id="script" name="script" rows="4" placeholder="可选。填写后可按文案策略提交给飞影。"></textarea>
+            </label>
             <div class="form-actions wide">
               <p id="singleHint" class="hint">人物图当前作为本地预留素材展示；执行时由系统人物池或飞影推荐图处理。</p>
               <button class="primary-button" type="submit">加入待执行</button>
@@ -78,6 +101,25 @@
             <button id="resetBulk" class="ghost-button" type="button">重置</button>
           </div>
           <form id="bulkForm">
+            <fieldset class="strategy-panel">
+              <legend>生成策略</legend>
+              <label>
+                <span>人物来源</span>
+                <select name="personStrategy">
+                  <option value="auto_pool" selected>自动匹配人物池</option>
+                  <option value="fixed_upload">固定人物</option>
+                  <option value="hifly_recommended">飞影推荐人物</option>
+                </select>
+              </label>
+              <label>
+                <span>文案来源</span>
+                <select name="scriptStrategy">
+                  <option value="mixed" selected>混合模式</option>
+                  <option value="hifly_ai">飞影 AI 自动文案</option>
+                  <option value="provided_script">使用导入文案</option>
+                </select>
+              </label>
+            </fieldset>
             <div id="bulkRows" class="bulk-rows"></div>
             <div class="form-actions bulk-actions">
               <p class="hint">一行商品会生成一条视频。商品图会按 SKU 自动重命名上传，避免重名图片匹配失败。</p>
@@ -106,6 +148,25 @@
               <span>商品图片</span>
               <input id="imageFiles" name="imageFiles" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" multiple required>
             </label>
+            <fieldset class="strategy-panel">
+              <legend>生成策略</legend>
+              <label>
+                <span>人物来源</span>
+                <select name="personStrategy">
+                  <option value="auto_pool" selected>自动匹配人物池</option>
+                  <option value="fixed_upload">固定人物</option>
+                  <option value="hifly_recommended">飞影推荐人物</option>
+                </select>
+              </label>
+              <label>
+                <span>文案来源</span>
+                <select name="scriptStrategy">
+                  <option value="mixed" selected>混合模式</option>
+                  <option value="hifly_ai">飞影 AI 自动文案</option>
+                  <option value="provided_script">使用导入文案</option>
+                </select>
+              </label>
+            </fieldset>
             <div class="form-actions wide">
               <p class="hint">表格里的 image_path 填上传图片原始文件名，或留空后按 SKU 文件名匹配。</p>
               <button class="primary-button" type="submit">导入批次</button>

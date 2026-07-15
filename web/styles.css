@@ -28,6 +28,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -186,6 +187,7 @@ label span {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -201,6 +203,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
@@ -208,6 +211,23 @@ textarea:focus {
 
 .wide {
   grid-column: 1 / -1;
+}
+
+.strategy-panel {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.strategy-panel legend {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 0 6px;
 }
 
 .file-control input {
@@ -360,6 +380,10 @@ tr.selected {
 }
 
 .bulk-selling-points {
+  grid-column: 1 / -1;
+}
+
+.bulk-script {
   grid-column: 1 / -1;
 }
 

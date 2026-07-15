@@ -68,7 +68,7 @@
   }
 
   function makeCsv(rows) {
-    const fields = ["sku", "product_name", "selling_points", "category", "image_path"];
+    const fields = ["sku", "product_name", "selling_points", "category", "image_path", "script"];
     return [
       fields.join(","),
       ...rows.map((row) => fields.map((field) => csvCell(row[field])).join(","))
@@ -414,10 +414,10 @@
     }).join("\n");
   }
 
-  async function createBatchAndImport(formData) {
-    const created = await api.createBatch();
+  async function createBatchAndImport(formData, options) {
+    const created = await api.createBatch(options);
     formData.set("batchId", created.batch.batch_id);
-    return api.importBatch(formData);
+    return api.importBatch(formData, options);
   }
 
   function bulkRowTemplate(rowId) {
@@ -448,6 +448,10 @@
       <label class="bulk-selling-points">
         <span>核心卖点</span>
         <textarea name="bulkSellingPoints" rows="3" placeholder="每条卖点可用顿号、逗号或换行分隔"></textarea>
+      </label>
+      <label class="bulk-script">
+        <span>口播文案</span>
+        <textarea name="script" rows="3" placeholder="可选。填写后可按文案策略提交给飞影。"></textarea>
       </label>
     `;
     row.querySelector(".bulk-remove").addEventListener("click", () => {
@@ -491,7 +495,8 @@
           product_name: row.querySelector("[name='bulkProductName']").value.trim(),
           selling_points: row.querySelector("[name='bulkSellingPoints']").value.trim(),
           category: row.querySelector("[name='bulkCategory']").value.trim() || "default",
-          image_path: imageName
+          image_path: imageName,
+          script: row.querySelector("[name='script']").value.trim()
         }
       };
     });
@@ -512,6 +517,10 @@
 
   async function handleBulkSubmit(event) {
     event.preventDefault();
+    const options = {
+      person_strategy: new FormData(event.currentTarget).get("personStrategy") || "auto_pool",
+      script_strategy: new FormData(event.currentTarget).get("scriptStrategy") || "mixed"
+    };
     const rows = bulkFormRows();
     const errors = validateBulkRows(rows);
     nodes.bulkErrors.hidden = true;
@@ -531,7 +540,7 @@
 
     setBusy(true);
     try {
-      const payload = await createBatchAndImport(formData);
+      const payload = await createBatchAndImport(formData, options);
       state.selectedBatchId = payload.batch.batch_id;
       resetBulkForm();
       await refreshBatches({ silent: true });
@@ -550,18 +559,25 @@
   async function handleSingleSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
+    const values = new FormData(form);
     const image = form.productImage.files[0];
     if (!image) {
       showToast("请先上传商品图");
       return;
     }
     const sku = form.sku.value.trim() || safeId("sku");
+    const script = values.get("script");
+    const options = {
+      person_strategy: values.get("personStrategy") || "auto_pool",
+      script_strategy: values.get("scriptStrategy") || "mixed"
+    };
     const row = {
       sku,
       product_name: form.productName.value,
       selling_points: form.sellingPoints.value,
       category: form.category.value || "default",
-      image_path: image.name
+      image_path: image.name,
+      script
     };
     const table = new File([makeCsv([row])], "products.csv", { type: "text/csv" });
     const formData = new FormData();
@@ -571,7 +587,7 @@
 
     setBusy(true);
     try {
-      const payload = await createBatchAndImport(formData);
+      const payload = await createBatchAndImport(formData, options);
       state.selectedBatchId = payload.batch.batch_id;
       form.reset();
       await refreshBatches({ silent: true });
@@ -587,6 +603,11 @@
   async function handleBatchImport(event) {
     event.preventDefault();
     const form = event.currentTarget;
+    const values = new FormData(form);
+    const options = {
+      person_strategy: values.get("personStrategy") || "auto_pool",
+      script_strategy: values.get("scriptStrategy") || "mixed"
+    };
     const tableFile = form.tableFile.files[0];
     const images = Array.from(form.imageFiles.files || []);
     nodes.importErrors.hidden = true;
@@ -602,7 +623,7 @@
 
     setBusy(true);
     try {
-      const payload = await createBatchAndImport(formData);
+      const payload = await createBatchAndImport(formData, options);
       state.selectedBatchId = payload.batch.batch_id;
       form.reset();
       await refreshBatches({ silent: true });
