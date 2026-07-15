@@ -330,7 +330,7 @@ test("a real custom script verification failure stops before video submission", 
   const scriptField = {
     first() { return this; },
     async count() { return 1; },
-    async inputValue() { return "not the requested script"; }
+    async inputValue() { return "这是一个足够长的指定口播文案前缀内容，需要在二十个字符之后却被替换。"; }
   };
   const page = {
     locator() {
@@ -370,7 +370,10 @@ test("a real custom script verification failure stops before video submission", 
   };
   const fixture = await fixtureRun({
     executor,
-    itemOverrides: { script: "指定口播。", resolved_script_mode: "custom" }
+    itemOverrides: {
+      script: "这是一个足够长的指定口播文案前缀内容，需要在二十个字符之后保持正确。",
+      resolved_script_mode: "custom"
+    }
   });
   try {
     const result = await runBatch(fixture);
@@ -773,19 +776,19 @@ test("fillProduct applies custom script mode before submit", async () => {
   assert.deepEqual(calls, ["reset", "asset", "fill:product_name", "fill:selling_points", "script:custom"]);
 });
 
-test("applyScriptMode preserves the default Hifly AI script path", async () => {
+test("applyScriptMode enables the default Hifly AI script path", async () => {
+  const calls = [];
   const adapter = new HiflyHandsOnProductPage({}, {
     hiflyUi: { scriptLabel: "文案" },
     batch: { defaultTimeoutMs: 1000 }
   }, { info() {} });
-  adapter.disableAiScriptGeneration = async () => {
-    throw new Error("default mode must not change the AI switch");
-  };
+  adapter.enableAiScriptGeneration = async () => calls.push("enable-ai");
   adapter.fillOptionalField = async () => {
     throw new Error("default mode must not fill a custom script");
   };
 
   await adapter.applyScriptMode({ resolved_script_mode: "hifly_ai", script: "ignored" });
+  assert.deepEqual(calls, ["enable-ai"]);
 });
 
 test("applyScriptMode rejects an unverified custom script before video submission", async () => {

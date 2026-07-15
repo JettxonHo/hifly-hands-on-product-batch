@@ -105,6 +105,20 @@
     return labels[status] || status || "未知";
   }
 
+  function strategySummary(batch) {
+    const person = {
+      auto_pool: "人物池自动分配",
+      fixed_upload: "固定上传人物",
+      hifly_recommended: "飞影推荐人物"
+    }[batch.person_strategy] || batch.person_strategy || "人物池自动分配";
+    const script = {
+      hifly_ai: "飞影 AI 自动文案",
+      provided_script: "使用导入文案",
+      mixed: "混合模式"
+    }[batch.script_strategy] || batch.script_strategy || "混合模式";
+    return `人物策略：${person} (${batch.person_strategy || "auto_pool"}) · 文案策略：${script} (${batch.script_strategy || "mixed"})`;
+  }
+
   const BATCH_FOCUS_PRIORITY = new Map([
     ["interrupted_unknown", 0],
     ["active", 1],
@@ -293,7 +307,9 @@
     setText(executionTitle, "执行设置");
     const executionCopy = document.createElement("span");
     setText(executionCopy, `按当前批次全部商品执行：${itemCount} 个商品生成 ${itemCount} 条视频。`);
-    executionPlan.append(executionTitle, executionCopy);
+    const strategyCopy = document.createElement("span");
+    setText(strategyCopy, strategySummary(batch));
+    executionPlan.append(executionTitle, executionCopy, strategyCopy);
     const list = document.createElement("ul");
     list.className = "task-list";
     for (const item of batch.items || []) {
@@ -410,7 +426,10 @@
     if (!errors || errors.length === 0) return "导入失败";
     return errors.map((error) => {
       const row = error.row ? `第 ${error.row} 行` : "表格";
-      return `${row}：${error.code}${error.sku ? `（${error.sku}）` : ""}`;
+      const detail = error.code === "SCRIPT_REQUIRED"
+        ? "使用导入文案时，口播文案不能为空"
+        : error.code;
+      return `${row}：${detail}${error.sku ? `（${error.sku}）` : ""}`;
     }).join("\n");
   }
 
@@ -502,12 +521,15 @@
     });
   }
 
-  function validateBulkRows(rows) {
+  function validateBulkRows(rows, options) {
     const errors = [];
     const seenSkus = new Set();
     for (const row of rows) {
       if (!row.product.product_name) errors.push(`第 ${row.rowNumber} 行：请填写产品名称`);
       if (!row.image) errors.push(`第 ${row.rowNumber} 行：请上传商品图`);
+      if (options.script_strategy === "provided_script" && !row.product.script) {
+        errors.push(`第 ${row.rowNumber} 行：使用导入文案时，请填写口播文案`);
+      }
       const key = row.product.sku.toLocaleLowerCase("und");
       if (seenSkus.has(key)) errors.push(`第 ${row.rowNumber} 行：SKU 重复`);
       seenSkus.add(key);
@@ -532,7 +554,7 @@
     };
     const fixedPersonImage = event.currentTarget.bulkFixedPersonImage.files[0];
     const rows = bulkFormRows();
-    const errors = validateBulkRows(rows);
+    const errors = validateBulkRows(rows, options);
     const formData = new FormData();
     formData.append("batchId", "pending");
     appendFixedPersonFile(formData, fixedPersonImage, options, errors);
@@ -577,12 +599,16 @@
       return;
     }
     const sku = form.sku.value.trim() || safeId("sku");
-    const script = values.get("script");
+    const script = String(values.get("script") || "").trim();
     const options = {
       person_strategy: values.get("personStrategy") || "auto_pool",
       script_strategy: values.get("scriptStrategy") || "mixed"
     };
     const fixedPersonImage = form.personImage.files[0];
+    if (options.script_strategy === "provided_script" && !script) {
+      showToast("使用导入文案时，请填写口播文案");
+      return;
+    }
     if (options.person_strategy === "fixed_upload" && !fixedPersonImage) {
       showToast("选择固定人物时，请上传固定人物图");
       return;
@@ -673,7 +699,7 @@
     if (!batch) return;
     setText(
       nodes.confirmSummary,
-      `批次 ${batch.batch_id} 含 ${batch.items.length} 条商品，将按“一商品一条片”生成 ${batch.items.length} 条视频。预计积分以飞影页面最终显示为准。`
+      `批次 ${batch.batch_id} 含 ${batch.items.length} 条商品，将按“一商品一条片”生成 ${batch.items.length} 条视频。${strategySummary(batch)}。预计积分以飞影页面最终显示为准。`
     );
     nodes.confirmItems.textContent = "";
     for (const item of batch.items) {

@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { importProductTable } from "../../import/import-table.js";
 import { matchUploads } from "../../import/match-uploads.js";
+import { validateScriptStrategy } from "../../core/script-strategy.js";
 import { storeUpload } from "../upload-service.js";
 import { assertBatchId, normalizeBatchStrategies, publicBatch } from "./batches.js";
 
@@ -122,7 +123,10 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
       }
       const proposedUploads = [...(Array.isArray(current.uploads) ? current.uploads : []), ...newUploads];
       const matches = matchUploads(parsed.rows, proposedUploads.filter((upload) => upload !== fixedPersonUpload));
-      const issues = [...parsed.errors, ...personPathIssues(parsed.rows), ...matches.errors];
+      const scriptIssues = parsed.rows.flatMap((row, index) =>
+        validateScriptStrategy(row, strategies.script_strategy, index + 2)
+      );
+      const issues = [...parsed.errors, ...personPathIssues(parsed.rows), ...scriptIssues, ...matches.errors];
       if (issues.length > 0) {
         await cleanupUploads(batchDirectory, newUploads);
         reply.code(422);

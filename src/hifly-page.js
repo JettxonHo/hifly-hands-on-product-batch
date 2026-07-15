@@ -2,6 +2,10 @@ import path from "node:path";
 import { resolveFromRoot } from "./config.js";
 import { timestampForFile } from "./logger.js";
 
+function normalizeScriptText(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").normalize("NFC");
+}
+
 export class HiflyHandsOnProductPage {
   constructor(page, config, logger) {
     this.page = page;
@@ -44,7 +48,10 @@ export class HiflyHandsOnProductPage {
 
   async applyScriptMode(product) {
     const mode = product.resolved_script_mode || (product.script ? "custom" : "hifly_ai");
-    if (mode === "hifly_ai") return;
+    if (mode === "hifly_ai") {
+      await this.enableAiScriptGeneration(product);
+      return;
+    }
 
     const script = String(product.script || "").trim();
     if (!script) {
@@ -60,7 +67,17 @@ export class HiflyHandsOnProductPage {
   }
 
   async disableAiScriptGeneration(product) {
+    await this.setAiScriptGeneration(product, false);
+  }
+
+  async enableAiScriptGeneration(product) {
+    await this.setAiScriptGeneration(product, true);
+  }
+
+  async setAiScriptGeneration(product, enabled) {
     const timeout = this.config.batch.defaultTimeoutMs;
+    const expected = enabled ? "true" : "false";
+    const action = enabled ? "on" : "off";
     const section = this.page.locator(
       "xpath=.//*[contains(normalize-space(.), 'AI 自动生成')]/ancestor::*[self::div or self::section][1]"
     ).first();
@@ -68,19 +85,19 @@ export class HiflyHandsOnProductPage {
 
     if (!await toggle.count().catch(() => 0)) {
       await this.captureStep(product, "script-ai-toggle-missing");
-      throw new Error("Could not find AI 自动生成 switch before filling custom script.");
+      throw new Error(`Could not find AI 自动生成 switch before turning it ${action}.`);
     }
 
     const checked = await toggle.getAttribute("aria-checked").catch(() => null);
-    if (checked !== "false") {
+    if (checked !== expected) {
       await toggle.click({ timeout, force: true });
       await this.page.waitForTimeout(500);
     }
 
     const after = await toggle.getAttribute("aria-checked").catch(() => null);
-    if (after !== "false") {
-      await this.captureStep(product, "script-ai-toggle-not-disabled");
-      throw new Error("AI 自动生成 switch did not turn off before filling custom script.");
+    if (after !== expected) {
+      await this.captureStep(product, `script-ai-toggle-not-${action}`);
+      throw new Error(`AI 自动生成 switch did not turn ${action}.`);
     }
   }
 
@@ -88,10 +105,9 @@ export class HiflyHandsOnProductPage {
     const label = this.config.hiflyUi?.scriptLabel;
     if (!label) throw new Error("hiflyUi.scriptLabel is required for custom script mode.");
 
-    const expected = String(product.script || "").trim();
-    const value = await this.readFieldValue(label).catch(() => "");
-    const sample = expected.slice(0, Math.min(20, expected.length));
-    if (!String(value || "").includes(sample)) {
+    const expected = normalizeScriptText(product.script);
+    const value = normalizeScriptText(await this.readFieldValue(label).catch(() => ""));
+    if (value !== expected) {
       await this.captureStep(product, "script-fill-not-verified");
       throw new Error("Custom script text could not be verified after filling.");
     }

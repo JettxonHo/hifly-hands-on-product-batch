@@ -440,7 +440,7 @@ test("preserves batch strategies through multipart imports", async (t) => {
   const response = await importInto(app, session, "batch-import-strategies", "SKU-1.png", {
     person_strategy: "hifly_recommended",
     script_strategy: "provided_script"
-  });
+  }, "策略校验口播文案");
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().batch.person_strategy, "hifly_recommended");
@@ -448,7 +448,7 @@ test("preserves batch strategies through multipart imports", async (t) => {
   assert.equal(response.json().batch.fixed_person_image_artifact_id, null);
 });
 
-test("preserves creation-time strategies when multipart metadata is omitted", async (t) => {
+test("rejects a provided-script batch with an empty imported script before it becomes pending", async (t) => {
   const { app, root, session } = await fixture();
   t.after(async () => {
     await app.close();
@@ -468,10 +468,15 @@ test("preserves creation-time strategies when multipart metadata is omitted", as
 
   const response = await importInto(app, session, "batch-import-creation-strategies");
 
-  assert.equal(response.statusCode, 200);
-  assert.equal(response.json().batch.person_strategy, "hifly_recommended");
-  assert.equal(response.json().batch.script_strategy, "provided_script");
-  assert.equal(response.json().batch.fixed_person_image_artifact_id, null);
+  assert.equal(response.statusCode, 422);
+  assert.equal(response.json().errors[0].code, "SCRIPT_REQUIRED");
+  const batch = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-import-creation-strategies",
+    headers: { host: HOST }
+  });
+  assert.equal(batch.json().batch.status, "needs_input");
+  assert.deepEqual(batch.json().batch.items, []);
 });
 
 test("rejects invalid multipart strategy metadata", async (t) => {
