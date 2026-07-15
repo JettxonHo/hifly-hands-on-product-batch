@@ -19,6 +19,10 @@ function isPause(error) {
   return error?.code === "PAUSED_AUTH";
 }
 
+function isRecoverableRpaTimeout(error) {
+  return error?.code === "YINGDAO_RPA_TIMEOUT";
+}
+
 function hasStableRemoteIdentity(value) {
   return value && typeof value === "object" &&
     (typeof value.remote_id === "string" && value.remote_id.length > 0 ||
@@ -232,6 +236,9 @@ export async function runBatch({
   async function pauseOrFailPreSubmit(task, error, phase) {
     if (isPause(error)) {
       return annotate(task, { paused_auth: true, error_message: error.message }, phase);
+    }
+    if (isRecoverableRpaTimeout(error)) {
+      return interruptUnknown(task, error, phase);
     }
     return transition(task, {
       type: "FAIL_PRE_SUBMIT",

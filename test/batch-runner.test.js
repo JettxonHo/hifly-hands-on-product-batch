@@ -173,6 +173,33 @@ function createDownloadTestAdapter(cards) {
   return new HiflyHandsOnProductPage(page, { batch: { defaultTimeoutMs: 10 } }, { info() {} });
 }
 
+function createScriptedRpaExecutor() {
+  return {
+    async createAsset(task) {
+      return { asset_id: `rpa-asset-${task.task_id}` };
+    },
+    async submitVideo() {
+      return {
+        status: "submitted",
+        remoteEvidence: {
+          evidence_source: "direct_submission",
+          remote_id: "rpa-remote-1",
+          work_key: "rpa-remote-1"
+        }
+      };
+    },
+    async querySubmission(remoteEvidence) {
+      return { status: "ready", remoteEvidence };
+    },
+    async downloadArtifact(remoteEvidence) {
+      return { artifact_id: remoteEvidence.remote_id, relative_path: "downloads/rpa-remote-1.mp4" };
+    },
+    async reconcileSubmission() {
+      return { candidates: [] };
+    }
+  };
+}
+
 test("persists checkpoints around submit and download", async () => {
   const fixture = await fixtureRun({ executor: createFakeExecutor({ remoteId: "remote-1" }) });
   try {
@@ -185,6 +212,45 @@ test("persists checkpoints around submit and download", async () => {
     assert.equal(result.items[0].remote_evidence.remote_id, "remote-1");
     assert.equal(result.items[0].output_path, "downloads/remote-1.mp4");
     assert.equal(result.items[0].submit_checkpoint.phase, "remote_submit_pre");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("rpa timeout becomes interrupted_unknown instead of hanging active forever", async () => {
+  const fixture = await fixtureRun({
+    executor: {
+      async createAsset() {
+        const error = new Error("Yingdao RPA timed out at asset_generation");
+        error.code = "YINGDAO_RPA_TIMEOUT";
+        throw error;
+      },
+      async submitVideo() {},
+      async querySubmission() {},
+      async downloadArtifact() {},
+      async reconcileSubmission() { return { candidates: [] }; }
+    }
+  });
+  try {
+    const result = await runBatch(fixture);
+
+    assert.equal(result.items[0].status, "interrupted_unknown");
+    assert.equal(result.items[0].error_phase, "asset_generation");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("rpa executor can drive the normal runBatch lifecycle", async () => {
+  const fixture = await fixtureRun({ executor: createScriptedRpaExecutor() });
+  try {
+    const result = await runBatch(fixture);
+
+    assert.deepEqual(fixture.store.statusHistory("task-1"), [
+      "confirmed", "generating_asset", "asset_confirmed",
+      "submitted", "download_pending", "completed"
+    ]);
+    assert.equal(result.items[0].output_path, "downloads/rpa-remote-1.mp4");
   } finally {
     await fixture.cleanup();
   }
