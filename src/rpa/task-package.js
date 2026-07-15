@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { lstatSync, realpathSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { assertTaskId } from "./rpa-state.js";
 
 function contained(parent, child) {
   const relative = path.relative(parent, child);
@@ -10,7 +12,13 @@ function contained(parent, child) {
 function requireInsideBatch(batchDirectory, filePath, label) {
   if (!filePath) return "";
   const absolute = path.resolve(filePath);
-  if (!contained(path.resolve(batchDirectory), absolute)) {
+  const batchAbsolutePath = path.resolve(batchDirectory);
+  const batchRealPath = realpathSync(batchDirectory);
+  if (!contained(batchAbsolutePath, absolute)) {
+    throw new Error(`${label} is outside batch directory`);
+  }
+  const realPath = realpathSync(absolute);
+  if (!lstatSync(realPath).isFile() || !contained(batchRealPath, realPath)) {
     throw new Error(`${label} is outside batch directory`);
   }
   return absolute;
@@ -18,6 +26,9 @@ function requireInsideBatch(batchDirectory, filePath, label) {
 
 function callbackUrl(baseUrl) {
   const url = new URL("/api/rpa/callback", baseUrl);
+  if (url.protocol !== "http:") {
+    throw new Error("RPA callback base URL must use http");
+  }
   if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost" && url.hostname !== "::1") {
     throw new Error("RPA callback base URL must be localhost");
   }
@@ -25,6 +36,7 @@ function callbackUrl(baseUrl) {
 }
 
 export function createRpaTaskPackage({ batch, task, batchDirectory, callbackBaseUrl }) {
+  assertTaskId(task.task_id);
   const productImagePath = requireInsideBatch(batchDirectory, task.image_path, "product_image_path");
   const personImagePath = task.__resolved_person_image_path || task.resolved_person_image_path || task.person_image_path || "";
   return {
@@ -49,6 +61,10 @@ export function createRpaTaskPackage({ batch, task, batchDirectory, callbackBase
 }
 
 export async function writeRpaTaskPackage({ batchDirectory, taskId, packageData }) {
+  assertTaskId(taskId);
+  if (!packageData || packageData.task_id !== taskId) {
+    throw new Error("packageData.task_id must match taskId");
+  }
   const dir = path.join(batchDirectory, "rpa", "tasks");
   await mkdir(dir, { recursive: true });
   const filePath = path.join(dir, `${taskId}.json`);

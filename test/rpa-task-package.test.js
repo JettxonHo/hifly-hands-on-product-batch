@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, mkdir, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -56,6 +56,86 @@ test("rejects product paths outside the batch directory", async () => {
       batchDirectory: f.batchDirectory,
       callbackBaseUrl: "http://127.0.0.1:4317"
     }), /outside batch directory/);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects product symlinks that resolve outside the batch directory", async () => {
+  const f = await fixture();
+  try {
+    const outsidePath = path.join(f.root, "outside.png");
+    const linkedPath = path.join(f.batchDirectory, "uploads", "linked-product.png");
+    await writeFile(outsidePath, "outside");
+    await symlink(outsidePath, linkedPath);
+    assert.throws(() => createRpaTaskPackage({
+      batch: { batch_id: "batch-1" },
+      task: { task_id: "task-1", execution_key: "key-1", sku: "SKU-1", image_path: linkedPath },
+      batchDirectory: f.batchDirectory,
+      callbackBaseUrl: "http://127.0.0.1:4317"
+    }), /outside batch directory/);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects person image symlinks that resolve outside the batch directory", async () => {
+  const f = await fixture();
+  try {
+    const outsidePath = path.join(f.root, "outside-person.png");
+    const linkedPath = path.join(f.batchDirectory, "uploads", "linked-person.png");
+    await writeFile(outsidePath, "outside");
+    await symlink(outsidePath, linkedPath);
+    assert.throws(() => createRpaTaskPackage({
+      batch: { batch_id: "batch-1" },
+      task: {
+        task_id: "task-1",
+        execution_key: "key-1",
+        sku: "SKU-1",
+        image_path: f.imagePath,
+        person_image_path: linkedPath
+      },
+      batchDirectory: f.batchDirectory,
+      callbackBaseUrl: "http://127.0.0.1:4317"
+    }), /outside batch directory/);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects unsafe task ids and mismatched package task ids", async () => {
+  const f = await fixture();
+  try {
+    const pkg = createRpaTaskPackage({
+      batch: { batch_id: "batch-1" },
+      task: { task_id: "task-1", execution_key: "key-1", sku: "SKU-1", image_path: f.imagePath },
+      batchDirectory: f.batchDirectory,
+      callbackBaseUrl: "http://127.0.0.1:4317"
+    });
+    await assert.rejects(() => writeRpaTaskPackage({
+      batchDirectory: f.batchDirectory,
+      taskId: "../escape",
+      packageData: pkg
+    }), /Invalid RPA task id/);
+    await assert.rejects(() => writeRpaTaskPackage({
+      batchDirectory: f.batchDirectory,
+      taskId: "task-2",
+      packageData: pkg
+    }), /task_id must match taskId/);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("accepts only localhost http callback URLs", async () => {
+  const f = await fixture();
+  try {
+    assert.throws(() => createRpaTaskPackage({
+      batch: { batch_id: "batch-1" },
+      task: { task_id: "task-1", execution_key: "key-1", sku: "SKU-1", image_path: f.imagePath },
+      batchDirectory: f.batchDirectory,
+      callbackBaseUrl: "https://127.0.0.1:4317"
+    }), /callback base URL must use http/);
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
