@@ -31,13 +31,15 @@ const TRANSITIONS = Object.freeze({
   interrupted_unknown: {
     RECONCILE_REMOTE_ABSENT: "failed_pre_submit",
     RECONCILE_SUBMITTED: "submitted",
-    RECONCILE_DOWNLOAD_PENDING: "download_pending"
+    RECONCILE_DOWNLOAD_PENDING: "download_pending",
+    FORCE_RETRY_GENERATION: "pending"
   }
 });
 
 const INVALIDATES_CONFIRMATION = new Set([
   "EDIT",
   "RETRY_GENERATION",
+  "FORCE_RETRY_GENERATION",
   "STOP_SAFE",
   "VALIDATE",
   "VALIDATION_FAILED",

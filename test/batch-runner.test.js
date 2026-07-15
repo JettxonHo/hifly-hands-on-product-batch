@@ -579,6 +579,45 @@ test("submitVideo waits for a sole stable new latest work and returns direct evi
   assert.equal(checkpoints[0].phase, "remote_submit_pre");
 });
 
+test("submitVideo persists wait checkpoints without clicking submit twice", async () => {
+  const realNow = Date.now;
+  let now = 0;
+  Date.now = () => now;
+  try {
+    const actions = [];
+    let submitClicks = 0;
+    const adapter = new HiflyHandsOnProductPage({
+      async waitForTimeout(ms) {
+        actions.push(`wait:${ms}`);
+        now += ms;
+      }
+    }, { batch: { defaultTimeoutMs: 10, generationTimeoutMs: 36000 } }, { info() {} });
+    adapter.listLatestWorks = async () => [{ work_key: "existing-work" }];
+    adapter.captureStep = async () => {};
+    adapter.clickSubmitButton = async () => {
+      submitClicks += 1;
+    };
+    const checkpoints = [];
+
+    const result = await adapter.submitVideo({}, {
+      checkpoint: async (value) => checkpoints.push(value)
+    });
+
+    assert.equal(result.status, "ambiguous");
+    assert.equal(submitClicks, 1);
+    assert.deepEqual(checkpoints.map((checkpoint) => checkpoint.phase), [
+      "remote_submit_pre",
+      "remote_submit_clicked",
+      "remote_submit_wait"
+    ]);
+    assert.equal(checkpoints[2].evidence.elapsed_ms, 35000);
+    assert.equal(checkpoints[2].evidence.candidate_count, 0);
+    assert.equal(actions.length, 8);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 test("createHandsOnImage edits a stale generated modal before uploading the current product", async () => {
   const calls = [];
   const adapter = new HiflyHandsOnProductPage({}, {
@@ -593,10 +632,20 @@ test("createHandsOnImage edits a stale generated modal before uploading the curr
 
   adapter.openHandsOnModal = async () => calls.push("open");
   adapter.captureStep = async (_product, step) => calls.push(`capture:${step}`);
-  adapter.hasGeneratedImageReady = async () => calls.push("ready") && true;
+  let readyChecks = 0;
+  adapter.hasGeneratedImageReady = async () => {
+    readyChecks += 1;
+    calls.push("ready");
+    return readyChecks === 1;
+  };
   adapter.resetGeneratedHandsOnImage = async () => calls.push("reset-stale");
   adapter.selectRecommendedPerson = async () => calls.push("select-person");
-  adapter.uploadModalFile = async (label, filePath) => calls.push(`upload:${label}:${filePath}`);
+  adapter.captureProductImageSrc = async () => calls.push("capture-src") && { src: "stale.png", naturalWidth: 100 };
+  adapter.verifyProductImageReplaced = async () => calls.push("verify");
+  adapter.uploadModalFile = async (label, filePath, options = {}) => {
+    const required = options?.required === true ? "required" : "optional";
+    calls.push(`upload:${label}:${filePath}:${required}`);
+  };
   adapter.clickModalGenerate = async () => calls.push("generate");
   adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
   adapter.clickModalConfirm = async () => {
@@ -614,86 +663,275 @@ test("createHandsOnImage edits a stale generated modal before uploading the curr
     "ready",
     "reset-stale",
     "capture:modal-reset",
+    "open",
+    "capture:modal-reopen",
+    "ready",
     "select-person",
-    "upload:上传商品:/tmp/current-product.png",
+    "capture-src",
+    "upload:上传商品:/tmp/current-product.png:required",
+    "verify",
     "capture:modal-ready",
+    "ready",
     "generate",
     "capture:modal-after-generate",
     "confirm"
   ]);
 });
 
-test("resetGeneratedHandsOnImage retries by coordinates when edit click does not reveal upload controls", async () => {
-  const actions = [];
-  let attempts = 0;
-  const uploadButton = {
-    async waitFor() {
-      attempts += 1;
-      if (attempts === 1) throw new Error("upload controls still hidden");
-      actions.push("upload-visible");
+test("createHandsOnImage retries when a generated modal appears before clicking generate", async () => {
+  const calls = [];
+  const readyResults = [
+    false, // initial open
+    true, // unexpected generated/stale result immediately after upload
+    false, // reset+reopen anti-loop check
+    false, // retry open
+    false // retry after upload, safe to click generate
+  ];
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    behavior: { useRecommendedPersonWhenMissing: true },
+    personPool: { fallbackToRecommended: true },
+    hiflyUi: {
+      uploadPersonText: "上传人物",
+      uploadProductText: "上传商品"
     }
+  }, { info(event, payload) { calls.push(`log:${event}:${payload?.attempt ?? ""}`); } });
+
+  adapter.openHandsOnModal = async () => calls.push("open");
+  adapter.captureStep = async (_product, step) => calls.push(`capture:${step}`);
+  adapter.hasGeneratedImageReady = async () => {
+    calls.push("ready");
+    return readyResults.shift() ?? false;
   };
-  const editButton = {
-    async click() {
-      actions.push("edit-text-click");
+  adapter.resetGeneratedHandsOnImage = async () => calls.push("reset-stale");
+  adapter.selectRecommendedPerson = async () => calls.push("select-person");
+  adapter.captureProductImageSrc = async () => calls.push("capture-src") && { src: "before.png", naturalWidth: 100 };
+  adapter.verifyProductImageReplaced = async () => calls.push("verify");
+  adapter.uploadModalFile = async (label, filePath, options = {}) => {
+    const required = options?.required === true ? "required" : "optional";
+    calls.push(`upload:${label}:${filePath}:${required}`);
+  };
+  adapter.clickModalGenerate = async () => calls.push("generate");
+  adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
+
+  await adapter.createHandsOnImage({
+    sku: "SKU001",
+    image_path: "/tmp/current-product.png"
+  });
+
+  assert.deepEqual(calls, [
+    "open",
+    "capture:modal-open",
+    "ready",
+    "select-person",
+    "capture-src",
+    "upload:上传商品:/tmp/current-product.png:required",
+    "verify",
+    "capture:modal-ready",
+    "ready",
+    "log:generated_modal_ready_before_generate:0",
+    "reset-stale",
+    "capture:modal-reset",
+    "open",
+    "capture:modal-reopen",
+    "ready",
+    "open",
+    "capture:modal-retry-open",
+    "ready",
+    "select-person",
+    "capture-src",
+    "upload:上传商品:/tmp/current-product.png:required",
+    "verify",
+    "capture:modal-ready",
+    "ready",
+    "generate",
+    "capture:modal-after-generate",
+    "confirm"
+  ]);
+});
+
+test("createHandsOnImage forces a product upload even when the modal looks ready to generate", async () => {
+  const calls = [];
+  const productUploadError = new Error("product upload must run on a stale modal");
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: {
+      uploadPersonText: "上传人物",
+      uploadProductText: "上传商品"
     }
+  }, { info() {} });
+
+  adapter.openHandsOnModal = async () => calls.push("open");
+  adapter.captureStep = async (_product, step) => calls.push(`capture:${step}`);
+  adapter.hasGeneratedImageReady = async () => false;
+  adapter.selectRecommendedPerson = async () => calls.push("select-person");
+  adapter.uploadModalFile = async (label, filePath, options = {}) => {
+    const required = options?.required === true ? "required" : "optional";
+    calls.push(`upload:${label}:${filePath}:${required}`);
+    if (required === "required") throw productUploadError;
+  };
+  adapter.clickModalGenerate = async () => calls.push("generate");
+  adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
+
+  await assert.rejects(
+    adapter.createHandsOnImage({ sku: "SKU001", image_path: "/tmp/current-product.png" }),
+    productUploadError
+  );
+
+  assert.deepEqual(calls, [
+    "open",
+    "capture:modal-open",
+    "upload:上传商品:/tmp/current-product.png:required"
+  ]);
+});
+
+test("createHandsOnImage throws if a stale image persists after reset+reopen (anti-loop guard)", async () => {
+  const calls = [];
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadProductText: "上传商品" }
+  }, { info() {} });
+  adapter.openHandsOnModal = async () => calls.push("open");
+  adapter.captureStep = async (_p, step) => calls.push(`capture:${step}`);
+  adapter.hasGeneratedImageReady = async () => { calls.push("ready"); return true; };
+  adapter.resetGeneratedHandsOnImage = async () => calls.push("reset-stale");
+  adapter.dumpModalDomSnapshot = async () => calls.push("dump");
+
+  await assert.rejects(
+    adapter.createHandsOnImage({ sku: "SKU001", image_path: "/tmp/p.png" }),
+    /stale generated image persists after reset\+reopen/
+  );
+
+  assert.deepEqual(calls, [
+    "open",
+    "capture:modal-open",
+    "ready",
+    "reset-stale",
+    "capture:modal-reset",
+    "open",
+    "capture:modal-reopen",
+    "ready",
+    "dump"
+  ]);
+});
+
+test("resetGeneratedHandsOnImage waits for the product upload button after clicking edit", async () => {
+  const actions = [];
+  const uploadButton = {
+    async isVisible() { return true; },
+    async waitFor() { actions.push("upload-visible"); }
+  };
+  const editLink = {
+    async isVisible() { actions.push("edit-text-visible"); return true; },
+    async click() { actions.push("edit-text-click"); }
   };
   const dialog = {
-    getByText() {
-      return {
-        first: () => ({
-          async isVisible() {
-            actions.push("edit-text-visible");
-            return true;
-          },
-          async click() {
-            return editButton.click();
-          }
-        })
-      };
-    },
-    getByRole(_role, options) {
-      const name = String(options?.name || "");
-      return name.includes("上传商品") ? { first: () => uploadButton } : { first: () => editButton };
-    },
-    async waitFor() {
-      actions.push("dialog-visible");
-    },
-    async boundingBox() {
-      actions.push("dialog-box");
-      return { x: 100, y: 200, width: 500, height: 300 };
-    }
+    getByText() { return { first: () => editLink }; }
   };
   const page = {
-    mouse: {
-      async click(x, y) {
-        actions.push(`mouse:${x}:${y}`);
-      }
+    getByRole(_role, options) {
+      const name = String(options?.name || "");
+      return name.includes("上传商品")
+        ? { first: () => uploadButton }
+        : { first: () => editLink };
     },
-    async waitForTimeout(ms) {
-      actions.push(`wait:${ms}`);
-    }
+    async waitForTimeout(ms) { actions.push(`wait:${ms}`); }
   };
   const adapter = new HiflyHandsOnProductPage(page, {
     batch: { defaultTimeoutMs: 10 },
     hiflyUi: { uploadProductText: "上传商品" }
   }, { info() {} });
   adapter.dialogLocator = () => dialog;
+  adapter.captureStep = async (_product, step) => actions.push(`capture:${step}`);
 
-  await adapter.resetGeneratedHandsOnImage();
+  await adapter.resetGeneratedHandsOnImage({ sku: "SKU001" });
 
   assert.deepEqual(actions, [
     "edit-text-visible",
     "edit-text-click",
-    "dialog-visible",
-    "dialog-box",
-    "mouse:310:457",
+    "capture:after-reset-edit",
     "upload-visible",
     "wait:500"
   ]);
 });
 
-test("uploadModalFile accepts an already uploaded modal that is ready to generate", async () => {
+test("resetGeneratedHandsOnImage clears residual images then throws when the upload button never appears", async () => {
+  const actions = [];
+  const uploadButton = {
+    async isVisible() { return false; },
+    async waitFor() { throw new Error("upload controls still hidden"); }
+  };
+  const editLink = {
+    async isVisible() { return true; },
+    async click() { actions.push("edit-text-click"); }
+  };
+  const dialog = {
+    getByText() { return { first: () => editLink }; }
+  };
+  const page = {
+    getByRole(_role, options) {
+      const name = String(options?.name || "");
+      return name.includes("上传商品")
+        ? { first: () => uploadButton }
+        : { first: () => editLink };
+    },
+    async waitForTimeout() {}
+  };
+  const adapter = new HiflyHandsOnProductPage(page, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadProductText: "上传商品" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+  adapter.captureStep = async (_product, step) => actions.push(`capture:${step}`);
+  adapter.dumpModalDomSnapshot = async () => actions.push("dump");
+  adapter.clearResidualModalImages = async () => actions.push("clear-residual");
+
+  await assert.rejects(
+    adapter.resetGeneratedHandsOnImage({ sku: "SKU001" }),
+    /did not become visible/
+  );
+
+  assert.deepEqual(actions, [
+    "edit-text-click",
+    "capture:after-reset-edit",
+    "dump",
+    "clear-residual",
+    "capture:reset-upload-not-visible",
+    "dump"
+  ]);
+});
+
+test("verifyProductImageReplaced throws when the product image src did not change (safety net)", async () => {
+  const adapter = new HiflyHandsOnProductPage({}, { batch: { defaultTimeoutMs: 10 } }, { info() {} });
+  adapter.captureStep = async () => {};
+  adapter.captureProductImageSrc = async () => ({ src: "https://cdn/stale-bokchoy.png", naturalWidth: 200 });
+
+  await assert.rejects(
+    adapter.verifyProductImageReplaced({ src: "https://cdn/stale-bokchoy.png", naturalWidth: 200 }, { sku: "SKU001" }),
+    /product image NOT replaced/
+  );
+});
+
+test("verifyProductImageReplaced passes when a new product image is loaded after upload", async () => {
+  const adapter = new HiflyHandsOnProductPage({}, { batch: { defaultTimeoutMs: 10 } }, { info() {} });
+  adapter.captureStep = async () => {};
+  adapter.captureProductImageSrc = async () => ({ src: "blob:new-chiikawa", naturalWidth: 200 });
+
+  await adapter.verifyProductImageReplaced({ src: "https://cdn/stale-bokchoy.png", naturalWidth: 200 }, { sku: "SKU001" });
+});
+
+test("verifyProductImageReplaced throws when no product image is found after upload", async () => {
+  const adapter = new HiflyHandsOnProductPage({}, { batch: { defaultTimeoutMs: 10 } }, { info() {} });
+  adapter.captureStep = async () => {};
+  adapter.captureProductImageSrc = async () => null;
+
+  await assert.rejects(
+    adapter.verifyProductImageReplaced(null, { sku: "SKU001" }),
+    /product image not found/
+  );
+});
+
+test("uploadModalFile skips optional uploads when the modal is already ready to generate", async () => {
   const actions = [];
   const adapter = new HiflyHandsOnProductPage({
     getByRole(role, options) {
@@ -717,6 +955,9 @@ test("uploadModalFile accepts an already uploaded modal that is ready to generat
     },
     async waitForEvent() {
       actions.push("unexpected-filechooser");
+    },
+    locator() {
+      return { last: () => ({ async count() { return 0; } }) };
     }
   }, {
     batch: { defaultTimeoutMs: 10 },
@@ -727,12 +968,110 @@ test("uploadModalFile accepts an already uploaded modal that is ready to generat
     return true;
   };
 
-  await adapter.uploadModalFile("上传商品", "/tmp/product.png");
+  await adapter.uploadModalFile("上传人物", "/tmp/person.png");
+
+  assert.deepEqual(actions, [
+    "button:/上传人物/",
+    "upload-hidden",
+    "generate-ready"
+  ]);
+});
+
+test("uploadModalFile refuses to skip a required upload when the button stays hidden", async () => {
+  const actions = [];
+  const adapter = new HiflyHandsOnProductPage({
+    getByRole(role, options) {
+      actions.push(`${role}:${options.name}`);
+      return {
+        first() {
+          return {
+            async isVisible() {
+              actions.push("upload-hidden");
+              return false;
+            },
+            async waitFor() {
+              actions.push("unexpected-wait");
+            },
+            async click() {
+              actions.push("unexpected-click");
+            }
+          };
+        }
+      };
+    },
+    async waitForEvent() {
+      actions.push("unexpected-filechooser");
+    },
+    locator() {
+      return { last: () => ({ async count() { return 0; } }) };
+    }
+  }, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadProductText: "上传商品", modalSubmitText: "立即生成" }
+  }, { info() {} });
+  adapter.isHandsOnModalReadyForGenerate = async () => {
+    actions.push("generate-ready");
+    return true;
+  };
+
+  await assert.rejects(
+    adapter.uploadModalFile("上传商品", "/tmp/product.png", { required: true }),
+    /Required upload "上传商品" is not visible/
+  );
 
   assert.deepEqual(actions, [
     "button:/上传商品/",
     "upload-hidden",
     "generate-ready"
+  ]);
+});
+
+test("uploadModalFile refuses a required product upload even when the modal is not ready to generate", async () => {
+  const actions = [];
+  const adapter = new HiflyHandsOnProductPage({
+    getByRole(role, options) {
+      actions.push(`${role}:${options.name}`);
+      return {
+        first() {
+          return {
+            async isVisible() {
+              actions.push("upload-hidden");
+              return false;
+            },
+            async waitFor() {
+              actions.push("unexpected-wait");
+            },
+            async click() {
+              actions.push("unexpected-click");
+            }
+          };
+        }
+      };
+    },
+    async waitForEvent() {
+      actions.push("unexpected-filechooser");
+    },
+    locator() {
+      return { last: () => ({ async count() { return 0; } }) };
+    }
+  }, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadProductText: "上传商品", modalSubmitText: "立即生成" }
+  }, { info() {} });
+  adapter.isHandsOnModalReadyForGenerate = async () => {
+    actions.push("generate-not-ready");
+    return false;
+  };
+
+  await assert.rejects(
+    adapter.uploadModalFile("上传商品", "/tmp/product.png", { required: true }),
+    /Required upload "上传商品" is not visible/
+  );
+
+  assert.deepEqual(actions, [
+    "button:/上传商品/",
+    "upload-hidden",
+    "generate-not-ready"
   ]);
 });
 

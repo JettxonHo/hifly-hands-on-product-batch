@@ -409,6 +409,15 @@ tr.selected {
   line-height: 1.5;
 }
 
+.task-progress {
+  margin-top: 8px;
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+  color: var(--accent-strong);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

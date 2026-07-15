@@ -81,18 +81,24 @@ export async function registerBatchRoutes(app, { store }) {
 
   app.post("/api/batches/:batchId/retry", async (request) => {
     const batchId = assertBatchId(request.params.batchId);
-    if (!isPlainObject(request.body) || Object.keys(request.body).some((key) => key !== "confirm")) {
+    if (!isPlainObject(request.body) || Object.keys(request.body).some((key) => !["confirm", "allowUnknown"].includes(key))) {
       throw batchError("INVALID_RETRY_REQUEST");
     }
     if (request.body.confirm !== true) throw batchError("EXPLICIT_CONFIRMATION_REQUIRED");
 
     const batch = await store.update(batchId, (current) => {
       const items = Array.isArray(current.items) ? current.items : [];
-      if (items.length === 0 || !items.every((item) => item.status === "failed_pre_submit")) {
+      const hasUnknown = items.some((item) => item.status === "interrupted_unknown");
+      const retryable = items.length > 0 && items.every((item) =>
+        item.status === "failed_pre_submit" ||
+        item.status === "failed_remote" ||
+        item.status === "interrupted_unknown"
+      );
+      if (!retryable || hasUnknown && request.body.allowUnknown !== true) {
         throw batchError("BATCH_NOT_RETRYABLE", 409);
       }
       const retriedItems = items.map((item) => transitionTask(item, {
-        type: "RETRY_GENERATION",
+        type: item.status === "interrupted_unknown" ? "FORCE_RETRY_GENERATION" : "RETRY_GENERATION",
         changes: {
           retry_count: Number(item.retry_count || 0) + 1,
           paused_auth: false,

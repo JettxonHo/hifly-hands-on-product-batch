@@ -2,7 +2,9 @@
   const state = {
     batches: [],
     selectedBatchId: null,
-    busy: false
+    busy: false,
+    pollTimer: null,
+    pollFailures: 0
   };
 
   const api = window.HiflyApi;
@@ -103,12 +105,80 @@
     return labels[status] || status || "未知";
   }
 
+  const BATCH_FOCUS_PRIORITY = new Map([
+    ["interrupted_unknown", 0],
+    ["active", 1],
+    ["paused_auth", 2],
+    ["failed", 3],
+    ["needs_input", 4],
+    ["pending", 5],
+    ["completed", 6],
+    ["empty", 7]
+  ]);
+  const AUTO_OPEN_QUEUE_STATUSES = new Set(["interrupted_unknown", "active", "paused_auth", "failed"]);
+
+  function batchFocusPriority(batch) {
+    return BATCH_FOCUS_PRIORITY.get(batch?.status) ?? 99;
+  }
+
+  function batchCreatedTime(batch) {
+    const time = Date.parse(batch?.created_at || "");
+    return Number.isNaN(time) ? 0 : time;
+  }
+
+  function preferredBatch(batches) {
+    if (!Array.isArray(batches) || batches.length === 0) return null;
+    return [...batches].sort((left, right) => {
+      const priority = batchFocusPriority(left) - batchFocusPriority(right);
+      if (priority !== 0) return priority;
+      const created = batchCreatedTime(right) - batchCreatedTime(left);
+      if (created !== 0) return created;
+      return String(left.batch_id || "").localeCompare(String(right.batch_id || ""));
+    })[0];
+  }
+
+  function shouldOpenQueueOnInit(batch) {
+    return AUTO_OPEN_QUEUE_STATUSES.has(batch?.status);
+  }
+
+  function hasActiveBatch() {
+    return state.batches.some((batch) => {
+      if (batch.execution_error) return false;
+      return batch.status === "active" ||
+        (batch.items || []).some((item) =>
+          item.status === "confirmed" && item.execution_key ||
+          [
+            "generating_asset",
+            "asset_confirmed",
+            "submitted",
+            "download_pending"
+          ].includes(item.status));
+    });
+  }
+
+  function schedulePolling() {
+    window.clearTimeout(state.pollTimer);
+    state.pollTimer = null;
+    if (!hasActiveBatch()) return;
+    state.pollTimer = window.setTimeout(async () => {
+      await refreshBatches({ silent: true });
+    }, 5000);
+  }
+
   function activeBatch() {
     return state.batches.find((batch) => batch.batch_id === state.selectedBatchId) || null;
   }
 
   function canRetryBatch(batch) {
-    return Boolean(batch?.items?.length) && batch.items.every((item) => item.status === "failed_pre_submit");
+    return Boolean(batch?.items?.length) && batch.items.every((item) =>
+      item.status === "failed_pre_submit" ||
+      item.status === "failed_remote" ||
+      item.status === "interrupted_unknown"
+    );
+  }
+
+  function retryHasUnknown(batch) {
+    return Boolean(batch?.items?.some((item) => item.status === "interrupted_unknown"));
   }
 
   function switchTab(name) {
@@ -132,12 +202,16 @@
         state.selectedBatchId = null;
       }
       if (!state.selectedBatchId && state.batches.length > 0) {
-        state.selectedBatchId = state.batches[0].batch_id;
+        state.selectedBatchId = preferredBatch(state.batches)?.batch_id ?? null;
       }
+      state.pollFailures = 0;
       renderAll();
+      schedulePolling();
       if (!silent) showToast("批次列表已刷新");
     } catch (error) {
-      showToast(`刷新失败：${error.message}`);
+      state.pollFailures += 1;
+      if (!silent) showToast(`刷新失败：${error.message}`);
+      if (state.pollFailures < 3) schedulePolling();
     }
   }
 
@@ -208,6 +282,11 @@
     const summary = document.createElement("p");
     summary.className = "task-meta";
     setText(summary, `状态：${statusLabel(batch.status)} · 商品 ${itemCount} 条`);
+    const error = batch.execution_error ? document.createElement("div") : null;
+    if (error) {
+      error.className = "notice error";
+      setText(error, `执行异常：${batch.execution_error}`);
+    }
     const executionPlan = document.createElement("div");
     executionPlan.className = "execution-plan";
     const executionTitle = document.createElement("strong");
@@ -220,7 +299,9 @@
     for (const item of batch.items || []) {
       list.append(taskItem(item));
     }
-    nodes.batchDetail.append(summary, executionPlan);
+    nodes.batchDetail.append(summary);
+    if (error) nodes.batchDetail.append(error);
+    nodes.batchDetail.append(executionPlan);
     if (canRetryBatch(batch)) nodes.batchDetail.append(retryBatchButton(batch));
     nodes.batchDetail.append(list);
   }
@@ -229,7 +310,7 @@
     const button = document.createElement("button");
     button.type = "button";
     button.className = "primary-button full-width-action";
-    setText(button, "重试失败批次");
+    setText(button, retryHasUnknown(batch) ? "重新生成异常批次" : "重试失败批次");
     button.addEventListener("click", () => retryBatch(batch.batch_id));
     return button;
   }
@@ -249,7 +330,41 @@
     meta.className = "task-meta";
     setText(meta, `${item.sku || "-"} · ${item.category || "未填写品类"} · ${item.selling_points || "未填写卖点"}`);
     li.append(title, meta);
+    const progress = taskProgress(item);
+    if (progress) li.append(progress);
     return li;
+  }
+
+  function taskProgress(item) {
+    const text = taskProgressText(item);
+    if (!text) return null;
+    const node = document.createElement("div");
+    node.className = "task-progress";
+    setText(node, text);
+    return node;
+  }
+
+  function taskProgressText(item) {
+    if (item.output_path) return `输出文件：${item.output_path}`;
+    if (item.error_message) return `错误：${item.error_message}`;
+    const checkpoint = item.submit_checkpoint;
+    if (checkpoint?.phase === "remote_submit_wait") {
+      const elapsed = Math.round((checkpoint.evidence?.elapsed_ms || 0) / 1000);
+      const candidates = checkpoint.evidence?.candidate_count ?? 0;
+      return `已点击视频生成，等待飞影最新作品刷新；已等待 ${elapsed} 秒，新作品候选 ${candidates} 个。`;
+    }
+    if (checkpoint?.phase === "remote_submit_clicked") {
+      return "已点击视频生成，正在观察飞影最新作品列表。";
+    }
+    if (checkpoint?.phase === "remote_submit_pre") {
+      return "手持商品图已确认，准备点击视频生成。";
+    }
+    if (item.status === "confirmed" && item.execution_key) return "已确认执行，等待后台开始处理。";
+    if (item.status === "generating_asset") return "正在生成手持商品图。";
+    if (item.status === "asset_confirmed") return "手持商品图已确认，等待提交视频或等待作品刷新。";
+    if (item.status === "submitted") return "已提交飞影，等待生成完成。";
+    if (item.status === "download_pending") return "飞影作品已生成，等待下载。";
+    return "";
   }
 
   function renderRecords() {
@@ -541,13 +656,21 @@
   }
 
   async function retryBatch(batchId) {
+    const batch = state.batches.find((candidate) => candidate.batch_id === batchId);
+    const allowUnknown = retryHasUnknown(batch);
+    if (allowUnknown) {
+      const approved = window.confirm(
+        "这个批次处于需人工核对状态，可能已经在飞影提交过生成。重新生成可能重复消耗积分。确认要把异常任务重置为待执行吗？"
+      );
+      if (!approved) return;
+    }
     setBusy(true);
     try {
-      const payload = await api.retryBatch({ batchId });
+      const payload = await api.retryBatch({ batchId, allowUnknown });
       state.selectedBatchId = payload.batch.batch_id;
       await refreshBatches({ silent: true });
       switchTab("queue");
-      showToast("失败批次已恢复为待执行，可以重新开始生成");
+      showToast(allowUnknown ? "异常批次已恢复为待执行，请确认后重新开始生成" : "失败批次已恢复为待执行，可以重新开始生成");
     } catch (error) {
       showToast(`重试失败：${error.message}`);
     } finally {
@@ -577,6 +700,7 @@
       await api.ensureSession();
       setText(nodes.sessionStatus, "会话已就绪");
       await refreshBatches({ silent: true });
+      if (shouldOpenQueueOnInit(activeBatch())) switchTab("queue");
     } catch (error) {
       setText(nodes.sessionStatus, "会话失败");
       showToast(`初始化失败：${error.message}`);

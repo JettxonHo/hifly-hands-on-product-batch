@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import { loadConfig, resolveFromRoot } from "../config.js";
 import { createHiflyExecutor } from "../executors/hifly-executor.js";
 import { HiflyHandsOnProductPage } from "../hifly-page.js";
+import { BatchLogger } from "../logger.js";
 import { getProjectRoot } from "../core/project-root.js";
 import { buildApp } from "./app.js";
 
@@ -28,11 +29,12 @@ function createLazyHiflyExecutor(root) {
       headless: config.browser.headless,
       slowMo: config.browser.slowMoMs,
       viewport: config.browser.viewport,
-      acceptDownloads: true
+      acceptDownloads: true,
+      args: ["--disable-session-crashed-bubble", "--no-default-browser-check"]
     });
     const page = context.pages()[0] || await context.newPage();
     page.setDefaultTimeout(config.batch.defaultTimeoutMs);
-    const logger = { info() {}, error() {} };
+    const logger = new BatchLogger(config);
     delegate = createHiflyExecutor({ hiflyPage: new HiflyHandsOnProductPage(page, config, logger) });
     return delegate;
   }

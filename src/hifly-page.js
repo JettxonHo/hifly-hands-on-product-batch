@@ -67,8 +67,14 @@ export class HiflyHandsOnProductPage {
     await this.captureStep(product, "before-submit");
     await this.clickSubmitButton();
     await this.captureStep(product, "after-submit");
+    await checkpoint?.({
+      phase: "remote_submit_clicked",
+      evidence: {
+        observed_at: new Date().toISOString()
+      }
+    });
 
-    const candidates = await this.waitForNewLatestWorks(before);
+    const candidates = await this.waitForNewLatestWorks(before, { checkpoint });
     if (candidates.length === 1 && (candidates[0].remote_id || candidates[0].remote_url)) {
       return {
         status: "submitted",
@@ -236,15 +242,28 @@ export class HiflyHandsOnProductPage {
     return dedupeWorks(works);
   }
 
-  async waitForNewLatestWorks(before, timeout = this.config.batch.generationTimeoutMs) {
+  async waitForNewLatestWorks(before, { timeout = this.config.batch.generationTimeoutMs, checkpoint } = {}) {
     const prior = new Set(before.map((work) => work.work_key));
     const startedAt = Date.now();
     let latestCandidates = [];
+    let lastCheckpointAt = 0;
 
     while (Date.now() - startedAt < timeout) {
       const after = await this.listLatestWorks();
       latestCandidates = after.filter((work) => !prior.has(work.work_key));
       if (latestCandidates.length > 0) return latestCandidates;
+      if (Date.now() - lastCheckpointAt > 30000) {
+        lastCheckpointAt = Date.now();
+        await checkpoint?.({
+          phase: "remote_submit_wait",
+          evidence: {
+            observed_at: new Date().toISOString(),
+            elapsed_ms: Date.now() - startedAt,
+            known_work_count: after.length,
+            candidate_count: latestCandidates.length
+          }
+        });
+      }
       await this.page.waitForTimeout(5000);
     }
 
@@ -334,37 +353,70 @@ export class HiflyHandsOnProductPage {
   }
 
   async createHandsOnImage(product) {
-    await this.openHandsOnModal();
-    await this.captureStep(product, "modal-open");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await this.openHandsOnModal();
+      await this.captureStep(product, attempt === 0 ? "modal-open" : "modal-retry-open");
 
-    if (await this.hasGeneratedImageReady()) {
-      await this.resetGeneratedHandsOnImage();
-      await this.captureStep(product, "modal-reset");
-    }
+      if (await this.hasGeneratedImageReady()) {
+        await this.resetAndReopenHandsOnModal(product);
+      }
 
-    const personImagePath = product.__resolved_person_image_path || product.person_image_path;
+      const personImagePath = product.__resolved_person_image_path || product.person_image_path;
 
-    if (personImagePath) {
+      if (personImagePath) {
+        await this.uploadModalFile(
+          this.config.hiflyUi.uploadPersonText,
+          resolveFromRoot(this.config, personImagePath)
+        );
+      } else if (
+        this.config.behavior?.useRecommendedPersonWhenMissing
+        && this.config.personPool?.fallbackToRecommended !== false
+      ) {
+        await this.selectRecommendedPerson();
+      }
+
+      const staleProductSrc = await this.captureProductImageSrc();
+
       await this.uploadModalFile(
-        this.config.hiflyUi.uploadPersonText,
-        resolveFromRoot(this.config, personImagePath)
+        this.config.hiflyUi.uploadProductText,
+        resolveFromRoot(this.config, product.image_path),
+        { required: true }
       );
-    } else if (
-      this.config.behavior?.useRecommendedPersonWhenMissing
-      && this.config.personPool?.fallbackToRecommended !== false
-    ) {
-      await this.selectRecommendedPerson();
+
+      await this.verifyProductImageReplaced(staleProductSrc, product);
+      await this.captureStep(product, "modal-ready");
+
+      if (await this.hasGeneratedImageReady()) {
+        this.logger.info("generated_modal_ready_before_generate", {
+          sku: product?.sku,
+          attempt
+        });
+        if (attempt === 0) {
+          await this.resetAndReopenHandsOnModal(product);
+          continue;
+        }
+        await this.dumpModalDomSnapshot(product);
+        throw new Error("generated hands-on image appeared before clicking generate; refusing to confirm a possible stale asset");
+      }
+
+      await this.clickModalGenerate();
+      await this.captureStep(product, "modal-after-generate");
+      await this.confirmGeneratedHandsOnImage();
+      return;
     }
+  }
 
-    await this.uploadModalFile(
-      this.config.hiflyUi.uploadProductText,
-      resolveFromRoot(this.config, product.image_path)
-    );
-
-    await this.captureStep(product, "modal-ready");
-    await this.clickModalGenerate();
-    await this.captureStep(product, "modal-after-generate");
-    await this.confirmGeneratedHandsOnImage();
+  async resetAndReopenHandsOnModal(product) {
+    await this.resetGeneratedHandsOnImage(product);
+    await this.captureStep(product, "modal-reset");
+    // clearResidual 删残留图会关闭"手持商品图"弹窗、回到外层页面；
+    // 重新打开一个干净的上传界面（残留已删），才能看到"上传商品"按钮。
+    await this.openHandsOnModal();
+    await this.captureStep(product, "modal-reopen");
+    if (await this.hasGeneratedImageReady()) {
+      await this.dumpModalDomSnapshot(product);
+      throw new Error("stale generated image persists after reset+reopen; clearResidual did not remove it");
+    }
   }
 
   async openHandsOnModal() {
@@ -387,13 +439,28 @@ export class HiflyHandsOnProductPage {
     });
   }
 
-  async uploadModalFile(label, filePath) {
+  async uploadModalFile(label, filePath, options = {}) {
+    const required = options.required === true;
     const timeout = this.config.batch.defaultTimeoutMs;
     const button = this.page.getByRole("button", {
       name: new RegExp(escapeRegExp(label))
     }).first();
     if (!await button.isVisible({ timeout: 1000 }).catch(() => false)) {
-      if (await this.isHandsOnModalReadyForGenerate()) return;
+      // 兜底：上传入口可能是图标“+”按钮（getByRole 按文字匹配不到），直接用隐藏的 input[type=file] 上传
+      const fileInput = this.page.locator("input[type='file']").last();
+      if (await fileInput.count().catch(() => 0)) {
+        await fileInput.setInputFiles(filePath, { timeout });
+        await this.page.waitForTimeout(this.config.behavior?.postUploadWaitMs ?? 0);
+        return;
+      }
+      const ready = await this.isHandsOnModalReadyForGenerate().catch(() => false);
+      if (required) {
+        throw new Error(
+          `Required upload "${label}" is not visible (modal ready=${ready}) and no input[type=file] fallback.`
+          + " Refusing to skip: the modal may still hold a stale product image."
+        );
+      }
+      if (ready) return;
       await button.waitFor({ state: "visible", timeout });
     }
     const chooserPromise = this.page.waitForEvent("filechooser", { timeout });
@@ -452,23 +519,136 @@ export class HiflyHandsOnProductPage {
     throw new Error(`Timed out waiting for generated hands-on image after ${timeout}ms`);
   }
 
-  async resetGeneratedHandsOnImage() {
+  async resetGeneratedHandsOnImage(product) {
     const timeout = this.config.batch.defaultTimeoutMs;
     const dialog = this.dialogLocator();
     await this.clickModalEditButton(dialog, timeout);
+    await this.captureStep(product, "after-reset-edit");
+    await this.dumpModalDomSnapshot(product);
 
-    const uploadProductButton = dialog.getByRole("button", {
+    const uploadProductButton = this.page.getByRole("button", {
       name: new RegExp(escapeRegExp(this.config.hiflyUi.uploadProductText))
     }).first();
+
+    // 点“重新编辑”后残留图可能仍占着商品图槽位，“上传商品”按钮被换成 图片+垃圾桶，
+    // 先尝试清除残留图，让空槽重新露出上传按钮。
+    if (!await uploadProductButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await this.clearResidualModalImages(product);
+    }
+
     try {
       await uploadProductButton.waitFor({ state: "visible", timeout });
     } catch (error) {
-      if (await this.isHandsOnModalReadyForGenerate()) return;
-      await this.clickModalEditFallback(dialog, timeout);
-      if (await this.isHandsOnModalReadyForGenerate()) return;
-      await uploadProductButton.waitFor({ state: "visible", timeout });
+      await this.captureStep(product, "reset-upload-not-visible");
+      await this.dumpModalDomSnapshot(product);
+      throw new Error(
+        "resetGeneratedHandsOnImage clicked 重新编辑 but the product upload button did not become visible"
+        + " (even after clearing residual images)."
+        + " Inspect screenshots/*-after-reset-edit.png and logs modal_dom_snapshot."
+      );
     }
     await this.page.waitForTimeout(500);
+  }
+
+  // 诊断：把当前页面所有可见 modal 的结构 + 所有按钮的 accessible name + 图片 src 落盘。
+  // 这是判定“重新编辑后真实 DOM”的决定性证据，不消耗积分（仅在 reset 阶段调用）。
+  async dumpModalDomSnapshot(product) {
+    if (typeof this.page.evaluate !== "function") return;
+    await this.ensureVisibleModalInspector().catch(() => {});
+    const snapshot = await this.page.evaluate(() => {
+      const state = window.__hiflyGetVisibleHandsOnModalState?.() ?? {};
+      const allButtons = Array.from(document.querySelectorAll("button"))
+        .map((b) => ({
+          text: (b.innerText || b.textContent || "").replace(/\s+/g, "").slice(0, 40),
+          ariaLabel: b.getAttribute("aria-label"),
+          visible: b.getBoundingClientRect().width > 0
+        }))
+        .filter((b) => b.text || b.ariaLabel)
+        .slice(0, 60);
+      return {
+        visibleModalFound: Boolean(state.element),
+        modalText: (state.text || "").slice(0, 600),
+        modalButtonTexts: state.buttonTexts || [],
+        modalImageSources: (state.imageSources || []).slice(0, 12),
+        allModalCount: document.querySelectorAll(".ant-modal, [role='dialog']").length,
+        sampleButtons: allButtons
+      };
+    }).catch(() => null);
+    this.logger.info("modal_dom_snapshot", { sku: product?.sku, snapshot });
+  }
+
+  // 清除弹窗内残留的商品/人物图，让上传按钮重新露出。选择器基于截图推断，全部带兜底。
+  async clearResidualModalImages(product) {
+    const timeout = this.config.batch.defaultTimeoutMs;
+    let scope = this.dialogLocator();
+    if (!await scope.isVisible({ timeout: 1000 }).catch(() => false)) {
+      // “重新编辑”后 dialogLocator 的 '手持商品图' 文本过滤可能失效，退回到任意可见弹窗
+      scope = this.page.locator(".ant-modal:visible, [role='dialog']:visible").last();
+    }
+
+    // 方案A：点弹窗底部“重置”按钮，一次清空
+    const resetText = this.config.hiflyUi?.modalResetText || "重置";
+    const resetBtn = scope.getByRole("button", { name: new RegExp(escapeRegExp(resetText)) }).first();
+    if (await resetBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await resetBtn.click({ timeout, force: true }).catch(() => {});
+      await this.page.waitForTimeout(1000);
+      await this.captureStep(product, "after-modal-reset-clear");
+      return;
+    }
+
+    // 方案B：逐个点图片槽的删除图标（倒序，避免索引漂移）。不含 .anticon-close——那是弹窗关闭×，不是删除图。
+    const trashBtns = scope.locator(
+      "[class*='delete'], [class*='trash'], .anticon-delete, button:has(svg[class*='delete'])"
+    );
+    const count = await trashBtns.count().catch(() => 0);
+    for (let i = count - 1; i >= 0; i -= 1) {
+      await trashBtns.nth(i).click({ timeout, force: true }).catch(() => {});
+      await this.page.waitForTimeout(400);
+    }
+    if (count > 0) await this.captureStep(product, "after-modal-trash-clear");
+  }
+
+  // 抓弹窗内右侧商品图的 src（排除 rec_ 推荐人物）。用于上传前后对比验证。
+  async captureProductImageSrc() {
+    if (typeof this.page.evaluate !== "function") return null;
+    await this.ensureVisibleModalInspector().catch(() => {});
+    return this.page.evaluate(() => {
+      const state = window.__hiflyGetVisibleHandsOnModalState?.();
+      if (!state?.element) return null;
+      const imgs = Array.from(state.element.querySelectorAll("img"))
+        .filter((img) => {
+          const rect = img.getBoundingClientRect();
+          const src = img.currentSrc || img.src || "";
+          return rect.width > 0 && rect.height > 0 && !src.includes("rec_");
+        })
+        .map((img) => ({
+          src: img.currentSrc || img.src || "",
+          naturalWidth: img.naturalWidth,
+          x: img.getBoundingClientRect().x
+        }))
+        .sort((a, b) => b.x - a.x);
+      const target = imgs[0];
+      return target ? { src: target.src, naturalWidth: target.naturalWidth } : null;
+    }).catch(() => null);
+  }
+
+  // 安全网：上传后强制验证右侧商品图确实被替换/加载。如果残留图没换，在上传阶段就抛错，
+  // 流程停在这里、不会走到“立即生成”（消耗积分）。这是防白菜被错误生成的最后防线。
+  async verifyProductImageReplaced(staleSrc, product) {
+    const current = await this.captureProductImageSrc();
+    await this.captureStep(product, "product-verify");
+    if (!current) {
+      throw new Error(`product image not found in modal after upload, sku=${product?.sku}`);
+    }
+    if (!current.naturalWidth || current.naturalWidth === 0) {
+      throw new Error(`product image not loaded after upload (naturalWidth=0), sku=${product?.sku}`);
+    }
+    // blob: 每次上传都不同；非 blob 且 src 未变 = 残留图没被替换
+    if (staleSrc && current.src && current.src === staleSrc.src && !String(current.src).startsWith("blob:")) {
+      throw new Error(
+        `product image NOT replaced after upload (stale src persists), sku=${product?.sku}, src=${current.src}`
+      );
+    }
   }
 
   async clickModalEditButton(dialog, timeout = this.config.batch.defaultTimeoutMs) {

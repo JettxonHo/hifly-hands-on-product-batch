@@ -346,6 +346,59 @@ test("retries a failed pre-submit batch without re-importing products", async (t
   assert.equal("execution_snapshot" in response.json().batch, false);
 });
 
+test("force retries interrupted unknown batches only after explicit risk acknowledgement", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-unknown-retry",
+    status: "interrupted_unknown",
+    execution_snapshot: { executionKey: "old" },
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      product_name: "Alpha",
+      selling_points: "Useful",
+      category: "beauty",
+      status: "interrupted_unknown",
+      retry_count: 0,
+      execution_key: "old",
+      confirmed_at: "2026-07-14T00:00:00.000Z",
+      error_message: "Remote submission did not produce unique evidence",
+      error_phase: "remote_submit",
+      asset_evidence: { asset_id: "asset" },
+      submit_checkpoint: { phase: "remote_submit_pre" },
+      remote_candidates: []
+    }]
+  });
+
+  const rejected = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-unknown-retry/retry",
+    headers: headers(session),
+    payload: { confirm: true }
+  });
+  const accepted = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-unknown-retry/retry",
+    headers: headers(session),
+    payload: { confirm: true, allowUnknown: true }
+  });
+
+  assert.equal(rejected.statusCode, 409);
+  assert.equal(accepted.statusCode, 200);
+  assert.equal(accepted.json().batch.status, "pending");
+  assert.equal(accepted.json().batch.items[0].status, "pending");
+  assert.equal(accepted.json().batch.items[0].retry_count, 1);
+  assert.equal(accepted.json().batch.items[0].execution_key, null);
+  assert.equal(accepted.json().batch.items[0].error_message, null);
+  assert.equal("submit_checkpoint" in accepted.json().batch.items[0], false);
+  assert.equal("remote_candidates" in accepted.json().batch.items[0], false);
+});
+
 test("upload limit failures are client errors, not internal errors", async (t) => {
   const byteFixture = await fixture(createFakeExecutor(), {
     uploadLimits: { maxImageBytes: 1024, maxBatchFiles: 2, maxBatchBytes: 64 }

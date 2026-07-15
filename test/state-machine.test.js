@@ -37,6 +37,23 @@ test("interrupted unknown tasks cannot retry generation", () => {
   );
 });
 
+test("interrupted unknown tasks can be force reset after explicit operator confirmation", () => {
+  const next = transitionTask(
+    {
+      status: "interrupted_unknown",
+      execution_key: "old-key",
+      confirmed_at: "2026-07-14T00:00:00.000Z",
+      error_message: "unknown remote result"
+    },
+    { type: "FORCE_RETRY_GENERATION", changes: { error_message: null } }
+  );
+
+  assert.equal(next.status, "pending");
+  assert.equal(next.execution_key, null);
+  assert.equal(next.confirmed_at, null);
+  assert.equal(next.error_message, null);
+});
+
 test("remote reconciliation is required before an unknown task can retry", () => {
   const reconciled = transitionTask(
     { status: "interrupted_unknown", execution_key: "old-key" },

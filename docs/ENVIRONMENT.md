@@ -51,6 +51,18 @@ Windows PowerShell 可使用：
 $env:HIFLY_GUI_PORT=4320; npm run gui
 ```
 
+### 改代码后必须重启 GUI（无热重载）
+
+`npm run gui` 是 `node src/server/start.js`，ES module 在进程启动时一次性加载磁盘代码，**没有热重载**。改了 `src/` 任何文件后必须停旧进程再重启，否则跑的是旧代码：
+
+```bash
+lsof -nP -iTCP:4317 -sTCP:LISTEN   # 找 PID
+kill <PID>
+npm run gui
+```
+
+**端口自增陷阱**：`4317` 被占会自动跳 `4318`。如果旧进程没停干净就重启，新实例落 `4318` 加载新码、但浏览器标签还指 `4317` 跑旧码——会误以为重启了却仍跑旧码。务必先确认 `4317` 空闲。
+
 ## GUI 使用路径
 
 1. 打开 `npm run gui` 输出的本地地址。
@@ -83,6 +95,10 @@ npm run run
 ```
 
 传统 CLI 读取 `products/products.csv` 或相关配置中的商品表路径，适合运营本机维护人物池和调试飞影页面 selector。
+
+## 沙箱 / 代理网络（排障用）
+
+在这台 Mac 上用 Claude Code 等沙箱工具排障时：`hifly.cc` 在沙箱里可能被解析到 `198.18.x.x`（RFC2544 fake-ip，不可路由），且无 `HTTP_PROXY` 环境变量——看起来「连不上」。但本机系统配了代理（TUN 模式），fake-ip 会被转发到真实 hifly，所以 GUI 触发的 Playwright 浏览器能正常访问。**判断能否连 hifly，以实际跑一次飞影链路（能否走到 asset_generation/submit）为准，不要只看 `dns.resolve4` 就下结论。**
 
 ## 输出目录
 

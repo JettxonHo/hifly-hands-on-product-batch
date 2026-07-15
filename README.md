@@ -8,8 +8,9 @@
 2. 运行 `npm run gui` 打开本地工作台。
 3. 在浏览器中单条录入，或批量上传 CSV/XLSX 与商品图片。
 4. 在「待执行任务」中确认待生成商品和积分提示。
-5. 点击「开始生成」，由自动化流程逐条处理飞影页面。
-6. 下载完成的视频进入批次产物目录，历史 CLI 下载仍保留在 `downloads/`。
+5. 运行 `npm run prepare-standard` 生成每个商品的标准口播脚本、飞影提示词和质检表骨架。
+6. 点击「开始生成」，由自动化流程逐条处理飞影页面。
+7. 下载完成的视频进入批次产物目录，历史 CLI 下载仍保留在 `downloads/`。
 
 本地工作台只监听 `127.0.0.1`，不会开放到公网或局域网。真实飞影登录态、下载文件、日志、截图和 `config.local.json` 不会进入交付包或 Git。
 
@@ -71,10 +72,20 @@ assets/person_pool/default/
 | `npm run gui` | 启动 Mac/Windows 通用本地网页工作台。 |
 | `npm run login` | 打开浏览器，人工登录飞影并保存登录态。 |
 | `npm run validate` | 校验传统 `products/products.csv` 输入。 |
+| `npm run prepare-standard` | 按每商品 1 条标准视频生成口播脚本、飞影提示词和质检表。 |
 | `npm run run` | 使用 CLI 路径批量跑 `products/products.csv`。 |
 | `npm test` | 运行单元和集成测试；默认使用假执行器，不访问飞影。 |
 | `npm run check` | 运行 JavaScript 语法检查。 |
 | `npm run package` | 生成交付包 `outputs/hifly-hands-on-product-batch.tar.gz`。 |
+
+`npm run prepare-standard` 的默认输出目录：
+
+```text
+outputs/standard-video-assets/
+  scripts/
+  prompts/
+  qc/qc_report.csv
+```
 
 ## 关键限制
 
@@ -87,3 +98,5 @@ assets/person_pool/default/
 - `docs/新人培训使用手册.html`：给客户和运营共同使用的离线培训手册。
 - `docs/ENVIRONMENT.md`：安装、启动、打包和 GitHub 发布前检查。
 - `docs/SOP.md`：运营 SOP 与质检规则。
+- `docs/飞影标准视频工作流.md`：每个商品 1 条标准视频的项目生产链路。
+- `docs/飞影提示词模板.md`：飞影左右分屏画面提示词、口播模板和负面提示词。

@@ -48,9 +48,9 @@
       method: "POST",
       body: formData
     }),
-    retryBatch: ({ batchId }) => request(`/api/batches/${encodeURIComponent(batchId)}/retry`, {
+    retryBatch: ({ batchId, allowUnknown = false }) => request(`/api/batches/${encodeURIComponent(batchId)}/retry`, {
       method: "POST",
-      body: JSON.stringify({ confirm: true })
+      body: JSON.stringify({ confirm: true, ...(allowUnknown ? { allowUnknown: true } : {}) })
     }),
     startExecution: ({ batchId, idempotencyKey }) => request("/api/executions", {
       method: "POST",
