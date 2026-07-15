@@ -169,3 +169,11 @@ gh auth status
 2. 确认影刀流程能读取 `batches/<batch_id>/rpa/tasks/<task_id>.json`。
 3. 确认影刀流程能 POST 到 `http://127.0.0.1:<port>/api/rpa/callback`。
 4. 用户明确允许消耗飞影积分后再跑真实商品。
+
+### RPA 本地桥接约束
+
+- GUI 确定实际监听端口后，会把 callback base URL 更新为 `http://127.0.0.1:<实际端口>`。这同时覆盖 `HIFLY_GUI_PORT` 和默认端口被占用后的自动递增端口；`rpa.callbackBaseUrl` 只是 executor 创建时的初始值，不应假定任务包永远使用 `4317`。
+- task package 发布前，人物图会复制到 `batches/<batch_id>/rpa/inputs/`。`auto_pool` 的项目级人物池路径和 `fixed_upload` 的批次上传路径都不会原样暴露给影刀；只允许普通 `.jpg`、`.jpeg`、`.png` 文件，symlink 和越界的 `rpa/inputs` 目录会被拒绝。
+- callback token 除了写入 RPA state，还必须登记在当前 GUI 进程的 active registry 中。仅从旧 state 读取到 token 不能恢复回调权限；GUI 进程重启或任务进入 `completed`、失败、人工核对终态后，旧 token 无效。
+- `completed` callback 只接受当前批次内已存在的普通文件，字段必须为 `artifact_id` 和 batch-relative `relative_path`。绝对路径、`..`、symlink escape、缺失文件和额外本地路径字段都会被拒绝。
+- RPA 查询或下载超时会把批次转为 `interrupted_unknown`，由 GUI 人工核对后决定是否重试；非 RPA 下载异常仍保持 `download_pending`，不会改变现有 Playwright 重试流程。

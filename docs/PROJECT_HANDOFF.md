@@ -1,5 +1,16 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 影刀 RPA whole-branch final review fix
+
+- 已提交 `4be237e`（`fix: harden yingdao rpa recovery`）：RPA `querySubmission` / `downloadArtifact` 超时现在进入 `interrupted_unknown`，不再让批次永久保持 active；普通 Playwright 下载失败仍保持原有 `download_pending` 重试语义。
+- RPA task package 会把 `auto_pool` 或 `fixed_upload` 的人物图复制到当前批次 `rpa/inputs/` 后再发布，只接受 `.jpg` / `.jpeg` / `.png` 普通文件，并在复制前拒绝 symlink 目录或越界目录；任务包不再暴露项目人物池原路径。
+- GUI 监听端口确定后会把实际 `http://127.0.0.1:<port>` 写入 Yingdao executor，因此 `HIFLY_GUI_PORT` 和端口占用后的 fallback 都会生成正确 callback URL。
+- RPA callback 增加进程内 active token registry：磁盘 state 中仅有旧 token 不足以鉴权；`completed` / `failed_pre_submit` / `failed_remote` / `interrupted_unknown` 后 token 立即撤销，服务进程重启后旧 token 不会恢复。
+- `completed` callback 现在必须携带可直接登记的 `artifact_id + batch-relative relative_path`，且目标必须已存在、是普通文件、realpath 仍在批次目录内；资产阶段 `failed_remote` / `interrupted_unknown` 也不再被降级为 `failed_pre_submit`。
+- 修复 `test/gui-smoke.test.js` 单条与批量表单同名 label 的 strict locator 冲突。完整本地验证：`npm test` 224/224 通过；`npm run check` 检查 49 个 JavaScript 文件通过；`git diff --check` 通过。
+- Minor residual：GUI 失败详情仍未直接读取 RPA state 的 `phase` / `last_callback`；当前可见的是 batch item 的 `error_phase` / `error_message`。若要完整展示，需要新增受控的 RPA state 公共投影，避免把 token、绝对路径等内部字段暴露给 API，因此本轮未扩大 API 面。
+- 本轮只运行本地 mock、Fastify inject、临时目录和 GUI smoke；未访问真实飞影或影刀，未执行真实生成，未消耗积分。关键批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 未触碰，`docs/resume/` 未触碰。
+
 ## 2026-07-16 Task 6：影刀 RPA GUI 可见性与文档完成
 
 - `GET /api/runtime` 公开当前 `executionBackend`；未配置时返回 `playwright`。GUI 顶栏显示“执行引擎：影刀 RPA”或“执行引擎：Playwright”，无法读取时显示“未知”。
