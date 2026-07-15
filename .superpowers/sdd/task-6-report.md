@@ -2,7 +2,7 @@
 
 Status: DONE
 
-Commit: `HEAD` (`docs: document yingdao rpa bridge`)
+Commits: `877e453..e60d44b` (`docs: document yingdao rpa bridge` plus review fixes)
 
 ## Changes
 
