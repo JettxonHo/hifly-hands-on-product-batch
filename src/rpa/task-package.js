@@ -29,7 +29,7 @@ function callbackUrl(baseUrl) {
   if (url.protocol !== "http:") {
     throw new Error("RPA callback base URL must use http");
   }
-  if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost" && url.hostname !== "::1") {
+  if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname)) {
     throw new Error("RPA callback base URL must be localhost");
   }
   return url.toString();

@@ -130,6 +130,13 @@ test("rejects unsafe task ids and mismatched package task ids", async () => {
 test("accepts only localhost http callback URLs", async () => {
   const f = await fixture();
   try {
+    const pkg = createRpaTaskPackage({
+      batch: { batch_id: "batch-1" },
+      task: { task_id: "task-1", execution_key: "key-1", sku: "SKU-1", image_path: f.imagePath },
+      batchDirectory: f.batchDirectory,
+      callbackBaseUrl: "http://[::1]:4317"
+    });
+    assert.equal(pkg.callback_url, "http://[::1]:4317/api/rpa/callback");
     assert.throws(() => createRpaTaskPackage({
       batch: { batch_id: "batch-1" },
       task: { task_id: "task-1", execution_key: "key-1", sku: "SKU-1", image_path: f.imagePath },
