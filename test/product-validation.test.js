@@ -129,3 +129,29 @@ test("validation rejects empty category and status values", () => {
     fixture.cleanup();
   }
 });
+
+test("provided_script strategy requires script before execution", () => {
+  const fixture = createFixture();
+  try {
+    fs.writeFileSync(path.join(fixture.root, "product.png"), "fixture");
+    const result = validateProducts({
+      products: [{
+        sku: "A",
+        product_name: "Alpha",
+        selling_points: "One",
+        category: "toy",
+        image_path: "product.png",
+        status: "pending",
+        script: ""
+      }],
+      config: fixture.config,
+      batchPaths: fixture.batchPaths,
+      options: { script_strategy: "provided_script" }
+    });
+
+    assert.equal(result.valid, false);
+    assert.equal(result.errors[0].code, "SCRIPT_REQUIRED");
+  } finally {
+    fixture.cleanup();
+  }
+});

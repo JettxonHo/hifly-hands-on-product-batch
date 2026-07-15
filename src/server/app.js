@@ -67,6 +67,7 @@ export async function buildApp({
   uploadLimits = null,
   executionLock = {},
   pointsEstimate = {},
+  generationConfig = {},
   webRoot = path.join(getProjectRoot(), "web")
 } = {}) {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("root is required");
@@ -79,6 +80,7 @@ export async function buildApp({
     batchRoot,
     executor,
     store,
+    config: generationConfig,
     lockOptions: executionLock,
     pointsEstimate
   });

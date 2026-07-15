@@ -53,6 +53,11 @@ const SIDE_EFFECTING_STATUSES = new Set([
   "download_pending",
   "interrupted_unknown"
 ]);
+const RESOLVED_GENERATION_FIELDS = [
+  "resolved_person_image_path",
+  "resolved_person_source",
+  "resolved_script_mode"
+];
 
 class ExecutorSafetyError extends Error {
   constructor(cause) {
@@ -72,6 +77,16 @@ function snapshotOptions(config, paths, confirmedAt, persistedSnapshot) {
     projectRoot: paths?.projectRoot ?? execution.projectRoot,
     confirmedAt: persistedSnapshot?.confirmedAt ?? execution.confirmedAt ?? confirmedAt
   };
+}
+
+function preserveResolvedGenerationFields(currentTask, nextTask) {
+  const preserved = { ...nextTask };
+  for (const field of RESOLVED_GENERATION_FIELDS) {
+    if (preserved[field] === undefined && currentTask[field] !== undefined) {
+      preserved[field] = currentTask[field];
+    }
+  }
+  return preserved;
 }
 
 async function assertExecutionSnapshot(batch, config, paths) {
@@ -158,7 +173,7 @@ export async function runBatch({
   async function updateTask(taskId, updater) {
     batch = await store.update(batchId, (current) => {
       const currentTask = findTask(current, taskId);
-      const nextTask = updater(currentTask);
+      const nextTask = preserveResolvedGenerationFields(currentTask, updater(currentTask));
       const nextItems = current.items.map((item) => item.task_id === taskId ? nextTask : item);
       return { ...current, items: nextItems, status: summarizeBatch(nextItems) };
     });

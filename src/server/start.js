@@ -82,7 +82,8 @@ export async function startServer({
   handleSignals = true,
   uploadLimits = null,
   executionLock = {},
-  pointsEstimate = {}
+  pointsEstimate = {},
+  generationConfig = {}
 } = {}) {
   let selectedPort = await findAvailablePort(port);
   let app;
@@ -94,7 +95,8 @@ export async function startServer({
       allowedHost: `127.0.0.1:${selectedPort}`,
       uploadLimits,
       executionLock,
-      pointsEstimate
+      pointsEstimate,
+      generationConfig
     });
     try {
       await app.listen({ host: "127.0.0.1", port: selectedPort });
@@ -149,6 +151,7 @@ if (isDirectExecution()) {
     openBrowser,
     uploadLimits: config.uploadLimits,
     executionLock: config.executionLock,
-    pointsEstimate: config.pointsEstimate
+    pointsEstimate: config.pointsEstimate,
+    generationConfig: config
   });
 }

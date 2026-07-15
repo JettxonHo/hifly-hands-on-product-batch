@@ -5,6 +5,9 @@ import path from "node:path";
 import { runBatch } from "../../core/batch-runner.js";
 import { acquireExecutionLock } from "../../core/execution-lock.js";
 import { createExecutionSnapshot } from "../../core/execution-snapshot.js";
+import { resolvePersonStrategies } from "../../core/person-strategy.js";
+import { validateProducts } from "../../core/product-validation.js";
+import { resolveScriptStrategies } from "../../core/script-strategy.js";
 import { summarizeBatch, transitionTask } from "../../core/state-machine.js";
 import { assertBatchId, publicBatch } from "./batches.js";
 
@@ -46,15 +49,34 @@ async function approvedImagePath(batch, batchDirectory, artifactId) {
   return realImagePath;
 }
 
-async function prepareExecution({ batchId, batchDirectory, store, pointsEstimate = {} }) {
+async function resolveFixedPersonPath(batch, batchDirectory) {
+  const artifactId = batch.fixed_person_image_artifact_id;
+  if (!artifactId) return null;
+  return approvedImagePath(batch, batchDirectory, artifactId);
+}
+
+async function prepareExecution({ batchId, batchDirectory, store, config = {}, logger, pointsEstimate = {} }) {
   const batch = await store.read(batchId);
   if (!Array.isArray(batch.items) || batch.items.length === 0 || batch.items.some((item) => item.status !== "pending")) {
     throw executionError("BATCH_NOT_READY", 400);
   }
-  const items = await Promise.all(batch.items.map(async (item) => ({
+  let items = await Promise.all(batch.items.map(async (item) => ({
     ...item,
     image_path: await approvedImagePath(batch, batchDirectory, item.product_image_artifact_id)
   })));
+  items = resolvePersonStrategies(items, config, {
+    person_strategy: batch.person_strategy || "auto_pool",
+    fixed_person_image_path: await resolveFixedPersonPath(batch, batchDirectory)
+  }, logger);
+  items = resolveScriptStrategies(items, {
+    script_strategy: batch.script_strategy || "mixed"
+  });
+  const validation = validateProducts({
+    products: items,
+    config,
+    options: { script_strategy: batch.script_strategy || "mixed" }
+  });
+  if (!validation.valid) throw executionError(validation.errors[0].code, 400);
   const confirmedAt = new Date().toISOString();
   const batchOptions = {
     person_strategy: batch.person_strategy || "auto_pool",
@@ -91,7 +113,7 @@ function requestFields(body) {
   return { batchId, idempotencyKey: body.idempotencyKey };
 }
 
-export function createExecutionCoordinator({ batchRoot, executor, store, lockOptions = {}, pointsEstimate = {} }) {
+export function createExecutionCoordinator({ batchRoot, executor, store, config = {}, logger, lockOptions = {}, pointsEstimate = {} }) {
   let active = null;
   let stopping = false;
   const idempotencyKeys = new Set();
@@ -124,7 +146,7 @@ export function createExecutionCoordinator({ batchRoot, executor, store, lockOpt
 
       let batch;
       try {
-        batch = await prepareExecution({ batchId, batchDirectory, store, pointsEstimate });
+        batch = await prepareExecution({ batchId, batchDirectory, store, config, logger, pointsEstimate });
       } catch (error) {
         await lock.release().catch(() => {});
         throw error;

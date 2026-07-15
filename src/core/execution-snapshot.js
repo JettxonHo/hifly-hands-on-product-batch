@@ -11,7 +11,9 @@ const EXECUTION_FIELDS = Object.freeze([
   "image_path",
   "person_image_path",
   "resolved_person_image_path",
+  "resolved_person_source",
   "script",
+  "resolved_script_mode",
   "avatar",
   "voice",
   "duration_seconds"

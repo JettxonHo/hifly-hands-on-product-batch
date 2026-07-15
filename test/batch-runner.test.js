@@ -203,6 +203,25 @@ test("rejects a confirmed execution whose snapshot no longer matches", async () 
   }
 });
 
+test("resolved generation strategies are preserved and bound to the execution snapshot", async () => {
+  const fixture = await fixtureRun();
+  try {
+    await fixture.store.update("batch-1", (batch) => ({
+      ...batch,
+      items: batch.items.map((item) => ({
+        ...item,
+        resolved_person_source: "fixed_upload",
+        resolved_script_mode: "custom"
+      }))
+    }));
+
+    await assert.rejects(runBatch(fixture), /execution key/i);
+    assert.deepEqual(fixture.executor.calls, []);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 for (const status of [
   "confirmed",
   "generating_asset",

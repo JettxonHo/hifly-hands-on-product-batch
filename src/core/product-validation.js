@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { listPersonPoolFiles, normalizeCategory } from "../person-pool.js";
+import { validateScriptStrategy } from "./script-strategy.js";
 
 export const REQUIRED_PRODUCT_FIELDS = [
   "sku",
@@ -11,7 +12,7 @@ export const REQUIRED_PRODUCT_FIELDS = [
   "status"
 ];
 
-export function validateProducts({ products, config, batchPaths = {} }) {
+export function validateProducts({ products, config, batchPaths = {}, options = {} }) {
   if (!Array.isArray(products)) {
     throw new TypeError("products must be an array");
   }
@@ -64,6 +65,15 @@ export function validateProducts({ products, config, batchPaths = {} }) {
     }
 
     validatePersonFallback(errors, product, config, row);
+    errors.push(...validateScriptStrategy(product, options.script_strategy || "mixed", row));
+
+    if (product.resolved_person_source === "unresolved") {
+      errors.push(issue(
+        "PERSON_SOURCE_REQUIRED",
+        `row ${row}: no person source is available.`,
+        { row, field: "person_image_path", sku: product.sku || "" }
+      ));
+    }
   });
 
   return {
