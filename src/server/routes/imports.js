@@ -5,7 +5,7 @@ import path from "node:path";
 import { importProductTable } from "../../import/import-table.js";
 import { matchUploads } from "../../import/match-uploads.js";
 import { storeUpload } from "../upload-service.js";
-import { assertBatchId, publicBatch } from "./batches.js";
+import { assertBatchId, normalizeBatchStrategies, publicBatch } from "./batches.js";
 
 function importError(code, statusCode = 400) {
   return Object.assign(new Error(code), { code, statusCode });
@@ -70,17 +70,22 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
     let batchId = null;
     let batchDirectory = null;
     const newUploads = [];
+    const metadata = {};
 
     try {
       for await (const part of request.parts()) {
         if (part.type === "field") {
-          if (part.fieldname !== "batchId" || batchId !== null || typeof part.value !== "string") {
-            throw importError("INVALID_IMPORT_FIELDS");
+          if (part.fieldname === "batchId") {
+            if (batchId !== null || typeof part.value !== "string") throw importError("INVALID_IMPORT_FIELDS");
+            batchId = assertBatchId(part.value);
+            await store.read(batchId);
+            batchDirectory = path.join(batchRoot, batchId);
+            await mkdir(path.join(batchDirectory, "uploads"), { recursive: true, mode: 0o700 });
+            continue;
           }
-          batchId = assertBatchId(part.value);
-          await store.read(batchId);
-          batchDirectory = path.join(batchRoot, batchId);
-          await mkdir(path.join(batchDirectory, "uploads"), { recursive: true, mode: 0o700 });
+          if (part.fieldname === "person_strategy") metadata.person_strategy = String(part.value || "auto_pool");
+          else if (part.fieldname === "script_strategy") metadata.script_strategy = String(part.value || "mixed");
+          else throw importError("INVALID_IMPORT_FIELDS");
           continue;
         }
         if (!batchId || !batchDirectory) {
@@ -98,6 +103,7 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
       if (!safeStorageName(table.storage_name)) throw importError("UNSAFE_TABLE_REFERENCE");
       const parsed = await importProductTable(path.join(batchDirectory, "uploads", table.storage_name));
       const current = await store.read(batchId);
+      const strategies = normalizeBatchStrategies({ ...current, ...metadata });
       const proposedUploads = [...(Array.isArray(current.uploads) ? current.uploads : []), ...newUploads];
       const matches = matchUploads(parsed.rows, proposedUploads);
       const issues = [...parsed.errors, ...personPathIssues(parsed.rows), ...matches.errors];
@@ -112,6 +118,7 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
         return {
           ...value,
           status: "pending",
+          ...strategies,
           uploads: [...(Array.isArray(value.uploads) ? value.uploads : []), ...newUploads],
           artifacts: [
             ...(Array.isArray(value.artifacts) ? value.artifacts : []),

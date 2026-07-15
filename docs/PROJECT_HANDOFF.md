@@ -1,5 +1,22 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-15 Task 2 完成：GUI/API 策略持久化
+
+- 用户澄清：Task 2 必须保留既有安全契约，即 `fixture()`/session 鉴权测试、`POST /api/batches` 返回 `201`、不引入 `name`。创建接口白名单仅扩展为 `batchId`、`person_strategy`、`script_strategy`、`fixed_person_image_artifact_id`，其他字段（如 `root`）继续拒绝。
+- `src/server/routes/batches.js`：新增严格策略枚举校验与默认值，创建批次持久化人物策略、文案策略、固定人物素材 artifact ID；公共批次 JSON 会返回这些字段。
+- `src/server/routes/imports.js`：multipart 在既有安全字段/文件模型内新增可选 `person_strategy`、`script_strategy`；导入时校验并持久化，且保留创建阶段已有的固定人物素材 ID。
+- `src/server/routes/executions.js`：执行准备与运行配置携带批次策略元数据，供后续策略解析任务使用。
+- `web/api.js`：`createBatch` 接收完整 payload；`importBatch` 发送策略字段及默认值。
+- TDD：创建策略测试先以 `400 !== 201` 失败；导入策略测试再以 `400 !== 200` 失败；实现后 `node --test test/server-api.test.js` 为 18/18 通过，`npm run check` 通过（43 个 JS 文件）。
+- 未启动 GUI、未运行真实飞影链路、未消耗积分。
+
+## 2026-07-15 Task 2 暂停：需要澄清 API 契约冲突
+
+- 用户要求按 `.superpowers/sdd/task-2-brief.md` 实现 Task 2，并明确规定：若简报与当前代码冲突，返回 `NEEDS_CONTEXT`，不得猜测。
+- 已核对当前 `src/server/routes/batches.js` 与 `test/server-api.test.js`。简报要求的新增测试使用不存在的 `buildTestApp()`、不带当前必需的本地会话鉴权、断言创建接口返回 `200`、并发送当前接口明确拒绝的 `name` 字段；现有受保护 API 使用 `fixture()`、会话头、仅接受 `batchId`，并在创建成功时返回 `201`。
+- 因此未修改 Task 2 业务或测试文件，未运行飞影，未消耗积分，未创建提交。
+- 已写入 `.superpowers/sdd/task-2-report.md`。下一步：请用户确认是保留现有鉴权/`201`/字段白名单并据此适配 Task 2 测试，还是有意改为简报所写的接口契约。
+
 ## 2026-07-15 Task 1 re-review 修复
 
 - 修复 `src/core/person-strategy.js` 人物池文件名排序：恢复 legacy `localeCompare(..., "zh-Hans-CN")`，保持中文/非 ASCII 文件名轮换顺序兼容。

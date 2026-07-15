@@ -61,10 +61,11 @@ function multipart(parts, boundary = "server-api-boundary") {
   return { boundary, body: Buffer.concat(chunks) };
 }
 
-async function importInto(app, session, batchId, imageName = "SKU-1.png") {
+async function importInto(app, session, batchId, imageName = "SKU-1.png", metadata = {}) {
   const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: "white" } }).png().toBuffer();
   const form = multipart([
     { name: "batchId", value: batchId },
+    ...Object.entries(metadata).map(([name, value]) => ({ name, value })),
     {
       name: "files", filename: "products.csv", contentType: "text/csv",
       value: `sku,product_name,selling_points,category,image_path\nSKU-1,Alpha,Useful,beauty,${imageName}\n`
@@ -105,6 +106,52 @@ test("creates and lists server-owned batches without accepting disk paths", asyn
   assert.equal(rejected.statusCode, 400);
 });
 
+test("creates batches with person and script strategies", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: {
+      batchId: "batch-strategies",
+      person_strategy: "hifly_recommended",
+      script_strategy: "mixed",
+      fixed_person_image_artifact_id: "artifact-person-1"
+    }
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().batch.person_strategy, "hifly_recommended");
+  assert.equal(response.json().batch.script_strategy, "mixed");
+  assert.equal(response.json().batch.fixed_person_image_artifact_id, "artifact-person-1");
+});
+
+test("rejects invalid batch strategy values", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: {
+      batchId: "batch-invalid-strategies",
+      person_strategy: "surprise",
+      script_strategy: "robot"
+    }
+  });
+
+  assert.equal(response.statusCode, 400);
+});
+
 test("imports a server-stored table and image without accepting source paths", async (t) => {
   const { app, root, session } = await fixture();
   t.after(async () => {
@@ -116,6 +163,36 @@ test("imports a server-stored table and image without accepting source paths", a
   assert.equal(batch.items.length, 1);
   assert.equal(batch.items[0].product_image_artifact_id.length > 0, true);
   assert.equal("image_path" in batch.items[0], false);
+});
+
+test("preserves batch strategies through multipart imports", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: {
+      batchId: "batch-import-strategies",
+      person_strategy: "hifly_recommended",
+      script_strategy: "mixed",
+      fixed_person_image_artifact_id: "artifact-person-1"
+    }
+  });
+  assert.equal(created.statusCode, 201);
+
+  const response = await importInto(app, session, "batch-import-strategies", "SKU-1.png", {
+    person_strategy: "fixed_upload",
+    script_strategy: "provided_script"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().batch.person_strategy, "fixed_upload");
+  assert.equal(response.json().batch.script_strategy, "provided_script");
+  assert.equal(response.json().batch.fixed_person_image_artifact_id, "artifact-person-1");
 });
 
 test("rejects customer-provided person image paths during API import", async (t) => {

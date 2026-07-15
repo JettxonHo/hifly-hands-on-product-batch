@@ -56,7 +56,12 @@ async function prepareExecution({ batchId, batchDirectory, store, pointsEstimate
     image_path: await approvedImagePath(batch, batchDirectory, item.product_image_artifact_id)
   })));
   const confirmedAt = new Date().toISOString();
-  const execution = { ...pointsEstimate, projectRoot: batchDirectory, confirmedAt };
+  const batchOptions = {
+    person_strategy: batch.person_strategy || "auto_pool",
+    script_strategy: batch.script_strategy || "mixed",
+    fixed_person_image_artifact_id: batch.fixed_person_image_artifact_id || null
+  };
+  const execution = { ...pointsEstimate, projectRoot: batchDirectory, confirmedAt, batchOptions };
   const snapshot = await createExecutionSnapshot(items, execution);
   return store.update(batchId, (current) => {
     const confirmedItems = items.map((item) => transitionTask(item, {
@@ -132,7 +137,17 @@ export function createExecutionCoordinator({ batchRoot, executor, store, lockOpt
       await runBatch({
         batchId,
         items: batch.items,
-        config: { execution: { projectRoot: batchDirectory, confirmedAt: batch.execution_snapshot.confirmedAt } },
+        config: {
+          execution: {
+            projectRoot: batchDirectory,
+            confirmedAt: batch.execution_snapshot.confirmedAt,
+            batchOptions: {
+              person_strategy: batch.person_strategy || "auto_pool",
+              script_strategy: batch.script_strategy || "mixed",
+              fixed_person_image_artifact_id: batch.fixed_person_image_artifact_id || null
+            }
+          }
+        },
         paths: { projectRoot: batchDirectory, downloadDir: batchDirectory },
         signal: controller.signal,
         executor,

@@ -40,14 +40,15 @@
   window.HiflyApi = {
     ensureSession,
     getBatches: () => request("/api/batches"),
-    createBatch: (batchId) => request("/api/batches", {
+    createBatch: (payload = {}) => request("/api/batches", {
       method: "POST",
-      body: JSON.stringify(batchId ? { batchId } : {})
+      body: JSON.stringify(typeof payload === "string" ? { batchId: payload } : payload)
     }),
-    importBatch: (formData) => request("/api/imports", {
-      method: "POST",
-      body: formData
-    }),
+    importBatch: (formData, options = {}) => {
+      formData.append("person_strategy", options.person_strategy || "auto_pool");
+      formData.append("script_strategy", options.script_strategy || "mixed");
+      return request("/api/imports", { method: "POST", body: formData });
+    },
     retryBatch: ({ batchId, allowUnknown = false }) => request(`/api/batches/${encodeURIComponent(batchId)}/retry`, {
       method: "POST",
       body: JSON.stringify({ confirm: true, ...(allowUnknown ? { allowUnknown: true } : {}) })

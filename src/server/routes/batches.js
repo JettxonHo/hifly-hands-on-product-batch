@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { summarizeBatch, transitionTask } from "../../core/state-machine.js";
 
 const BATCH_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const PERSON_STRATEGIES = new Set(["auto_pool", "fixed_upload", "hifly_recommended"]);
+const SCRIPT_STRATEGIES = new Set(["hifly_ai", "provided_script", "mixed"]);
 const INTERNAL_ITEM_FIELDS = new Set([
   "image_path",
   "person_image_path",
@@ -32,6 +34,18 @@ function sanitizeMessage(value) {
 
 function batchError(code, statusCode = 400) {
   return Object.assign(new Error(code), { code, statusCode });
+}
+
+export function normalizeBatchStrategies(body = {}) {
+  const person_strategy = body.person_strategy || "auto_pool";
+  const script_strategy = body.script_strategy || "mixed";
+  if (!PERSON_STRATEGIES.has(person_strategy)) throw batchError("INVALID_BATCH", 400);
+  if (!SCRIPT_STRATEGIES.has(script_strategy)) throw batchError("INVALID_BATCH", 400);
+  return {
+    person_strategy,
+    script_strategy,
+    fixed_person_image_artifact_id: body.fixed_person_image_artifact_id || null
+  };
 }
 
 function publicExecutionSnapshot(snapshot) {
@@ -70,11 +84,23 @@ export async function registerBatchRoutes(app, { store }) {
 
   app.post("/api/batches", async (request, reply) => {
     if (!isPlainObject(request.body)) throw Object.assign(new Error("JSON object required"), { code: "INVALID_BATCH" });
-    if (Object.keys(request.body).some((key) => key !== "batchId")) {
+    if (Object.keys(request.body).some((key) => ![
+      "batchId",
+      "person_strategy",
+      "script_strategy",
+      "fixed_person_image_artifact_id"
+    ].includes(key))) {
       throw Object.assign(new Error("Only batchId is accepted"), { code: "INVALID_BATCH" });
     }
     const batchId = request.body.batchId === undefined ? `batch-${randomUUID()}` : assertBatchId(request.body.batchId);
-    const batch = await store.create({ batch_id: batchId, status: "needs_input", items: [], uploads: [] });
+    const strategies = normalizeBatchStrategies(request.body);
+    const batch = await store.create({
+      batch_id: batchId,
+      status: "needs_input",
+      items: [],
+      uploads: [],
+      ...strategies
+    });
     reply.code(201);
     return { batch: publicBatch(batch) };
   });
