@@ -115,6 +115,31 @@ test("real_live rejects undeclared template placeholders before transport", asyn
   assert.equal(called, false);
 });
 
+test("real_live rejects invalid placeholder declarations before transport", async () => {
+  for (const placeholders of [
+    ["asset_id"],
+    ["{{asset-id}}"],
+    ["{{{asset_id}}}"],
+    ["{{asset_id}}}"],
+    ["{{asset_id"]
+  ]) {
+    let called = false;
+    const client = createRealLiveHttpClient({
+      manifest: manifestWith({
+        placeholders,
+        risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+      }),
+      config: { enabled: true },
+      transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+    });
+    await assert.rejects(
+      client.request({ stepId: "submit_video", variables: { asset_id: "asset-1" }, context: { allowRealLive: true } }),
+      { code: "CAPTURE_HTTP_INVALID_PLACEHOLDER" }
+    );
+    assert.equal(called, false);
+  }
+});
+
 test("real_live rejects sensitive request templates before transport", async () => {
   for (const stepPatch of [
     { request_template: { headers: { authorization: "Bearer private" }, body: null } },
@@ -230,7 +255,10 @@ test("real_live permits normal URL pathnames", async () => {
 test("real_live rejects malformed template placeholders before transport", async () => {
   for (const templatePatch of [
     { url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?id={{asset-id}}" },
-    { request_template: { headers: {}, body: { gen_id: "{{asset-id}}" } } }
+    { request_template: { headers: {}, body: { gen_id: "{{asset-id}}" } } },
+    { url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?id={{asset_id" },
+    { request_template: { headers: {}, body: { gen_id: "{{{asset_id}}}" } } },
+    { request_template: { headers: {}, body: { gen_id: "{{asset_id}}}" } } }
   ]) {
     let called = false;
     const client = createRealLiveHttpClient({

@@ -6,6 +6,9 @@ DONE
 
 ## Reviewer Fix
 
+- P1 fix: placeholder declarations now must be complete `{{name}}` tokens with ASCII alphanumeric/underscore names. Bare declarations and malformed forms are rejected before variable substitution, authorization checks, or the injected transport.
+- P1 fix: URL, header, and body template strings now reject unmatched, nested, and illegal placeholder markers before transport. Valid `{{asset_id}}` substitutions continue through the existing successful fake-transport path.
+- Added fake-transport regressions for bare and malformed declarations plus unmatched, nested, and trailing-brace template markers; every rejection asserts `called === false`.
 - P1 fix: `real_live` now independently rejects request templates containing sensitive header/body keys or URL query keys before it resolves values or calls the injected transport. It reuses the capture manifest's `isSensitiveKey()` / recursive key scanner and reports the stable `CAPTURE_HTTP_SENSITIVE_TEMPLATE` error for direct, unparsed manifest objects.
 - P1 fix: local-path validation now treats `file:` URIs as forbidden request values. Header and body values such as `file:///srv/private/secret.png` fail with `CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN` before transport.
 - Added fake-transport regression coverage for `authorization`, `apiKey`, `?token=...`, and `file:` URI templates; every case asserts the transport remains uncalled. The ordinary fake-transport success case remains covered.
@@ -37,7 +40,7 @@ DONE
 - `node --test test/rpa-capture-real-live-client.test.js`
   - Initial red phase: failed as expected because `src/rpa/capture/real-live-http-client.js` did not exist.
 - `node --test test/rpa-capture-real-live-client.test.js test/rpa-capture-http-client-factory.test.js`
-  - Passed: 18 tests, 0 failures.
+  - Passed: 19 tests, 0 failures.
 - `npm run check`
   - Passed: checked 63 JavaScript files.
 - `git diff --check`

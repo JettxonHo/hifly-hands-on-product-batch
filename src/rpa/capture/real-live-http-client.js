@@ -7,6 +7,8 @@ import {
 } from "./step-runtime.js";
 
 const DEFAULT_ALLOWED_HOSTS = new Set(["hiflyworks-api.lingverse.co"]);
+const PLACEHOLDER_TOKEN = /^\{\{[A-Za-z0-9_]+\}\}$/;
+const TEMPLATE_PLACEHOLDER = /\{\{([A-Za-z0-9_]+)\}\}/g;
 
 function fail(code, message) {
   throw Object.assign(new Error(message || code), { code });
@@ -18,7 +20,11 @@ function placeholderNames(placeholders = []) {
 
 function templatePlaceholderNames(value) {
   if (typeof value === "string") {
-    return [...value.matchAll(/\{\{([^{}]*)\}\}/g)].map((match) => match[1]);
+    const placeholders = [...value.matchAll(TEMPLATE_PLACEHOLDER)].map((match) => match[1]);
+    if (value.replace(TEMPLATE_PLACEHOLDER, "").includes("{") || value.replace(TEMPLATE_PLACEHOLDER, "").includes("}")) {
+      fail("CAPTURE_HTTP_UNDECLARED_PLACEHOLDER", "Request template contains malformed placeholder markers.");
+    }
+    return placeholders;
   }
   if (Array.isArray(value)) return value.flatMap(templatePlaceholderNames);
   if (value && typeof value === "object") {
@@ -28,6 +34,9 @@ function templatePlaceholderNames(value) {
 }
 
 function assertDeclaredTemplatePlaceholders(step) {
+  if (!Array.isArray(step.placeholders) || step.placeholders.some((placeholder) => typeof placeholder !== "string" || !PLACEHOLDER_TOKEN.test(placeholder))) {
+    fail("CAPTURE_HTTP_INVALID_PLACEHOLDER", "Placeholder declarations must use the {{name}} format.");
+  }
   const declared = new Set(placeholderNames(step.placeholders));
   const used = new Set(templatePlaceholderNames([
     step.url_template,
