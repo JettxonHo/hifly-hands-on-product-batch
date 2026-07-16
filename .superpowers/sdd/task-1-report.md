@@ -6,6 +6,9 @@ DONE
 
 ## Reviewer Fix
 
+- P1 fix: `real_live` now independently rejects request templates containing sensitive header/body keys or URL query keys before it resolves values or calls the injected transport. It reuses the capture manifest's `isSensitiveKey()` / recursive key scanner and reports the stable `CAPTURE_HTTP_SENSITIVE_TEMPLATE` error for direct, unparsed manifest objects.
+- P1 fix: local-path validation now treats `file:` URIs as forbidden request values. Header and body values such as `file:///srv/private/secret.png` fail with `CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN` before transport.
+- Added fake-transport regression coverage for `authorization`, `apiKey`, `?token=...`, and `file:` URI templates; every case asserts the transport remains uncalled. The ordinary fake-transport success case remains covered.
 - P1 fix: expanded the Windows absolute-path branch to reject both UNC values such as `\\\\server\\share\\secret.png` and rooted values such as `\\secret\\file.png` before the injected transport can run. Normal remote URL pathnames, including `/api/app/v1/...`, remain outside the request-value gate.
 - Added regression cases for both Windows path forms, each asserting `CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN` and `called === false`.
 - Second-round fix: expanded the pre-transport POSIX local-path gate from a hard-coded root list to all absolute local path values in URL query values, headers, and request bodies. URL pathnames remain outside this value gate, so normal remote paths such as `/api/app/v1/...` are accepted.
@@ -34,7 +37,7 @@ DONE
 - `node --test test/rpa-capture-real-live-client.test.js`
   - Initial red phase: failed as expected because `src/rpa/capture/real-live-http-client.js` did not exist.
 - `node --test test/rpa-capture-real-live-client.test.js test/rpa-capture-http-client-factory.test.js`
-  - Passed: 16 tests, 0 failures.
+  - Passed: 18 tests, 0 failures.
 - `npm run check`
   - Passed: checked 63 JavaScript files.
 - `git diff --check`

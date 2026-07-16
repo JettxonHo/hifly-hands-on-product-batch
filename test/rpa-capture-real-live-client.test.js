@@ -115,6 +115,29 @@ test("real_live rejects undeclared template placeholders before transport", asyn
   assert.equal(called, false);
 });
 
+test("real_live rejects sensitive request templates before transport", async () => {
+  for (const stepPatch of [
+    { request_template: { headers: { authorization: "Bearer private" }, body: null } },
+    { request_template: { headers: {}, body: { apiKey: "private" } } },
+    { url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?token=private" }
+  ]) {
+    let called = false;
+    const client = createRealLiveHttpClient({
+      manifest: manifestWith({
+        ...stepPatch,
+        risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+      }),
+      config: { enabled: true },
+      transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+    });
+    await assert.rejects(
+      client.request({ stepId: "submit_video", variables: { asset_id: "asset-1" }, context: { allowRealLive: true } }),
+      { code: "CAPTURE_HTTP_SENSITIVE_TEMPLATE" }
+    );
+    assert.equal(called, false);
+  }
+});
+
 test("real_live rejects resolved absolute local paths before transport", async () => {
   for (const pathCase of [
     {
@@ -156,6 +179,28 @@ test("real_live rejects resolved absolute local paths before transport", async (
     });
     await assert.rejects(
       client.request({ stepId: "submit_video", variables: { asset_id: "asset-1", local_path: pathCase.local_path }, context: { allowRealLive: true } }),
+      { code: "CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN" }
+    );
+    assert.equal(called, false);
+  }
+});
+
+test("real_live rejects file URL request values before transport", async () => {
+  for (const request_template of [
+    { headers: { "x-source-file": "file:///srv/private/secret.png" }, body: null },
+    { headers: {}, body: { source_file: "file:///srv/private/secret.png" } }
+  ]) {
+    let called = false;
+    const client = createRealLiveHttpClient({
+      manifest: manifestWith({
+        request_template,
+        risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+      }),
+      config: { enabled: true },
+      transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+    });
+    await assert.rejects(
+      client.request({ stepId: "submit_video", variables: { asset_id: "asset-1" }, context: { allowRealLive: true } }),
       { code: "CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN" }
     );
     assert.equal(called, false);

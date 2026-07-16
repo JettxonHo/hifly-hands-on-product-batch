@@ -1,4 +1,5 @@
 import { findStep } from "./manifest.js";
+import { findSensitiveKeys, isSensitiveKey } from "./sensitive.js";
 import {
   assertStepPlaceholders,
   extractProducedVariables,
@@ -37,6 +38,24 @@ function assertDeclaredTemplatePlaceholders(step) {
   const undeclared = [...used].filter((name) => !declared.has(name));
   if (undeclared.length > 0) {
     fail("CAPTURE_HTTP_UNDECLARED_PLACEHOLDER", `Undeclared placeholders: ${undeclared.join(", ")}`);
+  }
+}
+
+function assertNoSensitiveTemplate(step) {
+  const template = step.request_template || {};
+  const sensitiveTemplateKeys = findSensitiveKeys({
+    headers: template.headers,
+    body: template.body
+  });
+  let url;
+  try {
+    url = new URL(step.url_template);
+  } catch {
+    fail("CAPTURE_HTTP_SENSITIVE_TEMPLATE", "Request template URL must be valid.");
+  }
+  const sensitiveQueryKeys = [...url.searchParams.keys()].filter(isSensitiveKey);
+  if (sensitiveTemplateKeys.length > 0 || sensitiveQueryKeys.length > 0) {
+    fail("CAPTURE_HTTP_SENSITIVE_TEMPLATE", "Request template contains sensitive keys.");
   }
 }
 
@@ -104,6 +123,7 @@ function assertNoUnresolved(value) {
 
 function hasAbsoluteLocalPath(value) {
   return typeof value === "string" && (
+    /file:\/+/i.test(value) ||
     /(?:^|[\s"'=,:])\/(?!\/)/.test(value) ||
     /(?:^|[\s"'=,:])(?:[A-Za-z]:[\\/]|\\{1,2}(?=[^\\/\s]))/.test(value)
   );
@@ -157,6 +177,7 @@ export function createRealLiveHttpClient({
         fail("CAPTURE_HTTP_API_UNAVAILABLE", `Capture step is not replayable: ${stepId}`);
       }
       assertDeclaredTemplatePlaceholders(step);
+      assertNoSensitiveTemplate(step);
       try {
         assertStepPlaceholders(step, variables);
       } catch (error) {
