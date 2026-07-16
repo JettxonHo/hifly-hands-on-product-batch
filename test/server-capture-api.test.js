@@ -304,3 +304,56 @@ test("capture APIs can process a hiflyworks HAR through offline replay", async (
   assert.equal(replayed.json().batch.capture.replay_summary.remote_id, 99);
   assert.equal(replayed.json().batch.capture.replay_summary.artifact_filename, "demo.mp4");
 });
+
+test("dry-run capture API stores request plan summary", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-dry-run-api-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const app = await buildApp({ root, openBrowser: async () => {} });
+  t.after(() => app.close());
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-dry-run-api",
+    status: "completed",
+    items: [],
+    artifacts: [],
+    capture: {
+      enabled: true,
+      status: "redacted",
+      manifest_path: "batches/batch-dry-run-api/capture/manifest.json"
+    }
+  });
+  await mkdir(path.join(root, "batches", "batch-dry-run-api", "capture"), { recursive: true });
+  await writeFile(path.join(root, "batches", "batch-dry-run-api", "capture", "manifest.json"), JSON.stringify({
+    schema_version: 1,
+    source: "hifly_goods",
+    captured_at: "2026-07-16T00:00:00Z",
+    sanitized: true,
+    steps: [{
+      id: "poll",
+      phase: "remote_query",
+      method: "GET",
+      url_template: "https://example.test/{{remote_id}}",
+      placeholders: ["{{remote_id}}"],
+      response: { status: 200, body: { data: { ok: true } } }
+    }]
+  }));
+  const session = await app.inject({ method: "GET", url: "/api/session", headers: { host: "127.0.0.1:4317" } });
+  const token = session.json().token;
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-dry-run-api/capture/dry-run",
+    headers: {
+      host: "127.0.0.1:4317",
+      origin: "http://127.0.0.1:4317",
+      cookie: session.headers["set-cookie"],
+      "x-local-session-token": token,
+      "content-type": "application/json"
+    },
+    payload: { variables: { remote_id: "work-1" } }
+  });
+  assert.equal(response.statusCode, 200);
+  const capture = response.json().batch.capture;
+  assert.equal(capture.status, "dry_run_passed");
+  assert.equal(capture.dry_run_summary.executed_step_count, 1);
+  assert.equal(capture.dry_run_summary.request_plan[0].url, "https://example.test/work-1");
+});

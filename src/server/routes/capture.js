@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { createDryRunHttpClient } from "../../rpa/capture/dry-run-http-client.js";
 import { extractRawStepsFromHar } from "../../rpa/capture/har-extractor.js";
-import { parseCaptureManifest } from "../../rpa/capture/manifest.js";
+import { CAPTURE_PHASES, loadCaptureManifest, parseCaptureManifest, selectStepsByPhase } from "../../rpa/capture/manifest.js";
 import { runOfflineCaptureReplay } from "../../rpa/capture/offline-replay.js";
 import { redactCaptureSource } from "../../rpa/capture/redact.js";
 import { updateCaptureState } from "../../rpa/capture/workflow-state.js";
@@ -125,6 +126,58 @@ export async function registerCaptureRoutes(app, { batchRoot, store }) {
           enabled: true,
           status: "replay_failed",
           replay_error: error.message
+        })
+      }));
+      return { batch: publicBatch(updated) };
+    }
+  });
+
+  app.post("/api/batches/:batchId/capture/dry-run", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    const batch = await readCaptureBatch(batchId);
+    if (!batch.capture?.manifest_path) throw captureError("CAPTURE_MANIFEST_MISSING", 409);
+
+    const root = path.dirname(batchRoot);
+    const manifestPath = resolveProjectRelative(root, batch.capture.manifest_path);
+    try {
+      const manifest = await loadCaptureManifest(manifestPath);
+      const client = createDryRunHttpClient({ manifest });
+      const variables = {
+        product_image_path: "product-image.jpg",
+        person_image_path: "person-image.jpg",
+        remote_id: "dry-run-remote",
+        ...(request.body?.variables && typeof request.body.variables === "object" ? request.body.variables : {})
+      };
+      const requestPlan = [];
+      const executed = [];
+      for (const phase of CAPTURE_PHASES) {
+        for (const step of selectStepsByPhase(manifest, phase)) {
+          const result = await client.request({ stepId: step.id, variables });
+          Object.assign(variables, result.produced);
+          if (result.request_plan) requestPlan.push(result.request_plan);
+          executed.push(step.id);
+        }
+      }
+      const updated = await store.update(batchId, (current) => ({
+        ...current,
+        capture: updateCaptureState(current.capture, {
+          enabled: true,
+          status: "dry_run_passed",
+          dry_run_error: null,
+          dry_run_summary: {
+            executed_step_count: executed.length,
+            request_plan: requestPlan
+          }
+        })
+      }));
+      return { batch: publicBatch(updated) };
+    } catch (error) {
+      const updated = await store.update(batchId, (current) => ({
+        ...current,
+        capture: updateCaptureState(current.capture, {
+          enabled: true,
+          status: "dry_run_failed",
+          dry_run_error: error.message
         })
       }));
       return { batch: publicBatch(updated) };

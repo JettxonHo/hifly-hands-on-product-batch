@@ -6,7 +6,10 @@ export const CAPTURE_STATUSES = new Set([
   "extracted",
   "redacted",
   "replay_passed",
-  "replay_failed"
+  "replay_failed",
+  "dry_run_passed",
+  "dry_run_failed",
+  "real_live_disabled"
 ]);
 
 function now() {
