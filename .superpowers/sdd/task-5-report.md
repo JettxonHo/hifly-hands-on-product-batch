@@ -1,24 +1,38 @@
-# Task 5 Report: End-To-End Mock State Machine And Timeout Recovery
+# Task 5 Report: Capture Dry-Run API and Workflow State
 
-## Status
+Status: DONE
 
-DONE
+## Scope
 
-## Commit
-
-- `f39b3d3 fix: recover from rpa execution timeouts`
-
-## Changes
-
-- `src/core/batch-runner.js`: maps only `YINGDAO_RPA_TIMEOUT` from the pre-submit RPA asset flow to recoverable `interrupted_unknown`; all other pre-submit errors continue to become `failed_pre_submit`.
-- `test/batch-runner.test.js`: adds a timeout regression test and a mock RPA lifecycle test through `runBatch` for `confirmed -> generating_asset -> asset_confirmed -> submitted -> download_pending -> completed`.
+- Added capture workflow states: `dry_run_passed`, `dry_run_failed`, and `real_live_disabled`.
+- Added `POST /api/batches/:batchId/capture/dry-run`.
+- The endpoint loads the sanitized manifest, runs every step in `CAPTURE_PHASES` using `createDryRunHttpClient`, propagates produced variables, and persists a request-plan summary.
+- Successful runs persist `dry_run_passed`; errors persist `dry_run_failed` and `dry_run_error`.
+- Added the required API regression test for variable substitution and persisted request-plan output.
 
 ## Verification
 
-- `node --test test/batch-runner.test.js test/yingdao-rpa-executor.test.js`: 65/65 passed.
-- `npm run check`: passed (48 JavaScript files).
+- `node --test test/server-capture-api.test.js test/offline-replay.test.js`: 5 passed, 0 failed.
+- `npm run check`: passed; checked 62 JavaScript files.
 - `git diff --check`: passed.
 
-## Real Execution
+## Safety
 
-No GUI was started. No Yingdao or Hifly service was accessed, and no credits were consumed.
+- No real HTTP requests were sent.
+- No Flying credits were consumed.
+
+## Commit
+
+- `e89752f feat(gui capture): add dry-run API`
+
+## Concerns
+
+- None.
+
+## Reviewer Fix Report
+
+- Files changed: `src/server/routes/capture.js`, `test/server-capture-api.test.js`, `docs/PROJECT_HANDOFF.md`, `.superpowers/sdd/task-5-report.md`.
+- Fix: the dry-run API now persists and returns only a public-safe request-plan summary; resolved `url`, `headers`, and `body` remain internal to the dry-run client.
+- Tests: `node --test test/server-capture-api.test.js test/offline-replay.test.js`, `npm run check`, and `git diff --check`.
+- Commit: `fix(gui capture): redact dry-run request plan summary`.
+- Concerns: no real HTTP requests or Flying credits were used; the dry-run client was intentionally unchanged.

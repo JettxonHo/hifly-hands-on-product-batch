@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Capture HTTP Task 5 review security fix：dry-run 请求计划仅公开安全摘要（无网络、无新增积分）
+
+- 修复 `POST /api/batches/:batchId/capture/dry-run` 将完整 resolved request plan（URL、headers、body）持久化并经 `publicBatch` 返回的泄露风险。
+- 路由现在仅持久化和返回白名单摘要：`step_id`、`phase`、`method`、模板派生的 `host` / `path`、`placeholders` 与 `risk_flags`；不再保存或公开 resolved `url`、`headers`、`body`。
+- API 回归测试使用非敏感键名变量填入 URL、header 和 body，断言响应与落盘 batch JSON 都不含该值，且每个摘要条目没有 `url` / `headers` / `body` 属性。
+- 未修改 dry-run client，内部 executor 仍可使用完整 request plan；本轮未发出真实 HTTP、未访问飞影、未消耗积分。
+- 验证：`node --test test/server-capture-api.test.js test/offline-replay.test.js` 为 5/5 通过；`npm run check` 通过（62 个 JS 文件）；`git diff --check` 通过。
+
 ## 2026-07-16 Capture HTTP Task 5 已实现：GUI dry-run API（无网络、无新增积分）
 
 - 新增 `POST /api/batches/:batchId/capture/dry-run`。它加载已脱敏 manifest，按 `asset_generation`、`remote_submit`、`remote_query`、`download` 固定顺序构造请求计划，并把每步产生的变量传递给后续步骤。

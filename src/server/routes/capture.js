@@ -31,6 +31,19 @@ function resolveProjectRelative(root, relativePath) {
   return absolute;
 }
 
+function publicDryRunRequestPlan(step, requestPlan) {
+  const templateUrl = new URL(step.url_template.replace(/\{\{([A-Za-z0-9_]+)\}\}/g, ":$1"));
+  return {
+    step_id: requestPlan.step_id,
+    phase: requestPlan.phase,
+    method: requestPlan.method,
+    host: templateUrl.hostname,
+    path: templateUrl.pathname,
+    placeholders: requestPlan.placeholders,
+    risk_flags: requestPlan.risk_flags
+  };
+}
+
 export async function registerCaptureRoutes(app, { batchRoot, store }) {
   async function readCaptureBatch(batchId) {
     const batch = await store.read(batchId);
@@ -154,7 +167,7 @@ export async function registerCaptureRoutes(app, { batchRoot, store }) {
         for (const step of selectStepsByPhase(manifest, phase)) {
           const result = await client.request({ stepId: step.id, variables });
           Object.assign(variables, result.produced);
-          if (result.request_plan) requestPlan.push(result.request_plan);
+          if (result.request_plan) requestPlan.push(publicDryRunRequestPlan(step, result.request_plan));
           executed.push(step.id);
         }
       }

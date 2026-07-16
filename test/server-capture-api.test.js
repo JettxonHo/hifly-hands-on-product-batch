@@ -305,7 +305,7 @@ test("capture APIs can process a hiflyworks HAR through offline replay", async (
   assert.equal(replayed.json().batch.capture.replay_summary.artifact_filename, "demo.mp4");
 });
 
-test("dry-run capture API stores request plan summary", async (t) => {
+test("dry-run capture API stores only a public-safe request plan summary", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "capture-dry-run-api-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const app = await buildApp({ root, openBrowser: async () => {} });
@@ -332,8 +332,13 @@ test("dry-run capture API stores request plan summary", async (t) => {
       id: "poll",
       phase: "remote_query",
       method: "GET",
-      url_template: "https://example.test/{{remote_id}}",
-      placeholders: ["{{remote_id}}"],
+      url_template: "https://example.test/jobs/{{opaque_context}}?tracking={{opaque_context}}",
+      placeholders: ["{{opaque_context}}"],
+      request_template: {
+        headers: { "x-request-context": "{{opaque_context}}" },
+        body: { request_context: "{{opaque_context}}" }
+      },
+      risk: { requires_auth: true, may_consume_points: true, replayability: "unknown" },
       response: { status: 200, body: { data: { ok: true } } }
     }]
   }));
@@ -349,11 +354,26 @@ test("dry-run capture API stores request plan summary", async (t) => {
       "x-local-session-token": token,
       "content-type": "application/json"
     },
-    payload: { variables: { remote_id: "work-1" } }
+    payload: { variables: { opaque_context: "non-sensitive-key-secret-value" } }
   });
   assert.equal(response.statusCode, 200);
-  const capture = response.json().batch.capture;
+  const responseBody = response.json();
+  const capture = responseBody.batch.capture;
   assert.equal(capture.status, "dry_run_passed");
   assert.equal(capture.dry_run_summary.executed_step_count, 1);
-  assert.equal(capture.dry_run_summary.request_plan[0].url, "https://example.test/work-1");
+  const [requestPlan] = capture.dry_run_summary.request_plan;
+  assert.deepEqual(requestPlan, {
+    step_id: "poll",
+    phase: "remote_query",
+    method: "GET",
+    host: "example.test",
+    path: "/jobs/:opaque_context",
+    placeholders: ["opaque_context"],
+    risk_flags: ["auth_required", "may_consume_points", "replayability_unknown"]
+  });
+  for (const key of ["headers", "body", "url"]) assert.equal(key in requestPlan, false);
+  assert.equal(JSON.stringify(responseBody).includes("non-sensitive-key-secret-value"), false);
+
+  const persisted = JSON.parse(await readFile(path.join(root, "batches", "batch-dry-run-api", "batch.json"), "utf8"));
+  assert.equal(JSON.stringify(persisted).includes("non-sensitive-key-secret-value"), false);
 });
