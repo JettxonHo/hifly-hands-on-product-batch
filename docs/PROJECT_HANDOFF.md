@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Codex 接管核验：Claude Phase 1 已落地，等待真实抓包授权
+
+- Codex 已接管并复核 Claude Code 后续提交；当前分支 `codex/yingdao-rpa-version`，最新提交为 `2de8626 docs: tighten handoff and environment for codex takeover`（本节更新前）。
+- 已确认 Claude 完成的抓包 HTTP RPA Phase 1 均已落地：`src/rpa/capture/sensitive.js`、`manifest.js`、`redact.js`、`mock-http-client.js`、`src/executors/capture-http-executor.js`、`scripts/redact-capture-source.mjs`、`rpa/capture/fixtures/hifly-goods-sample.json`、`docs/rpa/capture-runbook.md` 以及对应测试均存在。
+- 接入方式保持安全：默认 `executionBackend` 仍为 `playwright`；只有在 `executionBackend: "yingdao_rpa"` 且 `rpa.mode === "capture_http"` 时才进入 capture executor；既有 `yingdao_rpa` bridge 和 Playwright executor 没有被替换。
+- 当前能力边界仍是离线无积分：capture executor 使用 mock manifest 回放并写占位 artifact，不发真实飞影 HTTP 请求、不下载真实视频、不消耗积分。真实 HTTP client、真实 HAR 采集/脱敏入库和真实 1 条商品联调尚未开始。
+- 接管验证已执行：门控子集 `node --test test/execution-backend-config.test.js test/rpa-task-package.test.js test/rpa-callbacks.test.js test/yingdao-rpa-executor.test.js test/batch-runner.test.js test/redact-capture-cli.test.js test/rpa-capture-redact.test.js test/capture-http-executor.test.js test/rpa-capture-sensitive.test.js test/rpa-capture-manifest.test.js test/rpa-capture-mock-http.test.js` 为 122/122 通过；`npm test` 为 255/255 通过；`npm run check` 通过，检查 55 个 JS 文件；`git diff --check` 通过。
+- 本轮未启动 GUI、未访问飞影或影刀、未执行真实生成、未消耗积分；关键批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 未触碰；`docs/resume/` 保持未跟踪且未触碰。
+- 下一步只有在用户明确授权后才进行：按 `docs/rpa/capture-runbook.md` 采集 1 条商品 HAR，人工整理 raw steps，运行脱敏 CLI，复核 report，再做离线回放自检；真实 HTTP client 需要另起小切片实现，遇到签名/一次性 token/风控时标记 `api_unavailable` 并保留 Playwright 兜底。
+
 ## 2026-07-16 抓包 HTTP RPA 脱敏 CLI + 操作 runbook（Claude Code，无积分）
 
 **接手状态 TL;DR**：本轮工作已全部提交，无半途编码任务，工作树仅剩未跟踪的 `docs/resume/`（按 AGENTS.md 不动）。未启动 GUI、未访问飞影/影刀、未执行真实生成、未消耗积分。抓包 HTTP RPA 的「离线无积分」部分（Phase 1 + 脱敏 CLI + runbook）已就绪；**真实飞影抓包/回放尚未实现，需用户明确授权积分后才启动，且只跑 1 条商品。**
