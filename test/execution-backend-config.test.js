@@ -60,3 +60,13 @@ test("playwright executor can be configured with a per-run HAR path", () => {
   assert.equal(executor.backend, "playwright");
   assert.equal(executor.recordHarPath, "rpa/capture/raw/batch-one.har");
 });
+
+test("capture_http executor preserves configured dry-run mode", () => {
+  const executor = createExecutorForBackend(process.cwd(), {
+    executionBackend: "yingdao_rpa",
+    rpa: { mode: "capture_http", manifestPath: "rpa/capture/fixtures/hifly-goods-sample.json", captureHttpMode: "real_dry_run" }
+  });
+  assert.equal(executor.backend, "yingdao_rpa");
+  assert.equal(executor.mode, "capture_http");
+  assert.equal(executor.captureHttpMode, "real_dry_run");
+});

@@ -5,7 +5,7 @@ import { createRpaTaskPackage, writeRpaTaskPackage } from "../rpa/task-package.j
 import { registerRpaCallbackToken, revokeRpaCallbackToken } from "../rpa/callback-token-registry.js";
 import { readRpaState, writeRpaState } from "../rpa/rpa-state.js";
 import { loadCaptureManifest, selectStepsByPhase } from "../rpa/capture/manifest.js";
-import { createMockHttpClient } from "../rpa/capture/mock-http-client.js";
+import { createCaptureHttpClient, normalizeCaptureHttpMode } from "../rpa/capture/http-client-factory.js";
 
 function batchDirectory(root, batchId) {
   if (typeof batchId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(batchId)) {
@@ -21,6 +21,7 @@ function directEvidence(remoteEvidence) {
 export function createCaptureHttpExecutor({ root, config = {} } = {}) {
   if (!root) throw new TypeError("createCaptureHttpExecutor requires root");
   const rpa = config.rpa || {};
+  const captureHttpMode = normalizeCaptureHttpMode(rpa.captureHttpMode || "mock");
   let callbackBaseUrl = rpa.callbackBaseUrl ?? "http://127.0.0.1:4317";
   let manifestCache = null;
   let clientCache = null;
@@ -36,7 +37,7 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
         const resolved = path.isAbsolute(rpa.manifestPath) ? rpa.manifestPath : path.resolve(root, rpa.manifestPath);
         manifestCache = await loadCaptureManifest(resolved);
       }
-      clientCache = createMockHttpClient({ manifest: manifestCache });
+      clientCache = createCaptureHttpClient({ mode: captureHttpMode, manifest: manifestCache });
     }
     return clientCache;
   }
@@ -44,11 +45,19 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
   async function replayPhase(phase, variables) {
     await ensureClient();
     const vars = { ...variables };
+    const requestPlan = [];
     for (const step of selectStepsByPhase(manifestCache, phase)) {
-      const result = await clientCache.request({ stepId: step.id, variables: vars });
+      const result = await clientCache.request({ stepId: step.id, variables: vars, phase });
       Object.assign(vars, result.produced);
+      if (result.request_plan) requestPlan.push(result.request_plan);
     }
-    return vars;
+    return { variables: vars, requestPlan };
+  }
+
+  async function appendRequestPlan(dir, taskId, entries) {
+    if (entries.length === 0) return [];
+    const current = await readRpaState(dir, taskId);
+    return [...(current?.request_plan || []), ...entries];
   }
 
   const executor = {
@@ -81,12 +90,19 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
         revokeRpaCallbackToken(tokenScope);
         throw error;
       }
-      const produced = await replayPhase("asset_generation", {
+      const assetReplay = await replayPhase("asset_generation", {
         product_image_path: packageData.product_image_path,
         person_image_path: packageData.person_image_path
       });
+      const produced = assetReplay.variables;
       const asset = { asset_id: produced.asset_id || `capture-asset-${task.task_id}` };
-      await writeRpaState(dir, task.task_id, { status: "asset_confirmed", asset, phase: "asset_generation" });
+      await writeRpaState(dir, task.task_id, {
+        status: "asset_confirmed",
+        asset,
+        phase: "asset_generation",
+        capture_http_mode: captureHttpMode,
+        request_plan: assetReplay.requestPlan
+      });
       revokeRpaCallbackToken(tokenScope);
       return asset;
     },
@@ -94,28 +110,44 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
     async submitVideo(task, asset, context = {}) {
       const dir = batchDirectory(root, context.batchId);
       await context.checkpoint?.({ phase: "remote_submit_pre", evidence: { source: "capture_http" } });
-      const produced = await replayPhase("remote_submit", { asset_id: asset?.asset_id });
+      const submitReplay = await replayPhase("remote_submit", { asset_id: asset?.asset_id });
+      const produced = submitReplay.variables;
       const remoteEvidence = directEvidence({
         remote_id: produced.remote_id,
         work_key: produced.remote_id,
-        label: manifestCache?.captured_at || null
+        label: manifestCache?.captured_at || null,
+        task_id: task.task_id,
+        batch_id: context.batchId
       });
       await writeRpaState(dir, task.task_id, {
         status: "submitted",
         phase: "remote_submit",
-        remote_evidence: remoteEvidence
+        remote_evidence: remoteEvidence,
+        capture_http_mode: captureHttpMode,
+        request_plan: await appendRequestPlan(dir, task.task_id, submitReplay.requestPlan)
       });
       return { status: "submitted", remoteEvidence };
     },
 
-    async querySubmission(remoteEvidence) {
-      await replayPhase("remote_query", { remote_id: remoteEvidence?.remote_id });
+    async querySubmission(remoteEvidence, context = {}) {
+      const queryReplay = await replayPhase("remote_query", { remote_id: remoteEvidence?.remote_id });
+      const batchId = context.batchId || remoteEvidence?.batch_id;
+      const taskId = context.taskId || remoteEvidence?.task_id;
+      if (batchId && taskId) {
+        const dir = batchDirectory(root, batchId);
+        await writeRpaState(dir, taskId, {
+          phase: "remote_query",
+          capture_http_mode: captureHttpMode,
+          request_plan: await appendRequestPlan(dir, taskId, queryReplay.requestPlan)
+        });
+      }
       return { status: "ready", remoteEvidence };
     },
 
     async downloadArtifact(remoteEvidence, destination, context = {}) {
       const dir = batchDirectory(root, context.batchId);
-      const produced = await replayPhase("download", { remote_id: remoteEvidence?.remote_id });
+      const downloadReplay = await replayPhase("download", { remote_id: remoteEvidence?.remote_id });
+      const produced = downloadReplay.variables;
       const filename = produced.artifact_filename || `${remoteEvidence?.remote_id}.mp4`;
       const absolutePath = path.join(dir, filename);
       await writeFile(absolutePath, `capture-http placeholder artifact for ${remoteEvidence?.remote_id}\n`);
@@ -127,7 +159,9 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
         status: "completed",
         phase: "download",
         remote_evidence: remoteEvidence,
-        artifact
+        artifact,
+        capture_http_mode: captureHttpMode,
+        request_plan: await appendRequestPlan(dir, context.taskId || remoteEvidence?.task_id, downloadReplay.requestPlan)
       });
       return artifact;
     },
@@ -139,5 +173,5 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
     }
   };
 
-  return assertExecutorAdapter(executor);
+  return assertExecutorAdapter(Object.assign(executor, { captureHttpMode }));
 }
