@@ -1,7 +1,10 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { extractRawStepsFromHar } from "../../rpa/capture/har-extractor.js";
+import { parseCaptureManifest } from "../../rpa/capture/manifest.js";
+import { runOfflineCaptureReplay } from "../../rpa/capture/offline-replay.js";
+import { redactCaptureSource } from "../../rpa/capture/redact.js";
 import { updateCaptureState } from "../../rpa/capture/workflow-state.js";
 import { assertBatchId, publicBatch } from "./batches.js";
 
@@ -28,10 +31,15 @@ function resolveProjectRelative(root, relativePath) {
 }
 
 export async function registerCaptureRoutes(app, { batchRoot, store }) {
-  app.post("/api/batches/:batchId/capture/extract", async (request) => {
-    const batchId = assertBatchId(request.params.batchId);
+  async function readCaptureBatch(batchId) {
     const batch = await store.read(batchId);
     if (batch.capture?.enabled !== true) throw captureError("CAPTURE_NOT_ENABLED", 409);
+    return batch;
+  }
+
+  app.post("/api/batches/:batchId/capture/extract", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    const batch = await readCaptureBatch(batchId);
     if (!batch.capture?.har_path) throw captureError("CAPTURE_HAR_MISSING", 409);
 
     const root = path.dirname(batchRoot);
@@ -53,5 +61,73 @@ export async function registerCaptureRoutes(app, { batchRoot, store }) {
       })
     }));
     return { batch: publicBatch(updated) };
+  });
+
+  app.post("/api/batches/:batchId/capture/redact", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    const batch = await readCaptureBatch(batchId);
+    if (!batch.capture?.raw_steps_path) throw captureError("CAPTURE_RAW_STEPS_MISSING", 409);
+
+    const root = path.dirname(batchRoot);
+    const rawStepsPath = resolveProjectRelative(root, batch.capture.raw_steps_path);
+    const manifestRelativePath = `batches/${batchId}/capture/manifest.json`;
+    const reportRelativePath = `batches/${batchId}/capture/redaction-report.json`;
+    const manifestPath = resolveProjectRelative(root, manifestRelativePath);
+    const reportPath = resolveProjectRelative(root, reportRelativePath);
+    const raw = JSON.parse(await readFile(rawStepsPath, "utf8"));
+    const { sanitized, report } = redactCaptureSource(raw);
+    parseCaptureManifest(sanitized);
+    await mkdir(path.dirname(manifestPath), { recursive: true, mode: 0o700 });
+    await Promise.all([
+      writeFile(manifestPath, `${JSON.stringify(sanitized, null, 2)}\n`, "utf8"),
+      writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8")
+    ]);
+    const updated = await store.update(batchId, (current) => ({
+      ...current,
+      capture: updateCaptureState(current.capture, {
+        enabled: true,
+        status: "redacted",
+        manifest_path: manifestRelativePath,
+        report_path: reportRelativePath,
+        redaction_summary: { removed_count: report.removed.length }
+      })
+    }));
+    return { batch: publicBatch(updated) };
+  });
+
+  app.post("/api/batches/:batchId/capture/replay", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    const batch = await readCaptureBatch(batchId);
+    if (!batch.capture?.manifest_path) throw captureError("CAPTURE_MANIFEST_MISSING", 409);
+
+    const root = path.dirname(batchRoot);
+    const manifestPath = resolveProjectRelative(root, batch.capture.manifest_path);
+    try {
+      const replay = await runOfflineCaptureReplay({ manifestPath });
+      const updated = await store.update(batchId, (current) => ({
+        ...current,
+        capture: updateCaptureState(current.capture, {
+          enabled: true,
+          status: "replay_passed",
+          replay_error: null,
+          replay_summary: {
+            executed_step_count: replay.executed_steps.length,
+            remote_id: replay.variables.remote_id ?? null,
+            artifact_filename: replay.variables.artifact_filename ?? null
+          }
+        })
+      }));
+      return { batch: publicBatch(updated) };
+    } catch (error) {
+      const updated = await store.update(batchId, (current) => ({
+        ...current,
+        capture: updateCaptureState(current.capture, {
+          enabled: true,
+          status: "replay_failed",
+          replay_error: error.message
+        })
+      }));
+      return { batch: publicBatch(updated) };
+    }
   });
 }
