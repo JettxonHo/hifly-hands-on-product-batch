@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-17 已有真实 HAR 批次完成 real_dry_run 预演（无网络、无新增积分）
+
+- 复用已有 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca`（商品 `VERIFY-001 / 验证用吉伊卡哇公仔`），未新建批次、未重新访问飞影、未重新生成视频。
+- 通过本地 GUI API `POST /api/batches/:batchId/capture/dry-run` 执行“真实请求预演”等价操作。该模式只构造请求计划，不发真实 HTTP，不消耗飞影积分。
+- 结果：批次 capture 状态从 `replay_passed` 更新为 `dry_run_passed`；`dry_run_summary.executed_step_count = 7`。
+- 请求计划覆盖完整链路：`asset_generation` 3 步、`remote_submit` 2 步、`remote_query` 1 步、`download` 1 步；host 均为 `hiflyworks-api.lingverse.co`；公开摘要只包含 step/phase/method/host/placeholders/risk flags，不暴露 URL、path、query、headers、body 或变量值。
+- 下一步如果要验证真实 HTTP 出片，必须先实现/启用 `real_live` 并另行获得用户明确授权；当前 `real_live` 仍禁用，Playwright 仍是生产可用兜底链路。
+
 ## 2026-07-17 Capture HTTP final-review Important 修复：URL query 门禁、symlink 落盘与短 ID（无网络、无新增积分）
 
 - Manifest parser 现在用 URL query 结构检查 `url_template` 的每个 query key，并复用 `isSensitiveKey()`。手工标记为 sanitized 的 `apiKey`、`privateKey`、`x-api-key` 等 camelCase/snake_case/kebab/header 形式都会在加载前被拒绝。
