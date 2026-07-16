@@ -64,7 +64,8 @@ export async function main() {
         headless: config.browser.headless,
         slowMo: config.browser.slowMoMs,
         viewport: config.browser.viewport,
-        acceptDownloads: true
+        acceptDownloads: true,
+        ...harRecordingOptions(config)
       }
     );
     const page = context.pages()[0] || await context.newPage();
@@ -98,6 +99,17 @@ function selectProducts(allProducts, currentConfig) {
     return ["", "pending", "failed"].includes(status) && retryCount <= currentConfig.batch.retryLimit;
   });
   return currentConfig.batch.maxItems > 0 ? pending.slice(0, currentConfig.batch.maxItems) : pending;
+}
+
+function harRecordingOptions(config) {
+  const harPath = process.env.HIFLY_RECORD_HAR_PATH;
+  if (!harPath) return {};
+  return {
+    recordHar: {
+      path: resolveFromRoot(config, harPath),
+      content: "embed"
+    }
+  };
 }
 
 function isDirectExecution() {
