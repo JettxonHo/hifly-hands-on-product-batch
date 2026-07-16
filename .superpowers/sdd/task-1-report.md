@@ -6,8 +6,10 @@ DONE
 
 ## Reviewer Fix
 
+- Second-round fix: expanded the pre-transport POSIX local-path gate from a hard-coded root list to all absolute local path values in URL query values, headers, and request bodies. URL pathnames remain outside this value gate, so normal remote paths such as `/api/app/v1/...` are accepted.
+- Second-round fix: expanded template marker detection to any `{{...}}` token. Malformed or undeclared markers such as `{{asset-id}}` in URL templates or request bodies now fail with `CAPTURE_HTTP_UNDECLARED_PLACEHOLDER` before transport.
 - Added a pre-transport declared-placeholder check across the URL, headers, body, and placeholder declaration list. Dynamic template references that are absent from `step.placeholders` now fail with `CAPTURE_HTTP_UNDECLARED_PLACEHOLDER`.
-- Added resolved-value local path checks for URL path/query values and nested headers/body values. POSIX and Windows absolute local paths now fail with `CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN`; ordinary API paths such as `/api/app/v1/...` remain valid.
+- Added resolved-value local path checks for URL query values and nested headers/body values. POSIX and Windows absolute local paths now fail with `CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN`; ordinary API paths such as `/api/app/v1/...` remain valid.
 - Added regression coverage for both errors, including URL query, header, and body path sources, with `called === false` for every rejection.
 
 ## Changed Files
@@ -30,7 +32,7 @@ DONE
 - `node --test test/rpa-capture-real-live-client.test.js`
   - Initial red phase: failed as expected because `src/rpa/capture/real-live-http-client.js` did not exist.
 - `node --test test/rpa-capture-real-live-client.test.js test/rpa-capture-http-client-factory.test.js`
-  - Passed: 14 tests, 0 failures.
+  - Passed: 16 tests, 0 failures.
 - `npm run check`
   - Passed: checked 63 JavaScript files.
 - `git diff --check`

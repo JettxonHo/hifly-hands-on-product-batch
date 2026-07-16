@@ -120,7 +120,7 @@ test("real_live rejects resolved absolute local paths before transport", async (
     {
       url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?source={{local_path}}",
       request_template: { headers: {}, body: null },
-      local_path: "/Users/ketchup/secret.png"
+      local_path: "/srv/private/secret.png"
     },
     {
       url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status",
@@ -130,7 +130,7 @@ test("real_live rejects resolved absolute local paths before transport", async (
     {
       url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status",
       request_template: { headers: {}, body: { source_file: "{{local_path}}" } },
-      local_path: "/Users/ketchup/secret.png"
+      local_path: "/srv/private/secret.png"
     }
   ]) {
     let called = false;
@@ -147,6 +147,48 @@ test("real_live rejects resolved absolute local paths before transport", async (
     await assert.rejects(
       client.request({ stepId: "submit_video", variables: { asset_id: "asset-1", local_path: pathCase.local_path }, context: { allowRealLive: true } }),
       { code: "CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN" }
+    );
+    assert.equal(called, false);
+  }
+});
+
+test("real_live permits normal URL pathnames", async () => {
+  let called = false;
+  const client = createRealLiveHttpClient({
+    manifest: manifestWith({ risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" } }),
+    config: { enabled: true },
+    transport: {
+      request: async () => {
+        called = true;
+        return { status: 200, body: { data: { list: [{ id: 123 }] } } };
+      }
+    }
+  });
+  await client.request({
+    stepId: "submit_video",
+    variables: { asset_id: "asset-1" },
+    context: { allowRealLive: true }
+  });
+  assert.equal(called, true);
+});
+
+test("real_live rejects malformed template placeholders before transport", async () => {
+  for (const templatePatch of [
+    { url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?id={{asset-id}}" },
+    { request_template: { headers: {}, body: { gen_id: "{{asset-id}}" } } }
+  ]) {
+    let called = false;
+    const client = createRealLiveHttpClient({
+      manifest: manifestWith({
+        ...templatePatch,
+        risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+      }),
+      config: { enabled: true },
+      transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+    });
+    await assert.rejects(
+      client.request({ stepId: "submit_video", variables: { asset_id: "asset-1" }, context: { allowRealLive: true } }),
+      { code: "CAPTURE_HTTP_UNDECLARED_PLACEHOLDER" }
     );
     assert.equal(called, false);
   }

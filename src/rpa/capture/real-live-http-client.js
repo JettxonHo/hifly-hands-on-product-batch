@@ -17,7 +17,7 @@ function placeholderNames(placeholders = []) {
 
 function templatePlaceholderNames(value) {
   if (typeof value === "string") {
-    return [...value.matchAll(/\{\{([A-Za-z0-9_]+)\}\}/g)].map((match) => match[1]);
+    return [...value.matchAll(/\{\{([^{}]*)\}\}/g)].map((match) => match[1]);
   }
   if (Array.isArray(value)) return value.flatMap(templatePlaceholderNames);
   if (value && typeof value === "object") {
@@ -96,7 +96,7 @@ function assertLiveGate({ config, context, step, url, runtimeAuth }) {
 
 function assertNoUnresolved(value) {
   const text = JSON.stringify(value);
-  const unresolved = text.match(/\{\{[A-Za-z0-9_]+\}\}/g) || [];
+  const unresolved = text.match(/\{\{[^{}]*\}\}/g) || [];
   if (unresolved.length > 0) {
     fail("CAPTURE_HTTP_UNRESOLVED_PLACEHOLDER", `Unresolved placeholders: ${unresolved.join(", ")}`);
   }
@@ -104,7 +104,7 @@ function assertNoUnresolved(value) {
 
 function hasAbsoluteLocalPath(value) {
   return typeof value === "string" && (
-    /(?:^|[\s"'=,:])\/(?:Users|home|private|var|tmp|opt|etc|Volumes|mnt)(?:[\\/]|$)/.test(value) ||
+    /(?:^|[\s"'=,:])\/(?!\/)/.test(value) ||
     /(?:^|[\s"'=,:])[A-Za-z]:[\\/]/.test(value)
   );
 }
@@ -126,7 +126,6 @@ function assertNoLocalPaths(value) {
 }
 
 function assertUrlHasNoLocalPaths(url) {
-  assertNoLocalPaths(url.pathname);
   for (const value of url.searchParams.values()) assertNoLocalPaths(value);
 }
 
