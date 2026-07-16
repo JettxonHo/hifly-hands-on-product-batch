@@ -1,5 +1,17 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 抓包 HTTP RPA 脱敏 CLI + 操作 runbook（Claude Code，无积分）
+
+- 在 Phase 1 基础上补齐「采集 → 入库」的离线操作工具与流程文档，全部不消耗积分、不访问网络。
+- 新增脱敏 CLI `scripts/redact-capture-source.mjs`：读人工整理的 raw-steps JSON → 调 `redactCaptureSource` → 内嵌 `parseCaptureManifest` 门禁作双重保险 → 输出脱敏 manifest + path-only report；支持 `--out` / `--report`，缺失参数打印用法退出 1。新增 `test/redact-capture-cli.test.js`（spawn 退出码 / 输出 / report 不含敏感值回归）。
+- `.gitignore` 新增 `*.har` 与 `rpa/capture/raw/`，防止原始抓包（含 cookie/token/签名/登录态）误入库。
+- 新增操作流程 `docs/rpa/capture-runbook.md`：采集 HAR → 人工整理 raw-steps → 脱敏 → 复核 report → 门禁 → 离线回放自检 → 真实回放约定；含 HAR→capture step 字段对照表、phase/produces 判定、不进 git 清单、故障排查。**明确能力边界**：当前 `capture_http` 只有 mock 回放 + 占位 artifact，真实 HTTP 回放是后续阶段、需授权积分且只跑 1 条，CLI 不解析 HAR（需人工整理）。
+- `docs/CALIBRATION.md`「影刀/抓包校准」段补一行指向 runbook。
+- 验证：`node --test test/execution-backend-config.test.js test/rpa-task-package.test.js test/rpa-callbacks.test.js test/yingdao-rpa-executor.test.js test/batch-runner.test.js test/redact-capture-cli.test.js test/rpa-capture-redact.test.js` 为 103/103 通过；`npm run check` 通过（55 个 JS 文件）；`git diff --check` 通过。
+- 提交：`f1021cb feat(rpa capture): add offline redaction cli and ignore raw captures`（CLI + gitignore + 测试），外加本轮 docs 提交。
+- 未启动 GUI、未访问飞影或影刀、未执行真实生成、未消耗积分；关键批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 未触碰；`docs/resume/` 保持未跟踪且未触碰。
+- 下一步（需用户授权积分）：真实采集 1 条商品 HAR → 按本 runbook 脱敏入库 → 离线回放自检 → 再单独立计划实现真实 HTTP client 并只跑 1 条联调。
+
 ## 2026-07-16 抓包 HTTP RPA Phase 1 完成（Claude Code，无积分本地实现）
 
 - 抓包 HTTP RPA 第一阶段（无积分本地实现）已全部完成并通过测试。Playwright 默认主链路未触碰，`yingdao_rpa` 现有 bridge 未改动。
