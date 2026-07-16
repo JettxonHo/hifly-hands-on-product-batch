@@ -1,5 +1,12 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Capture HTTP 第二阶段方案已确定：先做 real_dry_run（无新增积分）
+
+- 用户批准继续方案 1：在现有 `capture_http` mock 回放通过后，下一阶段不直接真实请求飞影，而是先新增三档模式 `mock` / `real_dry_run` / `real_live`。
+- 已新增设计 spec：`docs/superpowers/specs/2026-07-16-capture-http-real-client-design.md`。第一阶段目标是实现 `real_dry_run`：从 sanitized manifest 构造真实请求计划、校验变量和风险，但不调用网络、不消耗积分。
+- 已新增 ADR：`docs/decisions/ADR-002-capture-http-real-client-gates.md`。决策：Playwright 仍是默认生产链路，`mock` 为默认 capture_http 模式，`real_live` 后续必须显式授权且只先跑 1 条商品。
+- 注意：本轮只写设计和决策文档，未改执行代码、未访问飞影、未执行真实 HTTP、未消耗积分；`docs/resume/` 仍未触碰。
+
 ## 2026-07-16 GUI 真实 HAR 后处理已完成：抽取、脱敏、离线回放通过（无新增积分）
 
 - 用户询问“抓包录制到了吗”后，已确认 GUI capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 录制成功：批次 `completed`，商品 `VERIFY-001 / 验证用吉伊卡哇公仔` 完成，视频产物在该批次目录下；HAR 为 `rpa/capture/raw/batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca-1784193832647.har`（约 200 MB，已被 gitignore，禁止提交）。
