@@ -2,6 +2,7 @@
   "executionBackend": "playwright",
   "rpa": {
     "mode": "default",
+    "captureHttpMode": "mock",
     "manifestPath": "rpa/capture/fixtures/hifly-goods-sample.json",
     "callbackBaseUrl": "http://127.0.0.1:4317",
     "assetTimeoutMs": 600000,

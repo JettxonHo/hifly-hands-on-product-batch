@@ -129,7 +129,10 @@
       extracted: "已抽取",
       redacted: "已脱敏",
       replay_passed: "离线回放通过",
-      replay_failed: "离线回放失败"
+      replay_failed: "离线回放失败",
+      dry_run_passed: "真实请求预演通过",
+      dry_run_failed: "真实请求预演失败",
+      real_live_disabled: "真实请求已禁用"
     };
     return labels[status] || status || "未知";
   }
@@ -380,7 +383,10 @@
       capture.raw_steps_path ? `Raw steps：${capture.raw_steps_path}` : "",
       capture.manifest_path ? `Manifest：${capture.manifest_path}` : "",
       capture.replay_error ? `回放错误：${capture.replay_error}` : "",
-      capture.replay_summary?.remote_id ? `远端 ID：${capture.replay_summary.remote_id}` : ""
+      capture.replay_summary?.remote_id ? `远端 ID：${capture.replay_summary.remote_id}` : "",
+      capture.dry_run_summary?.executed_step_count ? `预演步骤数：${capture.dry_run_summary.executed_step_count}` : "",
+      capture.dry_run_error ? `预演错误：${capture.dry_run_error}` : "",
+      "仅构造请求计划，不访问飞影"
     ].filter(Boolean)) {
       const line = document.createElement("span");
       setText(line, text);
@@ -391,7 +397,13 @@
     actions.append(
       captureActionButton(batch.batch_id, "抽取请求步骤", "extract", capture.status === "recorded"),
       captureActionButton(batch.batch_id, "脱敏生成 manifest", "redact", capture.status === "extracted"),
-      captureActionButton(batch.batch_id, "离线回放验证", "replay", capture.status === "redacted" || capture.status === "replay_failed")
+      captureActionButton(batch.batch_id, "离线回放验证", "replay", capture.status === "redacted" || capture.status === "replay_failed"),
+      captureActionButton(
+        batch.batch_id,
+        "真实请求预演",
+        "dryRun",
+        ["redacted", "replay_passed", "dry_run_failed"].includes(capture.status)
+      )
     );
     panel.append(actions);
     return panel;
@@ -851,7 +863,8 @@
     const methods = {
       extract: api.extractCapture,
       redact: api.redactCapture,
-      replay: api.replayCapture
+      replay: api.replayCapture,
+      dryRun: api.dryRunCapture
     };
     setBusy(true);
     try {

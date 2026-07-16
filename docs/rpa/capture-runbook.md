@@ -191,6 +191,10 @@ JS
 - 自洽的标准：全流程不抛 `CAPTURE_MISSING_VARIABLE`（占位符都有值）和 `CAPTURE_PRODUCES_MISSING`（produces 路径都能取到）。
 - 也可把新 manifest 临时设为 fixture，参考 `test/capture-http-executor.test.js` 的集成测试方式跑一次完整状态流转。
 
+## 真实请求预演（real_dry_run，无积分）
+
+`real_dry_run` 只根据 sanitized manifest 构造请求计划，不访问飞影、不消耗积分、不下载真实视频。GUI 中的“真实请求预演”按钮用于验证 URL、method、占位符和风险标记是否能被安全解析。通过并不代表真实 HTTP 出片已经完成。
+
 ## 步骤 7：真实回放（⚠️ 消耗积分，当前未实现）
 
 **当前 `capture_http` 执行器只有 mock 回放，没有真实 HTTP client。** 即使 manifest 准备好、config 切到 `capture_http`，也只会离线回放 + 写占位文件，不会出真实视频。

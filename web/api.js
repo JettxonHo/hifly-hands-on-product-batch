@@ -67,6 +67,10 @@
       method: "POST",
       body: JSON.stringify({})
     }),
+    dryRunCapture: (batchId) => request(`/api/batches/${encodeURIComponent(batchId)}/capture/dry-run`, {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
     startExecution: ({ batchId, idempotencyKey }) => request("/api/executions", {
       method: "POST",
       body: JSON.stringify({ batchId, idempotencyKey, confirm: true })

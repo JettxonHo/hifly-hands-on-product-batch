@@ -1,5 +1,12 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Capture HTTP Task 6 已完成：GUI 暴露真实请求预演（无网络、无新增积分）
+
+- GUI 抓包工作流新增“真实请求预演”操作；在 `redacted`、`replay_passed` 或 `dry_run_failed` 状态可执行。界面展示 `dry_run_passed` / `dry_run_failed` / `real_live_disabled` 状态、预演步骤数和预演错误，并明确提示“仅构造请求计划，不访问飞影”。
+- 前端 API 已接入 `POST /api/batches/:batchId/capture/dry-run`；`config.example.json` 明确 `rpa.captureHttpMode: "mock"` 默认值；capture runbook 记录 `real_dry_run` 的无网络、无积分边界。
+- 验证：新增 GUI smoke 覆盖 `redacted` 批次的预演按钮与无网络提示；`node --test test/gui-smoke.test.js test/server-capture-api.test.js` 为 9/9 通过，`npm run check` 通过（62 个 JS 文件），`git diff --check` 通过，`npm test` 为 289/289 通过。
+- 本轮仅进行本地 GUI/API 测试，没有访问飞影、没有发出真实 HTTP、没有消耗新增积分；未触碰关键批次和 `docs/resume/`。
+
 ## 2026-07-16 Capture HTTP Task 5 review security fix：dry-run 请求计划仅公开安全摘要（无网络、无新增积分）
 
 - 修复 `POST /api/batches/:batchId/capture/dry-run` 将完整 resolved request plan（URL、headers、body）持久化并经 `publicBatch` 返回的泄露风险。

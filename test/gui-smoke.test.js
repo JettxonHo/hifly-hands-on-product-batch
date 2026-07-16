@@ -250,6 +250,62 @@ test("table import opens the new batch at the top of the queue", async (t) => {
   assert.equal(await firstRow.getByText("aaa-old-pending").count(), 0);
 });
 
+test("capture GUI exposes a no-network dry-run action for redacted batches", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-capture-dry-run-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-capture-dry-run",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [],
+    capture: {
+      enabled: true,
+      status: "redacted",
+      manifest_path: "batches/batch-capture-dry-run/capture/manifest.json"
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByRole("button", { name: "真实请求预演" }));
+  await assertVisible(page.getByText("仅构造请求计划，不访问飞影"));
+});
+
 async function assertVisible(locator) {
   await locator.waitFor({ state: "visible", timeout: 10_000 });
   assert.equal(await locator.isVisible(), true);
