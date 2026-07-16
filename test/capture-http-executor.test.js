@@ -6,6 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCaptureHttpExecutor } from "../src/executors/capture-http-executor.js";
 import { readRpaState } from "../src/rpa/rpa-state.js";
+import { extractRawStepsFromHar } from "../src/rpa/capture/har-extractor.js";
+import { redactCaptureSource } from "../src/rpa/capture/redact.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(here, "..", "rpa", "capture", "fixtures", "hifly-goods-sample.json");
@@ -18,6 +20,69 @@ async function fixture() {
   const imagePath = path.join(batchDirectory, "uploads", "product.png");
   await writeFile(imagePath, "image-bytes");
   return { root, batchId, batchDirectory, imagePath, cleanup: () => rm(root, { recursive: true, force: true }) };
+}
+
+function hiflyworksEntry({ url, method = "POST", body, requestBody = null }) {
+  return {
+    request: {
+      method,
+      url,
+      headers: [{ name: "content-type", value: "application/json" }],
+      ...(requestBody ? { postData: { mimeType: "application/json", text: JSON.stringify(requestBody) } } : {})
+    },
+    response: {
+      status: 200,
+      headers: [{ name: "content-type", value: "application/json" }],
+      content: { mimeType: "application/json", text: JSON.stringify(body) }
+    }
+  };
+}
+
+function hiflyworksHar() {
+  const api = "https://hiflyworks-api.lingverse.co/api/app/v1";
+  return {
+    log: {
+      version: "1.2",
+      creator: { name: "test", version: "1" },
+      entries: [
+        hiflyworksEntry({
+          url: `${api}/upload_url`,
+          requestBody: { extension: "png", media_type: "image" },
+          body: { code: 0, data: { oss_key: "goods/key.png" } }
+        }),
+        hiflyworksEntry({
+          url: `${api}/one_stop/goods_in_hand/goods_holding_image_generation`,
+          requestBody: { goods_image_oss_key: "goods/key.png" },
+          body: { code: 0, data: {} }
+        }),
+        hiflyworksEntry({
+          url: `${api}/one_stop/goods_in_hand/goods_holding_image_generation?identifier=sample`,
+          method: "GET",
+          body: { code: 0, data: { status: 3, gen_id: "asset-1" } }
+        }),
+        hiflyworksEntry({
+          url: `${api}/one_stop/goods_in_hand/videos`,
+          requestBody: { gen_id: "asset-1" },
+          body: { code: 0, data: {} }
+        }),
+        hiflyworksEntry({
+          url: `${api}/one_stop/goods_in_hand/videos?id=asset-1`,
+          method: "GET",
+          body: { code: 0, data: { list: [{ id: "remote-1", status: 1 }] } }
+        }),
+        hiflyworksEntry({
+          url: `${api}/one_stop/goods_in_hand/videos?id=asset-1`,
+          method: "GET",
+          body: { code: 0, data: { list: [{ id: "remote-1", status: 1 }] } }
+        }),
+        hiflyworksEntry({
+          url: `${api}/one_stop/goods_in_hand/videos?id=asset-1`,
+          method: "GET",
+          body: { code: 0, data: { list: [{ id: "remote-1", status: 2, title: "output.mp4", url: "https://example.invalid/output.mp4" }] } }
+        })
+      ]
+    }
+  };
 }
 
 test("capture_http executor drives full asset -> submit -> download flow offline", async () => {
@@ -119,16 +184,16 @@ test("capture_http executor supports real_dry_run without network access", async
         id: "poll",
         phase: "remote_query",
         method: "GET",
-        url_template: "https://hiflyworks-api.lingverse.co/videos/{{remote_id}}",
-        placeholders: ["{{remote_id}}"],
+        url_template: "https://hiflyworks-api.lingverse.co/videos/{{asset_id}}/{{remote_id}}",
+        placeholders: ["{{asset_id}}", "{{remote_id}}"],
         response: { status: 200, body: { data: { ok: true } } }
       },
       {
         id: "download",
         phase: "download",
         method: "GET",
-        url_template: "https://hiflyworks-api.lingverse.co/videos/{{remote_id}}/download",
-        placeholders: ["{{remote_id}}"],
+        url_template: "https://hiflyworks-api.lingverse.co/videos/{{asset_id}}/{{remote_id}}/download",
+        placeholders: ["{{asset_id}}", "{{remote_id}}"],
         response: { status: 200, body: { data: { title: "dry-run-video" } } },
         produces: { artifact_filename: "$response.body.data.title" }
       }
@@ -150,6 +215,49 @@ test("capture_http executor supports real_dry_run without network access", async
   assert.equal(state.capture_http_mode, "real_dry_run");
   assert.equal(state.request_plan.length, 4);
   assert.equal(state.request_plan[1].risk_flags.includes("may_consume_points"), true);
+});
+
+test("capture_http executor preserves variables across a redacted hiflyworks HAR pipeline", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-hiflyworks-pipeline-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const batchId = "batch-hiflyworks-pipeline";
+  const taskId = "task-1";
+  const batchDirectory = path.join(root, "batches", batchId);
+  const harPath = path.join(root, "synthetic-hiflyworks.har");
+  const manifestPath = path.join(root, "manifest.json");
+  const productImagePath = path.join(batchDirectory, "uploads", "product.png");
+  await mkdir(path.dirname(productImagePath), { recursive: true });
+  await Promise.all([
+    writeFile(productImagePath, "image-bytes"),
+    writeFile(harPath, JSON.stringify(hiflyworksHar()))
+  ]);
+  const raw = await extractRawStepsFromHar({ harPath });
+  const { sanitized } = redactCaptureSource(raw);
+  await writeFile(manifestPath, JSON.stringify(sanitized));
+
+  const executor = createCaptureHttpExecutor({
+    root,
+    config: { rpa: { manifestPath, captureHttpMode: "real_dry_run" } }
+  });
+  const task = { task_id: taskId, sku: "SKU", product_name: "Pipeline", image_path: productImagePath };
+  const context = { batchId, taskId };
+  const asset = await executor.createAsset(task, context);
+  const submitted = await executor.submitVideo(task, asset, context);
+  const ready = await executor.querySubmission(submitted.remoteEvidence, context);
+  await executor.downloadArtifact(ready.remoteEvidence, null, context);
+
+  const state = await readRpaState(batchDirectory, taskId);
+  assert.deepEqual(state.request_plan.map((entry) => entry.phase), [
+    "asset_generation",
+    "asset_generation",
+    "asset_generation",
+    "remote_submit",
+    "remote_submit",
+    "remote_query",
+    "download"
+  ]);
+  assert.equal(state.capture_variables.asset_id, "asset-1");
+  assert.equal(state.capture_variables.remote_id, "remote-1");
 });
 
 test("capture_http executor keeps accumulated plans when a phase has no steps", async (t) => {

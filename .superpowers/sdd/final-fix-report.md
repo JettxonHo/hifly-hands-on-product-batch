@@ -51,6 +51,31 @@ npm test
 
 Consumed: no. No real Hifly page, request, or generation was used.
 
+## Final-Review Follow-up: Variable and Error-State Fixes
+
+- `capture_http` now persists only produced variables in the local RPA state and merges them before each phase. This preserves `asset_id` alongside `remote_id` for hiflyworks polling/download templates, including across executor method calls.
+- Added a synthetic local hiflyworks HAR regression that performs extract -> redact -> `real_dry_run` executor and verifies the complete request plan through `asset_generation`, `remote_submit`, `remote_query`, and `download`.
+- Dry-run failures now persist a stable `{ code, message }` object, public projection re-sanitizes legacy values, and failure clears the old `dry_run_summary` so a prior success cannot be displayed beside a failure.
+- Updated the runbook: public summaries no longer expose path, and later phases may use all prior produced variables.
+
+Verification:
+
+```text
+node --test test/capture-http-executor.test.js test/server-capture-api.test.js test/har-extractor.test.js test/rpa-capture-redact.test.js
+22 passed, 0 failed
+
+npm run check
+Checked 62 JavaScript file(s)
+
+git diff --check
+exit 0
+
+npm test
+297 passed, 0 failed
+```
+
+No Hifly page or HTTP request was accessed; no points were consumed. No batch, output, log, screenshot, real raw HAR, configuration, dependency, or `docs/resume/` file was changed.
+
 ## P1 Follow-up: Legacy Resolved Path Redaction
 
 - Fixed the P1 final-review regression in `publicCaptureState()`: public request-plan summaries no longer include `entry.path`, because old dry-run records can store resolved paths such as `/jobs/legacy-secret-value?token=abc`.

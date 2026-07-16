@@ -422,6 +422,7 @@ test("list and detail projections remove legacy full dry-run request details", a
     capture: {
       enabled: true,
       status: "dry_run_passed",
+      dry_run_error: { code: "ATTACK_SECRET", message: `/Users/test/${secret}?token=abc` },
       dry_run_summary: {
         executed_step_count: 1,
         variables: { access_token: secret, safe_value: secret },
@@ -452,6 +453,10 @@ test("list and detail projections remove legacy full dry-run request details", a
     assert.equal(response.body.includes("token=abc"), false);
     assert.equal(response.body.includes(`/jobs/${secret}?token=abc`), false);
     const capture = response.json().batch?.capture || response.json().batches[0].capture;
+    assert.deepEqual(capture.dry_run_error, {
+      code: "CAPTURE_DRY_RUN_FAILED",
+      message: "Unable to construct the dry-run request plan."
+    });
     const [requestPlan] = capture.dry_run_summary.request_plan;
     assert.deepEqual(requestPlan, {
       step_id: "submit",
@@ -503,5 +508,77 @@ test("dry-run fails when a later step needs an unproduced remote_id", async (t) 
   });
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().batch.capture.status, "dry_run_failed");
-  assert.match(response.json().batch.capture.dry_run_error, /remote_id/);
+  assert.deepEqual(response.json().batch.capture.dry_run_error, {
+    code: "CAPTURE_DRY_RUN_FAILED",
+    message: "Unable to construct the dry-run request plan."
+  });
+});
+
+test("dry-run failure clears old summaries and keeps local manifest errors out of public batch APIs", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-dry-run-safe-error-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const app = await buildApp({ root, openBrowser: async () => {} });
+  t.after(() => app.close());
+  const store = createBatchStore(path.join(root, "batches"));
+  const batchId = "batch-dry-run-safe-error";
+  const manifestRelativePath = `batches/${batchId}/capture/manifest.json`;
+  const manifestPath = path.join(root, manifestRelativePath);
+  await store.create({
+    batch_id: batchId,
+    status: "completed",
+    items: [],
+    uploads: [],
+    capture: { enabled: true, status: "redacted", manifest_path: manifestRelativePath }
+  });
+  await mkdir(path.dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, JSON.stringify({
+    schema_version: 1,
+    source: "hifly_goods",
+    captured_at: "2026-07-16T00:00:00Z",
+    sanitized: true,
+    steps: [{
+      id: "asset",
+      phase: "asset_generation",
+      method: "POST",
+      url_template: "https://example.test/assets",
+      response: { status: 200, body: { data: { asset_id: "asset-1" } } },
+      produces: { asset_id: "$response.body.data.asset_id" }
+    }]
+  }));
+  const session = await app.inject({ method: "GET", url: "/api/session", headers: { host: HOST } });
+  const requestHeaders = headers({ cookie: session.headers["set-cookie"], token: session.json().token });
+  const first = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/dry-run`,
+    headers: requestHeaders,
+    payload: {}
+  });
+  assert.equal(first.json().batch.capture.dry_run_summary.executed_step_count, 1);
+
+  await rm(manifestPath);
+  const failed = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/dry-run`,
+    headers: requestHeaders,
+    payload: {}
+  });
+  assert.equal(failed.statusCode, 200);
+  assert.equal(failed.json().batch.capture.status, "dry_run_failed");
+  assert.deepEqual(failed.json().batch.capture.dry_run_error, {
+    code: "CAPTURE_DRY_RUN_FAILED",
+    message: "Unable to construct the dry-run request plan."
+  });
+  assert.equal("dry_run_summary" in failed.json().batch.capture, false);
+
+  const persisted = JSON.parse(await readFile(path.join(root, "batches", batchId, "batch.json"), "utf8"));
+  assert.equal(persisted.capture.dry_run_summary, null);
+  for (const response of await Promise.all([
+    app.inject({ method: "GET", url: "/api/batches", headers: requestHeaders }),
+    app.inject({ method: "GET", url: `/api/batches/${batchId}`, headers: requestHeaders })
+  ])) {
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.includes(root), false);
+    assert.equal(response.body.includes(manifestPath), false);
+    assert.equal(response.body.includes("CAPTURE_HAR_MISSING"), false);
+  }
 });

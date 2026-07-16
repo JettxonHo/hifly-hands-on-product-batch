@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-17 Capture HTTP final-review follow-up：阶段变量续传与 dry-run 错误脱敏（无网络、无新增积分）
+
+- 修复 `capture_http` executor 的跨阶段变量丢失：每个阶段只持久化 manifest 响应产生的变量，并在下一阶段合并。真实 hiflyworks manifest 的 `remote_query` / `download` 现在可同时解析上游 `asset_id` 和 `remote_id`，不再因只传 `remote_id` 失败。
+- 新增本地 synthetic hiflyworks HAR 回归：extract → redact → `real_dry_run` executor 完整执行，request plan 覆盖 `asset_generation`、`remote_submit`、`remote_query`、`download`；没有使用或改动真实 raw HAR。
+- dry-run 失败状态现在持久化稳定的 `CAPTURE_DRY_RUN_FAILED` 与通用 message，公共 batch list/detail 投影会再次净化旧记录；manifest 缺失时不会公开本机绝对路径。失败同时清除旧 `dry_run_summary`，避免 GUI 并列显示失败和上次成功步骤数。
+- `docs/rpa/capture-runbook.md` 已更新：public summary 不再声明公开 path，后续阶段可使用全部前序产出变量。
+- 验证：`node --test test/capture-http-executor.test.js test/server-capture-api.test.js test/har-extractor.test.js test/rpa-capture-redact.test.js` 为 22/22 通过；`npm run check` 通过（62 个 JS 文件）；`git diff --check` 通过；`npm test` 为 297/297 通过。本轮未访问飞影、未发真实 HTTP、未消耗积分；未触碰关键批次、`docs/resume/`、真实 raw HAR、batches、outputs、logs、screenshots、`config.local.json` 或 `node_modules`。
+
 ## 2026-07-16 Capture HTTP P1 修复：旧版 dry-run resolved path 不再经 GUI API 公开（无网络、无新增积分）
 
 - 修复 `publicCaptureState()` 对旧版 `dry_run_summary.request_plan[].path` 的泄露风险：历史记录可能保存已解析的 `/jobs/legacy-secret-value?token=abc`，仅靠路径字符串无法证明其来自模板，因此公开 batch list/detail API 现在一律省略 request-plan `path`。

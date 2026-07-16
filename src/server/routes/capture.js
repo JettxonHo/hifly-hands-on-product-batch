@@ -13,6 +13,13 @@ function captureError(code, statusCode = 400) {
   return Object.assign(new Error(code), { code, statusCode });
 }
 
+function dryRunFailure() {
+  return {
+    code: "CAPTURE_DRY_RUN_FAILED",
+    message: "Unable to construct the dry-run request plan."
+  };
+}
+
 function isSafeRelativePath(value) {
   return typeof value === "string" && value.length > 0 &&
     !path.isAbsolute(value) && !path.win32.isAbsolute(value) &&
@@ -189,7 +196,8 @@ export async function registerCaptureRoutes(app, { batchRoot, store }) {
         capture: updateCaptureState(current.capture, {
           enabled: true,
           status: "dry_run_failed",
-          dry_run_error: error.message
+          dry_run_error: dryRunFailure(),
+          dry_run_summary: null
         })
       }));
       return { batch: publicBatch(updated) };

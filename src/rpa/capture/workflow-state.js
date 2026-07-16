@@ -46,8 +46,11 @@ export function publicCaptureState(capture) {
     status: CAPTURE_STATUSES.has(capture.status) ? capture.status : "disabled"
   };
   if (capture.har_path) value.har_path = "[local raw capture]";
-  for (const key of ["raw_steps_path", "manifest_path", "report_path", "replay_error", "dry_run_error", "updated_at"]) {
+  for (const key of ["raw_steps_path", "manifest_path", "report_path", "replay_error", "updated_at"]) {
     if (capture[key] !== undefined) value[key] = capture[key];
+  }
+  if (capture.dry_run_error !== undefined && capture.dry_run_error !== null) {
+    value.dry_run_error = publicDryRunError();
   }
   if (capture.extract_summary && Number.isInteger(capture.extract_summary.step_count)) {
     value.extract_summary = { step_count: capture.extract_summary.step_count };
@@ -87,6 +90,13 @@ function publicDryRunSummary(summary) {
     result.request_plan = summary.request_plan.map(publicRequestPlan).filter(Boolean);
   }
   return result;
+}
+
+function publicDryRunError() {
+  return {
+    code: "CAPTURE_DRY_RUN_FAILED",
+    message: "Unable to construct the dry-run request plan."
+  };
 }
 
 function publicRequestPlan(entry) {
