@@ -19,7 +19,23 @@ function resolvedPath(root, value) {
   return path.isAbsolute(value) ? value : path.join(root, value);
 }
 
-function createLazyHiflyExecutor(root) {
+function playwrightContextOptions(root, config, options = {}) {
+  return {
+    headless: config.browser.headless,
+    slowMo: config.browser.slowMoMs,
+    viewport: config.browser.viewport,
+    acceptDownloads: true,
+    args: ["--disable-session-crashed-bubble", "--no-default-browser-check"],
+    ...(options.recordHarPath ? {
+      recordHar: {
+        path: resolvedPath(root, options.recordHarPath),
+        content: "embed"
+      }
+    } : {})
+  };
+}
+
+function createLazyHiflyExecutor(root, options = {}) {
   let context;
   let delegate;
 
@@ -27,13 +43,7 @@ function createLazyHiflyExecutor(root) {
     if (delegate) return delegate;
     const config = loadConfig(path.join(root, "config.local.json"));
     const profileDir = resolvedPath(root, config.browser.profileDir);
-    context = await chromium.launchPersistentContext(profileDir, {
-      headless: config.browser.headless,
-      slowMo: config.browser.slowMoMs,
-      viewport: config.browser.viewport,
-      acceptDownloads: true,
-      args: ["--disable-session-crashed-bubble", "--no-default-browser-check"]
-    });
+    context = await chromium.launchPersistentContext(profileDir, playwrightContextOptions(root, config, options));
     const page = context.pages()[0] || await context.newPage();
     page.setDefaultTimeout(config.batch.defaultTimeoutMs);
     const logger = new BatchLogger(config);
@@ -47,14 +57,15 @@ function createLazyHiflyExecutor(root) {
     async querySubmission(...args) { return (await ensureDelegate()).querySubmission(...args); },
     async downloadArtifact(...args) { return (await ensureDelegate()).downloadArtifact(...args); },
     async reconcileSubmission(...args) { return (await ensureDelegate()).reconcileSubmission(...args); },
-    async close() { await context?.close(); }
+    async close() { await context?.close(); },
+    recordHarPath: options.recordHarPath ?? null
   };
 }
 
-export function createExecutorForBackend(root, config = {}) {
+export function createExecutorForBackend(root, config = {}, options = {}) {
   const backend = config.executionBackend || "playwright";
   if (backend === "playwright") {
-    const executor = createLazyHiflyExecutor(root);
+    const executor = createLazyHiflyExecutor(root, options);
     return Object.assign(executor, { backend: "playwright" });
   }
   if (backend === "yingdao_rpa") {
@@ -116,7 +127,8 @@ export async function startServer({
       uploadLimits,
       executionLock,
       pointsEstimate,
-      generationConfig
+      generationConfig,
+      executorFactory: ({ recordHarPath }) => createExecutorForBackend(root, generationConfig, { recordHarPath })
     });
     try {
       await app.listen({ host: "127.0.0.1", port: selectedPort });

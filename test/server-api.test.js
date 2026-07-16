@@ -760,6 +760,60 @@ test("execution responses and batch reads redact local snapshot paths", async (t
   assert.equal(JSON.stringify(batchRead.json()).includes(root), false);
 });
 
+test("capture-enabled executions use a per-run HAR executor and mark capture recorded", async (t) => {
+  const factoryCalls = [];
+  const { app, root, session } = await fixture(createFakeExecutor(), {
+    executorFactory: ({ recordHarPath }) => {
+      factoryCalls.push(recordHarPath);
+      const executor = createFakeExecutor();
+      executor.close = async () => {
+        await mkdir(path.dirname(path.join(root, recordHarPath)), { recursive: true });
+        await writeFile(path.join(root, recordHarPath), "{\"log\":{\"entries\":[]}}\n");
+      };
+      return executor;
+    }
+  });
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: { batchId: "batch-capture-run", capture: { enabled: true } }
+  });
+  assert.equal(created.statusCode, 201);
+  await importInto(app, session, "batch-capture-run", "SKU-1.png", { capture_enabled: "true" });
+
+  const execution = await app.inject({
+    method: "POST",
+    url: "/api/executions",
+    headers: headers(session),
+    payload: { batchId: "batch-capture-run", idempotencyKey: "execution-capture", confirm: true }
+  });
+  assert.equal(execution.statusCode, 202);
+
+  let batch = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/batches/batch-capture-run",
+      headers: { host: HOST }
+    });
+    batch = response.json().batch;
+    if (batch.status === "completed" && batch.capture.status === "recorded") break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.equal(factoryCalls.length, 1);
+  assert.match(factoryCalls[0], /^rpa\/capture\/raw\/batch-capture-run-/);
+  assert.equal(batch.status, "completed");
+  assert.equal(batch.capture.enabled, true);
+  assert.equal(batch.capture.status, "recorded");
+  assert.equal(batch.capture.har_path, "[local raw capture]");
+});
+
 test("auto-pool execution resolves pool images from the generation configuration root", async (t) => {
   const configRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-generation-config-"));
   const poolPath = path.join(configRoot, "assets", "person_pool", "beauty", "host.png");

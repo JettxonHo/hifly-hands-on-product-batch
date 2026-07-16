@@ -52,3 +52,11 @@ test("playwright default is unaffected by rpa.mode capture_http", () => {
   });
   assert.equal(executor.backend, "playwright");
 });
+
+test("playwright executor can be configured with a per-run HAR path", () => {
+  const executor = createExecutorForBackend(process.cwd(), {}, {
+    recordHarPath: "rpa/capture/raw/batch-one.har"
+  });
+  assert.equal(executor.backend, "playwright");
+  assert.equal(executor.recordHarPath, "rpa/capture/raw/batch-one.har");
+});

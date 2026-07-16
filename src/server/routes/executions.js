@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, realpath } from "node:fs/promises";
+import { lstat, mkdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { runBatch } from "../../core/batch-runner.js";
@@ -9,6 +9,7 @@ import { resolvePersonStrategies } from "../../core/person-strategy.js";
 import { validateProducts } from "../../core/product-validation.js";
 import { resolveScriptStrategies } from "../../core/script-strategy.js";
 import { summarizeBatch, transitionTask } from "../../core/state-machine.js";
+import { updateCaptureState } from "../../rpa/capture/workflow-state.js";
 import { assertBatchId, publicBatch } from "./batches.js";
 
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -135,7 +136,30 @@ function requestFields(body) {
   return { batchId, idempotencyKey: body.idempotencyKey };
 }
 
-export function createExecutionCoordinator({ batchRoot, executor, store, config = {}, logger, lockOptions = {}, pointsEstimate = {} }) {
+function captureHarPath(batchId) {
+  return `rpa/capture/raw/${batchId}-${Date.now()}.har`;
+}
+
+async function fileExists(filePath) {
+  try {
+    const info = await stat(filePath);
+    return info.isFile();
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+export function createExecutionCoordinator({
+  batchRoot,
+  executor,
+  executorFactory = null,
+  store,
+  config = {},
+  logger,
+  lockOptions = {},
+  pointsEstimate = {}
+}) {
   let active = null;
   let stopping = false;
   const idempotencyKeys = new Set();
@@ -178,6 +202,32 @@ export function createExecutionCoordinator({ batchRoot, executor, store, config 
       return { batch, lock, controller };
     })();
     execution.done = execution.ready.then(async ({ batch, lock, controller }) => {
+      const workspaceRoot = path.dirname(batchRoot);
+      const captureEnabled = batch.capture?.enabled === true;
+      const recordHarPath = captureEnabled ? captureHarPath(batchId) : null;
+      let runExecutor = executor;
+      let shouldCloseRunExecutor = false;
+      if (captureEnabled) {
+        await mkdir(path.join(workspaceRoot, "rpa", "capture", "raw"), { recursive: true, mode: 0o700 });
+        await store.update(batchId, (current) => ({
+          ...current,
+          capture: updateCaptureState(current.capture, {
+            enabled: true,
+            status: "recording",
+            har_path: recordHarPath
+          })
+        }));
+        if (executorFactory) {
+          runExecutor = await executorFactory({
+            batch,
+            batchDirectory,
+            capture: { ...batch.capture, har_path: recordHarPath },
+            recordHarPath
+          });
+          shouldCloseRunExecutor = runExecutor !== executor;
+        }
+      }
+
       await runBatch({
         batchId,
         items: batch.items,
@@ -194,12 +244,22 @@ export function createExecutionCoordinator({ batchRoot, executor, store, config 
         },
         paths: { projectRoot: batchDirectory, downloadDir: batchDirectory },
         signal: controller.signal,
-        executor,
+        executor: runExecutor,
         store,
         lock
       }).catch(async (error) => {
         await store.update(batchId, (current) => ({ ...current, execution_error: error.message }));
       }).finally(async () => {
+        if (shouldCloseRunExecutor) await runExecutor?.close?.();
+        if (captureEnabled && recordHarPath && await fileExists(path.join(workspaceRoot, recordHarPath))) {
+          await store.update(batchId, (current) => ({
+            ...current,
+            capture: updateCaptureState(current.capture, {
+              enabled: true,
+              status: "recorded"
+            })
+          }));
+        }
         await lock.release().catch(() => {});
       });
     }).finally(() => {

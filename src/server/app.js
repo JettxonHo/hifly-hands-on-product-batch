@@ -65,6 +65,7 @@ function apiError(error) {
 export async function buildApp({
   root,
   executor = null,
+  executorFactory = null,
   openBrowser = null,
   allowedHost = "127.0.0.1:4317",
   uploadLimits = null,
@@ -82,6 +83,7 @@ export async function buildApp({
   const coordinator = createExecutionCoordinator({
     batchRoot,
     executor,
+    executorFactory,
     store,
     config: generationConfig,
     lockOptions: executionLock,
