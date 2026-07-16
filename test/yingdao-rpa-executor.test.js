@@ -69,6 +69,10 @@ test("createAsset surfaces failed_remote without waiting for its timeout", async
   try {
     const started = Date.now();
     const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
+    const observed = pending.then(
+      () => null,
+      (error) => error
+    );
     await new Promise((resolve) => setTimeout(resolve, 20));
     const state = await readRpaState(f.batchDirectory, "task-1");
     await writeRpaState(f.batchDirectory, "task-1", {
@@ -76,10 +80,9 @@ test("createAsset surfaces failed_remote without waiting for its timeout", async
       status: "failed_remote",
       error: { message: "Remote asset generation failed" }
     });
-    await assert.rejects(
-      pending,
-      (error) => error.code === "YINGDAO_RPA_FAILED_REMOTE" && /Remote asset generation failed/.test(error.message)
-    );
+    const error = await observed;
+    assert.equal(error?.code, "YINGDAO_RPA_FAILED_REMOTE");
+    assert.match(error.message, /Remote asset generation failed/);
     assert.ok(Date.now() - started < 200);
   } finally {
     await rm(f.root, { recursive: true, force: true });
