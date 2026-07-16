@@ -397,11 +397,10 @@ test("dry-run capture API stores only a public-safe request plan summary", async
     phase: "remote_query",
     method: "GET",
     host: "example.test",
-    path: "/jobs/:opaque_context",
     placeholders: ["opaque_context"],
     risk_flags: ["auth_required", "may_consume_points", "replayability_unknown"]
   });
-  for (const key of ["headers", "body", "url"]) assert.equal(key in requestPlan, false);
+  for (const key of ["path", "headers", "body", "url"]) assert.equal(key in requestPlan, false);
   assert.equal(JSON.stringify(responseBody).includes("non-sensitive-key-secret-value"), false);
 
   const persisted = JSON.parse(await readFile(path.join(root, "batches", "batch-dry-run-api", "batch.json"), "utf8"));
@@ -431,7 +430,7 @@ test("list and detail projections remove legacy full dry-run request details", a
           phase: "remote_submit",
           method: "POST",
           host: "example.test",
-          path: `https://example.test/jobs?access_token=${secret}`,
+          path: `/jobs/${secret}?token=abc`,
           url: `https://example.test/jobs?access_token=${secret}`,
           headers: { authorization: `Bearer ${secret}` },
           body: { secret },
@@ -450,6 +449,8 @@ test("list and detail projections remove legacy full dry-run request details", a
   for (const response of responses) {
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.includes(secret), false);
+    assert.equal(response.body.includes("token=abc"), false);
+    assert.equal(response.body.includes(`/jobs/${secret}?token=abc`), false);
     const capture = response.json().batch?.capture || response.json().batches[0].capture;
     const [requestPlan] = capture.dry_run_summary.request_plan;
     assert.deepEqual(requestPlan, {
@@ -460,7 +461,7 @@ test("list and detail projections remove legacy full dry-run request details", a
       placeholders: ["asset_id"],
       risk_flags: ["auth_required", "may_consume_points"]
     });
-    for (const key of ["url", "headers", "body", "variables"]) assert.equal(key in requestPlan, false);
+    for (const key of ["path", "url", "headers", "body", "variables"]) assert.equal(key in requestPlan, false);
   }
 });
 

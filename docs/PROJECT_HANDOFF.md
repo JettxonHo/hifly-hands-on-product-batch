@@ -1,5 +1,11 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Capture HTTP P1 修复：旧版 dry-run resolved path 不再经 GUI API 公开（无网络、无新增积分）
+
+- 修复 `publicCaptureState()` 对旧版 `dry_run_summary.request_plan[].path` 的泄露风险：历史记录可能保存已解析的 `/jobs/legacy-secret-value?token=abc`，仅靠路径字符串无法证明其来自模板，因此公开 batch list/detail API 现在一律省略 request-plan `path`。
+- `test/server-capture-api.test.js` 的 legacy batch 回归夹具已改为真实历史形态，并同时断言 list/detail 响应不包含动态段、query token 或完整 resolved path。
+- 验证：`node --test test/server-capture-api.test.js` 和 `git diff --check` 通过。本轮未访问飞影、未发真实 HTTP、未消耗积分；未触碰关键批次、`docs/resume/`、raw HAR、batches、outputs、logs 或 screenshots。
+
 ## 2026-07-16 Capture HTTP final-review fixes：dry-run 投影、HAR 模板与 mode 门禁加固（无网络、无新增积分）
 
 - 修复 final whole-branch review 的全部 Important findings。`publicCaptureState()` 现在对 capture state 使用白名单投影；旧批次即使残留完整 dry-run `url`、query、headers、body 或 variables，batch list/detail API 也只返回安全请求计划摘要，并过滤 secret-like 占位符与非白名单风险标记。

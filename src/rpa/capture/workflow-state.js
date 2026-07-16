@@ -96,10 +96,7 @@ function publicRequestPlan(entry) {
   if (typeof entry.phase === "string") result.phase = entry.phase;
   if (typeof entry.method === "string") result.method = entry.method;
   if (typeof entry.host === "string" && /^[A-Za-z0-9.-]+$/.test(entry.host)) result.host = entry.host;
-  if (typeof entry.path === "string") {
-    const path = entry.path.split(/[?#]/, 1)[0];
-    if (/^\/(?!\/)/.test(path)) result.path = path;
-  }
+  // Legacy summaries may persist a resolved path here, so it cannot be safely published.
   if (Array.isArray(entry.placeholders)) {
     result.placeholders = entry.placeholders.filter((name) =>
       typeof name === "string" && !isSensitiveName(name)
