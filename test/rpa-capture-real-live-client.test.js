@@ -232,6 +232,51 @@ test("real_live rejects file URL request values before transport", async () => {
   }
 });
 
+test("real_live rejects POSIX and UNC-like local path values before transport", async () => {
+  for (const stepPatch of [
+    {
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?source=%2F%2Fetc%2Fpasswd",
+      request_template: { headers: {}, body: null }
+    },
+    {
+      request_template: { headers: { "x-source-file": "///etc/passwd" }, body: null }
+    },
+    {
+      request_template: { headers: {}, body: { source_file: "//server/share/secret.png" } }
+    }
+  ]) {
+    let called = false;
+    const client = createRealLiveHttpClient({
+      manifest: manifestWith({
+        ...stepPatch,
+        risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+      }),
+      config: { enabled: true },
+      transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+    });
+    await assert.rejects(
+      client.request({ stepId: "submit_video", variables: { asset_id: "asset-1" }, context: { allowRealLive: true } }),
+      { code: "CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN" }
+    );
+    assert.equal(called, false);
+  }
+});
+
+test("real_live rejects runtime auth local paths after header merge", async () => {
+  let called = false;
+  const client = createRealLiveHttpClient({
+    manifest: manifestWith({ risk: { requires_auth: true, may_consume_points: false, replayability: "unknown" } }),
+    config: { enabled: true },
+    runtimeAuth: { headers: { "x-source": "/etc/passwd" } },
+    transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+  });
+  await assert.rejects(
+    client.request({ stepId: "submit_video", variables: { asset_id: "asset-1" }, context: { allowRealLive: true } }),
+    { code: "CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN" }
+  );
+  assert.equal(called, false);
+});
+
 test("real_live permits normal URL pathnames", async () => {
   let called = false;
   const client = createRealLiveHttpClient({
@@ -277,11 +322,20 @@ test("real_live rejects malformed template placeholders before transport", async
   }
 });
 
-test("real_live fake transport produces variables without using network APIs", async () => {
+test("real_live permits normal runtime auth and remote URL request values", async () => {
   const calls = [];
   const client = createRealLiveHttpClient({
-    manifest: manifestWith({ risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" } }),
+    manifest: manifestWith({
+      request_template: {
+        headers: {
+          "content-type": "application/json",
+          "x-remote-source": "https://example.com/path"
+        },
+        body: { gen_id: "{{asset_id}}", source_url: "https://example.com/path" }
+      }
+    }),
     config: { enabled: true },
+    runtimeAuth: { headers: { cookie: "sid=abc" } },
     transport: {
       request: async (request) => {
         calls.push(request);
@@ -297,7 +351,8 @@ test("real_live fake transport produces variables without using network APIs", a
   assert.equal(calls.length, 1);
   assert.equal(calls[0].method, "POST");
   assert.equal(calls[0].url, "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos");
-  assert.deepEqual(calls[0].body, { gen_id: "asset-1" });
+  assert.equal(calls[0].headers.cookie, "sid=abc");
+  assert.deepEqual(calls[0].body, { gen_id: "asset-1", source_url: "https://example.com/path" });
   assert.equal(result.produced.remote_id, 987);
   assert.equal(result.request_plan.host, "hiflyworks-api.lingverse.co");
 });

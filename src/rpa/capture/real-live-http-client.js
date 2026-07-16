@@ -131,11 +131,11 @@ function assertNoUnresolved(value) {
 }
 
 function hasAbsoluteLocalPath(value) {
-  return typeof value === "string" && (
-    /file:\/+/i.test(value) ||
-    /(?:^|[\s"'=,:])\/(?!\/)/.test(value) ||
-    /(?:^|[\s"'=,:])(?:[A-Za-z]:[\\/]|\\{1,2}(?=[^\\/\s]))/.test(value)
-  );
+  if (typeof value !== "string") return false;
+  const candidate = value.trim();
+  if (/^file:/i.test(candidate)) return true;
+  if (/^https?:\/\//i.test(candidate)) return false;
+  return /(?:^|[\s"'=,:])(?:\/+|\\+|[A-Za-z]:[\\/])/.test(candidate);
 }
 
 function assertNoLocalPaths(value) {
@@ -206,6 +206,7 @@ export function createRealLiveHttpClient({
       assertNoLocalPaths(body);
       assertLiveGate({ config, context, step, url, runtimeAuth });
       const headers = mergeRuntimeHeaders(templateHeaders, runtimeAuth);
+      assertNoLocalPaths(headers);
       const response = await transport.request({
         step,
         method: step.method,

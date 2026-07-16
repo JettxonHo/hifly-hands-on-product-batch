@@ -6,6 +6,9 @@ DONE
 
 ## Reviewer Fix
 
+- Critical fix: local-path validation now rejects all slash-prefixed POSIX/UNC-like request values, including decoded query values such as `//etc/passwd`, while allowing ordinary `http(s)` URL strings in headers and bodies.
+- Important fix: merged runtime authentication headers now pass through the same local-path validation before the injected transport runs, so `x-source: /etc/passwd` is rejected without sending a request.
+- Added fake-transport coverage for encoded double-slash query values, triple-slash header values, UNC-like body values, unsafe runtime-auth headers, and the successful auth-required `cookie: sid=abc` path.
 - P1 fix: placeholder declarations now must be complete `{{name}}` tokens with ASCII alphanumeric/underscore names. Bare declarations and malformed forms are rejected before variable substitution, authorization checks, or the injected transport.
 - P1 fix: URL, header, and body template strings now reject unmatched, nested, and illegal placeholder markers before transport. Valid `{{asset_id}}` substitutions continue through the existing successful fake-transport path.
 - Added fake-transport regressions for bare and malformed declarations plus unmatched, nested, and trailing-brace template markers; every rejection asserts `called === false`.
@@ -40,9 +43,11 @@ DONE
 - `node --test test/rpa-capture-real-live-client.test.js`
   - Initial red phase: failed as expected because `src/rpa/capture/real-live-http-client.js` did not exist.
 - `node --test test/rpa-capture-real-live-client.test.js test/rpa-capture-http-client-factory.test.js`
-  - Passed: 19 tests, 0 failures.
+  - Passed: 21 tests, 0 failures.
 - `npm run check`
   - Passed: checked 63 JavaScript files.
+- `npm test`
+  - Passed: 324 tests, 0 failures.
 - `git diff --check`
   - Passed: no whitespace errors.
 
