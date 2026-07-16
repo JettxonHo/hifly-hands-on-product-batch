@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-17 Capture HTTP final-review 修复：query 占位符、凭据门禁与 replay 错误脱敏（无网络、无新增积分）
+
+- 修复 `redact.js` 使用 `URLSearchParams` 重序列化 query 后把 `{{asset_id}}` 等模板编码为 `%7B%7B...%7D%7D` 的问题。现在按原始 query 片段过滤敏感键，literal placeholder 保留；synthetic Hiflyworks HAR 的 extract → redact → `real_dry_run` 回归确认最终 request plan URL/query 已解析出 `asset_id` / `remote_id`，不含编码或未解析模板。
+- 扩展 `sensitive.js` 的敏感键识别：新增 `password`、`passwd`、`api_key`、`x-api-key`、`credential` 及 client/private/access key 常见形式；redact 会从 header/body/response 中删除，manifest gate 会拒绝任何残留。
+- replay 失败不再持久化原始 `error.message`。现在写入稳定的 `CAPTURE_REPLAY_FAILED` 通用错误对象；`publicCaptureState()` 同样把遗留 `replay_error` 重写为安全对象。list/detail API 回归验证 manifest 缺失后的失败不含绝对路径，遗留路径/token 异常也不会公开。
+- `docs/rpa/capture-runbook.md` 与实现对齐：`manifest_path` 仍可公开，但只会是项目相对且 containment-checked 的路径，绝不公开本机绝对路径；public projection 也会拒绝遗留绝对路径或 traversal 段。回放/预演错误均为稳定通用消息，GUI 适配 error object 的 message 字段。
+- 验证：指定四测试 25/25 通过；路径投影、sensitive 与 manifest 定向测试 23/23 通过；`npm run check` 通过（62 个 JS 文件）；`npm test` 303/303 通过。最终仍需执行 `git diff --check` 并提交。本轮未访问飞影、未发真实 HTTP、未消耗积分；未触碰关键批次、`docs/resume/`、raw HAR、batches、outputs、logs、screenshots、`config.local.json` 或 `node_modules`。
+
 ## 2026-07-17 Capture HTTP final-review follow-up：阶段变量续传与 dry-run 错误脱敏（无网络、无新增积分）
 
 - 修复 `capture_http` executor 的跨阶段变量丢失：每个阶段只持久化 manifest 响应产生的变量，并在下一阶段合并。真实 hiflyworks manifest 的 `remote_query` / `download` 现在可同时解析上游 `asset_id` 和 `remote_id`，不再因只传 `remote_id` 失败。

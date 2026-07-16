@@ -52,6 +52,20 @@ test("drops sensitive url query params", () => {
   assert.equal(sanitized.steps[0].url_template, "https://hifly.cc/api/goods/upload");
 });
 
+test("preserves literal query placeholders while dropping sensitive query keys", () => {
+  const { sanitized } = redactCaptureSource({
+    ...RAW,
+    steps: [{
+      ...RAW.steps[0],
+      url_template: "https://hifly.cc/api/goods/status?id={{asset_id}}&remote_id={{remote_id}}&api_key=private"
+    }]
+  });
+  assert.equal(
+    sanitized.steps[0].url_template,
+    "https://hifly.cc/api/goods/status?id={{asset_id}}&remote_id={{remote_id}}"
+  );
+});
+
 test("output is loadable by parseCaptureManifest", () => {
   const { sanitized } = redactCaptureSource(RAW);
   const manifest = parseCaptureManifest(sanitized);
@@ -80,6 +94,24 @@ test("preserves usable request templates and risk metadata", () => {
     replayability: "unknown"
   });
   assert.deepEqual(parseCaptureManifest(sanitized).steps[0].request_template, sanitized.steps[0].request_template);
+});
+
+test("removes common credential keys from headers and bodies before manifest validation", () => {
+  const { sanitized, report } = redactCaptureSource({
+    ...RAW,
+    steps: [{
+      ...RAW.steps[0],
+      request_template: {
+        headers: { "x-api-key": "private", credential: "private", "content-type": "application/json" },
+        body: { password: "private", passwd: "private", api_key: "private", nested: { credential: "private" } }
+      },
+      response: { ...RAW.steps[0].response, body: { data: { private_key: "private", image_id: "img-1" } } }
+    }]
+  });
+  assert.deepEqual(sanitized.steps[0].request_template, { headers: { "content-type": "application/json" }, body: { nested: {} } });
+  assert.deepEqual(sanitized.steps[0].response.body, { data: { image_id: "img-1" } });
+  assert.equal(report.removed.some((entry) => entry.includes("x-api-key")), true);
+  assert.equal(parseCaptureManifest(sanitized).sanitized, true);
 });
 
 test("report is safe: only paths, no secret values", () => {

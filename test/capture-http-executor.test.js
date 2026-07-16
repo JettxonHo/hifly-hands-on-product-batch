@@ -66,17 +66,17 @@ function hiflyworksHar() {
           body: { code: 0, data: {} }
         }),
         hiflyworksEntry({
-          url: `${api}/one_stop/goods_in_hand/videos?id=asset-1`,
+          url: `${api}/one_stop/goods_in_hand/videos?id=asset-1&remote_id=remote-1`,
           method: "GET",
           body: { code: 0, data: { list: [{ id: "remote-1", status: 1 }] } }
         }),
         hiflyworksEntry({
-          url: `${api}/one_stop/goods_in_hand/videos?id=asset-1`,
+          url: `${api}/one_stop/goods_in_hand/videos?id=asset-1&remote_id=remote-1`,
           method: "GET",
           body: { code: 0, data: { list: [{ id: "remote-1", status: 1 }] } }
         }),
         hiflyworksEntry({
-          url: `${api}/one_stop/goods_in_hand/videos?id=asset-1`,
+          url: `${api}/one_stop/goods_in_hand/videos?id=asset-1&remote_id=remote-1`,
           method: "GET",
           body: { code: 0, data: { list: [{ id: "remote-1", status: 2, title: "output.mp4", url: "https://example.invalid/output.mp4" }] } }
         })
@@ -258,6 +258,14 @@ test("capture_http executor preserves variables across a redacted hiflyworks HAR
   ]);
   assert.equal(state.capture_variables.asset_id, "asset-1");
   assert.equal(state.capture_variables.remote_id, "remote-1");
+  const queryPlan = state.request_plan.find((entry) => entry.step_id === "poll_video_status");
+  const downloadPlan = state.request_plan.find((entry) => entry.step_id === "download_video");
+  for (const entry of [queryPlan, downloadPlan]) {
+    assert.equal(entry.url.includes("id=asset-1"), true);
+    assert.equal(entry.url.includes("remote_id=remote-1"), true);
+    assert.equal(entry.url.includes("%7B%7B"), false);
+    assert.equal(entry.url.includes("{{"), false);
+  }
 });
 
 test("capture_http executor keeps accumulated plans when a phase has no steps", async (t) => {

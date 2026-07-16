@@ -26,7 +26,7 @@
 - 原始 HAR、cookie、authorization、CSRF token、登录态、签名、批次数据、下载视频、日志、截图、outputs、node_modules **绝不进 git**。
 - 原始抓包产物只放本地 `rpa/capture/raw/`（已被 `.gitignore` 屏蔽，连同 `*.har`）。
 - 入库的只能是脱敏后的 manifest（`sanitized: true`，过门禁）。脱敏报告 `report` 也不进 git（虽只含路径不含值，仍按敏感处理）。
-- GUI 的 batch list/detail API 只公开请求计划摘要（步骤、phase、method、host、非敏感占位符与风险标记）；不会公开 URL、path、query、headers、body 或变量值。预演失败仅公开稳定的错误 code 和通用 message，不公开本机路径、manifest 位置或凭据类内容。
+- GUI 的 batch list/detail API 只公开请求计划摘要（步骤、phase、method、host、非敏感占位符与风险标记）；不会公开 URL、path、query、headers、body 或变量值。`manifest_path` 仅公开受项目根目录约束的项目相对路径，绝不公开本机绝对路径；回放或预演失败仅公开稳定的错误 code 和通用 message，不公开原始异常、凭据类内容或绝对路径。
 - 真实采集需登录态，请在自己可控的环境操作；登录态本身不进入任何入库文件。
 
 ## 前置条件

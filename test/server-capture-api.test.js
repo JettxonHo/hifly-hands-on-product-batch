@@ -423,6 +423,7 @@ test("list and detail projections remove legacy full dry-run request details", a
       enabled: true,
       status: "dry_run_passed",
       dry_run_error: { code: "ATTACK_SECRET", message: `/Users/test/${secret}?token=abc` },
+      replay_error: { code: "ATTACK_SECRET", message: `/Users/test/${secret}?token=abc` },
       dry_run_summary: {
         executed_step_count: 1,
         variables: { access_token: secret, safe_value: secret },
@@ -457,6 +458,10 @@ test("list and detail projections remove legacy full dry-run request details", a
       code: "CAPTURE_DRY_RUN_FAILED",
       message: "Unable to construct the dry-run request plan."
     });
+    assert.deepEqual(capture.replay_error, {
+      code: "CAPTURE_REPLAY_FAILED",
+      message: "Unable to complete the offline replay."
+    });
     const [requestPlan] = capture.dry_run_summary.request_plan;
     assert.deepEqual(requestPlan, {
       step_id: "submit",
@@ -467,6 +472,50 @@ test("list and detail projections remove legacy full dry-run request details", a
       risk_flags: ["auth_required", "may_consume_points"]
     });
     for (const key of ["path", "url", "headers", "body", "variables"]) assert.equal(key in requestPlan, false);
+  }
+});
+
+test("replay failures persist stable errors and hide local manifest paths from public batch APIs", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  const batchId = "batch-replay-safe-error";
+  const manifestRelativePath = `batches/${batchId}/capture/manifest.json`;
+  await store.create({
+    batch_id: batchId,
+    status: "completed",
+    items: [],
+    uploads: [],
+    capture: { enabled: true, status: "redacted", manifest_path: manifestRelativePath }
+  });
+
+  const replayed = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/replay`,
+    headers: headers(session),
+    payload: {}
+  });
+  assert.equal(replayed.statusCode, 200);
+  assert.deepEqual(replayed.json().batch.capture.replay_error, {
+    code: "CAPTURE_REPLAY_FAILED",
+    message: "Unable to complete the offline replay."
+  });
+
+  const persisted = JSON.parse(await readFile(path.join(root, "batches", batchId, "batch.json"), "utf8"));
+  assert.deepEqual(persisted.capture.replay_error, {
+    code: "CAPTURE_REPLAY_FAILED",
+    message: "Unable to complete the offline replay."
+  });
+  for (const response of await Promise.all([
+    app.inject({ method: "GET", url: "/api/batches", headers: headers(session) }),
+    app.inject({ method: "GET", url: `/api/batches/${batchId}`, headers: headers(session) })
+  ])) {
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.includes(root), false);
+    assert.equal(response.body.includes(path.join(root, manifestRelativePath)), false);
   }
 });
 

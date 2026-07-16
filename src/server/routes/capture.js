@@ -20,6 +20,13 @@ function dryRunFailure() {
   };
 }
 
+function replayFailure() {
+  return {
+    code: "CAPTURE_REPLAY_FAILED",
+    message: "Unable to complete the offline replay."
+  };
+}
+
 function isSafeRelativePath(value) {
   return typeof value === "string" && value.length > 0 &&
     !path.isAbsolute(value) && !path.win32.isAbsolute(value) &&
@@ -145,7 +152,7 @@ export async function registerCaptureRoutes(app, { batchRoot, store }) {
         capture: updateCaptureState(current.capture, {
           enabled: true,
           status: "replay_failed",
-          replay_error: error.message
+          replay_error: replayFailure()
         })
       }));
       return { batch: publicBatch(updated) };

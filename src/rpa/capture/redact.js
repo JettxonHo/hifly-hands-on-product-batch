@@ -1,18 +1,26 @@
 import { isSensitiveKey } from "./sensitive.js";
 
-const SENSITIVE_QUERY = ["token", "sign", "session", "ticket", "auth", "secret"];
+function queryKey(part) {
+  const encoded = part.split("=", 1)[0].replace(/\+/g, " ");
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
 
 function stripUrl(url) {
   if (typeof url !== "string") return url;
   const queryStart = url.indexOf("?");
   if (queryStart === -1) return url;
   const base = url.slice(0, queryStart);
-  const search = new URLSearchParams(url.slice(queryStart + 1));
-  for (const key of [...search.keys()]) {
-    if (SENSITIVE_QUERY.some((needle) => key.toLowerCase().includes(needle))) search.delete(key);
-  }
-  const qs = search.toString();
-  return qs ? `${base}?${qs}` : base;
+  const queryAndHash = url.slice(queryStart + 1);
+  const hashStart = queryAndHash.indexOf("#");
+  const query = hashStart === -1 ? queryAndHash : queryAndHash.slice(0, hashStart);
+  const hash = hashStart === -1 ? "" : queryAndHash.slice(hashStart);
+  // Keep the raw query text so {{placeholders}} survive the redaction pass.
+  const retained = query.split("&").filter((part) => !isSensitiveKey(queryKey(part)));
+  return retained.length > 0 && retained.some(Boolean) ? `${base}?${retained.join("&")}${hash}` : `${base}${hash}`;
 }
 
 function removeSensitiveHeaders(headers, basePath, removed) {

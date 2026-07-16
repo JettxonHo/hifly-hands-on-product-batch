@@ -30,6 +30,20 @@ test("public capture state hides raw har paths", () => {
   assert.equal(publicCaptureState(state).raw_steps_path, "batches/b1/capture/raw-steps.json");
 });
 
+test("public capture state exposes only safe project-relative capture paths", () => {
+  const publicState = publicCaptureState({
+    enabled: true,
+    status: "redacted",
+    raw_steps_path: "/Users/ketchup/raw-steps.json",
+    manifest_path: "C:\\Users\\ketchup\\manifest.json",
+    report_path: "batches/../capture/report.json"
+  });
+
+  for (const key of ["raw_steps_path", "manifest_path", "report_path"]) {
+    assert.equal(key in publicState, false);
+  }
+});
+
 test("invalid capture status is rejected", () => {
   assert.throws(
     () => updateCaptureState(createInitialCaptureState({ enabled: true }), { status: "surprise" }),

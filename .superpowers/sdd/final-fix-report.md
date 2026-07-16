@@ -81,3 +81,25 @@ No Hifly page or HTTP request was accessed; no points were consumed. No batch, o
 - Fixed the P1 final-review regression in `publicCaptureState()`: public request-plan summaries no longer include `entry.path`, because old dry-run records can store resolved paths such as `/jobs/legacy-secret-value?token=abc`.
 - Updated the batch list/detail API regression fixture to use that real legacy shape and assert the response contains neither the dynamic segment, query token, nor the full resolved path.
 - Verification: `node --test test/server-capture-api.test.js` and `git diff --check` (both passed locally). No Hifly access, real HTTP, or point consumption.
+
+## Final-Review Fix Follow-up: Placeholder, Credential, and Replay Error Safety
+
+- Preserved literal query placeholders during redaction by filtering raw query segments instead of serializing them through `URLSearchParams`. The local synthetic Hiflyworks extract -> redact -> `real_dry_run` regression now proves the final query URL resolves `asset_id` and `remote_id` without `%7B%7B...%7D%7D` remnants.
+- Expanded sensitive-key filtering and manifest gating for common credential material, including `password`, `passwd`, `api_key`, `x-api-key`, `credential`, client/private/access keys, and existing token/session/auth classes. Headers and nested request/response bodies remove these fields before manifest persistence.
+- Replay failures now persist the stable `CAPTURE_REPLAY_FAILED` error object. Batch list/detail projection also rewrites legacy `replay_error` values, preventing original exception messages, tokens, and absolute filesystem paths from reaching the GUI.
+- Kept `manifest_path` public because it is an existing project-relative, containment-checked path. The runbook now states that only this relative path may be shown; absolute local paths are never public.
+
+Verification:
+
+```text
+node --test test/rpa-capture-redact.test.js test/rpa-capture-sensitive.test.js test/rpa-capture-manifest.test.js test/capture-http-executor.test.js test/server-capture-api.test.js test/har-extractor.test.js
+43 passed, 0 failed
+
+npm run check
+Checked 62 JavaScript file(s)
+
+npm test
+303 passed, 0 failed
+```
+
+No Hifly page was accessed, no real HTTP was sent, and no points were consumed. No batch, output, log, screenshot, raw HAR, configuration, dependency, or `docs/resume/` file was changed.

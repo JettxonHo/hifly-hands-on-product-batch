@@ -25,6 +25,12 @@ test("flags keys whose names contain token/session/auth/ticket/sign/secret", () 
   assert.equal(isSensitiveKey("ticket"), true);
 });
 
+test("flags common credential and API key names", () => {
+  for (const name of ["password", "user_password", "passwd", "api_key", "X-API-Key", "credential", "client_credentials", "private_key"]) {
+    assert.equal(isSensitiveKey(name), true, `${name} must be sensitive`);
+  }
+});
+
 test("findSensitiveKeys walks nested objects and arrays", () => {
   const hits = findSensitiveKeys(
     { steps: [{ request: { headers: { cookie: "x" } }, response: { body: { data: { access_token: "y" } } } }] },

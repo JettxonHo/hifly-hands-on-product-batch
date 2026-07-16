@@ -46,8 +46,12 @@ export function publicCaptureState(capture) {
     status: CAPTURE_STATUSES.has(capture.status) ? capture.status : "disabled"
   };
   if (capture.har_path) value.har_path = "[local raw capture]";
-  for (const key of ["raw_steps_path", "manifest_path", "report_path", "replay_error", "updated_at"]) {
-    if (capture[key] !== undefined) value[key] = capture[key];
+  for (const key of ["raw_steps_path", "manifest_path", "report_path"]) {
+    if (isSafeProjectRelativePath(capture[key])) value[key] = capture[key];
+  }
+  if (capture.updated_at !== undefined) value.updated_at = capture.updated_at;
+  if (capture.replay_error !== undefined && capture.replay_error !== null) {
+    value.replay_error = publicReplayError();
   }
   if (capture.dry_run_error !== undefined && capture.dry_run_error !== null) {
     value.dry_run_error = publicDryRunError();
@@ -68,6 +72,12 @@ export function publicCaptureState(capture) {
     value.dry_run_summary = publicDryRunSummary(capture.dry_run_summary);
   }
   return value;
+}
+
+function isSafeProjectRelativePath(value) {
+  return typeof value === "string" && value.length > 0 &&
+    !/^(?:[\\/]|[A-Za-z]:[\\/])/.test(value) &&
+    !value.split(/[\\/]+/).some((part) => part === "" || part === "..");
 }
 
 const SAFE_RISK_FLAGS = new Set([
@@ -96,6 +106,13 @@ function publicDryRunError() {
   return {
     code: "CAPTURE_DRY_RUN_FAILED",
     message: "Unable to construct the dry-run request plan."
+  };
+}
+
+function publicReplayError() {
+  return {
+    code: "CAPTURE_REPLAY_FAILED",
+    message: "Unable to complete the offline replay."
   };
 }
 

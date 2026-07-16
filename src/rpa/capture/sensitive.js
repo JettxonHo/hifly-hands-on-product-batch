@@ -5,10 +5,28 @@ const EXACT = new Set([
   "proxy-authorization",
   "csrf-token",
   "x-csrf-token",
-  "x-xsrf-token"
+  "x-xsrf-token",
+  "password",
+  "passwd",
+  "api_key",
+  "api-key",
+  "x-api-key",
+  "credential",
+  "credentials",
+  "client_secret",
+  "client-secret",
+  "private_key",
+  "private-key",
+  "access_key",
+  "access-key",
+  "x-access-key"
 ]);
 
-const SUBSTRING = ["token", "session", "auth", "ticket", "sign", "secret"];
+const SUBSTRING = [
+  "token", "session", "auth", "ticket", "sign", "secret",
+  "password", "passwd", "credential", "api_key", "api-key", "apikey",
+  "private_key", "private-key", "access_key", "access-key"
+];
 
 export const SENSITIVE_KEY_PATTERNS = Object.freeze([...EXACT, ...SUBSTRING]);
 

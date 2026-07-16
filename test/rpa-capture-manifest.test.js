@@ -135,6 +135,22 @@ test("rejects sensitive request_template headers", () => {
   );
 });
 
+test("rejects common credential keys in request templates", () => {
+  assert.throws(
+    () => parseCaptureManifest({
+      ...SAMPLE,
+      steps: [{
+        ...SAMPLE.steps[0],
+        request_template: {
+          headers: { "x-api-key": "private" },
+          body: { password: "private", api_key: "private", credential: "private" }
+        }
+      }]
+    }),
+    /manifest contains sensitive keys/
+  );
+});
+
 test("rejects invalid replayability values", () => {
   assert.throws(
     () => parseCaptureManifest({
