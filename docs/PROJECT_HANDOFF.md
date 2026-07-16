@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Capture HTTP Task 5 已实现：GUI dry-run API（无网络、无新增积分）
+
+- 新增 `POST /api/batches/:batchId/capture/dry-run`。它加载已脱敏 manifest，按 `asset_generation`、`remote_submit`、`remote_query`、`download` 固定顺序构造请求计划，并把每步产生的变量传递给后续步骤。
+- 成功时 capture 状态为 `dry_run_passed`，持久化 `dry_run_summary.executed_step_count` 和 `request_plan`；失败时状态为 `dry_run_failed`，持久化 `dry_run_error`。workflow state 同时预留 `real_live_disabled`。
+- 真实 HTTP 未发出，未访问飞影，未消耗积分。新增 API 回归测试覆盖变量替换与请求计划摘要保存。
+- 验证：`node --test test/server-capture-api.test.js test/offline-replay.test.js` 为 5/5 通过；`npm run check` 通过（62 个 JS 文件）；`git diff --check` 通过。
+- 功能提交：`e89752f feat(gui capture): add dry-run API`。
+- 下一步：Task 6，GUI 暴露 dry-run 控件及状态显示，继续保持仅本地无积分验证。
+
 ## 2026-07-16 Capture HTTP Tasks 1-4 已实现：executor dry-run 接入完成（无网络、无新增积分）
 
 - Capture HTTP Tasks 1-4 已实现。Task 4 的 capture-http executor 现在通过 client factory 创建客户端，并公开选定的 `captureHttpMode`。
