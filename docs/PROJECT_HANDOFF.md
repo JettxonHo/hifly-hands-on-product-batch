@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 GUI 真实 HAR 后处理已完成：抽取、脱敏、离线回放通过（无新增积分）
+
+- 用户询问“抓包录制到了吗”后，已确认 GUI capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 录制成功：批次 `completed`，商品 `VERIFY-001 / 验证用吉伊卡哇公仔` 完成，视频产物在该批次目录下；HAR 为 `rpa/capture/raw/batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca-1784193832647.har`（约 200 MB，已被 gitignore，禁止提交）。
+- 本轮继续完成 GUI 抓包后处理剩余步骤，未重新访问飞影、未重新生成视频、未新增积分消耗；通过本地 Fastify API 依次执行 `/capture/extract`、`/capture/redact`、`/capture/replay`。
+- 结果：extract 生成 `batches/batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca/capture/raw-steps.json`，抽取 7 步；redact 生成 `manifest.json` 与 `redaction-report.json`，删除 14 个敏感项；replay 状态为 `replay_passed`，执行 7 步，`remote_id=634505`，`artifact_filename=未命名`。
+- 校验：`loadCaptureManifest` 可加载 manifest，`runOfflineCaptureReplay` 返回完整变量链；`grep -niE 'cookie|authorization|set-cookie|csrf|xsrf|token|session|secret|ticket' .../manifest.json` 无命中。
+- 注意：这些批次内 `raw-steps.json` / `manifest.json` / `redaction-report.json` 仍位于 `batches/`，按当前规则不入库。当前 HTTP 抓包链路仍是离线 mock 回放，不是真实 HTTP 出片；生产出片继续使用 Playwright，直到真实 HTTP client 另行实现并通过授权验证。
+
 ## 2026-07-16 GUI 批量导入后队列不可见 bug 已修复（无积分）
 
 - 用户反馈：GUI 批量导入后，在“待执行任务”里无法查看刚创建的批次。
