@@ -96,6 +96,14 @@ npm run run
 
 传统 CLI 读取 `products/products.csv` 或相关配置中的商品表路径，适合运营本机维护人物池和调试飞影页面 selector。
 
+抓包 HTTP RPA 的脱敏工具（离线、不访问网络、不消耗积分）：
+
+```bash
+node scripts/redact-capture-source.mjs <raw-steps.json> --out=<manifest.json> --report=<report.json>
+```
+
+把人工整理的原始抓包步骤脱敏成可入库的 capture manifest，内置 `parseCaptureManifest` 门禁作双重保险。完整采集→脱敏→复核→离线回放流程见 `docs/rpa/capture-runbook.md`。
+
 ## 沙箱 / 代理网络（排障用）
 
 在这台 Mac 上用 Claude Code 等沙箱工具排障时：`hifly.cc` 在沙箱里可能被解析到 `198.18.x.x`（RFC2544 fake-ip，不可路由），且无 `HTTP_PROXY` 环境变量——看起来「连不上」。但本机系统配了代理（TUN 模式），fake-ip 会被转发到真实 hifly，所以 GUI 触发的 Playwright 浏览器能正常访问。**判断能否连 hifly，以实际跑一次飞影链路（能否走到 asset_generation/submit）为准，不要只看 `dns.resolve4` 就下结论。**
@@ -123,6 +131,7 @@ npm run run
 - `screenshots/`
 - `outputs/`
 - `node_modules/`
+- `*.har`、`rpa/capture/raw/`（抓包原始产物，含 cookie/token/签名/登录态）
 
 ## 打包交付
 
