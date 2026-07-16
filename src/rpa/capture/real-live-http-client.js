@@ -105,7 +105,7 @@ function assertNoUnresolved(value) {
 function hasAbsoluteLocalPath(value) {
   return typeof value === "string" && (
     /(?:^|[\s"'=,:])\/(?!\/)/.test(value) ||
-    /(?:^|[\s"'=,:])[A-Za-z]:[\\/]/.test(value)
+    /(?:^|[\s"'=,:])(?:[A-Za-z]:[\\/]|\\{1,2}(?=[^\\/\s]))/.test(value)
   );
 }
 

@@ -131,6 +131,16 @@ test("real_live rejects resolved absolute local paths before transport", async (
       url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status",
       request_template: { headers: {}, body: { source_file: "{{local_path}}" } },
       local_path: "/srv/private/secret.png"
+    },
+    {
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status",
+      request_template: { headers: { "x-source-file": "{{local_path}}" }, body: null },
+      local_path: "\\\\server\\share\\secret.png"
+    },
+    {
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status",
+      request_template: { headers: {}, body: { source_file: "{{local_path}}" } },
+      local_path: "\\secret\\file.png"
     }
   ]) {
     let called = false;
