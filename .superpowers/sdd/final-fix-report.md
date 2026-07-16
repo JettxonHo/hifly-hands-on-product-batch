@@ -128,3 +128,27 @@ exit 0
 ```
 
 No Hifly page was accessed, no real HTTP was sent, and no points were consumed. No batch, output, log, screenshot, raw HAR, configuration, dependency, or `docs/resume/` file was changed.
+
+## Final-Review Important Follow-up: Query Gate, Symlink Containment, and Short IDs
+
+- Manifest validation now parses each `url_template` and rejects sensitive query keys with the shared `isSensitiveKey()` policy. Regression coverage rejects `apiKey`, `privateKey`, and `x-api-key` before the manifest can load.
+- Placeholder artifact writes now require a real `artifacts/` directory inside the batch, reject pre-existing file and directory symlinks, and use exclusive `wx` creation. Local tests prove neither kind of symlink can overwrite an external sentinel file.
+- HAR URL templating is structured: only complete path segments and exact query values are replaced. A captured short ID `1` now makes `id={{asset_id}}`, while stable `/v1/` and overlapping `identifier=11` remain unchanged.
+
+Verification:
+
+```text
+node --test test/rpa-capture-manifest.test.js test/capture-http-executor.test.js test/har-extractor.test.js test/rpa-capture-sensitive.test.js
+32 passed, 0 failed
+
+npm run check
+Checked 62 JavaScript file(s)
+
+npm test
+308 passed, 0 failed
+
+git diff --check
+exit 0
+```
+
+No Hifly page was accessed, no real HTTP was sent, and no points were consumed. No batch, output, log, screenshot, raw HAR, configuration, dependency, or `docs/resume/` file was changed.

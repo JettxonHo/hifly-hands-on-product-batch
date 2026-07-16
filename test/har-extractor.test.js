@@ -171,11 +171,10 @@ test("classifies hiflyworks goods-in-hand requests into replayable phases", asyn
     may_consume_points: true,
     replayability: "unknown"
   });
-  assert.equal(raw.steps[4].url_template.includes("id=gen-1"), true);
-  assert.equal(raw.steps[4].url_template.includes("{{asset_id}}"), false);
+  assert.equal(raw.steps[4].url_template.includes("id={{asset_id}}"), true);
 });
 
-test("does not globally template short captured ids that overlap stable API paths", async () => {
+test("templates short captured ids in URL query values without changing stable path segments", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "har-extractor-short-id-"));
   const harPath = path.join(root, "sample.har");
   await writeFile(harPath, JSON.stringify(har([
@@ -195,12 +194,12 @@ test("does not globally template short captured ids that overlap stable API path
       body: { code: 0, data: {} }
     }),
     entry({
-      url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=1&remote_id=remote-123",
+      url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=1&identifier=11&remote_id=remote-123",
       method: "GET",
       body: { code: 0, data: { list: [{ id: "remote-123", status: 1 }] } }
     }),
     entry({
-      url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=1&remote_id=remote-123",
+      url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=1&identifier=11&remote_id=remote-123",
       method: "GET",
       body: { code: 0, data: { list: [{ id: "remote-123", status: 1 }] } }
     })
@@ -213,6 +212,7 @@ test("does not globally template short captured ids that overlap stable API path
   assert.equal(submit.url_template.includes("{{asset_id}}"), false);
   assert.deepEqual(submit.request_template.body, { gen_id: "{{asset_id}}" });
   assert.equal(query.url_template.includes("/v1/"), true);
-  assert.equal(query.url_template.includes("id=1"), true);
+  assert.equal(query.url_template.includes("id={{asset_id}}"), true);
+  assert.equal(query.url_template.includes("identifier=11"), true);
   assert.equal(query.url_template.includes("remote_id={{remote_id}}"), true);
 });

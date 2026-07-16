@@ -81,6 +81,45 @@ function substituteCapturedValues(value, capturedValues) {
   return value;
 }
 
+function decodedValue(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function capturedPlaceholder(value, capturedValues) {
+  const decoded = decodedValue(value);
+  for (const [captured, variable] of capturedValues) {
+    if (value === captured || decoded === captured) return `{{${variable}}}`;
+  }
+  return null;
+}
+
+function substituteCapturedUrl(urlValue, capturedValues) {
+  let url;
+  try {
+    url = new URL(urlValue);
+  } catch {
+    return urlValue;
+  }
+  const pathTemplate = url.pathname.split("/").map((segment) => capturedPlaceholder(segment, capturedValues) || segment).join("/");
+  const fragmentIndex = urlValue.indexOf("#");
+  const beforeFragment = fragmentIndex === -1 ? urlValue : urlValue.slice(0, fragmentIndex);
+  const queryIndex = beforeFragment.indexOf("?");
+  const rawQuery = queryIndex === -1 ? null : beforeFragment.slice(queryIndex + 1);
+  const queryTemplate = rawQuery === null ? "" : rawQuery.split("&").map((part) => {
+    const equalsIndex = part.indexOf("=");
+    if (equalsIndex === -1) return part;
+    const value = part.slice(equalsIndex + 1);
+    return `${part.slice(0, equalsIndex + 1)}${capturedPlaceholder(value, capturedValues) || value}`;
+  }).join("&");
+  const origin = `${url.protocol}//${url.host}`;
+  const fragment = fragmentIndex === -1 ? "" : urlValue.slice(fragmentIndex);
+  return `${origin}${pathTemplate}${rawQuery === null ? "" : `?${queryTemplate}`}${fragment}`;
+}
+
 function templatePlaceholders(value) {
   return typeof value === "string" ? value.match(/\{\{[A-Za-z0-9_]+\}\}/g) || [] : [];
 }
@@ -216,7 +255,7 @@ function candidateStep(entry, index, context) {
     headers: substituteCapturedValues(headerObject(entry.request?.headers), context.capturedValues),
     ...(requestBody ? { body: substituteCapturedValues(requestBody, context.capturedValues) } : {})
   };
-  const urlTemplate = substituteCapturedValues(entry.request.url, context.capturedValues);
+  const urlTemplate = substituteCapturedUrl(entry.request.url, context.capturedValues);
   const placeholders = new Set([
     ...(classified.placeholders || []),
     ...templatePlaceholders(urlTemplate),

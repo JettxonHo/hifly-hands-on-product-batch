@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-17 Capture HTTP final-review Important 修复：URL query 门禁、symlink 落盘与短 ID（无网络、无新增积分）
+
+- Manifest parser 现在用 URL query 结构检查 `url_template` 的每个 query key，并复用 `isSensitiveKey()`。手工标记为 sanitized 的 `apiKey`、`privateKey`、`x-api-key` 等 camelCase/snake_case/kebab/header 形式都会在加载前被拒绝。
+- Capture HTTP placeholder artifact 落盘现在拒绝 `artifacts/` symlink、目标文件 symlink 和已存在目标；目录必须是当前 batch 中真实目录，创建文件使用独占 `wx` 打开，避免 `writeFile` 跟随链接覆盖 batch 外文件。
+- HAR URL 模板化不再做任意字符串替换。只会对完整 URL path segment 与 query value 做精确 captured-value 替换，因此短 `id=1` 会成为 `id={{asset_id}}`，同时 `/api/app/v1/` 与 `identifier=11` 不会被污染。
+- 验证（本地 fixture/临时目录）：`node --test test/rpa-capture-manifest.test.js test/capture-http-executor.test.js test/har-extractor.test.js test/rpa-capture-sensitive.test.js` 为 32/32 通过；`npm run check` 通过（62 个 JS 文件）；`npm test` 为 308/308 通过；`git diff --check` 通过。提交见本轮 Git 历史。
+- 本轮未访问飞影、未发真实 HTTP、未消耗积分；未触碰关键批次、`docs/resume/`、raw HAR、batches、outputs、logs、screenshots、`config.local.json` 或 `node_modules`。
+
 ## 2026-07-17 Capture HTTP final-review 修复：camelCase 凭据、产物路径与短 ID（无网络、无新增积分）
 
 - 修复敏感键门禁遗漏：`sensitive.js` 现在先把 camelCase、snake_case、kebab-case 和 header 风格统一后再匹配。`privateKey`、`accessKey`、`xAccessKey`、`clientKey`、`apiKey`、`xApiKey` 和 credential 变体都会由 redaction 移除，并被 manifest gate 拒绝。

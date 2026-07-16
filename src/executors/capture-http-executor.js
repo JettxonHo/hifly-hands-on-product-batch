@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, realpath } from "node:fs/promises";
 import { assertExecutorAdapter } from "../core/executor-adapter.js";
 import { createRpaTaskPackage, writeRpaTaskPackage } from "../rpa/task-package.js";
 import { registerRpaCallbackToken, revokeRpaCallbackToken } from "../rpa/callback-token-registry.js";
@@ -34,6 +34,54 @@ function artifactFilename(value, remoteId) {
     });
   }
   return path.extname(filename) ? filename : `${filename}.mp4`;
+}
+
+function artifactPathError(message) {
+  return Object.assign(new Error(message), { code: "CAPTURE_ARTIFACT_PATH_UNSAFE" });
+}
+
+function isWithin(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+async function safeArtifactPath(batchDirectory, filename) {
+  const artifactDirectory = path.join(batchDirectory, "artifacts");
+  const absolutePath = path.resolve(artifactDirectory, filename);
+  if (!isWithin(artifactDirectory, absolutePath) || absolutePath === artifactDirectory) {
+    throw artifactPathError("Capture artifact path escapes the artifact directory");
+  }
+  await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
+  const [artifactDirectoryStat, realBatchDirectory, realArtifactDirectory] = await Promise.all([
+    lstat(artifactDirectory),
+    realpath(batchDirectory),
+    realpath(artifactDirectory)
+  ]);
+  if (!artifactDirectoryStat.isDirectory() || artifactDirectoryStat.isSymbolicLink() || !isWithin(realBatchDirectory, realArtifactDirectory)) {
+    throw artifactPathError("Capture artifact directory must be a real directory inside the batch");
+  }
+  try {
+    await lstat(absolutePath);
+    throw artifactPathError("Capture artifact destination must not already exist");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return absolutePath;
+}
+
+async function writePlaceholderArtifact(absolutePath, remoteId) {
+  let handle;
+  try {
+    handle = await open(absolutePath, "wx", 0o600);
+    await handle.writeFile(`capture-http placeholder artifact for ${remoteId}\n`);
+  } catch (error) {
+    if (error?.code === "EEXIST" || error?.code === "ELOOP") {
+      throw artifactPathError("Capture artifact destination cannot be safely created");
+    }
+    throw error;
+  } finally {
+    await handle?.close();
+  }
 }
 
 export function createCaptureHttpExecutor({ root, config = {} } = {}) {
@@ -174,15 +222,8 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
       const downloadReplay = await replayPhase("download", { remote_id: remoteEvidence?.remote_id }, { dir, taskId });
       const produced = downloadReplay.variables;
       const filename = artifactFilename(produced.artifact_filename, remoteEvidence?.remote_id);
-      const artifactDirectory = path.join(dir, "artifacts");
-      const absolutePath = path.resolve(artifactDirectory, filename);
-      if (path.relative(artifactDirectory, absolutePath).startsWith(`..${path.sep}`) || path.relative(artifactDirectory, absolutePath) === "") {
-        throw Object.assign(new Error("Capture artifact path escapes the artifact directory"), {
-          code: "CAPTURE_ARTIFACT_PATH_INVALID"
-        });
-      }
-      await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
-      await writeFile(absolutePath, `capture-http placeholder artifact for ${remoteEvidence?.remote_id}\n`);
+      const absolutePath = await safeArtifactPath(dir, filename);
+      await writePlaceholderArtifact(absolutePath, remoteEvidence?.remote_id);
       const artifact = {
         artifact_id: String(remoteEvidence?.remote_id),
         relative_path: path.relative(dir, absolutePath)

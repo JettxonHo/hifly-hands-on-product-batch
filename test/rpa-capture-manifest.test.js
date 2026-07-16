@@ -151,6 +151,21 @@ test("rejects common credential keys in request templates", () => {
   );
 });
 
+test("rejects sensitive query keys in URL templates", () => {
+  for (const key of ["apiKey", "privateKey", "x-api-key"]) {
+    assert.throws(
+      () => parseCaptureManifest({
+        ...SAMPLE,
+        steps: [{
+          ...SAMPLE.steps[0],
+          url_template: `https://hifly.cc/api/goods/upload?${key}=private`
+        }]
+      }),
+      /sensitive query keys/
+    );
+  }
+});
+
 test("rejects invalid replayability values", () => {
   assert.throws(
     () => parseCaptureManifest({

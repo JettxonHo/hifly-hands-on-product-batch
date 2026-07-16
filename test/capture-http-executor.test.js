@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -373,4 +373,75 @@ test("capture_http executor confines produced artifact filenames to the batch ar
     { code: "CAPTURE_ARTIFACT_FILENAME_INVALID" }
   );
   assert.equal(await readFile(protectedConfig, "utf8"), "do-not-overwrite");
+});
+
+async function prepareArtifactWrite(t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-artifact-symlink-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const batchId = "batch-artifact-symlink";
+  const taskId = "task-1";
+  const batchDirectory = path.join(root, "batches", batchId);
+  const manifestPath = path.join(root, "manifest.json");
+  const productImagePath = path.join(batchDirectory, "uploads", "product.png");
+  await mkdir(path.dirname(productImagePath), { recursive: true });
+  await Promise.all([
+    writeFile(productImagePath, "image-bytes"),
+    writeFile(manifestPath, JSON.stringify({
+      schema_version: 1,
+      source: "hifly_goods",
+      sanitized: true,
+      steps: [
+        {
+          id: "asset", phase: "asset_generation", method: "POST", url_template: "https://example.test/assets",
+          response: { status: 200, body: { data: { gen_id: "asset-1" } } },
+          produces: { asset_id: "$response.body.data.gen_id" }
+        },
+        {
+          id: "submit", phase: "remote_submit", method: "POST", url_template: "https://example.test/videos/{{asset_id}}",
+          placeholders: ["{{asset_id}}"], response: { status: 200, body: { data: { id: "remote-1" } } },
+          produces: { remote_id: "$response.body.data.id" }
+        },
+        {
+          id: "download", phase: "download", method: "GET", url_template: "https://example.test/videos/{{remote_id}}/download",
+          placeholders: ["{{remote_id}}"], response: { status: 200, body: { data: { title: "output.mp4" } } },
+          produces: { artifact_filename: "$response.body.data.title" }
+        }
+      ]
+    }))
+  ]);
+  const executor = createCaptureHttpExecutor({ root, config: { rpa: { manifestPath } } });
+  const task = { task_id: taskId, sku: "SKU", product_name: "Artifact", image_path: productImagePath };
+  const context = { batchId, taskId };
+  const asset = await executor.createAsset(task, context);
+  const submitted = await executor.submitVideo(task, asset, context);
+  return { root, batchDirectory, executor, context, remoteEvidence: submitted.remoteEvidence };
+}
+
+test("capture_http executor will not follow an artifact file symlink", async (t) => {
+  const f = await prepareArtifactWrite(t);
+  const externalFile = path.join(f.root, "outside.mp4");
+  const artifactDirectory = path.join(f.batchDirectory, "artifacts");
+  await mkdir(artifactDirectory);
+  await writeFile(externalFile, "do-not-overwrite");
+  await symlink(externalFile, path.join(artifactDirectory, "output.mp4"));
+
+  await assert.rejects(
+    () => f.executor.downloadArtifact(f.remoteEvidence, null, f.context),
+    { code: "CAPTURE_ARTIFACT_PATH_UNSAFE" }
+  );
+  assert.equal(await readFile(externalFile, "utf8"), "do-not-overwrite");
+});
+
+test("capture_http executor will not follow an artifact directory symlink", async (t) => {
+  const f = await prepareArtifactWrite(t);
+  const externalDirectory = path.join(f.root, "outside-artifacts");
+  await mkdir(externalDirectory);
+  await writeFile(path.join(externalDirectory, "output.mp4"), "do-not-overwrite");
+  await symlink(externalDirectory, path.join(f.batchDirectory, "artifacts"));
+
+  await assert.rejects(
+    () => f.executor.downloadArtifact(f.remoteEvidence, null, f.context),
+    { code: "CAPTURE_ARTIFACT_PATH_UNSAFE" }
+  );
+  assert.equal(await readFile(path.join(externalDirectory, "output.mp4"), "utf8"), "do-not-overwrite");
 });

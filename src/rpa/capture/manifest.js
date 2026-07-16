@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { findSensitiveKeys } from "./sensitive.js";
+import { findSensitiveKeys, isSensitiveKey } from "./sensitive.js";
 
 export const CAPTURE_PHASES = Object.freeze(["asset_generation", "remote_submit", "remote_query", "download"]);
 const PHASE_SET = new Set(CAPTURE_PHASES);
@@ -37,6 +37,19 @@ function validateRequestTemplate(template, index) {
   return result;
 }
 
+function validateUrlTemplate(urlTemplate, index) {
+  let url;
+  try {
+    url = new URL(urlTemplate);
+  } catch {
+    fail(`steps[${index}].url_template must be a valid absolute URL`);
+  }
+  const sensitiveKeys = [...url.searchParams.keys()].filter(isSensitiveKey);
+  if (sensitiveKeys.length > 0) {
+    fail(`steps[${index}].url_template contains sensitive query keys: ${sensitiveKeys.join(", ")}`);
+  }
+}
+
 function validateRisk(risk, index) {
   if (risk === undefined) {
     return {
@@ -66,6 +79,7 @@ function validateStep(step, index, seenIds) {
   if (typeof url_template !== "string" || url_template.length === 0) {
     fail(`steps[${index}].url_template must be a non-empty string`);
   }
+  validateUrlTemplate(url_template, index);
   if (!response || typeof response !== "object") fail(`steps[${index}].response must be an object`);
   if (!Number.isInteger(response.status)) fail(`steps[${index}].response.status must be an integer`);
   if (response.body === undefined) fail(`steps[${index}].response.body is required`);
