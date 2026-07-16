@@ -5,6 +5,7 @@ import path from "node:path";
 import { importProductTable } from "../../import/import-table.js";
 import { matchUploads } from "../../import/match-uploads.js";
 import { validateScriptStrategy } from "../../core/script-strategy.js";
+import { updateCaptureState } from "../../rpa/capture/workflow-state.js";
 import { storeUpload } from "../upload-service.js";
 import { assertBatchId, normalizeBatchStrategies, publicBatch } from "./batches.js";
 
@@ -87,6 +88,7 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
           }
           if (part.fieldname === "person_strategy") metadata.person_strategy = part.value;
           else if (part.fieldname === "script_strategy") metadata.script_strategy = part.value;
+          else if (part.fieldname === "capture_enabled") metadata.capture_enabled = part.value;
           else throw importError("INVALID_IMPORT_FIELDS");
           continue;
         }
@@ -139,6 +141,9 @@ export async function registerImportRoutes(app, { batchRoot, store, uploadLimits
           ...value,
           status: "pending",
           ...strategies,
+          ...(metadata.capture_enabled === "true" ? {
+            capture: updateCaptureState(value.capture, { enabled: true, status: "not_started" })
+          } : {}),
           ...(fixedPersonUpload ? { fixed_person_image_artifact_id: fixedPersonUpload.artifact_id } : {}),
           uploads: [...(Array.isArray(value.uploads) ? value.uploads : []), ...newUploads],
           artifacts: [

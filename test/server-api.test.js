@@ -265,6 +265,29 @@ test("creates batches with person and script strategies", async (t) => {
   assert.equal(response.json().batch.fixed_person_image_artifact_id, null);
 });
 
+test("creates batches with capture enabled", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: {
+      batchId: "batch-capture-enabled",
+      capture: { enabled: true }
+    }
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().batch.capture.enabled, true);
+  assert.equal(response.json().batch.capture.status, "not_started");
+  assert.match(response.json().batch.capture.updated_at, /^\d{4}-\d{2}-\d{2}T/);
+});
+
 test("rejects fixed person artifact IDs supplied during batch creation", async (t) => {
   const { app, root, session } = await fixture();
   t.after(async () => {
@@ -362,6 +385,29 @@ test("imports a server-stored table and image without accepting source paths", a
   assert.equal(batch.items.length, 1);
   assert.equal(batch.items[0].product_image_artifact_id.length > 0, true);
   assert.equal("image_path" in batch.items[0], false);
+});
+
+test("preserves capture option through multipart imports", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: { batchId: "batch-import-capture", capture: { enabled: true } }
+  });
+  assert.equal(created.statusCode, 201);
+
+  const response = await importInto(app, session, "batch-import-capture", "SKU-1.png", {
+    capture_enabled: "true"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().batch.capture.enabled, true);
+  assert.equal(response.json().batch.capture.status, "not_started");
 });
 
 test("persists scripts and strategies from single and bulk import payloads", async (t) => {

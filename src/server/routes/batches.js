@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { summarizeBatch, transitionTask } from "../../core/state-machine.js";
+import { createInitialCaptureState, publicCaptureState } from "../../rpa/capture/workflow-state.js";
 
 const BATCH_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PERSON_STRATEGIES = new Set(["auto_pool", "fixed_upload", "hifly_recommended"]);
@@ -60,6 +61,7 @@ export function publicBatch(batch) {
   const { artifacts = [], uploads = [], items = [], ...rest } = batch;
   return {
     ...rest,
+    capture: publicCaptureState(rest.capture),
     person_strategy: rest.person_strategy === undefined ? "auto_pool" : rest.person_strategy,
     script_strategy: rest.script_strategy === undefined ? "mixed" : rest.script_strategy,
     fixed_person_image_artifact_id: rest.fixed_person_image_artifact_id === undefined ? null : rest.fixed_person_image_artifact_id,
@@ -90,7 +92,8 @@ export async function registerBatchRoutes(app, { store }) {
     if (Object.keys(request.body).some((key) => ![
       "batchId",
       "person_strategy",
-      "script_strategy"
+      "script_strategy",
+      "capture"
     ].includes(key))) {
       throw Object.assign(new Error("Only batchId is accepted"), { code: "INVALID_BATCH" });
     }
@@ -101,6 +104,7 @@ export async function registerBatchRoutes(app, { store }) {
       status: "needs_input",
       items: [],
       uploads: [],
+      capture: createInitialCaptureState({ enabled: request.body.capture?.enabled === true }),
       ...strategies
     });
     reply.code(201);
