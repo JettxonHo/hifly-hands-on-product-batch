@@ -6,6 +6,8 @@
 
 当前（Phase 1）已实现的能力，**全部不消耗积分、不访问网络**：
 
+- GUI 批次可勾选“同时录制抓包产物”：真实生成仍由 Playwright 完成，同时录制 HAR；执行完成后可在批次详情中点击“抽取请求步骤”“脱敏生成 manifest”“离线回放验证”。
+- 从本地 HAR 自动抽取 `hifly.cc` JSON 请求候选步骤（`src/rpa/capture/har-extractor.js`）。自动抽取结果默认标记为 `unclassified`，仍需人工或后续校准补齐 phase、placeholders 和 produces，才能进入 manifest 门禁。
 - 解析脱敏后的 capture manifest（`src/rpa/capture/manifest.js`）。
 - 离线脱敏原始抓包步骤（`src/rpa/capture/redact.js` + `scripts/redact-capture-source.mjs`）。
 - 用 mock HTTP client 回放已录制响应（`src/rpa/capture/mock-http-client.js`），**只回放、绝不发起真实请求**。
@@ -14,7 +16,7 @@
 **当前做不到**（属后续阶段，需另授权）：
 
 - 真实发起飞影 HTTP 请求 / 真实生成视频 / 真实下载 mp4。真实 HTTP client 尚未实现，`capture_http` 执行器现在永远走 mock 回放。
-- 自动解析 HAR 文件。原始 HAR 必须按本 runbook 人工整理成 `raw-steps.json`（见步骤 2）。
+- 全自动从 HAR 推断可复放 manifest。当前只能自动抽取候选请求；关键 phase、变量占位符和 produces 仍需校准。
 
 因此：**配好 manifest 并把 `rpa.mode` 设为 `capture_http`，也只会离线回放 + 生成占位文件，不会消耗积分、不会出真实视频。** 真实联调是另一阶段，且必须先经用户授权积分、只跑 1 条商品。
 
@@ -32,7 +34,19 @@
 - 浏览器 DevTools（Chrome / Edge 自带）或 mitmproxy（可选，用于更干净的抓包）。
 - 只准备 **1 条商品** 的素材（商品图 + 可选人物图 + 商品信息），用于首次采集。
 
-## 步骤总览
+## GUI 抓包工作流（推荐）
+
+1. 在 GUI 的单条录入、批量录入或批量导入中勾选“同时录制抓包产物”。
+2. 按正常流程开始生成；这一步仍会真实访问飞影并消耗积分，因为当前生产出片仍由 Playwright 完成。
+3. 批次完成后，批次详情会显示“抓包工作流”状态。HAR 路径只在服务端保存，GUI 不暴露原始内容。
+4. 点击“抽取请求步骤”，系统从 HAR 生成 `batches/<batch_id>/capture/raw-steps.json`。这一步不消耗积分。
+5. 校准 raw steps：把可复放步骤的 `phase` 从 `unclassified` 改为 `asset_generation` / `remote_submit` / `remote_query` / `download`，补齐 `placeholders` 和 `produces`。
+6. 点击“脱敏生成 manifest”，系统生成 `manifest.json` 和 `redaction-report.json`。若仍含敏感键或 phase 不合法，会直接失败。
+7. 点击“离线回放验证”，系统用 mock client 验证变量链。通过后状态为“离线回放通过”。
+
+注意：第 4～7 步都是本地后处理，不会重新打开飞影、不会重新生成视频、不会再次消耗积分。
+
+## 手动流程总览
 
 ```text
 [无积分]                                            [消耗积分，后续阶段]

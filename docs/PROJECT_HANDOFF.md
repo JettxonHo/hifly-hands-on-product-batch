@@ -1,5 +1,17 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 GUI 抓包工作流 Task 1-6 已实现（无真实飞影运行）
+
+- 已按 `docs/superpowers/plans/2026-07-16-gui-capture-workflow.md` 完成 Task 1-6，并逐切片提交。
+- 新增 capture state：`src/rpa/capture/workflow-state.js`，公开投影会隐藏原始 HAR 路径。
+- GUI 批次创建/导入已支持 `capture.enabled`：单条录入、批量录入、批量导入均可勾选“同时录制抓包产物”。
+- capture-enabled 执行会使用 per-run Playwright executor 并设置 `recordHar`；普通批次仍走默认 Playwright。HAR 路径形如 `rpa/capture/raw/<batchId>-<timestamp>.har`，该目录已 gitignore。
+- 新增 capture API：`POST /api/batches/:batchId/capture/extract`、`/redact`、`/replay`。extract 从 HAR 抽取候选 raw steps；redact 生成 manifest/report 并跑 manifest 门禁；replay 用 mock client 离线验证变量链。
+- GUI 批次详情新增“抓包工作流”面板，展示状态和 raw steps / manifest / replay 信息，并提供“抽取请求步骤”“脱敏生成 manifest”“离线回放验证”按钮。
+- 当前仍未实现真实 HTTP client；抓包 HTTP 还不能直接出真实视频。真实生成仍由 Playwright 完成，后处理不消耗积分。
+- 本轮只运行本地测试、GUI smoke 和 fake executor；未启动真实飞影、未执行真实生成、未消耗积分；`docs/resume/` 仍未触碰。
+- 下一步：Task 7 最终文档验证后，可用 1 条真实商品在 GUI 中勾选抓包跑一次，确认 HAR 录制和 GUI 后处理链路；真实运行前仍需用户确认积分消耗。
+
 ## 2026-07-16 GUI 抓包工作流方向确认：Playwright 兜底，抓包 HTTP 目标替代
 
 - 用户确认最终目标是跑通抓包 HTTP 工作流，从而最终不再依赖 Playwright；但在抓包 HTTP 未完整可用前，继续使用已跑通的 Playwright 生产链路。
