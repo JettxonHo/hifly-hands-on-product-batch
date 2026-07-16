@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Capture HTTP Tasks 1-4 已实现：executor dry-run 接入完成（无网络、无新增积分）
+
+- Capture HTTP Tasks 1-4 已实现。Task 4 的 capture-http executor 现在通过 client factory 创建客户端，并公开选定的 `captureHttpMode`。
+- 在 RPA state 中，dry-run 的 `request_plan` 条目会跨 `asset_generation`、`remote_submit`、`remote_query` 和 `download` 阶段持续累积。
+- `mock` 模式保持兼容，Playwright/default production path 未改变。
+- 验证证据：Task 4 必需测试 70/70 通过；`npm run check` 通过；`git diff --check` 通过。
+- 本轮未访问飞影、未执行 live HTTP、未消耗积分。
+- 下一步：Task 5，新增 capture dry-run API 和 workflow state。
+- 提醒后续实现者：每个剩余实现任务都必须在 review 前更新 `PROJECT_HANDOFF.md`。
+
 ## 2026-07-16 Capture HTTP Tasks 1-3 已实现：real_dry_run 仅构造请求计划（无网络、无新增积分）
 
 - Capture HTTP Tasks 1-3 已实现：Task 1 提取共享 step-runtime helpers 并完成 mock client 重构；Task 2 扩展 manifest parser，支持 `request_template` / `risk`，且敏感 request-template headers 仍会被拒绝；Task 3 实现 dry-run client 与 client factory。
