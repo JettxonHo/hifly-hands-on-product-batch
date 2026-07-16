@@ -171,5 +171,48 @@ test("classifies hiflyworks goods-in-hand requests into replayable phases", asyn
     may_consume_points: true,
     replayability: "unknown"
   });
-  assert.equal(raw.steps[4].url_template.includes("{{asset_id}}"), true);
+  assert.equal(raw.steps[4].url_template.includes("id=gen-1"), true);
+  assert.equal(raw.steps[4].url_template.includes("{{asset_id}}"), false);
+});
+
+test("does not globally template short captured ids that overlap stable API paths", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "har-extractor-short-id-"));
+  const harPath = path.join(root, "sample.har");
+  await writeFile(harPath, JSON.stringify(har([
+    entry({
+      url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/goods_holding_image_generation",
+      requestBody: { goods_image_oss_key: "goods/key.png" },
+      body: { code: 0, data: {} }
+    }),
+    entry({
+      url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/goods_holding_image_generation?identifier=short",
+      method: "GET",
+      body: { code: 0, data: { status: 3, gen_id: "1" } }
+    }),
+    entry({
+      url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos",
+      requestBody: { gen_id: "1" },
+      body: { code: 0, data: {} }
+    }),
+    entry({
+      url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=1&remote_id=remote-123",
+      method: "GET",
+      body: { code: 0, data: { list: [{ id: "remote-123", status: 1 }] } }
+    }),
+    entry({
+      url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=1&remote_id=remote-123",
+      method: "GET",
+      body: { code: 0, data: { list: [{ id: "remote-123", status: 1 }] } }
+    })
+  ])));
+
+  const raw = await extractRawStepsFromHar({ harPath });
+  const submit = raw.steps.find((step) => step.id === "submit_video");
+  const query = raw.steps.find((step) => step.id === "poll_video_status");
+  assert.equal(submit.url_template.includes("/v1/"), true);
+  assert.equal(submit.url_template.includes("{{asset_id}}"), false);
+  assert.deepEqual(submit.request_template.body, { gen_id: "{{asset_id}}" });
+  assert.equal(query.url_template.includes("/v1/"), true);
+  assert.equal(query.url_template.includes("id=1"), true);
+  assert.equal(query.url_template.includes("remote_id={{remote_id}}"), true);
 });

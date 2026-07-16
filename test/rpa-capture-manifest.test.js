@@ -142,8 +142,8 @@ test("rejects common credential keys in request templates", () => {
       steps: [{
         ...SAMPLE.steps[0],
         request_template: {
-          headers: { "x-api-key": "private" },
-          body: { password: "private", api_key: "private", credential: "private" }
+          headers: { "x-api-key": "private", xAccessKey: "private" },
+          body: { password: "private", api_key: "private", apiKey: "private", privateKey: "private", clientKey: "private", credential: "private" }
         }
       }]
     }),

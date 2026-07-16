@@ -102,10 +102,13 @@ test("removes common credential keys from headers and bodies before manifest val
     steps: [{
       ...RAW.steps[0],
       request_template: {
-        headers: { "x-api-key": "private", credential: "private", "content-type": "application/json" },
-        body: { password: "private", passwd: "private", api_key: "private", nested: { credential: "private" } }
+        headers: { "x-api-key": "private", xAccessKey: "private", credential: "private", "content-type": "application/json" },
+        body: {
+          password: "private", passwd: "private", api_key: "private", apiKey: "private",
+          privateKey: "private", clientKey: "private", nested: { credential: "private" }
+        }
       },
-      response: { ...RAW.steps[0].response, body: { data: { private_key: "private", image_id: "img-1" } } }
+      response: { ...RAW.steps[0].response, body: { data: { private_key: "private", accessKey: "private", image_id: "img-1" } } }
     }]
   });
   assert.deepEqual(sanitized.steps[0].request_template, { headers: { "content-type": "application/json" }, body: { nested: {} } });

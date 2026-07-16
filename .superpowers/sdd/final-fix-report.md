@@ -103,3 +103,28 @@ npm test
 ```
 
 No Hifly page was accessed, no real HTTP was sent, and no points were consumed. No batch, output, log, screenshot, raw HAR, configuration, dependency, or `docs/resume/` file was changed.
+
+## Final-Review Fix: Credential Key Names, Artifact Paths, and Short IDs
+
+- Normalized sensitive key names before matching camelCase, snake_case, kebab-case, and header-style forms. Redaction and the manifest gate now reject or remove `privateKey`, `accessKey`, `xAccessKey`, `clientKey`, `apiKey`, `xApiKey`, and credential variants alongside the existing key forms.
+- Capture HTTP artifact filenames must now be a safe basename. Traversal and platform-specific path separators fail with `CAPTURE_ARTIFACT_FILENAME_INVALID` before any write; valid artifacts are written below the batch `artifacts/` directory and extensionless names receive `.mp4`.
+- HAR value templating no longer performs global replacement for captured values shorter than six characters, preventing a captured `1` from corrupting stable paths such as `/v1/`. Exact structured field values can still become declared placeholders.
+- Added regressions for camelCase redaction and manifest rejection, a produced `../../config.local.json` filename that is rejected without overwriting the protected file, and short/overlapping IDs in Hiflyworks HAR extraction.
+
+Verification:
+
+```text
+node --test test/rpa-capture-sensitive.test.js test/rpa-capture-redact.test.js test/rpa-capture-manifest.test.js test/capture-http-executor.test.js test/har-extractor.test.js
+37 passed, 0 failed
+
+npm run check
+Checked 62 JavaScript file(s)
+
+npm test
+305 passed, 0 failed
+
+git diff --check
+exit 0
+```
+
+No Hifly page was accessed, no real HTTP was sent, and no points were consumed. No batch, output, log, screenshot, raw HAR, configuration, dependency, or `docs/resume/` file was changed.

@@ -65,7 +65,10 @@ function substituteCapturedValues(value, capturedValues) {
   if (typeof value === "string") {
     let result = value;
     for (const [captured, variable] of [...capturedValues.entries()].sort(([a], [b]) => b.length - a.length)) {
-      if (!captured) continue;
+      if (result === captured) return `{{${variable}}}`;
+      // Short identifiers such as "1" occur in stable API paths like /v1/.
+      // They are not safe to replace globally without structured field knowledge.
+      if (captured.length < 6) continue;
       result = result.split(captured).join(`{{${variable}}}`);
       result = result.split(encodeURIComponent(captured)).join(`{{${variable}}}`);
     }

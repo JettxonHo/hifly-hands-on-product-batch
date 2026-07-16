@@ -323,3 +323,54 @@ test("capture_http executor keeps accumulated plans when a phase has no steps", 
   const state = await readRpaState(batchDirectory, task.task_id);
   assert.deepEqual(state.request_plan.map((entry) => entry.step_id), ["asset", "submit", "download"]);
 });
+
+test("capture_http executor confines produced artifact filenames to the batch artifacts directory", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-artifact-path-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const batchId = "batch-artifact-path";
+  const taskId = "task-1";
+  const batchDirectory = path.join(root, "batches", batchId);
+  const manifestPath = path.join(root, "manifest.json");
+  const productImagePath = path.join(batchDirectory, "uploads", "product.png");
+  const protectedConfig = path.join(root, "config.local.json");
+  await mkdir(path.dirname(productImagePath), { recursive: true });
+  await Promise.all([
+    writeFile(productImagePath, "image-bytes"),
+    writeFile(protectedConfig, "do-not-overwrite"),
+    writeFile(manifestPath, JSON.stringify({
+      schema_version: 1,
+      source: "hifly_goods",
+      captured_at: "2026-07-17T00:00:00Z",
+      sanitized: true,
+      steps: [
+        {
+          id: "asset", phase: "asset_generation", method: "POST", url_template: "https://example.test/assets",
+          response: { status: 200, body: { data: { gen_id: "asset-1" } } },
+          produces: { asset_id: "$response.body.data.gen_id" }
+        },
+        {
+          id: "submit", phase: "remote_submit", method: "POST", url_template: "https://example.test/videos/{{asset_id}}",
+          placeholders: ["{{asset_id}}"], response: { status: 200, body: { data: { id: "remote-1" } } },
+          produces: { remote_id: "$response.body.data.id" }
+        },
+        {
+          id: "download", phase: "download", method: "GET", url_template: "https://example.test/videos/{{remote_id}}/download",
+          placeholders: ["{{remote_id}}"],
+          response: { status: 200, body: { data: { title: "../../config.local.json" } } },
+          produces: { artifact_filename: "$response.body.data.title" }
+        }
+      ]
+    }))
+  ]);
+  const executor = createCaptureHttpExecutor({ root, config: { rpa: { manifestPath } } });
+  const task = { task_id: taskId, sku: "SKU", product_name: "Artifact", image_path: productImagePath };
+  const context = { batchId, taskId };
+  const asset = await executor.createAsset(task, context);
+  const submitted = await executor.submitVideo(task, asset, context);
+
+  await assert.rejects(
+    () => executor.downloadArtifact(submitted.remoteEvidence, null, context),
+    { code: "CAPTURE_ARTIFACT_FILENAME_INVALID" }
+  );
+  assert.equal(await readFile(protectedConfig, "utf8"), "do-not-overwrite");
+});

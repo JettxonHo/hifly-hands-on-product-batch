@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-17 Capture HTTP final-review 修复：camelCase 凭据、产物路径与短 ID（无网络、无新增积分）
+
+- 修复敏感键门禁遗漏：`sensitive.js` 现在先把 camelCase、snake_case、kebab-case 和 header 风格统一后再匹配。`privateKey`、`accessKey`、`xAccessKey`、`clientKey`、`apiKey`、`xApiKey` 和 credential 变体都会由 redaction 移除，并被 manifest gate 拒绝。
+- 修复 capture HTTP 下载写入路径：远端 `artifact_filename` 必须是安全 basename；`../../config.local.json` 与任何平台路径分隔符会在写入前以 `CAPTURE_ARTIFACT_FILENAME_INVALID` 拒绝。有效的 placeholder artifact 固定写到批次 `artifacts/` 子目录，扩展名缺失时补 `.mp4`。
+- 修复 HAR 短 ID 模板化：少于 6 个字符的 captured value 不再做全字符串替换，避免 `1` 污染 `/v1/` 等稳定路径；JSON 结构字段的精确值仍可替换为声明占位符。
+- 验证：定向 `node --test test/rpa-capture-sensitive.test.js test/rpa-capture-redact.test.js test/rpa-capture-manifest.test.js test/capture-http-executor.test.js test/har-extractor.test.js` 为 37/37 通过；`npm run check` 通过（62 个 JS 文件）；`npm test` 为 305/305 通过；`git diff --check` 通过。待提交。
+- 本轮未访问飞影、未发真实 HTTP、未消耗积分；未触碰关键批次、`docs/resume/`、raw HAR、batches、outputs、logs、screenshots、`config.local.json` 或 `node_modules`。
+
 ## 2026-07-17 Capture HTTP final-review 修复：query 占位符、凭据门禁与 replay 错误脱敏（无网络、无新增积分）
 
 - 修复 `redact.js` 使用 `URLSearchParams` 重序列化 query 后把 `{{asset_id}}` 等模板编码为 `%7B%7B...%7D%7D` 的问题。现在按原始 query 片段过滤敏感键，literal placeholder 保留；synthetic Hiflyworks HAR 的 extract → redact → `real_dry_run` 回归确认最终 request plan URL/query 已解析出 `asset_id` / `remote_id`，不含编码或未解析模板。

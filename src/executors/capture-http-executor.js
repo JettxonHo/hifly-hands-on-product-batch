@@ -1,5 +1,5 @@
 import path from "node:path";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { assertExecutorAdapter } from "../core/executor-adapter.js";
 import { createRpaTaskPackage, writeRpaTaskPackage } from "../rpa/task-package.js";
 import { registerRpaCallbackToken, revokeRpaCallbackToken } from "../rpa/callback-token-registry.js";
@@ -22,6 +22,18 @@ function savedCaptureVariables(state) {
   return state?.capture_variables && typeof state.capture_variables === "object" && !Array.isArray(state.capture_variables)
     ? state.capture_variables
     : {};
+}
+
+function artifactFilename(value, remoteId) {
+  const fallback = `${remoteId || "capture-artifact"}.mp4`;
+  if (typeof value !== "string" || value.trim() === "") return fallback;
+  const filename = value.trim();
+  if (filename !== path.basename(filename) || filename !== path.win32.basename(filename) || filename === "." || filename === "..") {
+    throw Object.assign(new Error("Capture artifact filename must be a basename"), {
+      code: "CAPTURE_ARTIFACT_FILENAME_INVALID"
+    });
+  }
+  return path.extname(filename) ? filename : `${filename}.mp4`;
 }
 
 export function createCaptureHttpExecutor({ root, config = {} } = {}) {
@@ -161,8 +173,15 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
       const taskId = context.taskId || remoteEvidence?.task_id;
       const downloadReplay = await replayPhase("download", { remote_id: remoteEvidence?.remote_id }, { dir, taskId });
       const produced = downloadReplay.variables;
-      const filename = produced.artifact_filename || `${remoteEvidence?.remote_id}.mp4`;
-      const absolutePath = path.join(dir, filename);
+      const filename = artifactFilename(produced.artifact_filename, remoteEvidence?.remote_id);
+      const artifactDirectory = path.join(dir, "artifacts");
+      const absolutePath = path.resolve(artifactDirectory, filename);
+      if (path.relative(artifactDirectory, absolutePath).startsWith(`..${path.sep}`) || path.relative(artifactDirectory, absolutePath) === "") {
+        throw Object.assign(new Error("Capture artifact path escapes the artifact directory"), {
+          code: "CAPTURE_ARTIFACT_PATH_INVALID"
+        });
+      }
+      await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
       await writeFile(absolutePath, `capture-http placeholder artifact for ${remoteEvidence?.remote_id}\n`);
       const artifact = {
         artifact_id: String(remoteEvidence?.remote_id),

@@ -26,7 +26,10 @@ test("flags keys whose names contain token/session/auth/ticket/sign/secret", () 
 });
 
 test("flags common credential and API key names", () => {
-  for (const name of ["password", "user_password", "passwd", "api_key", "X-API-Key", "credential", "client_credentials", "private_key"]) {
+  for (const name of [
+    "password", "user_password", "passwd", "api_key", "apiKey", "X-API-Key", "xApiKey",
+    "credential", "client_credentials", "clientKey", "private_key", "privateKey", "accessKey", "xAccessKey"
+  ]) {
     assert.equal(isSensitiveKey(name), true, `${name} must be sensitive`);
   }
 });

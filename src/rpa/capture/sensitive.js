@@ -1,40 +1,47 @@
 const EXACT = new Set([
   "cookie",
-  "set-cookie",
+  "set_cookie",
   "authorization",
-  "proxy-authorization",
-  "csrf-token",
-  "x-csrf-token",
-  "x-xsrf-token",
+  "proxy_authorization",
+  "csrf_token",
+  "x_csrf_token",
+  "x_xsrf_token",
   "password",
   "passwd",
   "api_key",
-  "api-key",
-  "x-api-key",
+  "x_api_key",
   "credential",
   "credentials",
   "client_secret",
-  "client-secret",
   "private_key",
-  "private-key",
   "access_key",
-  "access-key",
-  "x-access-key"
+  "x_access_key"
 ]);
 
 const SUBSTRING = [
   "token", "session", "auth", "ticket", "sign", "secret",
-  "password", "passwd", "credential", "api_key", "api-key", "apikey",
-  "private_key", "private-key", "access_key", "access-key"
+  "password", "passwd", "credential", "api_key", "apikey",
+  "private_key", "privatekey", "access_key", "accesskey", "clientkey"
 ];
 
 export const SENSITIVE_KEY_PATTERNS = Object.freeze([...EXACT, ...SUBSTRING]);
 
+function normalizeKey(name) {
+  return name
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
 export function isSensitiveKey(name) {
   if (typeof name !== "string" || name.length === 0) return false;
-  const lower = name.toLowerCase();
-  if (EXACT.has(lower)) return true;
-  return SUBSTRING.some((needle) => lower.includes(needle));
+  const normalized = normalizeKey(name);
+  const compact = normalized.replaceAll("_", "");
+  if (EXACT.has(normalized) || EXACT.has(compact)) return true;
+  return SUBSTRING.some((needle) => normalized.includes(needle) || compact.includes(needle.replaceAll("_", "")));
 }
 
 export function findSensitiveKeys(value, basePath = "") {
