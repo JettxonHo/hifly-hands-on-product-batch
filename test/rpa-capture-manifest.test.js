@@ -94,3 +94,56 @@ test("loadCaptureManifest reads and parses a file", async () => {
 test("CAPTURE_PHASES lists the four executor phases", () => {
   assert.deepEqual(CAPTURE_PHASES, ["asset_generation", "remote_submit", "remote_query", "download"]);
 });
+
+test("preserves optional request_template and risk metadata", () => {
+  const manifest = parseCaptureManifest({
+    ...SAMPLE,
+    steps: [{
+      ...SAMPLE.steps[0],
+      request_template: {
+        headers: { "content-type": "application/json" },
+        body: { image: "{{product_image_path}}" }
+      },
+      risk: {
+        requires_auth: true,
+        may_consume_points: false,
+        replayability: "unknown"
+      }
+    }]
+  });
+  assert.deepEqual(manifest.steps[0].request_template, {
+    headers: { "content-type": "application/json" },
+    body: { image: "{{product_image_path}}" }
+  });
+  assert.deepEqual(manifest.steps[0].risk, {
+    requires_auth: true,
+    may_consume_points: false,
+    replayability: "unknown"
+  });
+});
+
+test("rejects sensitive request_template headers", () => {
+  assert.throws(
+    () => parseCaptureManifest({
+      ...SAMPLE,
+      steps: [{
+        ...SAMPLE.steps[0],
+        request_template: { headers: { cookie: "sid=secret" } }
+      }]
+    }),
+    /manifest contains sensitive keys/
+  );
+});
+
+test("rejects invalid replayability values", () => {
+  assert.throws(
+    () => parseCaptureManifest({
+      ...SAMPLE,
+      steps: [{
+        ...SAMPLE.steps[0],
+        risk: { replayability: "maybe" }
+      }]
+    }),
+    /risk.replayability is invalid/
+  );
+});

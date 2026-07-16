@@ -3,6 +3,7 @@ import { findSensitiveKeys } from "./sensitive.js";
 
 export const CAPTURE_PHASES = Object.freeze(["asset_generation", "remote_submit", "remote_query", "download"]);
 const PHASE_SET = new Set(CAPTURE_PHASES);
+const REPLAYABILITY_VALUES = new Set(["unknown", "replayable", "api_unavailable"]);
 
 function fail(message) {
   throw Object.assign(new Error(message), { code: "INVALID_CAPTURE_MANIFEST" });
@@ -18,6 +19,40 @@ function asObject(input) {
   }
   if (input && typeof input === "object") return input;
   fail("manifest input must be an object or JSON string");
+}
+
+function validateRequestTemplate(template, index) {
+  if (template === undefined) return null;
+  if (!template || typeof template !== "object" || Array.isArray(template)) {
+    fail(`steps[${index}].request_template must be an object`);
+  }
+  const result = {};
+  if (template.headers !== undefined) {
+    if (!template.headers || typeof template.headers !== "object" || Array.isArray(template.headers)) {
+      fail(`steps[${index}].request_template.headers must be an object`);
+    }
+    result.headers = { ...template.headers };
+  }
+  if (template.body !== undefined) result.body = structuredClone(template.body);
+  return result;
+}
+
+function validateRisk(risk, index) {
+  if (risk === undefined) {
+    return {
+      requires_auth: false,
+      may_consume_points: false,
+      replayability: "unknown"
+    };
+  }
+  if (!risk || typeof risk !== "object" || Array.isArray(risk)) fail(`steps[${index}].risk must be an object`);
+  const replayability = risk.replayability ?? "unknown";
+  if (!REPLAYABILITY_VALUES.has(replayability)) fail(`steps[${index}].risk.replayability is invalid`);
+  return {
+    requires_auth: risk.requires_auth === true,
+    may_consume_points: risk.may_consume_points === true,
+    replayability
+  };
 }
 
 function validateStep(step, index, seenIds) {
@@ -37,6 +72,8 @@ function validateStep(step, index, seenIds) {
   if (step.placeholders !== undefined && !Array.isArray(step.placeholders)) {
     fail(`steps[${index}].placeholders must be an array`);
   }
+  const request_template = validateRequestTemplate(step.request_template, index);
+  const risk = validateRisk(step.risk, index);
   return {
     id,
     phase,
@@ -44,7 +81,9 @@ function validateStep(step, index, seenIds) {
     url_template,
     placeholders: Array.isArray(step.placeholders) ? [...step.placeholders] : [],
     response: { status: response.status, body: structuredClone(response.body) },
-    produces: step.produces && typeof step.produces === "object" ? { ...step.produces } : {}
+    produces: step.produces && typeof step.produces === "object" ? { ...step.produces } : {},
+    ...(request_template ? { request_template } : {}),
+    risk
   };
 }
 
@@ -54,7 +93,7 @@ export function parseCaptureManifest(input) {
   if (data.sanitized !== true) fail("manifest must be sanitized before loading");
   if (!Array.isArray(data.steps) || data.steps.length === 0) fail("steps must be a non-empty array");
 
-  const hits = findSensitiveKeys(data, "");
+  const hits = findSensitiveKeys(data, "").filter((hit) => !/^steps\[\d+\]\.risk\.requires_auth$/.test(hit));
   if (hits.length > 0) fail(`manifest contains sensitive keys: ${hits.join(", ")}`);
 
   const seenIds = new Set();
