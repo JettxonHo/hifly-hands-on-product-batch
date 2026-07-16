@@ -8,6 +8,7 @@ import { getProjectRoot } from "../core/project-root.js";
 import { createRequestSecurity } from "./request-security.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { registerBatchRoutes } from "./routes/batches.js";
+import { registerCaptureRoutes } from "./routes/capture.js";
 import { createExecutionCoordinator, registerExecutionRoutes } from "./routes/executions.js";
 import { registerImportRoutes } from "./routes/imports.js";
 import { registerRpaCallbackRoutes } from "./routes/rpa-callbacks.js";
@@ -19,6 +20,9 @@ const CLIENT_ERROR_CODES = new Set([
   "BATCH_FILE_LIMIT",
   "BATCH_NOT_READY",
   "BATCH_ID_MUST_PRECEDE_FILES",
+  "CAPTURE_HAR_MISSING",
+  "CAPTURE_NO_CANDIDATES",
+  "CAPTURE_NOT_ENABLED",
   "DECLARED_MIME_MISMATCH",
   "DIRECTORY_UPLOAD_NOT_ALLOWED",
   "DUPLICATE_IDEMPOTENCY_KEY",
@@ -30,6 +34,7 @@ const CLIENT_ERROR_CODES = new Set([
   "IMPORT_FILES_REQUIRED",
   "INVALID_BATCH",
   "INVALID_BATCH_ID",
+  "INVALID_CAPTURE_PATH",
   "INVALID_CSV_ENCODING",
   "INVALID_EXECUTION_REQUEST",
   "INVALID_IDEMPOTENCY_KEY",
@@ -107,6 +112,7 @@ export async function buildApp({
     executionBackend: generationConfig.executionBackend || "playwright"
   }));
   await registerBatchRoutes(app, { store });
+  await registerCaptureRoutes(app, { batchRoot, store });
   await registerImportRoutes(app, { batchRoot, store, uploadLimits });
   await registerExecutionRoutes(app, { coordinator });
   await registerArtifactRoutes(app, { batchRoot, store });
