@@ -7,6 +7,14 @@ import { readRpaState, writeRpaState } from "../rpa/rpa-state.js";
 import { loadCaptureManifest, selectStepsByPhase } from "../rpa/capture/manifest.js";
 import { createCaptureHttpClient, normalizeCaptureHttpMode } from "../rpa/capture/http-client-factory.js";
 
+const SENSITIVE_PLAN_NAME = /token|secret|password|cookie|authorization|session|csrf|xsrf|ticket|sign|auth/i;
+const SAFE_RISK_FLAGS = new Set([
+  "auth_required",
+  "may_consume_points",
+  "replayability_unknown",
+  "api_unavailable"
+]);
+
 function batchDirectory(root, batchId) {
   if (typeof batchId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(batchId)) {
     throw new TypeError("context.batchId must be a valid local batch id");
@@ -22,6 +30,24 @@ function savedCaptureVariables(state) {
   return state?.capture_variables && typeof state.capture_variables === "object" && !Array.isArray(state.capture_variables)
     ? state.capture_variables
     : {};
+}
+
+function persistableRequestPlan(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const safe = {};
+  if (typeof entry.step_id === "string") safe.step_id = entry.step_id;
+  if (typeof entry.phase === "string") safe.phase = entry.phase;
+  if (typeof entry.method === "string") safe.method = entry.method;
+  if (typeof entry.host === "string" && /^[A-Za-z0-9.-]+$/.test(entry.host)) safe.host = entry.host;
+  if (Array.isArray(entry.placeholders)) {
+    safe.placeholders = entry.placeholders.filter((name) =>
+      typeof name === "string" && !SENSITIVE_PLAN_NAME.test(name)
+    );
+  }
+  if (Array.isArray(entry.risk_flags)) {
+    safe.risk_flags = entry.risk_flags.filter((flag) => SAFE_RISK_FLAGS.has(flag));
+  }
+  return Object.keys(safe).length > 0 ? safe : null;
 }
 
 function artifactFilename(value, remoteId) {
@@ -137,7 +163,8 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
       });
       Object.assign(vars, result.produced);
       Object.assign(persistedVariables, result.produced);
-      if (result.request_plan) requestPlan.push(result.request_plan);
+      const safePlan = persistableRequestPlan(result.request_plan);
+      if (safePlan) requestPlan.push(safePlan);
     }
     return { variables: vars, persistedVariables, requestPlan };
   }

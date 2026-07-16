@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-17 Capture HTTP final-review 修复：real_live request plan 不落 raw URL/body（无网络、无新增积分）
+
+- 最终复审发现：授权 fake transport 跑通 `real_live` 时，client 返回的完整 `request_plan` 可能经 executor 写入本地 RPA state，包含 resolved URL、path、headers 或 body。
+- 已在 `capture-http-executor` 落盘边界新增安全白名单投影；RPA state 现在只保存 `step_id`、`phase`、`method`、`host`、非敏感 `placeholders` 与安全 `risk_flags`。
+- 新增/调整 executor 回归：`real_dry_run` 和授权 fake `real_live` 的 RPA state 均不包含 `url`、`path`、`headers`、`body`，也不包含 runtime cookie 或请求 body 字段。
+- 验证：`node --test test/capture-http-executor.test.js` 为 11/11 通过；最终五文件定向套件 50/50 通过；`npm test` 为 331/331 通过；`npm run check` 通过（63 个 JS 文件）；`git diff --check` 通过。
+- 本轮未访问飞影、未发真实 HTTP、未消耗积分；未触碰关键批次、`docs/resume/`、raw HAR、batches、outputs、logs、screenshots、`config.local.json` 或 `node_modules`。
+
 ## 2026-07-17 Capture HTTP real_live 受控脚手架已实现（无网络、无新增积分）
 
 - `real_live` 现在只作为受控脚手架存在，默认配置 `rpa.realLive.enabled=false`；未授权时不会调用 transport。

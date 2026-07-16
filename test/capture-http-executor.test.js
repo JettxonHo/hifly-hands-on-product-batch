@@ -225,6 +225,12 @@ test("capture_http executor supports real_dry_run without network access", async
   assert.equal(state.capture_http_mode, "real_dry_run");
   assert.equal(state.request_plan.length, 4);
   assert.equal(state.request_plan[1].risk_flags.includes("may_consume_points"), true);
+  for (const entry of state.request_plan) {
+    assert.equal("url" in entry, false);
+    assert.equal("path" in entry, false);
+    assert.equal("headers" in entry, false);
+    assert.equal("body" in entry, false);
+  }
 });
 
 test("capture_http real_live refuses to run without per-run authorization before transport", async (t) => {
@@ -343,6 +349,17 @@ test("capture_http real_live forwards explicit authorization, transport, and run
   const state = await readRpaState(batchDirectory, task.task_id);
   assert.equal(state.capture_http_mode, "real_live");
   assert.equal(JSON.stringify(state).includes("in-memory-only"), false);
+  assert.deepEqual(state.request_plan, [{
+    step_id: "create_asset",
+    phase: "asset_generation",
+    method: "POST",
+    host: "hiflyworks-api.lingverse.co",
+    placeholders: [],
+    risk_flags: ["auth_required", "replayability_unknown"]
+  }]);
+  const persisted = JSON.stringify(state);
+  assert.equal(persisted.includes("upload_url"), false);
+  assert.equal(persisted.includes("kind"), false);
 });
 
 test("capture_http executor preserves variables across a redacted hiflyworks HAR pipeline", async (t) => {
@@ -389,10 +406,12 @@ test("capture_http executor preserves variables across a redacted hiflyworks HAR
   const queryPlan = state.request_plan.find((entry) => entry.step_id === "poll_video_status");
   const downloadPlan = state.request_plan.find((entry) => entry.step_id === "download_video");
   for (const entry of [queryPlan, downloadPlan]) {
-    assert.equal(entry.url.includes("id=asset-1"), true);
-    assert.equal(entry.url.includes("remote_id=remote-1"), true);
-    assert.equal(entry.url.includes("%7B%7B"), false);
-    assert.equal(entry.url.includes("{{"), false);
+    assert.equal(entry.host, "hiflyworks-api.lingverse.co");
+    assert.deepEqual(new Set(entry.placeholders), new Set(["asset_id", "remote_id"]));
+    assert.equal("url" in entry, false);
+    assert.equal("path" in entry, false);
+    assert.equal("headers" in entry, false);
+    assert.equal("body" in entry, false);
   }
 });
 
