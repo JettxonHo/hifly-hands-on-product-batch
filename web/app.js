@@ -157,13 +157,23 @@
 
   function preferredBatch(batches) {
     if (!Array.isArray(batches) || batches.length === 0) return null;
-    return [...batches].sort((left, right) => {
-      const priority = batchFocusPriority(left) - batchFocusPriority(right);
-      if (priority !== 0) return priority;
-      const created = batchCreatedTime(right) - batchCreatedTime(left);
-      if (created !== 0) return created;
-      return String(left.batch_id || "").localeCompare(String(right.batch_id || ""));
-    })[0];
+    return [...batches].sort(compareBatchesForFocus)[0];
+  }
+
+  function compareBatchesForFocus(left, right) {
+    const priority = batchFocusPriority(left) - batchFocusPriority(right);
+    if (priority !== 0) return priority;
+    const created = batchCreatedTime(right) - batchCreatedTime(left);
+    if (created !== 0) return created;
+    return String(left.batch_id || "").localeCompare(String(right.batch_id || ""));
+  }
+
+  function batchesForDisplay() {
+    return [...state.batches].sort((left, right) => {
+      if (left.batch_id === state.selectedBatchId) return -1;
+      if (right.batch_id === state.selectedBatchId) return 1;
+      return compareBatchesForFocus(left, right);
+    });
   }
 
   function shouldOpenQueueOnInit(batch) {
@@ -277,7 +287,7 @@
       nodes.batchTable.append(row);
       return;
     }
-    for (const batch of state.batches) {
+    for (const batch of batchesForDisplay()) {
       const row = document.createElement("tr");
       row.classList.toggle("selected", batch.batch_id === state.selectedBatchId);
       row.append(

@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import sharp from "sharp";
 
 import { buildApp } from "../src/server/app.js";
+import { createBatchStore } from "../src/core/batch-store.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { startServer } from "../src/server/start.js";
 
@@ -168,6 +169,85 @@ test("bulk-entry GUI path creates one batch from multiple product rows", async (
   await assertVisible(page.getByText("云感保湿乳"));
   await assertVisible(page.getByText("山野小青菜"));
   await assertVisible(page.getByText("按当前批次全部商品执行：2 个商品生成 2 条视频。"));
+});
+
+test("table import opens the new batch at the top of the queue", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-import-"));
+  const imagePath = path.join(root, "IMPORT-1.png");
+  const tablePath = path.join(root, "products.csv");
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  await writeFile(
+    imagePath,
+    await sharp({ create: { width: 4, height: 4, channels: 3, background: "blue" } }).png().toBuffer()
+  );
+  await writeFile(
+    tablePath,
+    "sku,product_name,selling_points,category,image_path\nIMPORT-1,导入测试商品,轻便好用,demo,IMPORT-1.png\n"
+  );
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "aaa-old-pending",
+    status: "pending",
+    created_at: "2026-07-01T00:00:00.000Z",
+    updated_at: "2026-07-01T00:00:00.000Z",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-old",
+      sku: "OLD",
+      product_name: "历史待执行商品",
+      selling_points: "",
+      category: "demo",
+      status: "pending"
+    }]
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "批量导入" }).click();
+  await page.locator("#tableFile").setInputFiles(tablePath);
+  await page.locator("#imageFiles").setInputFiles(imagePath);
+  await page.getByRole("button", { name: "导入批次" }).click();
+
+  await assertVisible(page.getByRole("heading", { name: "待执行任务" }));
+  await assertVisible(page.getByText("导入测试商品"));
+  await assertVisible(page.getByText("按当前批次全部商品执行：1 个商品生成 1 条视频。"));
+  const firstRow = page.locator("#batchTable tr").first();
+  await firstRow.waitFor({ state: "visible", timeout: 10_000 });
+  assert.equal(await firstRow.evaluate((row) => row.classList.contains("selected")), true);
+  assert.equal(await firstRow.getByText("aaa-old-pending").count(), 0);
 });
 
 async function assertVisible(locator) {
