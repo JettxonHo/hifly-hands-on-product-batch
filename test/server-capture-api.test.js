@@ -55,6 +55,68 @@ function sampleHar() {
   };
 }
 
+function harEntry({ url, method = "POST", body, requestBody = null }) {
+  return {
+    request: {
+      method,
+      url,
+      headers: [{ name: "content-type", value: "application/json" }],
+      ...(requestBody ? { postData: { mimeType: "application/json", text: JSON.stringify(requestBody) } } : {})
+    },
+    response: {
+      status: 200,
+      headers: [{ name: "content-type", value: "application/json" }],
+      content: { mimeType: "application/json", text: JSON.stringify(body) }
+    }
+  };
+}
+
+function hiflyworksHar() {
+  return {
+    log: {
+      version: "1.2",
+      creator: { name: "test", version: "1" },
+      entries: [
+        harEntry({
+          url: "https://hiflyworks-api.lingverse.co/api/app/v1/upload_url",
+          requestBody: { extension: "png", media_type: "image" },
+          body: { code: 0, data: { oss_key: "goods/key.png" } }
+        }),
+        harEntry({
+          url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/goods_holding_image_generation",
+          requestBody: { goods_image_oss_key: "goods/key.png" },
+          body: { code: 0, data: {} }
+        }),
+        harEntry({
+          url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/goods_holding_image_generation?identifier=id-1",
+          method: "GET",
+          body: { code: 0, data: { status: 3, gen_id: "gen-1", image_url: "https://example.invalid/asset.png" } }
+        }),
+        harEntry({
+          url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos",
+          requestBody: { gen_id: "gen-1" },
+          body: { code: 0, data: {} }
+        }),
+        harEntry({
+          url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=gen-1",
+          method: "GET",
+          body: { code: 0, data: { list: [{ id: 99, status: 1 }] } }
+        }),
+        harEntry({
+          url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=gen-1",
+          method: "GET",
+          body: { code: 0, data: { list: [{ id: 99, status: 1 }] } }
+        }),
+        harEntry({
+          url: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=gen-1",
+          method: "GET",
+          body: { code: 0, data: { list: [{ id: 99, title: "demo.mp4", status: 2, url: "https://example.invalid/demo.mp4" }] } }
+        })
+      ]
+    }
+  };
+}
+
 function classifiedRawSteps() {
   return {
     source: "hifly_goods",
@@ -192,4 +254,53 @@ test("redact and replay capture APIs produce a sanitized manifest and replay sta
   assert.equal(replayed.statusCode, 200);
   assert.equal(replayed.json().batch.capture.status, "replay_passed");
   assert.equal(replayed.json().batch.capture.replay_summary.remote_id, "work-1");
+});
+
+test("capture APIs can process a hiflyworks HAR through offline replay", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  const harPath = "rpa/capture/raw/batch-hiflyworks.har";
+  await mkdir(path.join(root, "rpa", "capture", "raw"), { recursive: true });
+  await writeFile(path.join(root, harPath), JSON.stringify(hiflyworksHar()));
+  await store.create({
+    batch_id: "batch-hiflyworks",
+    status: "completed",
+    items: [],
+    uploads: [],
+    capture: updateCaptureState(createInitialCaptureState({ enabled: true }), {
+      status: "recorded",
+      har_path: harPath
+    })
+  });
+
+  const extracted = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-hiflyworks/capture/extract",
+    headers: headers(session),
+    payload: {}
+  });
+  const redacted = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-hiflyworks/capture/redact",
+    headers: headers(session),
+    payload: {}
+  });
+  const replayed = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-hiflyworks/capture/replay",
+    headers: headers(session),
+    payload: {}
+  });
+
+  assert.equal(extracted.statusCode, 200);
+  assert.equal(extracted.json().batch.capture.extract_summary.step_count, 7);
+  assert.equal(redacted.statusCode, 200);
+  assert.equal(replayed.statusCode, 200);
+  assert.equal(replayed.json().batch.capture.status, "replay_passed");
+  assert.equal(replayed.json().batch.capture.replay_summary.remote_id, 99);
+  assert.equal(replayed.json().batch.capture.replay_summary.artifact_filename, "demo.mp4");
 });

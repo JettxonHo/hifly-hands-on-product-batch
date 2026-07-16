@@ -83,3 +83,5 @@ assets/person_pool/fresh_food/host_02.jpg
 抓包本地回放链路已具备（Phase 1，无积分）：`executionBackend: "yingdao_rpa"` + `rpa.mode: "capture_http"` 时，执行器读取脱敏 manifest（`rpa.manifestPath`），用 mock HTTP client 离线回放上传/手持图/提交/轮询/下载步骤并推进 rpa-state，绝不发起真实网络请求。真实采集前仍需先抓 HAR、用 `redactCaptureSource` 脱敏、人工复核 `report`，且需用户授权积分后只跑 1 条商品。设计依据见 `docs/superpowers/specs/2026-07-16-capture-http-rpa-design.md`。完整的采集→脱敏→复核→离线回放操作流程见 `docs/rpa/capture-runbook.md`；脱敏可一键用 `node scripts/redact-capture-source.mjs <raw-steps.json> --out=... --report=...`（原始 HAR 放 `rpa/capture/raw/`，已被 gitignore）。
 
 GUI 抓包工作流已接入：勾选“同时录制抓包产物”后，真实生成仍走 Playwright，但会为该批次创建带 `recordHar` 的一次性 browser context。普通批次仍使用默认 Playwright 路径。因为 Playwright 的 HAR 录制必须在 context 创建时配置，不能给已经启动的长驻 context 临时打开录制，所以 capture-enabled 批次会使用 per-run executor。批次完成后可在 GUI 执行抽取、脱敏和离线回放，这些后处理不会再次消耗飞影积分。
+
+HAR 抽取已按 2026-07-16 真实样本校准到 `hiflyworks-api.lingverse.co`：`upload_url` 归为上传授权，`one_stop/goods_in_hand/goods_holding_image_generation` 归为手持图生成/轮询，`one_stop/goods_in_hand/videos` 归为视频提交/轮询/下载。页面加载时会先拉历史手持图和历史视频列表，抽取器必须只接受本次 POST 之后的 ready/视频轮询结果，避免把旧作品误认为当前批次证据。

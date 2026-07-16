@@ -7,7 +7,7 @@
 当前（Phase 1）已实现的能力，**全部不消耗积分、不访问网络**：
 
 - GUI 批次可勾选“同时录制抓包产物”：真实生成仍由 Playwright 完成，同时录制 HAR；执行完成后可在批次详情中点击“抽取请求步骤”“脱敏生成 manifest”“离线回放验证”。
-- 从本地 HAR 自动抽取 `hifly.cc` JSON 请求候选步骤（`src/rpa/capture/har-extractor.js`）。自动抽取结果默认标记为 `unclassified`，仍需人工或后续校准补齐 phase、placeholders 和 produces，才能进入 manifest 门禁。
+- 从本地 HAR 自动抽取飞影「手里有货」主链路请求（`hiflyworks-api.lingverse.co`），并给上传授权、手持图生成、视频提交、轮询和下载步骤补齐可离线回放的 phase / placeholders / produces。旧版或未知 `hifly.cc/api/*` 请求仍会保守标记为 `unclassified`，需要人工复核。
 - 解析脱敏后的 capture manifest（`src/rpa/capture/manifest.js`）。
 - 离线脱敏原始抓包步骤（`src/rpa/capture/redact.js` + `scripts/redact-capture-source.mjs`）。
 - 用 mock HTTP client 回放已录制响应（`src/rpa/capture/mock-http-client.js`），**只回放、绝不发起真实请求**。
@@ -16,7 +16,7 @@
 **当前做不到**（属后续阶段，需另授权）：
 
 - 真实发起飞影 HTTP 请求 / 真实生成视频 / 真实下载 mp4。真实 HTTP client 尚未实现，`capture_http` 执行器现在永远走 mock 回放。
-- 全自动从 HAR 推断可复放 manifest。当前只能自动抽取候选请求；关键 phase、变量占位符和 produces 仍需校准。
+- 全自动覆盖所有飞影页面变体。当前已覆盖 2026-07-16 采集到的 `hiflyworks-api.lingverse.co` 手里有货主链路；若飞影改接口、字段或风控，仍需重新校准。
 
 因此：**配好 manifest 并把 `rpa.mode` 设为 `capture_http`，也只会离线回放 + 生成占位文件，不会消耗积分、不会出真实视频。** 真实联调是另一阶段，且必须先经用户授权积分、只跑 1 条商品。
 
@@ -40,7 +40,7 @@
 2. 按正常流程开始生成；这一步仍会真实访问飞影并消耗积分，因为当前生产出片仍由 Playwright 完成。
 3. 批次完成后，批次详情会显示“抓包工作流”状态。HAR 路径只在服务端保存，GUI 不暴露原始内容。
 4. 点击“抽取请求步骤”，系统从 HAR 生成 `batches/<batch_id>/capture/raw-steps.json`。这一步不消耗积分。
-5. 校准 raw steps：把可复放步骤的 `phase` 从 `unclassified` 改为 `asset_generation` / `remote_submit` / `remote_query` / `download`，补齐 `placeholders` 和 `produces`。
+5. 复核 raw steps：常规 `hiflyworks-api.lingverse.co` 手里有货链路会自动补齐 `phase` / `placeholders` / `produces`；若出现 `unclassified`，需要人工判断是否删除或补齐后再继续。
 6. 点击“脱敏生成 manifest”，系统生成 `manifest.json` 和 `redaction-report.json`。若仍含敏感键或 phase 不合法，会直接失败。
 7. 点击“离线回放验证”，系统用 mock client 验证变量链。通过后状态为“离线回放通过”。
 
@@ -72,7 +72,7 @@
 
 1. 登录飞影，打开 `https://hifly.cc/goods`。
 2. 打开 DevTools → Network 面板，勾选 **Preserve log**，清空当前记录。
-3. Filter 选 `Fetch/XHR`，只关注 `hifly.cc` 域名下的接口请求（跳过静态资源、第三方统计）。
+3. Filter 选 `Fetch/XHR`，重点关注 `hiflyworks-api.lingverse.co` 与 `hifly.cc` 域名下的接口请求（跳过静态资源、第三方统计）。
 4. 手动走完**一条**商品的完整流程：上传商品图 →（若需要）上传人物图 → 生成手持图 → 确认 → 立即生成视频 → 等待生成完成 → 下载。
 5. 在 Network 面板右键 → **Save all as HAR with content**，保存到 `rpa/capture/raw/hifly-goods-<日期>.har`（该目录已被 gitignore）。
 

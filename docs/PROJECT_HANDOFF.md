@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 GUI 抓包工作流：真实 HAR 自动归类与离线回放已跑通（无新增积分）
+
+- 本轮继续完善 `codex/yingdao-rpa-version` 的 GUI 抓包工作流，未访问飞影、未执行真实生成、未消耗新积分；只使用本地已有真实 HAR `rpa/capture/raw/hifly-goods-20260716-135850.har` 做离线验证，该目录仍被 gitignore，禁止提交。
+- 修复核心缺口：`src/rpa/capture/har-extractor.js` 默认允许 `hiflyworks-api.lingverse.co`，并能识别手里有货主链路：`upload_url`、`goods_holding_image_generation`、`one_stop/goods_in_hand/videos`，自动补齐 `asset_generation` / `remote_submit` / `remote_query` / `download` 阶段和 produces。
+- 抽取器现在会忽略页面加载时的历史手持图 ready 结果，只接受本次 `goods_holding_image_generation` POST 之后的 ready；视频列表同理，只接受本次视频 POST 之后的轮询/下载结果，降低误复用旧作品风险。
+- 新增/更新测试：`test/har-extractor.test.js` 覆盖 hiflyworks 手里有货 HAR 自动归类；`test/server-capture-api.test.js` 覆盖 GUI 按钮背后的 extract → redact → replay API 链路；`test/rpa-capture-mock-http.test.js` 覆盖 `data.list.0.id` 数组 produces 路径。
+- 本地真实 HAR 干跑结果：抽取 7 步，阶段为 `asset_generation x3 → remote_submit x2 → remote_query → download`，随后脱敏、manifest 门禁和离线回放均通过。注意干跑输出写在 `/tmp/hifly-capture-*`，不入库。
+- 当前仍不是“真实 HTTP 出片”：`capture_http` 仍只做 mock 离线回放和占位 artifact；生产出片继续默认 Playwright。下一步若要从 GUI 验证，请用已有或新采集的 capture-enabled 批次点击“抽取请求步骤 → 脱敏生成 manifest → 离线回放验证”，不需要重新消耗积分。
+
 ## 2026-07-16 GUI 抓包工作流 Task 1-6 已实现（无真实飞影运行）
 
 - 已按 `docs/superpowers/plans/2026-07-16-gui-capture-workflow.md` 完成 Task 1-6，并逐切片提交。

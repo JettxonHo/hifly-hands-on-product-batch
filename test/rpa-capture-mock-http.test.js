@@ -30,6 +30,29 @@ test("replays a recorded response with variable substitution", async () => {
   assert.equal(result.produced.remote_id, "asset-9-work");
 });
 
+test("extracts produced variables from array index paths", async () => {
+  const manifest = parseCaptureManifest({
+    schema_version: 1,
+    source: "hifly_goods",
+    captured_at: "2026-07-16T00:00:00Z",
+    sanitized: true,
+    steps: [{
+      id: "poll_video_submitted",
+      phase: "remote_submit",
+      method: "GET",
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos",
+      response: {
+        status: 200,
+        body: { code: 0, data: { list: [{ id: "work-1", status: 1 }] } }
+      },
+      produces: { remote_id: "$response.body.data.list.0.id" }
+    }]
+  });
+  const client = createMockHttpClient({ manifest });
+  const result = await client.request({ stepId: "poll_video_submitted" });
+  assert.deepEqual(result.produced, { remote_id: "work-1" });
+});
+
 test("throws on unknown step id", async () => {
   const client = createMockHttpClient({ manifest: MANIFEST });
   await assert.rejects(
