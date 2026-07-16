@@ -36,5 +36,5 @@ The brief's sample import block conflicted with the existing test imports becaus
 
 - Files changed: `docs/PROJECT_HANDOFF.md`, `.superpowers/sdd/task-4-report.md`.
 - Check result: `git diff --check` passed with no output.
-- Commit SHA: pending until the documentation commit is created.
+- Commit SHA: `9cf437bb2ca25c0314dc9170d7cb5e09427e3f94` (`docs: record capture http executor dry-run progress`).
 - Concerns: none.
