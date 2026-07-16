@@ -55,3 +55,59 @@ DONE
 ### Concerns
 
 - No GUI, real Yingdao RPA, Feiying automation, or credit-consuming generation was started. `docs/resume/` remains untracked and excluded.
+
+---
+
+# Task 3 Capture Report: Dry-Run HTTP Client and Client Factory
+
+## Status
+
+DONE
+
+## Implemented
+
+- Added `createDryRunHttpClient({ manifest })`, which validates capture variables, resolves URL/header/body templates, records request risk flags, replays the sanitized response body, and never performs a network request.
+- Added `createCaptureHttpClient({ mode, manifest })` and `CAPTURE_HTTP_MODES` with safe `mock` default, `real_dry_run` support, and an explicit `real_live` disable gate.
+- Added focused tests covering the dry-run request plan, unresolved placeholders, unavailable APIs, factory mode selection, invalid modes, and the live-mode gate.
+
+## Verification
+
+- Red test command: `node --test test/rpa-capture-dry-run-client.test.js test/rpa-capture-http-client-factory.test.js`
+  - Failed as expected before implementation because both new modules were absent.
+- `node --test test/rpa-capture-dry-run-client.test.js test/rpa-capture-http-client-factory.test.js test/rpa-capture-mock-http.test.js`
+  - Passed: 12 tests, 0 failures.
+- `npm run check`
+  - Passed: checked 62 JavaScript files.
+- `git diff --check`
+  - Passed with no output.
+
+## Safety
+
+- No HTTP request or real fly-high workflow was run.
+- No points were consumed.
+- `real_live` remains unavailable and throws `CAPTURE_HTTP_REAL_LIVE_DISABLED`.
+
+## Commit
+
+- `9dedb60 feat(rpa capture): add dry-run http client`
+
+## Reviewer Fix Report (2026-07-16)
+
+### Files Changed
+
+- `docs/PROJECT_HANDOFF.md`
+- `.superpowers/sdd/task-3-report.md`
+
+### Verification
+
+- `node --test test/rpa-capture-dry-run-client.test.js test/rpa-capture-http-client-factory.test.js test/rpa-capture-mock-http.test.js`: PASS, 12/12 tests.
+- `npm run check`: PASS.
+- `git diff --check`: PASS.
+
+### Commit
+
+- `e1398eeb7388e510e5322647e46b0f1d229e53b5` (`docs: record capture http dry-run client progress`)
+
+### Concerns
+
+- None. No Feiying access, no HTTP live execution, and no points consumed.

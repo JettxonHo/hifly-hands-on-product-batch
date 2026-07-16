@@ -1,5 +1,12 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Capture HTTP Tasks 1-3 已实现：real_dry_run 仅构造请求计划（无网络、无新增积分）
+
+- Capture HTTP Tasks 1-3 已实现：Task 1 提取共享 step-runtime helpers 并完成 mock client 重构；Task 2 扩展 manifest parser，支持 `request_template` / `risk`，且敏感 request-template headers 仍会被拒绝；Task 3 实现 dry-run client 与 client factory。
+- `captureHttpMode` 默认保持 `mock`；`real_dry_run` 只构造真实请求计划，不发起网络请求；`real_live` 明确禁用并抛出 `CAPTURE_HTTP_REAL_LIVE_DISABLED`。
+- 实现者验证证据：Task 3 定向测试 12/12 通过；`npm run check` 通过；`git diff --check` 通过。未访问飞影、未执行 HTTP live、未消耗积分。
+- 下一步：Task 4 executor integration。
+
 ## 2026-07-16 Capture HTTP 第二阶段方案已确定：先做 real_dry_run（无新增积分）
 
 - 用户批准继续方案 1：在现有 `capture_http` mock 回放通过后，下一阶段不直接真实请求飞影，而是先新增三档模式 `mock` / `real_dry_run` / `real_live`。
