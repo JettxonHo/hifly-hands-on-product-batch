@@ -163,6 +163,30 @@ test("real_live rejects sensitive request templates before transport", async () 
   }
 });
 
+test("real_live rejects sensitive query keys introduced by URL substitution before transport", async () => {
+  for (const query_key of ["token", "apiKey"]) {
+    let called = false;
+    const client = createRealLiveHttpClient({
+      manifest: manifestWith({
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?{{query_key}}=x",
+        placeholders: ["{{asset_id}}", "{{query_key}}"],
+        risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+      }),
+      config: { enabled: true },
+      transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+    });
+    await assert.rejects(
+      client.request({
+        stepId: "submit_video",
+        variables: { asset_id: "asset-1", query_key },
+        context: { allowRealLive: true }
+      }),
+      { code: "CAPTURE_HTTP_SENSITIVE_TEMPLATE" }
+    );
+    assert.equal(called, false);
+  }
+});
+
 test("real_live rejects resolved absolute local paths before transport", async () => {
   for (const pathCase of [
     {

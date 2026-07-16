@@ -160,6 +160,12 @@ function assertUrlHasNoLocalPaths(url) {
   for (const value of url.searchParams.values()) assertNoLocalPaths(value);
 }
 
+function assertNoSensitiveResolvedQueryKeys(url) {
+  if ([...url.searchParams.keys()].some(isSensitiveKey)) {
+    fail("CAPTURE_HTTP_SENSITIVE_TEMPLATE", "Resolved request URL contains sensitive query keys.");
+  }
+}
+
 export function createDisabledLiveTransport() {
   return {
     async request() {
@@ -203,6 +209,7 @@ export function createRealLiveHttpClient({
       const body = substituteCaptureValue(template.body, variables);
       assertNoUnresolved({ resolvedUrl, templateHeaders, body });
       const url = new URL(resolvedUrl);
+      assertNoSensitiveResolvedQueryKeys(url);
       assertUrlHasNoLocalPaths(url);
       assertNoLocalPaths(templateHeaders);
       assertNoLocalPaths(body);

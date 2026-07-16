@@ -6,6 +6,8 @@ DONE
 
 ## Reviewer Fix
 
+- Important fix: after URL substitution, `real_live` now rechecks the resolved URL query keys with `isSensitiveKey()` before any transport call. A dynamic template key such as `?{{query_key}}=x` can no longer resolve to `?token=x` or `?apiKey=x` and bypass the manifest-time sensitive-key gate.
+- Added fake-transport regression coverage for resolved `token` and `apiKey` query keys. Both reject with `CAPTURE_HTTP_SENSITIVE_TEMPLATE` and assert `called === false`.
 - P1 fix: template placeholder and unresolved-marker scans now recurse through both object keys and values. Malformed header keys such as `{{asset_id` and body keys such as `{{asset-id}}` fail with `CAPTURE_HTTP_UNDECLARED_PLACEHOLDER` before the injected transport is called; ordinary header/body keys remain covered by the successful fake-transport case.
 - Critical fix: local-path validation now rejects all slash-prefixed POSIX/UNC-like request values, including decoded query values such as `//etc/passwd`, while allowing ordinary `http(s)` URL strings in headers and bodies.
 - Important fix: merged runtime authentication headers now pass through the same local-path validation before the injected transport runs, so `x-source: /etc/passwd` is rejected without sending a request.
@@ -44,7 +46,7 @@ DONE
 - `node --test test/rpa-capture-real-live-client.test.js`
   - Initial red phase: failed as expected because `src/rpa/capture/real-live-http-client.js` did not exist.
 - `node --test test/rpa-capture-real-live-client.test.js test/rpa-capture-http-client-factory.test.js`
-  - Passed: 22 tests, 0 failures.
+  - Passed: 23 tests, 0 failures.
 - `npm run check`
   - Passed: checked 63 JavaScript files.
 - `npm test`
