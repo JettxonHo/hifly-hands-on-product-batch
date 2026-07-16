@@ -50,9 +50,38 @@ test("factory rejects falsy configured modes instead of silently selecting mock"
   }
 });
 
-test("factory refuses real_live until explicitly implemented later", () => {
-  assert.throws(
-    () => createCaptureHttpClient({ mode: "real_live", manifest: MANIFEST }),
+test("factory creates a gated real_live mode", async () => {
+  const client = createCaptureHttpClient({ mode: "real_live", manifest: MANIFEST });
+  await assert.rejects(
+    client.request({ stepId: "poll", variables: { remote_id: "work-1" }, context: { allowRealLive: true } }),
     { code: "CAPTURE_HTTP_REAL_LIVE_DISABLED" }
   );
+});
+
+test("factory passes real_live configuration to the injected transport", async () => {
+  const manifest = {
+    schema_version: 1,
+    sanitized: true,
+    source: "test",
+    captured_at: "2026-07-17T00:00:00.000Z",
+    steps: [{
+      id: "live_step",
+      phase: "remote_query",
+      method: "GET",
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?id={{remote_id}}",
+      placeholders: ["{{remote_id}}"],
+      response: { status: 200, body: { data: { id: 12 } } },
+      produces: {},
+      risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+    }]
+  };
+  let called = false;
+  const client = createCaptureHttpClient({
+    mode: "real_live",
+    manifest,
+    config: { enabled: true },
+    transport: { request: async () => { called = true; return { status: 200, body: { data: { id: 12 } } }; } }
+  });
+  await client.request({ stepId: "live_step", variables: { remote_id: "r-1" }, context: { allowRealLive: true } });
+  assert.equal(called, true);
 });

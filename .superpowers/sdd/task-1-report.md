@@ -1,76 +1,48 @@
-# Task 1 Report: Core Strategy Resolution
+# Task 1 Report: Gated `real_live` Client and Factory Integration
 
 ## Status
 
 DONE
 
-## Implemented
+## Changed Files
 
-- Added `src/core/person-strategy.js` with explicit person-image precedence, fixed batch upload, category-pool rotation, default-pool fallback, Hifly recommendation fallback, and resolution metadata.
-- Added `src/core/script-strategy.js` with `hifly_ai`, `provided_script`, and `mixed` modes plus `SCRIPT_REQUIRED` validation.
-- Updated `src/person-pool.js` so `assignPersonImages` delegates to the core person resolver while preserving existing named exports used by product validation.
-- Added the requested person and script strategy tests.
+- `src/rpa/capture/real-live-http-client.js`
+  - Added a gated `real_live` capture client and a disabled-by-default transport.
+  - Validates enablement, one-time authorization, point-risk acknowledgement, runtime auth, host allowlist, declared variables, and unresolved placeholders before the injected transport can run.
+  - Resolves request templates, merges in-memory runtime headers only for transport, and parses produced response variables.
+- `src/rpa/capture/http-client-factory.js`
+  - Routes `real_live` mode to the new client while passing `config`, `runtimeAuth`, and `transport` through explicitly.
+- `test/rpa-capture-real-live-client.test.js`
+  - Added disabled, authorization, point-risk, auth-required, host-allowlist, and fake-transport success coverage.
+- `test/rpa-capture-http-client-factory.test.js`
+  - Updated the former construction-time `real_live` rejection expectation to request-time gating and added factory transport forwarding coverage.
+- `.superpowers/sdd/task-1-report.md`
+  - This report.
 
-## TDD Evidence
+## Test Commands and Results
 
-The required red-phase command was run before implementation:
+- `node --test test/rpa-capture-real-live-client.test.js`
+  - Initial red phase: failed as expected because `src/rpa/capture/real-live-http-client.js` did not exist.
+- `node --test test/rpa-capture-real-live-client.test.js test/rpa-capture-http-client-factory.test.js`
+  - Passed: 12 tests, 0 failures.
+- `npm run check`
+  - Passed: checked 63 JavaScript files.
+- `git diff --check`
+  - Passed: no whitespace errors.
 
-```text
-node --test test/person-strategy.test.js test/script-strategy.test.js
-```
+## Self-Review
 
-Both test files failed with `ERR_MODULE_NOT_FOUND` for the two missing strategy modules, as expected.
+- Correctness: all required stable gate errors are tested before fake transport invocation; the fake response confirms `produces` propagation.
+- Architecture: the client follows the existing mock/dry-run request and response shape and keeps network egress behind an injected `transport.request()` boundary.
+- Security: default configuration and default transport reject requests; runtime authentication remains in memory and is not returned in `request_plan`.
+- Scope: no executor, API, GUI, handoff/documentation, batch, raw HAR, output, log, screenshot, configuration, or dependency files were changed.
 
-## Verification
+## Real Service / HTTP / Points
 
-```text
-node --test test/person-strategy.test.js test/script-strategy.test.js test/product-validation.test.js
-11 passed, 0 failed
+- Accessed Feiying: no.
+- Sent real HTTP: no.
+- Consumed Feiying points: no.
 
-npm run check
-Checked 43 JavaScript file(s).
+## Concerns
 
-git diff --check
-passed
-
-npm test
-152 passed, 1 failed. The unrelated pre-existing failure is the GUI smoke test's strict `getByLabel('SKU')` selector, which resolves both the single-entry and bulk-entry SKU fields. The bulk-entry GUI smoke test passes.
-```
-
-No Hifly browser execution was performed and no real Hifly points were consumed.
-
-## Re-review Fix
-
-- Updated `src/core/person-strategy.js` to use the legacy `localeCompare(other, "zh-Hans-CN")` comparator for person-pool filenames.
-- Added regression coverage with Chinese filenames to verify default pool rotation remains compatible with `src/person-pool.js`.
-
-Verification for this fix is recorded in the final task response. No Hifly browser execution was performed and no real Hifly points were consumed.
-
-## Scope and Concerns
-
-The change is limited to the five Task 1 implementation/test files. Existing `listPersonPoolFiles`, `normalizeCategory`, and related exports remain available. Legacy no-override uploads continue to use the same resolved person path or Hifly recommendation branch; the resolver additionally records resolution metadata. The existing GUI smoke selector failure remains outside Task 1 scope.
-
-## Commit
-
-The implementation commit is recorded in the final task response.
-
-## Reviewer Fixes
-
-- Updated `src/core/person-strategy.js` to resolve filesystem reads through `resolveFromRoot(config, rootDir)` while retaining configured-root-relative paths in `__resolved_person_image_path` for later upload resolution.
-- Restored legacy category normalization behavior by lowercasing normalized path segments.
-- Added regression coverage for mixed-case `Toy` categories and relative person-pool roots.
-
-## Reviewer-Fix Verification
-
-```text
-node --test test/person-strategy.test.js test/script-strategy.test.js test/product-validation.test.js
-12 passed, 0 failed
-
-npm run check
-Checked 43 JavaScript file(s).
-
-git diff --check
-passed
-```
-
-No Hifly browser execution was performed and no real Hifly points were consumed.
+- This task intentionally provides only the gated client and injected transport boundary. It does not wire `real_live` into the executor, API, GUI, or a production network transport; those are explicitly deferred to later tasks and remain disabled by default.

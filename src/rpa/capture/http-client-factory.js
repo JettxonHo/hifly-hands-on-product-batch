@@ -1,5 +1,6 @@
 import { createDryRunHttpClient } from "./dry-run-http-client.js";
 import { createMockHttpClient } from "./mock-http-client.js";
+import { createRealLiveHttpClient } from "./real-live-http-client.js";
 
 export const CAPTURE_HTTP_MODES = Object.freeze(["mock", "real_dry_run", "real_live"]);
 
@@ -15,9 +16,10 @@ export function normalizeCaptureHttpMode(mode) {
   return value;
 }
 
-export function createCaptureHttpClient({ mode, manifest } = {}) {
+export function createCaptureHttpClient({ mode, manifest, config, runtimeAuth, transport } = {}) {
   const normalized = normalizeCaptureHttpMode(mode);
   if (normalized === "mock") return createMockHttpClient({ manifest });
   if (normalized === "real_dry_run") return createDryRunHttpClient({ manifest });
-  fail("CAPTURE_HTTP_REAL_LIVE_DISABLED", "real_live is not implemented or authorized");
+  if (normalized === "real_live") return createRealLiveHttpClient({ manifest, config, runtimeAuth, transport });
+  fail("CAPTURE_HTTP_MODE_INVALID", `Unsupported captureHttpMode: ${mode}`);
 }
