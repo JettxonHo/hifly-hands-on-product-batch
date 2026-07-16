@@ -120,6 +120,20 @@
     return `人物策略：${person} (${batch.person_strategy || "auto_pool"}) · 文案策略：${script} (${batch.script_strategy || "mixed"})`;
   }
 
+  function captureStatusLabel(status) {
+    const labels = {
+      disabled: "未开启",
+      not_started: "未开始",
+      recording: "录制中",
+      recorded: "已录制",
+      extracted: "已抽取",
+      redacted: "已脱敏",
+      replay_passed: "离线回放通过",
+      replay_failed: "离线回放失败"
+    };
+    return labels[status] || status || "未知";
+  }
+
   const BATCH_FOCUS_PRIORITY = new Map([
     ["interrupted_unknown", 0],
     ["active", 1],
@@ -332,8 +346,56 @@
     nodes.batchDetail.append(summary);
     if (error) nodes.batchDetail.append(error);
     nodes.batchDetail.append(executionPlan);
+    nodes.batchDetail.append(capturePanel(batch));
     if (canRetryBatch(batch)) nodes.batchDetail.append(retryBatchButton(batch));
     nodes.batchDetail.append(list);
+  }
+
+  function capturePanel(batch) {
+    const capture = batch.capture || { enabled: false, status: "disabled" };
+    const panel = document.createElement("div");
+    panel.className = "capture-panel";
+    const title = document.createElement("strong");
+    setText(title, "抓包工作流");
+    const status = document.createElement("span");
+    setText(status, `状态：${captureStatusLabel(capture.status)}`);
+    panel.append(title, status);
+    if (!capture.enabled) {
+      const hint = document.createElement("span");
+      setText(hint, "本批次未开启抓包。");
+      panel.append(hint);
+      return panel;
+    }
+    for (const text of [
+      capture.raw_steps_path ? `Raw steps：${capture.raw_steps_path}` : "",
+      capture.manifest_path ? `Manifest：${capture.manifest_path}` : "",
+      capture.replay_error ? `回放错误：${capture.replay_error}` : "",
+      capture.replay_summary?.remote_id ? `远端 ID：${capture.replay_summary.remote_id}` : ""
+    ].filter(Boolean)) {
+      const line = document.createElement("span");
+      setText(line, text);
+      panel.append(line);
+    }
+    const actions = document.createElement("div");
+    actions.className = "button-row";
+    actions.append(
+      captureActionButton(batch.batch_id, "抽取请求步骤", "extract", capture.status === "recorded"),
+      captureActionButton(batch.batch_id, "脱敏生成 manifest", "redact", capture.status === "extracted"),
+      captureActionButton(batch.batch_id, "离线回放验证", "replay", capture.status === "redacted" || capture.status === "replay_failed")
+    );
+    panel.append(actions);
+    return panel;
+  }
+
+  function captureActionButton(batchId, label, action, enabled) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost-button";
+    button.dataset.disabled = enabled ? "false" : "true";
+    button.disabled = state.busy || !enabled;
+    setText(button, label);
+    button.addEventListener("click", () => runCaptureAction(batchId, action));
+    return button;
   }
 
   function retryBatchButton(batch) {
@@ -453,6 +515,10 @@
     return api.importBatch(formData, options);
   }
 
+  function formCaptureOption(form) {
+    return { enabled: new FormData(form).get("captureEnabled") === "on" };
+  }
+
   function bulkRowTemplate(rowId) {
     const row = document.createElement("article");
     row.className = "bulk-row";
@@ -564,7 +630,8 @@
     event.preventDefault();
     const options = {
       person_strategy: new FormData(event.currentTarget).get("personStrategy") || "auto_pool",
-      script_strategy: new FormData(event.currentTarget).get("scriptStrategy") || "mixed"
+      script_strategy: new FormData(event.currentTarget).get("scriptStrategy") || "mixed",
+      capture: formCaptureOption(event.currentTarget)
     };
     const fixedPersonImage = event.currentTarget.bulkFixedPersonImage.files[0];
     const rows = bulkFormRows();
@@ -616,7 +683,8 @@
     const script = String(values.get("script") || "").trim();
     const options = {
       person_strategy: values.get("personStrategy") || "auto_pool",
-      script_strategy: values.get("scriptStrategy") || "mixed"
+      script_strategy: values.get("scriptStrategy") || "mixed",
+      capture: formCaptureOption(form)
     };
     const fixedPersonImage = form.personImage.files[0];
     if (options.script_strategy === "provided_script" && !script) {
@@ -665,7 +733,8 @@
     const values = new FormData(form);
     const options = {
       person_strategy: values.get("personStrategy") || "auto_pool",
-      script_strategy: values.get("scriptStrategy") || "mixed"
+      script_strategy: values.get("scriptStrategy") || "mixed",
+      capture: formCaptureOption(form)
     };
     const tableFile = form.tableFile.files[0];
     const images = Array.from(form.imageFiles.files || []);
@@ -763,6 +832,25 @@
       showToast(allowUnknown ? "异常批次已恢复为待执行，请确认后重新开始生成" : "失败批次已恢复为待执行，可以重新开始生成");
     } catch (error) {
       showToast(`重试失败：${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCaptureAction(batchId, action) {
+    const methods = {
+      extract: api.extractCapture,
+      redact: api.redactCapture,
+      replay: api.replayCapture
+    };
+    setBusy(true);
+    try {
+      const payload = await methods[action](batchId);
+      state.selectedBatchId = payload.batch.batch_id;
+      await refreshBatches({ silent: true });
+      showToast(`抓包工作流已更新：${captureStatusLabel(payload.batch.capture?.status)}`);
+    } catch (error) {
+      showToast(`抓包处理失败：${error.message}`);
     } finally {
       setBusy(false);
     }

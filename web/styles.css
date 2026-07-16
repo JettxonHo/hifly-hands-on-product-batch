@@ -230,6 +230,19 @@ textarea:focus {
   padding: 0 6px;
 }
 
+.checkbox-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.checkbox-control input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+
 .file-control input {
   min-height: 48px;
   background: var(--surface-2);
@@ -409,6 +422,23 @@ tr.selected {
   color: var(--accent-strong);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.capture-panel {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.capture-panel strong {
+  color: var(--text);
 }
 
 .task-item,

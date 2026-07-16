@@ -48,11 +48,24 @@
     importBatch: (formData, options = {}) => {
       if (options.person_strategy !== undefined) formData.append("person_strategy", options.person_strategy);
       if (options.script_strategy !== undefined) formData.append("script_strategy", options.script_strategy);
+      if (options.capture?.enabled === true) formData.append("capture_enabled", "true");
       return request("/api/imports", { method: "POST", body: formData });
     },
     retryBatch: ({ batchId, allowUnknown = false }) => request(`/api/batches/${encodeURIComponent(batchId)}/retry`, {
       method: "POST",
       body: JSON.stringify({ confirm: true, ...(allowUnknown ? { allowUnknown: true } : {}) })
+    }),
+    extractCapture: (batchId) => request(`/api/batches/${encodeURIComponent(batchId)}/capture/extract`, {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
+    redactCapture: (batchId) => request(`/api/batches/${encodeURIComponent(batchId)}/capture/redact`, {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
+    replayCapture: (batchId) => request(`/api/batches/${encodeURIComponent(batchId)}/capture/replay`, {
+      method: "POST",
+      body: JSON.stringify({})
     }),
     startExecution: ({ batchId, idempotencyKey }) => request("/api/executions", {
       method: "POST",

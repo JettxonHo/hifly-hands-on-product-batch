@@ -23,6 +23,7 @@ test("serves the workbench without inline assets blocked by CSP", async (t) => {
   assert.equal(response.statusCode, 200);
   assert.match(response.body, /飞影批量工作台/);
   assert.match(response.body, /批量录入/);
+  assert.match(response.body, /同时录制抓包产物/);
   assert.doesNotMatch(response.body, /<script(?![^>]+src=)/i);
   assert.doesNotMatch(response.body, /<style/i);
   assert.equal(
@@ -87,6 +88,8 @@ test("single-product GUI path creates a pending batch", async (t) => {
   await assertVisible(page.getByRole("heading", { name: "待执行任务" }));
   await assertVisible(page.getByText("云感保湿乳"));
   await assertVisible(page.getByText("按当前批次全部商品执行：1 个商品生成 1 条视频。"));
+  await assertVisible(page.getByText("抓包工作流"));
+  await assertVisible(page.getByText("本批次未开启抓包。"));
   await page.getByRole("button", { name: "开始生成" }).click();
   await assertVisible(page.getByRole("heading", { name: "确认开始生成" }));
   await assertVisible(page.getByText(/一商品一条片.*1 条视频/));
