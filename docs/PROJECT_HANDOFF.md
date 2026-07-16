@@ -1,5 +1,18 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Codex 真实单条 HAR 采集完成：Playwright 主链路仍可用
+
+- 用户已确认允许进行 1 条真实飞影采集；本轮只跑 1 条，没有重新开多条或重复从头调试。
+- 为支持采集，已在 `src/run-batch.js` 新增可选环境变量 `HIFLY_RECORD_HAR_PATH`：仅设置该变量时才启用 Playwright HAR 录制；默认行为不变，仍走既有 Playwright 自动化。
+- 真实运行命令：`HIFLY_RECORD_HAR_PATH="rpa/capture/raw/hifly-goods-20260716-135850.har" npm run run`。
+- 批次：`cli-2026-07-16T05-58-50-897Z`；商品：`SKU001` / `山野小青菜`；因 `config.local.json` 中 `batch.maxItems=1`，本次只执行 1 个商品。
+- 结果：批次 `completed`，item `completed`，下载文件为 `downloads/2026-07-16T06-04-49-733Z-633479-未命名.mp4`（约 47 MB）。
+- 采集文件：`rpa/capture/raw/hifly-goods-20260716-135850.har`（约 189 MB）。该目录已被 `.gitignore` 忽略，禁止提交原始 HAR。
+- 积分说明：本轮真实访问飞影并完成手持商品图与视频生成，已实际消耗飞影积分；运行日志中曾观察到页面积分文本，最终消耗以飞影后台为准。
+- 验证：新增 HAR 开关后已跑 `npm run check` 通过；`node --test test/startup.test.js test/execution-backend-config.test.js` 为 12/12 通过。真实运行后通过批次 JSON 与下载文件确认成功。
+- 下一步建议：不要再重复真实生成。先按 `docs/rpa/capture-runbook.md` 把 HAR 人工整理成 raw steps，再运行 `scripts/redact-capture-source.mjs` 生成脱敏 manifest 和 report；复核 report 不含 cookie/token/签名后，再做离线 mock 回放。真实 HTTP client 仍待后续小切片实现。
+- 注意：`docs/resume/` 仍为未跟踪目录，本轮未触碰；批次数据、HAR、下载视频都不应纳入 Git。
+
 ## 2026-07-16 Codex 接管核验：Claude Phase 1 已落地，等待真实抓包授权
 
 - Codex 已接管并复核 Claude Code 后续提交；当前分支 `codex/yingdao-rpa-version`，最新提交为 `2de8626 docs: tighten handoff and environment for codex takeover`（本节更新前）。
