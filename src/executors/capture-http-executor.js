@@ -92,8 +92,8 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
   let manifestCache = null;
   let clientCache = null;
 
-  async function ensureClient() {
-    if (!clientCache) {
+  async function ensureClient({ runtimeAuth = null, transport = null } = {}) {
+    if (!clientCache || captureHttpMode === "real_live") {
       if (!manifestCache) {
         if (!rpa.manifestPath) {
           throw Object.assign(new Error("rpa.manifestPath is required for capture_http mode"), {
@@ -103,19 +103,38 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
         const resolved = path.isAbsolute(rpa.manifestPath) ? rpa.manifestPath : path.resolve(root, rpa.manifestPath);
         manifestCache = await loadCaptureManifest(resolved);
       }
-      clientCache = createCaptureHttpClient({ mode: captureHttpMode, manifest: manifestCache });
+      const client = createCaptureHttpClient({
+        mode: captureHttpMode,
+        manifest: manifestCache,
+        config: rpa.realLive || {},
+        runtimeAuth,
+        transport: transport || rpa.realLiveTransport
+      });
+      if (captureHttpMode === "real_live") return client;
+      clientCache = client;
     }
     return clientCache;
   }
 
-  async function replayPhase(phase, variables, { dir = null, taskId = null } = {}) {
-    await ensureClient();
+  async function replayPhase(phase, variables, { dir = null, taskId = null, realLive = null } = {}) {
+    const client = await ensureClient({
+      runtimeAuth: realLive?.runtimeAuth || null,
+      transport: realLive?.transport || null
+    });
     const state = dir && taskId ? await readRpaState(dir, taskId) : null;
     const persistedVariables = { ...savedCaptureVariables(state) };
     const vars = { ...persistedVariables, ...variables };
     const requestPlan = [];
     for (const step of selectStepsByPhase(manifestCache, phase)) {
-      const result = await clientCache.request({ stepId: step.id, variables: vars, phase });
+      const result = await client.request({
+        stepId: step.id,
+        variables: vars,
+        phase,
+        context: {
+          allowRealLive: realLive?.allowRealLive === true,
+          acknowledgePointRisk: realLive?.acknowledgePointRisk === true
+        }
+      });
       Object.assign(vars, result.produced);
       Object.assign(persistedVariables, result.produced);
       if (result.request_plan) requestPlan.push(result.request_plan);
@@ -161,7 +180,7 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
       const assetReplay = await replayPhase("asset_generation", {
         product_image_path: packageData.product_image_path,
         person_image_path: packageData.person_image_path
-      }, { dir, taskId: task.task_id });
+      }, { dir, taskId: task.task_id, realLive: context.realLive });
       const produced = assetReplay.variables;
       const asset = { asset_id: produced.asset_id || `capture-asset-${task.task_id}` };
       assetReplay.persistedVariables.asset_id = asset.asset_id;
@@ -180,7 +199,11 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
     async submitVideo(task, asset, context = {}) {
       const dir = batchDirectory(root, context.batchId);
       await context.checkpoint?.({ phase: "remote_submit_pre", evidence: { source: "capture_http" } });
-      const submitReplay = await replayPhase("remote_submit", { asset_id: asset?.asset_id }, { dir, taskId: task.task_id });
+      const submitReplay = await replayPhase("remote_submit", { asset_id: asset?.asset_id }, {
+        dir,
+        taskId: task.task_id,
+        realLive: context.realLive
+      });
       const produced = submitReplay.variables;
       const remoteEvidence = directEvidence({
         remote_id: produced.remote_id,
@@ -204,7 +227,11 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
       const batchId = context.batchId || remoteEvidence?.batch_id;
       const taskId = context.taskId || remoteEvidence?.task_id;
       const dir = batchId && taskId ? batchDirectory(root, batchId) : null;
-      const queryReplay = await replayPhase("remote_query", { remote_id: remoteEvidence?.remote_id }, { dir, taskId });
+      const queryReplay = await replayPhase("remote_query", { remote_id: remoteEvidence?.remote_id }, {
+        dir,
+        taskId,
+        realLive: context.realLive
+      });
       if (batchId && taskId) {
         await writeRpaState(dir, taskId, {
           phase: "remote_query",
@@ -219,7 +246,11 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
     async downloadArtifact(remoteEvidence, destination, context = {}) {
       const dir = batchDirectory(root, context.batchId);
       const taskId = context.taskId || remoteEvidence?.task_id;
-      const downloadReplay = await replayPhase("download", { remote_id: remoteEvidence?.remote_id }, { dir, taskId });
+      const downloadReplay = await replayPhase("download", { remote_id: remoteEvidence?.remote_id }, {
+        dir,
+        taskId,
+        realLive: context.realLive
+      });
       const produced = downloadReplay.variables;
       const filename = artifactFilename(produced.artifact_filename, remoteEvidence?.remote_id);
       const absolutePath = await safeArtifactPath(dir, filename);

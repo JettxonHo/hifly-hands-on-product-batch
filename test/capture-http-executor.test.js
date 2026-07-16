@@ -22,6 +22,16 @@ async function fixture() {
   return { root, batchId, batchDirectory, imagePath, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
+function taskFixture(overrides = {}) {
+  return {
+    task_id: "task-capture-http",
+    execution_key: "key-capture-http",
+    sku: "SKU-CAPTURE-HTTP",
+    product_name: "Capture HTTP",
+    ...overrides
+  };
+}
+
 function hiflyworksEntry({ url, method = "POST", body, requestBody = null }) {
   return {
     request: {
@@ -215,6 +225,124 @@ test("capture_http executor supports real_dry_run without network access", async
   assert.equal(state.capture_http_mode, "real_dry_run");
   assert.equal(state.request_plan.length, 4);
   assert.equal(state.request_plan[1].risk_flags.includes("may_consume_points"), true);
+});
+
+test("capture_http real_live refuses to run without per-run authorization before transport", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-real-live-disabled-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const batchId = "batch-real-live-disabled";
+  const batchDirectory = path.join(root, "batches", batchId);
+  const productImagePath = path.join(batchDirectory, "uploads", "product.png");
+  const manifestPath = path.join(root, "manifest.json");
+  await mkdir(path.dirname(productImagePath), { recursive: true });
+  await Promise.all([
+    writeFile(productImagePath, "image-bytes"),
+    writeFile(manifestPath, JSON.stringify({
+      schema_version: 1,
+      sanitized: true,
+      source: "test",
+      captured_at: "2026-07-17T00:00:00.000Z",
+      steps: [{
+        id: "submit_video",
+        phase: "asset_generation",
+        method: "POST",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos",
+        request_template: { body: { kind: "asset" } },
+        response: { status: 200, body: { data: { gen_id: "asset-1" } } },
+        produces: { asset_id: "$response.body.data.gen_id" },
+        risk: { requires_auth: false, may_consume_points: true, replayability: "unknown" }
+      }]
+    }), "utf8")
+  ]);
+  let called = false;
+  const executor = createCaptureHttpExecutor({
+    root,
+    config: {
+      rpa: {
+        mode: "capture_http",
+        manifestPath,
+        captureHttpMode: "real_live",
+        realLive: { enabled: true },
+        realLiveTransport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+      }
+    }
+  });
+  const task = taskFixture({ task_id: "task-real-live-disabled", image_path: productImagePath });
+  await assert.rejects(
+    executor.createAsset(task, { batchId }),
+    { code: "CAPTURE_HTTP_REAL_LIVE_NOT_AUTHORIZED" }
+  );
+  assert.equal(called, false);
+});
+
+test("capture_http real_live forwards explicit authorization, transport, and runtime auth without persisting them", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-real-live-fake-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const batchId = "batch-real-live-fake";
+  const batchDirectory = path.join(root, "batches", batchId);
+  const productImagePath = path.join(batchDirectory, "uploads", "product.png");
+  const manifestPath = path.join(root, "manifest.json");
+  await mkdir(path.dirname(productImagePath), { recursive: true });
+  await Promise.all([
+    writeFile(productImagePath, "image-bytes"),
+    writeFile(manifestPath, JSON.stringify({
+      schema_version: 1,
+      sanitized: true,
+      source: "test",
+      captured_at: "2026-07-17T00:00:00.000Z",
+      steps: [{
+        id: "create_asset",
+        phase: "asset_generation",
+        method: "POST",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/upload_url",
+        request_template: { body: { kind: "asset" } },
+        response: { status: 200, body: { data: { gen_id: "asset-from-live" } } },
+        produces: { asset_id: "$response.body.data.gen_id" },
+        risk: { requires_auth: true, may_consume_points: false, replayability: "unknown" }
+      }]
+    }), "utf8")
+  ]);
+  let configuredTransportCalled = false;
+  const calls = [];
+  const executor = createCaptureHttpExecutor({
+    root,
+    config: {
+      rpa: {
+        mode: "capture_http",
+        manifestPath,
+        captureHttpMode: "real_live",
+        realLive: { enabled: true },
+        realLiveTransport: {
+          request: async () => {
+            configuredTransportCalled = true;
+            throw new Error("per-run transport should take precedence");
+          }
+        }
+      }
+    }
+  });
+  const task = taskFixture({ task_id: "task-real-live-fake", image_path: productImagePath });
+  const asset = await executor.createAsset(task, {
+    batchId,
+    realLive: {
+      allowRealLive: true,
+      acknowledgePointRisk: true,
+      runtimeAuth: { headers: { cookie: "in-memory-only" } },
+      transport: {
+        request: async (request) => {
+          calls.push(request);
+          return { status: 200, body: { data: { gen_id: "asset-from-live" } } };
+        }
+      }
+    }
+  });
+  assert.equal(asset.asset_id, "asset-from-live");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].headers.cookie, "in-memory-only");
+  assert.equal(configuredTransportCalled, false);
+  const state = await readRpaState(batchDirectory, task.task_id);
+  assert.equal(state.capture_http_mode, "real_live");
+  assert.equal(JSON.stringify(state).includes("in-memory-only"), false);
 });
 
 test("capture_http executor preserves variables across a redacted hiflyworks HAR pipeline", async (t) => {
