@@ -6,6 +6,7 @@ DONE
 
 ## Reviewer Fix
 
+- P1 fix: template placeholder and unresolved-marker scans now recurse through both object keys and values. Malformed header keys such as `{{asset_id` and body keys such as `{{asset-id}}` fail with `CAPTURE_HTTP_UNDECLARED_PLACEHOLDER` before the injected transport is called; ordinary header/body keys remain covered by the successful fake-transport case.
 - Critical fix: local-path validation now rejects all slash-prefixed POSIX/UNC-like request values, including decoded query values such as `//etc/passwd`, while allowing ordinary `http(s)` URL strings in headers and bodies.
 - Important fix: merged runtime authentication headers now pass through the same local-path validation before the injected transport runs, so `x-source: /etc/passwd` is rejected without sending a request.
 - Added fake-transport coverage for encoded double-slash query values, triple-slash header values, UNC-like body values, unsafe runtime-auth headers, and the successful auth-required `cookie: sid=abc` path.
@@ -43,7 +44,7 @@ DONE
 - `node --test test/rpa-capture-real-live-client.test.js`
   - Initial red phase: failed as expected because `src/rpa/capture/real-live-http-client.js` did not exist.
 - `node --test test/rpa-capture-real-live-client.test.js test/rpa-capture-http-client-factory.test.js`
-  - Passed: 21 tests, 0 failures.
+  - Passed: 22 tests, 0 failures.
 - `npm run check`
   - Passed: checked 63 JavaScript files.
 - `npm test`

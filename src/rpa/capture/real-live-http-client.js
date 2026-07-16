@@ -28,7 +28,10 @@ function templatePlaceholderNames(value) {
   }
   if (Array.isArray(value)) return value.flatMap(templatePlaceholderNames);
   if (value && typeof value === "object") {
-    return Object.values(value).flatMap(templatePlaceholderNames);
+    return Object.entries(value).flatMap(([key, child]) => [
+      ...templatePlaceholderNames(key),
+      ...templatePlaceholderNames(child)
+    ]);
   }
   return [];
 }
@@ -123,8 +126,7 @@ function assertLiveGate({ config, context, step, url, runtimeAuth }) {
 }
 
 function assertNoUnresolved(value) {
-  const text = JSON.stringify(value);
-  const unresolved = text.match(/\{\{[^{}]*\}\}/g) || [];
+  const unresolved = templatePlaceholderNames(value).map((name) => `{{${name}}}`);
   if (unresolved.length > 0) {
     fail("CAPTURE_HTTP_UNRESOLVED_PLACEHOLDER", `Unresolved placeholders: ${unresolved.join(", ")}`);
   }

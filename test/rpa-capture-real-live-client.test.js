@@ -322,6 +322,28 @@ test("real_live rejects malformed template placeholders before transport", async
   }
 });
 
+test("real_live rejects malformed header and body template keys before transport", async () => {
+  for (const request_template of [
+    { headers: { "{{asset_id": "x" }, body: null },
+    { headers: {}, body: { "{{asset-id}}": "x" } }
+  ]) {
+    let called = false;
+    const client = createRealLiveHttpClient({
+      manifest: manifestWith({
+        request_template,
+        risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+      }),
+      config: { enabled: true },
+      transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+    });
+    await assert.rejects(
+      client.request({ stepId: "submit_video", variables: { asset_id: "asset-1" }, context: { allowRealLive: true } }),
+      { code: "CAPTURE_HTTP_UNDECLARED_PLACEHOLDER" }
+    );
+    assert.equal(called, false);
+  }
+});
+
 test("real_live permits normal runtime auth and remote URL request values", async () => {
   const calls = [];
   const client = createRealLiveHttpClient({
