@@ -1,33 +1,52 @@
-# Final Fix Report
+# Capture HTTP Final-Fix Report
 
-## Status
+## Scope
 
-Complete. All four whole-branch review findings were fixed locally without starting the GUI or accessing Hifly.
+Final-review fixes for `f9b9b45..fe4e2c5`. This work used only local fixtures, Fastify injection, and Playwright GUI smoke tests. It did not access Hifly, send real HTTP requests, or consume points.
 
-## Commit
+## Changed Files
 
-- `f2b1900 fix: harden script strategy execution`
+- `src/rpa/capture/workflow-state.js`
+- `src/rpa/capture/redact.js`
+- `src/rpa/capture/har-extractor.js`
+- `src/rpa/capture/http-client-factory.js`
+- `src/executors/capture-http-executor.js`
+- `src/server/routes/capture.js`
+- `web/app.js`
+- `test/server-capture-api.test.js`
+- `test/har-extractor.test.js`
+- `test/rpa-capture-redact.test.js`
+- `test/rpa-capture-http-client-factory.test.js`
+- `test/capture-http-executor.test.js`
+- `test/gui-smoke.test.js`
+- `docs/rpa/capture-runbook.md`
+- `docs/PROJECT_HANDOFF.md`
 
-## Changes
+## Findings Addressed
 
-- `verifyScriptText()` normalizes and compares the complete script. A matching prefix no longer permits an incorrect suffix to reach video submission.
-- The `hifly_ai` mode verifies that the AI auto-generation switch is enabled. Custom script mode continues to verify it is disabled before text entry.
-- Imports reject rows without a script under `provided_script` with `422/SCRIPT_REQUIRED` before the batch can become `pending`. The GUI gives an explicit message for single, bulk, and imported rows.
-- Batch details and the final points confirmation show persisted person and script strategies in both readable form and enum form.
+1. Public capture state is now a whitelist projection. Legacy full request plans cannot expose URL, query, headers, body, variables, secret-like placeholders, or unknown risk flags through batch list/detail APIs.
+2. HAR extraction now emits request templates, substitutes known upstream response values with declared placeholders, and attaches conservative risk metadata. Redaction retains non-sensitive request-template headers/body and removes sensitive keys.
+3. The dry-run API no longer supplies a synthetic `remote_id`; a manifest that needs an unproduced `remote_id` fails as `dry_run_failed`.
+4. Only omitted/`undefined` capture HTTP mode defaults to `mock`. Empty string, `null`, `false`, and `0` now fail with `CAPTURE_HTTP_MODE_INVALID`.
+5. Executor request-plan accumulation now retains earlier entries when a phase has no entries.
+6. GUI copy explicitly states no Hifly access and no point consumption. The capture runbook now describes `mock`, `real_dry_run`, and disabled `real_live`, plus the request-template/public-API boundary.
 
 ## Verification
 
 ```text
-node --test test/person-strategy.test.js test/script-strategy.test.js test/product-validation.test.js test/batch-runner.test.js test/state-machine.test.js test/server-api.test.js
-# 106 passed, 0 failed
+node --test test/server-capture-api.test.js test/har-extractor.test.js test/rpa-capture-redact.test.js test/rpa-capture-dry-run-client.test.js test/rpa-capture-http-client-factory.test.js test/capture-http-executor.test.js test/gui-smoke.test.js test/offline-replay.test.js
+34 passed, 0 failed
 
 npm run check
-# Checked 43 JavaScript file(s)
+Checked 62 JavaScript file(s)
 
 git diff --check
-# no output; exit 0
+exit 0
+
+npm test
+295 passed, 0 failed
 ```
 
-## Hifly Credits
+## Hifly Points
 
-No GUI was started. No Hifly page, API, real generation, or credits were used.
+Consumed: no. No real Hifly page, request, or generation was used.

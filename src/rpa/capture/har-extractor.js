@@ -51,6 +51,49 @@ function parseRequestBody(postData = {}) {
   }
 }
 
+function responseValue(body, path) {
+  if (typeof path !== "string" || !path.startsWith("$response.body.")) return undefined;
+  let value = body;
+  for (const part of path.slice("$response.body.".length).split(".")) {
+    if (value === null || typeof value !== "object" || !(part in value)) return undefined;
+    value = value[part];
+  }
+  return value;
+}
+
+function substituteCapturedValues(value, capturedValues) {
+  if (typeof value === "string") {
+    let result = value;
+    for (const [captured, variable] of [...capturedValues.entries()].sort(([a], [b]) => b.length - a.length)) {
+      if (!captured) continue;
+      result = result.split(captured).join(`{{${variable}}}`);
+      result = result.split(encodeURIComponent(captured)).join(`{{${variable}}}`);
+    }
+    return result;
+  }
+  if (Array.isArray(value)) return value.map((item) => substituteCapturedValues(item, capturedValues));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, substituteCapturedValues(item, capturedValues)]));
+  }
+  return value;
+}
+
+function templatePlaceholders(value) {
+  return typeof value === "string" ? value.match(/\{\{[A-Za-z0-9_]+\}\}/g) || [] : [];
+}
+
+function requestRisk(parts) {
+  const mayConsume = parts.method === "POST" && (
+    parts.path === "/api/app/v1/one_stop/goods_in_hand/goods_holding_image_generation" ||
+    parts.path === "/api/app/v1/one_stop/goods_in_hand/videos"
+  );
+  return {
+    requires_auth: true,
+    may_consume_points: mayConsume,
+    replayability: "unknown"
+  };
+}
+
 function responseData(body) {
   return body && typeof body === "object" && body.data && typeof body.data === "object" ? body.data : {};
 }
@@ -161,24 +204,38 @@ function legacyHiflyStep(entry) {
 function candidateStep(entry, index, context) {
   const body = parseBody(entry.response?.content);
   if (body === null) return null;
+  const parts = pathParts(entry);
+  if (!parts) return null;
   const classified = hiflyworksStep(entry, body, context) || legacyHiflyStep(entry);
   if (!classified) return null;
   const requestBody = parseRequestBody(entry.request?.postData);
+  const requestTemplate = {
+    headers: substituteCapturedValues(headerObject(entry.request?.headers), context.capturedValues),
+    ...(requestBody ? { body: substituteCapturedValues(requestBody, context.capturedValues) } : {})
+  };
+  const urlTemplate = substituteCapturedValues(entry.request.url, context.capturedValues);
+  const placeholders = new Set([
+    ...(classified.placeholders || []),
+    ...templatePlaceholders(urlTemplate),
+    ...templatePlaceholders(JSON.stringify(requestTemplate))
+  ]);
+  for (const [name, responsePath] of Object.entries(classified.produces || {})) {
+    const value = responseValue(body, responsePath);
+    if (typeof value === "string" || typeof value === "number") context.capturedValues.set(String(value), name);
+  }
   return {
     id: classified.id || `candidate_${String(index + 1).padStart(3, "0")}`,
     phase: classified.phase,
     method: String(entry.request?.method || "GET").toUpperCase(),
-    url_template: entry.request.url,
-    request: {
-      headers: headerObject(entry.request?.headers),
-      ...(requestBody ? { body: requestBody } : {})
-    },
+    url_template: urlTemplate,
+    request_template: requestTemplate,
     response: {
       status: Number(entry.response?.status || 0),
       headers: headerObject(entry.response?.headers),
       body
     },
-    ...(classified.placeholders ? { placeholders: classified.placeholders } : {}),
+    ...(placeholders.size > 0 ? { placeholders: [...placeholders] } : {}),
+    ...(parts.host === "hiflyworks-api.lingverse.co" ? { risk: requestRisk(parts) } : {}),
     ...(classified.produces ? { produces: classified.produces } : {})
   };
 }
@@ -200,7 +257,8 @@ export async function extractRawStepsFromHar({
     remoteIdProduced: false,
     remoteQueryAdded: false,
     uploadCount: 0,
-    videoSubmitted: false
+    videoSubmitted: false,
+    capturedValues: new Map()
   };
   for (const entry of entries) {
     if (!entry?.request?.url) continue;

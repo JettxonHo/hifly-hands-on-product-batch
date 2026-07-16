@@ -303,7 +303,7 @@ test("capture GUI exposes a no-network dry-run action for redacted batches", asy
   await page.goto(server.url);
   await page.getByRole("tab", { name: "待执行任务" }).click();
   await assertVisible(page.getByRole("button", { name: "真实请求预演" }));
-  await assertVisible(page.getByText("仅构造请求计划，不访问飞影"));
+  await assertVisible(page.getByText("仅构造请求计划，不访问飞影、不消耗积分"));
 });
 
 async function assertVisible(locator) {

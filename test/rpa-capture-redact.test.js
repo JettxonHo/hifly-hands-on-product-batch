@@ -13,7 +13,10 @@ const RAW = {
       method: "POST",
       url_template: "https://hifly.cc/api/goods/upload?sign=abc",
       placeholders: ["{{product_image_path}}"],
-      request: { headers: { "content-type": "multipart/form-data", cookie: "sid=x", authorization: "Bearer t" } },
+      request: {
+        headers: { "content-type": "multipart/form-data", cookie: "sid=x", authorization: "Bearer t" },
+        body: { image_id: "{{product_image_id}}", csrf_token: "private" }
+      },
       response: {
         status: 200,
         headers: { "set-cookie": "sid=y" },
@@ -27,10 +30,13 @@ const RAW = {
 test("strips sensitive request/response headers", () => {
   const { sanitized, report } = redactCaptureSource(RAW);
   const step = sanitized.steps[0];
-  assert.deepEqual(step.request.headers, { "content-type": "multipart/form-data" });
+  assert.deepEqual(step.request_template.headers, { "content-type": "multipart/form-data" });
+  assert.deepEqual(step.request_template.body, { image_id: "{{product_image_id}}" });
+  assert.equal(step.request, undefined);
   assert.equal(step.response.headers, undefined);
   assert.ok(report.removed.some((p) => p.includes("cookie")));
   assert.ok(report.removed.some((p) => p.includes("authorization")));
+  assert.ok(report.removed.some((p) => p.includes("csrf_token")));
   assert.ok(report.removed.some((p) => p.includes("set-cookie")));
 });
 
@@ -50,6 +56,30 @@ test("output is loadable by parseCaptureManifest", () => {
   const { sanitized } = redactCaptureSource(RAW);
   const manifest = parseCaptureManifest(sanitized);
   assert.equal(manifest.sanitized, true);
+});
+
+test("preserves usable request templates and risk metadata", () => {
+  const { sanitized } = redactCaptureSource({
+    ...RAW,
+    steps: [{
+      ...RAW.steps[0],
+      request_template: {
+        headers: { "content-type": "application/json", authorization: "Bearer t" },
+        body: { image_id: "{{product_image_id}}", token: "private" }
+      },
+      risk: { requires_auth: true, may_consume_points: true, replayability: "unknown" }
+    }]
+  });
+  assert.deepEqual(sanitized.steps[0].request_template, {
+    headers: { "content-type": "application/json" },
+    body: { image_id: "{{product_image_id}}" }
+  });
+  assert.deepEqual(sanitized.steps[0].risk, {
+    requires_auth: true,
+    may_consume_points: true,
+    replayability: "unknown"
+  });
+  assert.deepEqual(parseCaptureManifest(sanitized).steps[0].request_template, sanitized.steps[0].request_template);
 });
 
 test("report is safe: only paths, no secret values", () => {

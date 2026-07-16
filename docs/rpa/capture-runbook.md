@@ -4,27 +4,29 @@
 
 ## 能力边界（先读这一节）
 
-当前（Phase 1）已实现的能力，**全部不消耗积分、不访问网络**：
+当前已实现的本地验证能力（不消耗积分、不访问飞影网络）：
 
 - GUI 批次可勾选“同时录制抓包产物”：真实生成仍由 Playwright 完成，同时录制 HAR；执行完成后可在批次详情中点击“抽取请求步骤”“脱敏生成 manifest”“离线回放验证”。
 - 从本地 HAR 自动抽取飞影「手里有货」主链路请求（`hiflyworks-api.lingverse.co`），并给上传授权、手持图生成、视频提交、轮询和下载步骤补齐可离线回放的 phase / placeholders / produces。旧版或未知 `hifly.cc/api/*` 请求仍会保守标记为 `unclassified`，需要人工复核。
 - 解析脱敏后的 capture manifest（`src/rpa/capture/manifest.js`）。
 - 离线脱敏原始抓包步骤（`src/rpa/capture/redact.js` + `scripts/redact-capture-source.mjs`）。
 - 用 mock HTTP client 回放已录制响应（`src/rpa/capture/mock-http-client.js`），**只回放、绝不发起真实请求**。
-- `capture_http` 执行器（`src/executors/capture-http-executor.js`）按 manifest 推进 rpa-state，`downloadArtifact` 只写**占位文件**，不下载真实视频。
+- `capture_http` 支持 `mock`（离线回放）和 `real_dry_run`（构造并校验请求计划）；两者都不发起网络，`downloadArtifact` 只写**占位文件**，不下载真实视频。
+- HAR 抽取会保留经脱敏的 `request_template.headers` / `request_template.body`，并为已知上游响应值替换声明占位符；同时标注 `risk.requires_auth`，对手持图/视频提交等可能消耗积分的步骤保守标注 `risk.may_consume_points`。
 
 **当前做不到**（属后续阶段，需另授权）：
 
-- 真实发起飞影 HTTP 请求 / 真实生成视频 / 真实下载 mp4。真实 HTTP client 尚未实现，`capture_http` 执行器现在永远走 mock 回放。
+- 真实发起飞影 HTTP 请求 / 真实生成视频 / 真实下载 mp4。`real_live` 目前明确禁用，尚未实现。
 - 全自动覆盖所有飞影页面变体。当前已覆盖 2026-07-16 采集到的 `hiflyworks-api.lingverse.co` 手里有货主链路；若飞影改接口、字段或风控，仍需重新校准。
 
-因此：**配好 manifest 并把 `rpa.mode` 设为 `capture_http`，也只会离线回放 + 生成占位文件，不会消耗积分、不会出真实视频。** 真实联调是另一阶段，且必须先经用户授权积分、只跑 1 条商品。
+因此：`captureHttpMode: "mock"` 与 `"real_dry_run"` 都只会本地验证并生成占位文件，不会消耗积分、不会出真实视频。真实联调是另一阶段，且必须先经用户授权积分、只跑 1 条商品。
 
 ## 安全红线
 
 - 原始 HAR、cookie、authorization、CSRF token、登录态、签名、批次数据、下载视频、日志、截图、outputs、node_modules **绝不进 git**。
 - 原始抓包产物只放本地 `rpa/capture/raw/`（已被 `.gitignore` 屏蔽，连同 `*.har`）。
 - 入库的只能是脱敏后的 manifest（`sanitized: true`，过门禁）。脱敏报告 `report` 也不进 git（虽只含路径不含值，仍按敏感处理）。
+- GUI 的 batch list/detail API 只公开请求计划摘要（步骤、phase、method、host/path、非敏感占位符与风险标记）；不会公开完整 URL、query、headers、body 或变量值。
 - 真实采集需登录态，请在自己可控的环境操作；登录态本身不进入任何入库文件。
 
 ## 前置条件
@@ -121,7 +123,7 @@ mitmproxy 备选（当 DevTools 抓不全或想脚本化时）：用 `mitmproxy 
 - **response.status / response.body**：抄 HAR 响应的 status 和 body（JSON）。body 里真实 id 可以保留（脱敏只删键名敏感的字段，不删业务 id）。
 - **response.headers / request.headers**：可填，脱敏会删除其中敏感头；`response.headers` 脱敏后会被整体丢弃，`request.headers` 保留非敏感项（如 `content-type`）。
 - **produces**：声明本步响应里哪些字段要作为变量传给后续步骤（见下文「produces 判定」）。
-- **request.body 不用整理**：脱敏产物不保留 request.body，提交体里的签名天然不会泄露。
+- **request.body 可整理**：脱敏产物将其保存为 `request_template.body`，但会移除敏感键；所有可从上游响应取得的动态值应改为声明占位符，如 `"gen_id": "{{asset_id}}"`。签名、token、cookie 等敏感键不得保留。
 
 ## 步骤 3：脱敏（跑 CLI）
 
@@ -151,7 +153,7 @@ grep -niE 'cookie|authorization|set-cookie|csrf|xsrf|token|session|secret|ticket
   预期只可能命中**业务字段名或 url 路径段**（如接口路径含 `session` 字样），不应命中任何真实凭据值。若命中疑似凭据，回步骤 2 检查该字段键名是否需要人工改名后再脱敏。
 
 - 确认 `sanitized: true`、`schema_version: 1`。
-- 确认每个 step 的 `response.headers` 已被丢弃（不存在）、`request.headers` 只剩非敏感项。
+- 确认每个 step 的 `response.headers` 已被丢弃（不存在）、`request_template.headers` / `request_template.body` 只剩非敏感项。
 
 ## 步骤 5：门禁验证
 
@@ -193,11 +195,11 @@ JS
 
 ## 真实请求预演（real_dry_run，无积分）
 
-`real_dry_run` 只根据 sanitized manifest 构造请求计划，不访问飞影、不消耗积分、不下载真实视频。GUI 中的“真实请求预演”按钮用于验证 URL、method、占位符和风险标记是否能被安全解析。通过并不代表真实 HTTP 出片已经完成。
+`real_dry_run` 只根据 sanitized manifest 构造请求计划，不访问飞影、不消耗积分、不下载真实视频。GUI 中的“真实请求预演”按钮用于验证 URL、method、脱敏后的请求模板、占位符和风险标记是否能被安全解析。通过并不代表真实 HTTP 出片已经完成；GUI 公开 API 也只返回安全摘要，不返回请求内容。
 
 ## 步骤 7：真实回放（⚠️ 消耗积分，当前未实现）
 
-**当前 `capture_http` 执行器只有 mock 回放，没有真实 HTTP client。** 即使 manifest 准备好、config 切到 `capture_http`，也只会离线回放 + 写占位文件，不会出真实视频。
+**当前 `capture_http` 可使用 mock 或 real_dry_run，但没有可用的真实 HTTP client。** 即使 manifest 准备好、config 切到 `capture_http`，也只会离线验证 + 写占位文件；`real_live` 会报禁用错误，不会出真实视频。
 
 真实回放属于后续阶段，启动前必须满足：
 
@@ -219,7 +221,8 @@ JS
 | `response.status` | `entry.response.status` | 整数 |
 | `response.body` | `JSON.parse(entry.response.content.text)` | 抄业务结构 |
 | `response.headers` | `entry.response.headers` | 可选；脱敏后整体丢弃 |
-| `request.headers` | `entry.request.headers` | 可选；脱敏删敏感、留 `content-type` 等 |
+| `request_template.headers` | `entry.request.headers` | 可选；脱敏删敏感、留 `content-type` 等 |
+| `request_template.body` | `entry.request.postData.text` JSON | 可选；脱敏删敏感，并把已知动态值改为 `{{var}}` |
 | `produces` | 人工判定 | 变量名 → `$response.body.<路径>` |
 
 ## phase 归类与 produces 判定

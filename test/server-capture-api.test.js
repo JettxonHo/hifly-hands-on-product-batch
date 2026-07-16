@@ -7,6 +7,8 @@ import path from "node:path";
 import { buildApp } from "../src/server/app.js";
 import { createBatchStore } from "../src/core/batch-store.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
+import { createDryRunHttpClient } from "../src/rpa/capture/dry-run-http-client.js";
+import { CAPTURE_PHASES, loadCaptureManifest, selectStepsByPhase } from "../src/rpa/capture/manifest.js";
 import { createInitialCaptureState, updateCaptureState } from "../src/rpa/capture/workflow-state.js";
 
 const HOST = "127.0.0.1:4317";
@@ -303,6 +305,34 @@ test("capture APIs can process a hiflyworks HAR through offline replay", async (
   assert.equal(replayed.json().batch.capture.status, "replay_passed");
   assert.equal(replayed.json().batch.capture.replay_summary.remote_id, 99);
   assert.equal(replayed.json().batch.capture.replay_summary.artifact_filename, "demo.mp4");
+
+  const manifestPath = path.join(root, "batches", "batch-hiflyworks", "capture", "manifest.json");
+  const manifest = await loadCaptureManifest(manifestPath);
+  const submit = manifest.steps.find((step) => step.id === "submit_video");
+  assert.deepEqual(submit.request_template, {
+    headers: { "content-type": "application/json" },
+    body: { gen_id: "{{asset_id}}" }
+  });
+  assert.deepEqual(submit.risk, {
+    requires_auth: true,
+    may_consume_points: true,
+    replayability: "unknown"
+  });
+  const client = createDryRunHttpClient({ manifest });
+  const variables = { product_image_path: "product.png", person_image_path: "person.png" };
+  const requestPlan = [];
+  for (const phase of CAPTURE_PHASES) {
+    for (const step of selectStepsByPhase(manifest, phase)) {
+      const result = await client.request({ stepId: step.id, variables });
+      Object.assign(variables, result.produced);
+      requestPlan.push(result.request_plan);
+    }
+  }
+  const submitPlan = requestPlan.find((step) => step.step_id === "submit_video");
+  assert.deepEqual(submitPlan.headers, { "content-type": "application/json" });
+  assert.deepEqual(submitPlan.body, { gen_id: "gen-1" });
+  assert.equal(submitPlan.risk_flags.includes("auth_required"), true);
+  assert.equal(submitPlan.risk_flags.includes("may_consume_points"), true);
 });
 
 test("dry-run capture API stores only a public-safe request plan summary", async (t) => {
@@ -376,4 +406,101 @@ test("dry-run capture API stores only a public-safe request plan summary", async
 
   const persisted = JSON.parse(await readFile(path.join(root, "batches", "batch-dry-run-api", "batch.json"), "utf8"));
   assert.equal(JSON.stringify(persisted).includes("non-sensitive-key-secret-value"), false);
+});
+
+test("list and detail projections remove legacy full dry-run request details", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-legacy-projection-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const app = await buildApp({ root, openBrowser: async () => {} });
+  t.after(() => app.close());
+  const store = createBatchStore(path.join(root, "batches"));
+  const secret = "legacy-secret-value";
+  await store.create({
+    batch_id: "batch-legacy-dry-run",
+    status: "completed",
+    items: [],
+    uploads: [],
+    capture: {
+      enabled: true,
+      status: "dry_run_passed",
+      dry_run_summary: {
+        executed_step_count: 1,
+        variables: { access_token: secret, safe_value: secret },
+        request_plan: [{
+          step_id: "submit",
+          phase: "remote_submit",
+          method: "POST",
+          host: "example.test",
+          path: `https://example.test/jobs?access_token=${secret}`,
+          url: `https://example.test/jobs?access_token=${secret}`,
+          headers: { authorization: `Bearer ${secret}` },
+          body: { secret },
+          placeholders: ["access_token", "asset_id"],
+          risk_flags: ["auth_required", "may_consume_points", "not-a-real-flag"]
+        }]
+      }
+    }
+  });
+  const session = await app.inject({ method: "GET", url: "/api/session", headers: { host: HOST } });
+  const requestHeaders = headers({ cookie: session.headers["set-cookie"], token: session.json().token });
+  const responses = await Promise.all([
+    app.inject({ method: "GET", url: "/api/batches", headers: requestHeaders }),
+    app.inject({ method: "GET", url: "/api/batches/batch-legacy-dry-run", headers: requestHeaders })
+  ]);
+  for (const response of responses) {
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.includes(secret), false);
+    const capture = response.json().batch?.capture || response.json().batches[0].capture;
+    const [requestPlan] = capture.dry_run_summary.request_plan;
+    assert.deepEqual(requestPlan, {
+      step_id: "submit",
+      phase: "remote_submit",
+      method: "POST",
+      host: "example.test",
+      placeholders: ["asset_id"],
+      risk_flags: ["auth_required", "may_consume_points"]
+    });
+    for (const key of ["url", "headers", "body", "variables"]) assert.equal(key in requestPlan, false);
+  }
+});
+
+test("dry-run fails when a later step needs an unproduced remote_id", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-dry-run-missing-remote-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const app = await buildApp({ root, openBrowser: async () => {} });
+  t.after(() => app.close());
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-dry-run-missing-remote",
+    status: "completed",
+    items: [],
+    uploads: [],
+    capture: { enabled: true, status: "redacted", manifest_path: "batches/batch-dry-run-missing-remote/capture/manifest.json" }
+  });
+  const captureDirectory = path.join(root, "batches", "batch-dry-run-missing-remote", "capture");
+  await mkdir(captureDirectory, { recursive: true });
+  await writeFile(path.join(captureDirectory, "manifest.json"), JSON.stringify({
+    schema_version: 1,
+    source: "hifly_goods",
+    captured_at: "2026-07-16T00:00:00Z",
+    sanitized: true,
+    steps: [{
+      id: "download",
+      phase: "download",
+      method: "GET",
+      url_template: "https://example.test/jobs/{{remote_id}}/download",
+      placeholders: ["{{remote_id}}"],
+      response: { status: 200, body: { data: {} } }
+    }]
+  }));
+  const session = await app.inject({ method: "GET", url: "/api/session", headers: { host: HOST } });
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-dry-run-missing-remote/capture/dry-run",
+    headers: headers({ cookie: session.headers["set-cookie"], token: session.json().token }),
+    payload: {}
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().batch.capture.status, "dry_run_failed");
+  assert.match(response.json().batch.capture.dry_run_error, /remote_id/);
 });

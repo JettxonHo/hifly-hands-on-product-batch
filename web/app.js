@@ -386,7 +386,7 @@
       capture.replay_summary?.remote_id ? `远端 ID：${capture.replay_summary.remote_id}` : "",
       capture.dry_run_summary?.executed_step_count ? `预演步骤数：${capture.dry_run_summary.executed_step_count}` : "",
       capture.dry_run_error ? `预演错误：${capture.dry_run_error}` : "",
-      "仅构造请求计划，不访问飞影"
+      "仅构造请求计划，不访问飞影、不消耗积分"
     ].filter(Boolean)) {
       const line = document.createElement("span");
       setText(line, text);

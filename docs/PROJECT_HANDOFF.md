@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 Capture HTTP final-review fixes：dry-run 投影、HAR 模板与 mode 门禁加固（无网络、无新增积分）
+
+- 修复 final whole-branch review 的全部 Important findings。`publicCaptureState()` 现在对 capture state 使用白名单投影；旧批次即使残留完整 dry-run `url`、query、headers、body 或 variables，batch list/detail API 也只返回安全请求计划摘要，并过滤 secret-like 占位符与非白名单风险标记。
+- GUI HAR 管线现在将非敏感请求 headers/body 写入 `request_template`，将已知的上游响应动态值改为声明占位符，并标记 `requires_auth`；手持图生成和视频提交阶段保守标记 `may_consume_points`。manifest 仍经过敏感键门禁，公开 API 不返回请求内容。
+- dry-run API 不再预置 `remote_id`；后续下载需要但上游未产出 `remote_id` 时，批次状态正确写为 `dry_run_failed`。`captureHttpMode` 只有 `undefined` 才默认 `mock`，`""` / `null` / `false` / `0` 均报 `CAPTURE_HTTP_MODE_INVALID`。executor 在空 phase 时也保留已有 request plan。
+- GUI 文案明确“仅构造请求计划，不访问飞影、不消耗积分”；capture runbook 更新三种模式和请求模板/公开投影边界。
+- 验证：定向 `node --test test/server-capture-api.test.js test/har-extractor.test.js test/rpa-capture-redact.test.js test/rpa-capture-dry-run-client.test.js test/rpa-capture-http-client-factory.test.js test/capture-http-executor.test.js test/gui-smoke.test.js test/offline-replay.test.js` 为 34/34 通过；`npm run check` 通过（62 个 JS 文件）；`git diff --check` 通过；`npm test` 为 295/295 通过。
+- 本轮未访问飞影、未发出真实 HTTP、未消耗积分；未触碰关键批次和 `docs/resume/`。
+
 ## 2026-07-16 Capture HTTP Task 6 已完成：GUI 暴露真实请求预演（无网络、无新增积分）
 
 - GUI 抓包工作流新增“真实请求预演”操作；在 `redacted`、`replay_passed` 或 `dry_run_failed` 状态可执行。界面展示 `dry_run_passed` / `dry_run_failed` / `real_live_disabled` 状态、预演步骤数和预演错误，并明确提示“仅构造请求计划，不访问飞影”。

@@ -158,7 +158,6 @@ export async function registerCaptureRoutes(app, { batchRoot, store }) {
       const variables = {
         product_image_path: "product-image.jpg",
         person_image_path: "person-image.jpg",
-        remote_id: "dry-run-remote",
         ...(request.body?.variables && typeof request.body.variables === "object" ? request.body.variables : {})
       };
       const requestPlan = [];

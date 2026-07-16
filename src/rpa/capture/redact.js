@@ -49,7 +49,11 @@ export function redactCaptureSource({ source = "", captured_at = null, steps = [
     // Response headers are never kept in the sanitized manifest, but we still scan
     // them so the report records any sensitive header that was present.
     removeSensitiveHeaders(raw.response?.headers, `steps[${index}].response.headers`, report.removed);
-    const requestHeaders = removeSensitiveHeaders(raw.request?.headers, `steps[${index}].request.headers`, report.removed);
+    const request = raw.request_template || raw.request || {};
+    const requestHeaders = removeSensitiveHeaders(request.headers, `steps[${index}].request.headers`, report.removed);
+    const requestBody = request.body === undefined
+      ? undefined
+      : removeSensitiveBody(request.body, `steps[${index}].request.body`, report.removed);
     const step = {
       id: raw.id,
       phase: raw.phase,
@@ -62,7 +66,13 @@ export function redactCaptureSource({ source = "", captured_at = null, steps = [
       },
       produces: raw.produces && typeof raw.produces === "object" ? { ...raw.produces } : {}
     };
-    if (requestHeaders && Object.keys(requestHeaders).length > 0) step.request = { headers: requestHeaders };
+    if (requestHeaders && Object.keys(requestHeaders).length > 0 || requestBody !== undefined) {
+      step.request_template = {
+        ...(requestHeaders && Object.keys(requestHeaders).length > 0 ? { headers: requestHeaders } : {}),
+        ...(requestBody !== undefined ? { body: requestBody } : {})
+      };
+    }
+    if (raw.risk && typeof raw.risk === "object") step.risk = { ...raw.risk };
     return step;
   });
 

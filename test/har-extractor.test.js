@@ -162,4 +162,14 @@ test("classifies hiflyworks goods-in-hand requests into replayable phases", asyn
   assert.deepEqual(raw.steps[2].produces, { asset_id: "$response.body.data.gen_id" });
   assert.deepEqual(raw.steps[4].produces, { remote_id: "$response.body.data.list.0.id" });
   assert.deepEqual(raw.steps[5].produces, { artifact_filename: "$response.body.data.list.0.title" });
+  assert.deepEqual(raw.steps[3].request_template, {
+    headers: { "content-type": "application/json" },
+    body: { gen_id: "{{asset_id}}", text: "hello" }
+  });
+  assert.deepEqual(raw.steps[3].risk, {
+    requires_auth: true,
+    may_consume_points: true,
+    replayability: "unknown"
+  });
+  assert.equal(raw.steps[4].url_template.includes("{{asset_id}}"), true);
 });

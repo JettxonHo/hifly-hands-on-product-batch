@@ -20,8 +20,8 @@ function directEvidence(remoteEvidence) {
 
 export function createCaptureHttpExecutor({ root, config = {} } = {}) {
   if (!root) throw new TypeError("createCaptureHttpExecutor requires root");
-  const rpa = config.rpa || {};
-  const captureHttpMode = normalizeCaptureHttpMode(rpa.captureHttpMode || "mock");
+  const rpa = config.rpa ?? {};
+  const captureHttpMode = normalizeCaptureHttpMode(rpa.captureHttpMode);
   let callbackBaseUrl = rpa.callbackBaseUrl ?? "http://127.0.0.1:4317";
   let manifestCache = null;
   let clientCache = null;
@@ -55,7 +55,6 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
   }
 
   async function appendRequestPlan(dir, taskId, entries) {
-    if (entries.length === 0) return [];
     const current = await readRpaState(dir, taskId);
     return [...(current?.request_plan || []), ...entries];
   }

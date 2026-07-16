@@ -72,6 +72,16 @@ test("capture_http executor satisfies the adapter contract", () => {
   }
 });
 
+test("capture_http executor rejects falsy configured modes", () => {
+  for (const captureHttpMode of ["", null, false, 0]) {
+    assert.throws(
+      () => createCaptureHttpExecutor({ root: process.cwd(), config: { rpa: { manifestPath: FIXTURE, captureHttpMode } } }),
+      { code: "CAPTURE_HTTP_MODE_INVALID" },
+      `mode ${String(captureHttpMode)} must be rejected`
+    );
+  }
+});
+
 test("capture_http executor supports real_dry_run without network access", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-dry-run-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -140,4 +150,60 @@ test("capture_http executor supports real_dry_run without network access", async
   assert.equal(state.capture_http_mode, "real_dry_run");
   assert.equal(state.request_plan.length, 4);
   assert.equal(state.request_plan[1].risk_flags.includes("may_consume_points"), true);
+});
+
+test("capture_http executor keeps accumulated plans when a phase has no steps", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-plan-retain-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifestPath = path.join(root, "manifest.json");
+  const batchDirectory = path.join(root, "batches", "batch-plan-retain");
+  const productImagePath = path.join(batchDirectory, "uploads", "product.png");
+  await mkdir(path.dirname(productImagePath), { recursive: true });
+  await writeFile(productImagePath, "image-bytes");
+  await writeFile(manifestPath, JSON.stringify({
+    schema_version: 1,
+    source: "hifly_goods",
+    captured_at: "2026-07-16T00:00:00Z",
+    sanitized: true,
+    steps: [
+      {
+        id: "asset",
+        phase: "asset_generation",
+        method: "POST",
+        url_template: "https://example.test/assets",
+        response: { status: 200, body: { data: { gen_id: "asset-1" } } },
+        produces: { asset_id: "$response.body.data.gen_id" }
+      },
+      {
+        id: "submit",
+        phase: "remote_submit",
+        method: "POST",
+        url_template: "https://example.test/videos/{{asset_id}}",
+        placeholders: ["{{asset_id}}"],
+        response: { status: 200, body: { data: { id: "remote-1" } } },
+        produces: { remote_id: "$response.body.data.id" }
+      },
+      {
+        id: "download",
+        phase: "download",
+        method: "GET",
+        url_template: "https://example.test/videos/{{remote_id}}/download",
+        placeholders: ["{{remote_id}}"],
+        response: { status: 200, body: { data: { title: "plan.mp4" } } },
+        produces: { artifact_filename: "$response.body.data.title" }
+      }
+    ]
+  }));
+  const executor = createCaptureHttpExecutor({
+    root,
+    config: { rpa: { manifestPath, captureHttpMode: "real_dry_run" } }
+  });
+  const task = { task_id: "task-1", sku: "SKU", product_name: "Plan", image_path: productImagePath };
+  const context = { batchId: "batch-plan-retain", taskId: task.task_id };
+  const asset = await executor.createAsset(task, context);
+  const submitted = await executor.submitVideo(task, asset, context);
+  await executor.querySubmission(submitted.remoteEvidence, context);
+  await executor.downloadArtifact(submitted.remoteEvidence, null, context);
+  const state = await readRpaState(batchDirectory, task.task_id);
+  assert.deepEqual(state.request_plan.map((entry) => entry.step_id), ["asset", "submit", "download"]);
 });

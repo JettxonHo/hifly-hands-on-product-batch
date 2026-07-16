@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { parseCaptureManifest } from "../src/rpa/capture/manifest.js";
-import { CAPTURE_HTTP_MODES, createCaptureHttpClient } from "../src/rpa/capture/http-client-factory.js";
+import { CAPTURE_HTTP_MODES, createCaptureHttpClient, normalizeCaptureHttpMode } from "../src/rpa/capture/http-client-factory.js";
 
 const MANIFEST = parseCaptureManifest({
   schema_version: 1,
@@ -38,6 +38,16 @@ test("factory rejects invalid mode", () => {
     () => createCaptureHttpClient({ mode: "surprise", manifest: MANIFEST }),
     { code: "CAPTURE_HTTP_MODE_INVALID" }
   );
+});
+
+test("factory rejects falsy configured modes instead of silently selecting mock", () => {
+  for (const mode of ["", null, false, 0]) {
+    assert.throws(
+      () => normalizeCaptureHttpMode(mode),
+      { code: "CAPTURE_HTTP_MODE_INVALID" },
+      `mode ${String(mode)} must be rejected`
+    );
+  }
 });
 
 test("factory refuses real_live until explicitly implemented later", () => {
