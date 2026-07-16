@@ -4,6 +4,11 @@
     "mode": "default",
     "captureHttpMode": "mock",
     "manifestPath": "rpa/capture/fixtures/hifly-goods-sample.json",
+    "realLive": {
+      "enabled": false,
+      "allowedHosts": ["hiflyworks-api.lingverse.co"],
+      "timeoutMs": 30000
+    },
     "callbackBaseUrl": "http://127.0.0.1:4317",
     "assetTimeoutMs": 600000,
     "submitTimeoutMs": 1200000,

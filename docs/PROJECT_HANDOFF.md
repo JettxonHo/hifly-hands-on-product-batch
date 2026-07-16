@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-17 Capture HTTP real_live 受控脚手架已实现（无网络、无新增积分）
+
+- `real_live` 现在只作为受控脚手架存在，默认配置 `rpa.realLive.enabled=false`；未授权时不会调用 transport。
+- fake transport 测试可验证变量链、host allowlist、runtimeAuth、积分风险确认与错误门禁，但没有真实飞影访问。
+- executor 可以接收每次运行的 `allowRealLive`、`acknowledgePointRisk`、runtimeAuth 和 fake transport；这些运行时凭据不会写入 batch、manifest、日志或 git。
+- GUI 明确区分“真实请求预演”和“真实 HTTP 生成（会访问飞影，可能消耗积分）”。当前真实 HTTP 生成控件保持禁用，只能记录 `real_live_disabled` 状态。
+- 下一步如要真实联调，必须另行获得用户授权，只跑 1 条商品，并先实现经过评审的真实 transport 接入；Playwright 仍是当前可用生产兜底链路。
+- 本轮未访问飞影、未发真实 HTTP、未消耗积分；未触碰关键批次、`docs/resume/`、raw HAR、batches、outputs、logs、screenshots、`config.local.json` 或 `node_modules`。
+
 ## 2026-07-17 Capture HTTP Task 3：API/GUI 暴露 real_live 禁用状态（无网络、无新增积分）
 
 - 新增本地受保护 API `POST /api/batches/:batchId/capture/live-status`：只把已开启 capture 的批次更新为 `real_live_disabled`，写入稳定 `CAPTURE_HTTP_REAL_LIVE_DISABLED` 错误；不读取 manifest、不初始化 client、不调用 transport。
