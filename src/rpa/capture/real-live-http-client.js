@@ -15,6 +15,31 @@ function placeholderNames(placeholders = []) {
   return placeholders.map((placeholder) => placeholder.replace(/^\{\{|\}\}$/g, ""));
 }
 
+function templatePlaceholderNames(value) {
+  if (typeof value === "string") {
+    return [...value.matchAll(/\{\{([A-Za-z0-9_]+)\}\}/g)].map((match) => match[1]);
+  }
+  if (Array.isArray(value)) return value.flatMap(templatePlaceholderNames);
+  if (value && typeof value === "object") {
+    return Object.values(value).flatMap(templatePlaceholderNames);
+  }
+  return [];
+}
+
+function assertDeclaredTemplatePlaceholders(step) {
+  const declared = new Set(placeholderNames(step.placeholders));
+  const used = new Set(templatePlaceholderNames([
+    step.url_template,
+    step.request_template?.headers,
+    step.request_template?.body,
+    step.placeholders
+  ]));
+  const undeclared = [...used].filter((name) => !declared.has(name));
+  if (undeclared.length > 0) {
+    fail("CAPTURE_HTTP_UNDECLARED_PLACEHOLDER", `Undeclared placeholders: ${undeclared.join(", ")}`);
+  }
+}
+
 function riskFlags(risk = {}) {
   const flags = [];
   if (risk.requires_auth === true) flags.push("auth_required");
@@ -77,6 +102,34 @@ function assertNoUnresolved(value) {
   }
 }
 
+function hasAbsoluteLocalPath(value) {
+  return typeof value === "string" && (
+    /(?:^|[\s"'=,:])\/(?:Users|home|private|var|tmp|opt|etc|Volumes|mnt)(?:[\\/]|$)/.test(value) ||
+    /(?:^|[\s"'=,:])[A-Za-z]:[\\/]/.test(value)
+  );
+}
+
+function assertNoLocalPaths(value) {
+  if (typeof value === "string") {
+    if (hasAbsoluteLocalPath(value)) {
+      fail("CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN", "Request values must not contain absolute local paths.");
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) assertNoLocalPaths(entry);
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const entry of Object.values(value)) assertNoLocalPaths(entry);
+  }
+}
+
+function assertUrlHasNoLocalPaths(url) {
+  assertNoLocalPaths(url.pathname);
+  for (const value of url.searchParams.values()) assertNoLocalPaths(value);
+}
+
 export function createDisabledLiveTransport() {
   return {
     async request() {
@@ -104,6 +157,7 @@ export function createRealLiveHttpClient({
       if (step.risk?.replayability === "api_unavailable") {
         fail("CAPTURE_HTTP_API_UNAVAILABLE", `Capture step is not replayable: ${stepId}`);
       }
+      assertDeclaredTemplatePlaceholders(step);
       try {
         assertStepPlaceholders(step, variables);
       } catch (error) {
@@ -118,6 +172,9 @@ export function createRealLiveHttpClient({
       const body = substituteCaptureValue(template.body, variables);
       assertNoUnresolved({ resolvedUrl, templateHeaders, body });
       const url = new URL(resolvedUrl);
+      assertUrlHasNoLocalPaths(url);
+      assertNoLocalPaths(templateHeaders);
+      assertNoLocalPaths(body);
       assertLiveGate({ config, context, step, url, runtimeAuth });
       const headers = mergeRuntimeHeaders(templateHeaders, runtimeAuth);
       const response = await transport.request({

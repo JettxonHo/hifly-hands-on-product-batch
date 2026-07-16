@@ -96,6 +96,62 @@ test("real_live rejects hosts outside the allowlist before transport", async () 
   assert.equal(called, false);
 });
 
+test("real_live rejects undeclared template placeholders before transport", async () => {
+  let called = false;
+  const client = createRealLiveHttpClient({
+    manifest: manifestWith({
+      placeholders: [],
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?id={{undeclared_id}}",
+      request_template: { headers: {}, body: null },
+      risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+    }),
+    config: { enabled: true },
+    transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+  });
+  await assert.rejects(
+    client.request({ stepId: "submit_video", variables: { undeclared_id: "work-1" }, context: { allowRealLive: true } }),
+    { code: "CAPTURE_HTTP_UNDECLARED_PLACEHOLDER" }
+  );
+  assert.equal(called, false);
+});
+
+test("real_live rejects resolved absolute local paths before transport", async () => {
+  for (const pathCase of [
+    {
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?source={{local_path}}",
+      request_template: { headers: {}, body: null },
+      local_path: "/Users/ketchup/secret.png"
+    },
+    {
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status",
+      request_template: { headers: { "x-source-file": "{{local_path}}" }, body: null },
+      local_path: "C:\\secret\\file.png"
+    },
+    {
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status",
+      request_template: { headers: {}, body: { source_file: "{{local_path}}" } },
+      local_path: "/Users/ketchup/secret.png"
+    }
+  ]) {
+    let called = false;
+    const client = createRealLiveHttpClient({
+      manifest: manifestWith({
+        url_template: pathCase.url_template,
+        placeholders: ["{{asset_id}}", "{{local_path}}"],
+        request_template: pathCase.request_template,
+        risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+      }),
+      config: { enabled: true },
+      transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+    });
+    await assert.rejects(
+      client.request({ stepId: "submit_video", variables: { asset_id: "asset-1", local_path: pathCase.local_path }, context: { allowRealLive: true } }),
+      { code: "CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN" }
+    );
+    assert.equal(called, false);
+  }
+});
+
 test("real_live fake transport produces variables without using network APIs", async () => {
   const calls = [];
   const client = createRealLiveHttpClient({
