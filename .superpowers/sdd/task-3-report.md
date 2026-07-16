@@ -2,7 +2,13 @@
 
 ## Status
 
-Committed; see Git history for the Task 3 commit.
+Reviewer fix complete; pending commit.
+
+## Reviewer Fix (2026-07-17)
+
+- `publicLiveError()` now projects only an explicit whitelist of stable live error codes. Unknown strings, URL/token/path-bearing values, and non-string legacy values are normalized to `CAPTURE_HTTP_REAL_LIVE_DISABLED` with the fixed safe message.
+- Added list/detail API regression coverage for legacy `live_error.code` values containing a Hiflyworks URL and an object with token/path fields. Neither public response exposes the URL, token, or path.
+- No 飞影 access, real HTTP, or points consumption occurred.
 
 ## Changes
 

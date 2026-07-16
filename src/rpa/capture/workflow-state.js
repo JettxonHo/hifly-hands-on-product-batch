@@ -90,6 +90,14 @@ const SAFE_RISK_FLAGS = new Set([
   "api_unavailable"
 ]);
 
+const SAFE_LIVE_ERROR_CODES = new Set([
+  "CAPTURE_HTTP_REAL_LIVE_DISABLED",
+  "CAPTURE_HTTP_REAL_LIVE_NOT_AUTHORIZED",
+  "CAPTURE_HTTP_POINT_RISK_NOT_ACKNOWLEDGED",
+  "CAPTURE_HTTP_AUTH_REQUIRED",
+  "CAPTURE_HTTP_HOST_NOT_ALLOWED"
+]);
+
 function isSensitiveName(value) {
   return /token|secret|password|cookie|authorization|session|csrf|xsrf|ticket|sign|auth/i.test(value);
 }
@@ -121,7 +129,9 @@ function publicReplayError() {
 
 function publicLiveError(error) {
   return {
-    code: error.code || "CAPTURE_HTTP_REAL_LIVE_DISABLED",
+    code: typeof error?.code === "string" && SAFE_LIVE_ERROR_CODES.has(error.code)
+      ? error.code
+      : "CAPTURE_HTTP_REAL_LIVE_DISABLED",
     message: "real_live is disabled until explicitly authorized."
   };
 }

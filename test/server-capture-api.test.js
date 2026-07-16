@@ -511,6 +511,57 @@ test("list and detail projections remove legacy full dry-run request details", a
   }
 });
 
+test("list and detail projections normalize legacy live error codes", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  const maliciousCode = "https://hiflyworks-api.lingverse.co/jobs?token=secret";
+  const batches = [
+    { batchId: "batch-legacy-live-url", code: maliciousCode },
+    { batchId: "batch-legacy-live-object", code: { token: "secret", path: "/jobs/private" } }
+  ];
+  for (const { batchId, code } of batches) {
+    await store.create({
+      batch_id: batchId,
+      status: "completed",
+      items: [],
+      uploads: [],
+      capture: {
+        enabled: true,
+        status: "real_live_disabled",
+        live_error: { code, message: "legacy error" }
+      }
+    });
+  }
+
+  const list = await app.inject({ method: "GET", url: "/api/batches", headers: headers(session) });
+  assert.equal(list.statusCode, 200);
+  for (const { batchId } of batches) {
+    const capture = list.json().batches.find((batch) => batch.batch_id === batchId).capture;
+    assert.deepEqual(capture.live_error, {
+      code: "CAPTURE_HTTP_REAL_LIVE_DISABLED",
+      message: "real_live is disabled until explicitly authorized."
+    });
+  }
+  assert.equal(list.body.includes(maliciousCode), false);
+  assert.equal(list.body.includes("token"), false);
+
+  for (const { batchId } of batches) {
+    const detail = await app.inject({ method: "GET", url: `/api/batches/${batchId}`, headers: headers(session) });
+    assert.equal(detail.statusCode, 200);
+    assert.deepEqual(detail.json().batch.capture.live_error, {
+      code: "CAPTURE_HTTP_REAL_LIVE_DISABLED",
+      message: "real_live is disabled until explicitly authorized."
+    });
+    assert.equal(detail.body.includes(maliciousCode), false);
+    assert.equal(detail.body.includes("token"), false);
+    assert.equal(detail.body.includes("/jobs/private"), false);
+  }
+});
+
 test("replay failures persist stable errors and hide local manifest paths from public batch APIs", async (t) => {
   const { app, root, session } = await fixture();
   t.after(async () => {
