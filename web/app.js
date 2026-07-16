@@ -403,9 +403,14 @@
         "真实请求预演",
         "dryRun",
         ["redacted", "replay_passed", "dry_run_failed"].includes(capture.status)
-      )
+      ),
+      disabledRealLiveButton()
     );
     panel.append(actions);
+    const liveHint = document.createElement("p");
+    liveHint.className = "muted";
+    setText(liveHint, "当前阶段仅支持真实请求预演；真实 HTTP 生成需单独授权后只跑 1 条。");
+    panel.append(liveHint);
     return panel;
   }
 
@@ -417,6 +422,17 @@
     button.disabled = state.busy || !enabled;
     setText(button, label);
     button.addEventListener("click", () => runCaptureAction(batchId, action));
+    return button;
+  }
+
+  function disabledRealLiveButton() {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost-button";
+    button.dataset.disabled = "true";
+    button.disabled = true;
+    button.title = "当前阶段未启用真实 HTTP 生成";
+    setText(button, "真实 HTTP 生成（会访问飞影，可能消耗积分）");
     return button;
   }
 

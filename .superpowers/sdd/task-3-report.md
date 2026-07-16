@@ -1,3 +1,41 @@
+# Task 3 Report: Expose Real-Live Disabled Status
+
+## Status
+
+Committed; see Git history for the Task 3 commit.
+
+## Changes
+
+- Added `POST /api/batches/:batchId/capture/live-status`, which records the stable `real_live_disabled` capture state without loading a manifest or invoking an HTTP client.
+- Added a safe public projection for `capture.live_error`; it preserves only a stable code and the fixed authorization message.
+- Added a permanently disabled GUI control labelled `真实 HTTP 生成（会访问飞影，可能消耗积分）`, separate from the no-network `真实请求预演` action.
+- Added API and GUI regression coverage for the disabled state and public-response redaction boundary.
+
+## Verification
+
+- `node --test test/server-capture-api.test.js test/gui-smoke.test.js`: 15/15 passed.
+- `npm run check`: passed, 63 JavaScript files checked.
+- `git diff --check`: passed with no output.
+
+## Self-Review
+
+- The route is local-only: it reads and updates the batch store and does not load manifests, instantiate a capture client, or call a transport.
+- The API response uses `publicBatch()` and `publicCaptureState()`, so raw live errors, paths, cookies, and other request details are not exposed.
+- The real-live GUI control has no click handler and remains disabled even when the workbench is not busy.
+
+## Safety
+
+- Accessed 飞影: no.
+- Sent real HTTP: no.
+- Consumed 飞影积分: no.
+- Touched `docs/resume/`, raw HAR, batches, outputs, logs, screenshots, `config.local.json`, or `node_modules`: no.
+
+## Follow-Up
+
+- `real_live` remains deliberately unavailable until separate explicit authorization and one-item execution controls are introduced.
+
+---
+
 # Task 3 Report: RPA Callback Route And State Guards
 
 ## Status

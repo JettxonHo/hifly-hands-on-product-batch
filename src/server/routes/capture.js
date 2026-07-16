@@ -27,6 +27,13 @@ function replayFailure() {
   };
 }
 
+function realLiveDisabledFailure() {
+  return {
+    code: "CAPTURE_HTTP_REAL_LIVE_DISABLED",
+    message: "real_live is disabled until explicitly authorized."
+  };
+}
+
 function isSafeRelativePath(value) {
   return typeof value === "string" && value.length > 0 &&
     !path.isAbsolute(value) && !path.win32.isAbsolute(value) &&
@@ -209,5 +216,19 @@ export async function registerCaptureRoutes(app, { batchRoot, store }) {
       }));
       return { batch: publicBatch(updated) };
     }
+  });
+
+  app.post("/api/batches/:batchId/capture/live-status", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    await readCaptureBatch(batchId);
+    const updated = await store.update(batchId, (current) => ({
+      ...current,
+      capture: updateCaptureState(current.capture, {
+        enabled: true,
+        status: "real_live_disabled",
+        live_error: realLiveDisabledFailure()
+      })
+    }));
+    return { batch: publicBatch(updated) };
   });
 }

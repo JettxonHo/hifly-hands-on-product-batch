@@ -1,5 +1,13 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-17 Capture HTTP Task 3：API/GUI 暴露 real_live 禁用状态（无网络、无新增积分）
+
+- 新增本地受保护 API `POST /api/batches/:batchId/capture/live-status`：只把已开启 capture 的批次更新为 `real_live_disabled`，写入稳定 `CAPTURE_HTTP_REAL_LIVE_DISABLED` 错误；不读取 manifest、不初始化 client、不调用 transport。
+- public capture 投影新增 `live_error` 白名单归一化，只公开稳定 code 与 `real_live is disabled until explicitly authorized.`，不会回显遗留路径、cookie 或原始异常。
+- GUI 将“真实请求预演”和“真实 HTTP 生成（会访问飞影，可能消耗积分）”分开。后者在当前阶段永久禁用，并提示需单独授权后仅跑 1 条。
+- 新增 API/GUI 回归：`node --test test/server-capture-api.test.js test/gui-smoke.test.js` 为 15/15 通过；`npm run check` 通过（63 个 JS 文件），`git diff --check` 通过。
+- 本轮未访问飞影、未发真实 HTTP、未消耗积分；未触碰关键批次、`docs/resume/`、raw HAR、batches、outputs、logs、screenshots、`config.local.json` 或 `node_modules`。
+
 ## 2026-07-17 已有真实 HAR 批次完成 real_dry_run 预演（无网络、无新增积分）
 
 - 复用已有 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca`（商品 `VERIFY-001 / 验证用吉伊卡哇公仔`），未新建批次、未重新访问飞影、未重新生成视频。

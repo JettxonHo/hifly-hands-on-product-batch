@@ -56,6 +56,9 @@ export function publicCaptureState(capture) {
   if (capture.dry_run_error !== undefined && capture.dry_run_error !== null) {
     value.dry_run_error = publicDryRunError();
   }
+  if (capture.live_error !== undefined && capture.live_error !== null) {
+    value.live_error = publicLiveError(capture.live_error);
+  }
   if (capture.extract_summary && Number.isInteger(capture.extract_summary.step_count)) {
     value.extract_summary = { step_count: capture.extract_summary.step_count };
   }
@@ -113,6 +116,13 @@ function publicReplayError() {
   return {
     code: "CAPTURE_REPLAY_FAILED",
     message: "Unable to complete the offline replay."
+  };
+}
+
+function publicLiveError(error) {
+  return {
+    code: error.code || "CAPTURE_HTTP_REAL_LIVE_DISABLED",
+    message: "real_live is disabled until explicitly authorized."
   };
 }
 

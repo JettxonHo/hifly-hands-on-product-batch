@@ -407,6 +407,42 @@ test("dry-run capture API stores only a public-safe request plan summary", async
   assert.equal(JSON.stringify(persisted).includes("non-sensitive-key-secret-value"), false);
 });
 
+test("real-live status API records disabled state without network or sensitive details", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const batchId = "batch-real-live-status";
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: batchId,
+    status: "completed",
+    items: [],
+    uploads: [],
+    capture: {
+      enabled: true,
+      status: "dry_run_passed",
+      manifest_path: `batches/${batchId}/capture/manifest.json`,
+      dry_run_summary: { executed_step_count: 1, request_plan: [] }
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/live-status`,
+    headers: headers(session),
+    payload: {}
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.batch.capture.status, "real_live_disabled");
+  assert.equal(body.batch.capture.live_error.code, "CAPTURE_HTTP_REAL_LIVE_DISABLED");
+  assert.equal(JSON.stringify(body).includes(root), false);
+  assert.equal(JSON.stringify(body).includes("cookie"), false);
+});
+
 test("list and detail projections remove legacy full dry-run request details", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "capture-legacy-projection-"));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -306,6 +306,65 @@ test("capture GUI exposes a no-network dry-run action for redacted batches", asy
   await assertVisible(page.getByText("仅构造请求计划，不访问飞影、不消耗积分"));
 });
 
+test("capture GUI distinguishes real-live disabled from dry-run", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-live-disabled-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-real-live-disabled",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [],
+    capture: {
+      enabled: true,
+      status: "dry_run_passed",
+      manifest_path: "batches/batch-real-live-disabled/capture/manifest.json",
+      dry_run_summary: { executed_step_count: 7, request_plan: [] }
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("真实请求预演通过"));
+  await assertVisible(page.getByRole("button", { name: "真实 HTTP 生成（会访问飞影，可能消耗积分）" }));
+  assert.equal(await page.getByRole("button", { name: "真实 HTTP 生成（会访问飞影，可能消耗积分）" }).isDisabled(), true);
+  await assertVisible(page.getByText("当前阶段仅支持真实请求预演；真实 HTTP 生成需单独授权后只跑 1 条。"));
+});
+
 async function assertVisible(locator) {
   await locator.waitFor({ state: "visible", timeout: 10_000 });
   assert.equal(await locator.isVisible(), true);
