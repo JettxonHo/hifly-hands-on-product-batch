@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-16 GUI 抓包工作流方向确认：Playwright 兜底，抓包 HTTP 目标替代
+
+- 用户确认最终目标是跑通抓包 HTTP 工作流，从而最终不再依赖 Playwright；但在抓包 HTTP 未完整可用前，继续使用已跑通的 Playwright 生产链路。
+- 已新增架构决策：`docs/decisions/ADR-001-playwright-fallback-capture-http-target.md`。核心：Playwright 保持默认生产后端；GUI 抓包先作为 opt-in sidecar，真实生成仍由 Playwright 完成，同时录 HAR、抽取、脱敏、离线回放；只有 HTTP 上传、手持图生成、提交、轮询、下载等全链路稳定后，才允许另行确认切换默认执行后端。
+- 已补充 spec：`docs/superpowers/specs/2026-07-16-gui-capture-workflow-design.md` 新增“过渡与切换策略”，明确抓包 HTTP 完整可用标准。
+- 已新增实现计划：`docs/superpowers/plans/2026-07-16-gui-capture-workflow.md`。计划分 7 个任务：capture state、批次持久化、带 HAR 的 Playwright 执行、HAR 抽取、脱敏/离线回放 API、GUI 控件、文档接力。
+- 关键实现提醒：Playwright HAR 录制必须在 browser context 创建时配置，不能在已启动的长驻 context 上临时开关。因此 capture-enabled 批次需要一次性的带 HAR context；普通批次继续使用现有默认 Playwright 路径。
+- 本轮只写文档和计划，未启动 GUI、未访问飞影、未执行真实生成、未消耗积分；`docs/resume/` 仍为未跟踪目录且未触碰。
+
 ## 2026-07-16 Codex 真实单条 HAR 采集完成：Playwright 主链路仍可用
 
 - 用户已确认允许进行 1 条真实飞影采集；本轮只跑 1 条，没有重新开多条或重复从头调试。
