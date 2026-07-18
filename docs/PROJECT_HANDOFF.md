@@ -2,6 +2,7 @@
 
 ## 2026-07-18 Capture HTTP 二次真实联调定位为登录态失效，已补错误识别（停止继续消耗积分）
 
+- 2026-07-18 23:28 CST 更新：用户重新登录项目专用 Playwright profile 后，已做一次无积分 `upload_url` 认证探测。结果：`status=200`、`code=0`、`message=OK`，runtime auth 读取到 4 个 cookie 和 1 个 bearer token，说明当前 profile 登录态已恢复。该探测只申请上传 URL，未生成手持图、未提交视频。
 - 用户明确授权后，对已有单商品 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 再次执行了 1 次真实 HTTP 出片联调；未新建批次、未批量运行、未从 Playwright 上传素材流程重跑。
 - 结果：`capture.status = real_live_failed`，RPA state 停在 `generating_asset`，仍未进入 `submit_video`。这说明失败发生在手持商品图 asset_generation 的第一段附近；不要把它误判为 GUI 商品录入失败或下载阶段失败。
 - 关键诊断：使用当前 manifest + runtime auth 对首个 `upload_url` 做最小诊断请求，飞影返回 HTTP 200、`content-type: text/plain; charset=utf-8`，body 为 `{"code":12,"message":"用户未认证"}`。这不是内容类型问题，而是项目专用 Playwright profile 中的飞影登录态/token 已失效。
