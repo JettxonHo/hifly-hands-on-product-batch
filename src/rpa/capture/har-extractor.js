@@ -1,0 +1,327 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+const DEFAULT_ALLOWED_HOSTS = new Set(["hifly.cc", "hiflyworks-api.lingverse.co"]);
+const STATIC_EXTENSIONS = new Set([
+  ".css",
+  ".gif",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".js",
+  ".map",
+  ".png",
+  ".svg",
+  ".webp",
+  ".woff",
+  ".woff2"
+]);
+
+function headerObject(headers = []) {
+  const result = {};
+  for (const header of headers) {
+    if (typeof header?.name === "string") result[header.name.toLowerCase()] = String(header.value ?? "");
+  }
+  return result;
+}
+
+function isStaticRequest(url) {
+  const extension = path.extname(url.pathname).toLowerCase();
+  return STATIC_EXTENSIONS.has(extension);
+}
+
+function parseBody(content = {}) {
+  const text = typeof content.text === "string" ? content.text : "";
+  const mimeType = String(content.mimeType || "").toLowerCase();
+  if (!text || !mimeType.includes("json") && !/^\s*[{[]/.test(text)) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function parseRequestBody(postData = {}) {
+  const text = typeof postData.text === "string" ? postData.text : "";
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function responseValue(body, path) {
+  if (typeof path !== "string" || !path.startsWith("$response.body.")) return undefined;
+  let value = body;
+  for (const part of path.slice("$response.body.".length).split(".")) {
+    if (value === null || typeof value !== "object" || !(part in value)) return undefined;
+    value = value[part];
+  }
+  return value;
+}
+
+function substituteCapturedValues(value, capturedValues) {
+  if (typeof value === "string") {
+    let result = value;
+    for (const [captured, variable] of [...capturedValues.entries()].sort(([a], [b]) => b.length - a.length)) {
+      if (result === captured) return `{{${variable}}}`;
+      // Short identifiers such as "1" occur in stable API paths like /v1/.
+      // They are not safe to replace globally without structured field knowledge.
+      if (captured.length < 6) continue;
+      result = result.split(captured).join(`{{${variable}}}`);
+      result = result.split(encodeURIComponent(captured)).join(`{{${variable}}}`);
+    }
+    return result;
+  }
+  if (Array.isArray(value)) return value.map((item) => substituteCapturedValues(item, capturedValues));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, substituteCapturedValues(item, capturedValues)]));
+  }
+  return value;
+}
+
+function decodedValue(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function capturedPlaceholder(value, capturedValues) {
+  const decoded = decodedValue(value);
+  for (const [captured, variable] of capturedValues) {
+    if (value === captured || decoded === captured) return `{{${variable}}}`;
+  }
+  return null;
+}
+
+function substituteCapturedUrl(urlValue, capturedValues) {
+  let url;
+  try {
+    url = new URL(urlValue);
+  } catch {
+    return urlValue;
+  }
+  const pathTemplate = url.pathname.split("/").map((segment) => capturedPlaceholder(segment, capturedValues) || segment).join("/");
+  const fragmentIndex = urlValue.indexOf("#");
+  const beforeFragment = fragmentIndex === -1 ? urlValue : urlValue.slice(0, fragmentIndex);
+  const queryIndex = beforeFragment.indexOf("?");
+  const rawQuery = queryIndex === -1 ? null : beforeFragment.slice(queryIndex + 1);
+  const queryTemplate = rawQuery === null ? "" : rawQuery.split("&").map((part) => {
+    const equalsIndex = part.indexOf("=");
+    if (equalsIndex === -1) return part;
+    const value = part.slice(equalsIndex + 1);
+    return `${part.slice(0, equalsIndex + 1)}${capturedPlaceholder(value, capturedValues) || value}`;
+  }).join("&");
+  const origin = `${url.protocol}//${url.host}`;
+  const fragment = fragmentIndex === -1 ? "" : urlValue.slice(fragmentIndex);
+  return `${origin}${pathTemplate}${rawQuery === null ? "" : `?${queryTemplate}`}${fragment}`;
+}
+
+function templatePlaceholders(value) {
+  return typeof value === "string" ? value.match(/\{\{[A-Za-z0-9_]+\}\}/g) || [] : [];
+}
+
+function requestRisk(parts) {
+  const mayConsume = parts.method === "POST" && (
+    parts.path === "/api/app/v1/one_stop/goods_in_hand/goods_holding_image_generation" ||
+    parts.path === "/api/app/v1/one_stop/goods_in_hand/videos"
+  );
+  return {
+    requires_auth: true,
+    may_consume_points: mayConsume,
+    replayability: "unknown"
+  };
+}
+
+function responseData(body) {
+  return body && typeof body === "object" && body.data && typeof body.data === "object" ? body.data : {};
+}
+
+function pathParts(entry) {
+  let url;
+  try {
+    url = new URL(entry.request.url);
+  } catch {
+    return null;
+  }
+  return {
+    host: url.hostname,
+    path: url.pathname,
+    method: String(entry.request?.method || "GET").toUpperCase(),
+    url
+  };
+}
+
+function hiflyworksStep(entry, body, context) {
+  const parts = pathParts(entry);
+  if (!parts || parts.host !== "hiflyworks-api.lingverse.co") return null;
+  const { path: pathname, method } = parts;
+  const data = responseData(body);
+
+  if (pathname === "/api/app/v1/upload_url" && method === "POST" && typeof data.oss_key === "string") {
+    context.uploadCount += 1;
+    const variableName = context.uploadCount === 1 ? "goods_image_oss_key" : `upload_${context.uploadCount}_oss_key`;
+    return {
+      id: `upload_image_${String(context.uploadCount).padStart(3, "0")}`,
+      phase: "asset_generation",
+      produces: { [variableName]: "$response.body.data.oss_key" }
+    };
+  }
+
+  if (pathname === "/api/app/v1/one_stop/goods_in_hand/goods_holding_image_generation") {
+    if (method === "POST") {
+      context.handsOnSubmitted = true;
+      return {
+        id: "create_hands_on_image",
+        phase: "asset_generation"
+      };
+    }
+    if (method === "GET" && context.handsOnSubmitted && !context.assetProduced && data.status === 3 && typeof data.gen_id === "string") {
+      context.assetProduced = true;
+      return {
+        id: "poll_hands_on_image_ready",
+        phase: "asset_generation",
+        produces: { asset_id: "$response.body.data.gen_id" }
+      };
+    }
+    return null;
+  }
+
+  if (pathname === "/api/app/v1/one_stop/goods_in_hand/videos") {
+    if (method === "POST") {
+      context.videoSubmitted = true;
+      return {
+        id: "submit_video",
+        phase: "remote_submit",
+        placeholders: ["{{asset_id}}"]
+      };
+    }
+    if (method === "GET" && context.videoSubmitted) {
+      const first = Array.isArray(data.list) ? data.list[0] : null;
+      if (!first || typeof first !== "object") return null;
+      if (first.status === 1 && !context.remoteIdProduced && first.id !== undefined && first.id !== null) {
+        context.remoteIdProduced = true;
+        return {
+          id: "poll_video_submitted",
+          phase: "remote_submit",
+          produces: { remote_id: "$response.body.data.list.0.id" }
+        };
+      }
+      if (first.status === 1 && context.remoteIdProduced && !context.remoteQueryAdded) {
+        context.remoteQueryAdded = true;
+        return {
+          id: "poll_video_status",
+          phase: "remote_query",
+          placeholders: ["{{remote_id}}"]
+        };
+      }
+      if (first.status === 2 && first.url && !context.downloadAdded) {
+        context.downloadAdded = true;
+        return {
+          id: "download_video",
+          phase: "download",
+          placeholders: ["{{remote_id}}"],
+          produces: { artifact_filename: "$response.body.data.list.0.title" }
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function legacyHiflyStep(entry) {
+  const parts = pathParts(entry);
+  if (!parts || parts.host !== "hifly.cc") return null;
+  if (!parts.path.startsWith("/api/")) return null;
+  return {
+    id: null,
+    phase: "unclassified"
+  };
+}
+
+function candidateStep(entry, index, context) {
+  const body = parseBody(entry.response?.content);
+  if (body === null) return null;
+  const parts = pathParts(entry);
+  if (!parts) return null;
+  const classified = hiflyworksStep(entry, body, context) || legacyHiflyStep(entry);
+  if (!classified) return null;
+  const requestBody = parseRequestBody(entry.request?.postData);
+  const requestTemplate = {
+    headers: substituteCapturedValues(headerObject(entry.request?.headers), context.capturedValues),
+    ...(requestBody ? { body: substituteCapturedValues(requestBody, context.capturedValues) } : {})
+  };
+  const urlTemplate = substituteCapturedUrl(entry.request.url, context.capturedValues);
+  const placeholders = new Set([
+    ...(classified.placeholders || []),
+    ...templatePlaceholders(urlTemplate),
+    ...templatePlaceholders(JSON.stringify(requestTemplate))
+  ]);
+  for (const [name, responsePath] of Object.entries(classified.produces || {})) {
+    const value = responseValue(body, responsePath);
+    if (typeof value === "string" || typeof value === "number") context.capturedValues.set(String(value), name);
+  }
+  return {
+    id: classified.id || `candidate_${String(index + 1).padStart(3, "0")}`,
+    phase: classified.phase,
+    method: String(entry.request?.method || "GET").toUpperCase(),
+    url_template: urlTemplate,
+    request_template: requestTemplate,
+    response: {
+      status: Number(entry.response?.status || 0),
+      headers: headerObject(entry.response?.headers),
+      body
+    },
+    ...(placeholders.size > 0 ? { placeholders: [...placeholders] } : {}),
+    ...(parts.host === "hiflyworks-api.lingverse.co" ? { risk: requestRisk(parts) } : {}),
+    ...(classified.produces ? { produces: classified.produces } : {})
+  };
+}
+
+export async function extractRawStepsFromHar({
+  harPath,
+  outputPath = null,
+  allowedHosts = [...DEFAULT_ALLOWED_HOSTS]
+} = {}) {
+  if (!harPath) throw Object.assign(new Error("harPath is required"), { code: "CAPTURE_HAR_MISSING" });
+  const allowed = new Set(allowedHosts);
+  const har = JSON.parse(await readFile(harPath, "utf8"));
+  const entries = Array.isArray(har?.log?.entries) ? har.log.entries : [];
+  const steps = [];
+  const context = {
+    assetProduced: false,
+    downloadAdded: false,
+    handsOnSubmitted: false,
+    remoteIdProduced: false,
+    remoteQueryAdded: false,
+    uploadCount: 0,
+    videoSubmitted: false,
+    capturedValues: new Map()
+  };
+  for (const entry of entries) {
+    if (!entry?.request?.url) continue;
+    let url;
+    try {
+      url = new URL(entry.request.url);
+    } catch {
+      continue;
+    }
+    if (!allowed.has(url.hostname) || isStaticRequest(url)) continue;
+    const step = candidateStep(entry, steps.length, context);
+    if (step) steps.push(step);
+  }
+  const raw = {
+    source: "hifly_goods",
+    captured_at: new Date().toISOString(),
+    steps
+  };
+  if (outputPath) {
+    await mkdir(path.dirname(outputPath), { recursive: true, mode: 0o700 });
+    await writeFile(outputPath, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+  }
+  return raw;
+}

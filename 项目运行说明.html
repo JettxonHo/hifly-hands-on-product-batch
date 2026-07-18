@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>飞影批量种草视频项目运行说明</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --paper: #ffffff;
+      --ink: #15171a;
+      --muted: #626975;
+      --line: #dde1e7;
+      --accent: #145f5a;
+      --accent-soft: #e5f2f0;
+      --code: #111827;
+      --code-bg: #eef1f5;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.7;
+    }
+
+    main {
+      width: min(960px, calc(100% - 40px));
+      margin: 40px auto;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 42px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 32px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0 0 28px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    h2 {
+      margin: 34px 0 12px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 17px;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    ol,
+    ul {
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: var(--code-bg);
+      color: var(--code);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.94em;
+    }
+
+    pre {
+      margin: 12px 0 18px;
+      padding: 15px 16px;
+      overflow-x: auto;
+      border-radius: 6px;
+      background: #111827;
+      color: #f9fafb;
+      line-height: 1.55;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: inherit;
+      font-size: 14px;
+    }
+
+    .callout {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      border-radius: 4px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 20px;
+      font-size: 15px;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f1f4f7;
+      font-weight: 700;
+    }
+
+    .footer {
+      margin-top: 34px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>飞影批量种草视频项目运行说明</h1>
+    <p class="subtitle">适用于“每个商品只出 1 条标准视频”的 V1 工作流：商品表输入 → 校验 → 生成脚本/提示词/QC 表 → 飞影批量生成 → 下载质检。</p>
+
+    <div class="callout">
+      <strong>项目目录：</strong><code>/Users/ketchup/Documents/Product Recommendation clip</code>
+    </div>
+
+    <h2>1. 首次安装</h2>
+    <p>打开终端，先进入项目目录：</p>
+    <pre><code>cd "/Users/ketchup/Documents/Product Recommendation clip"</code></pre>
+
+    <p>安装依赖和 Playwright 浏览器：</p>
+    <pre><code>npm install
+npx playwright install chromium</code></pre>
+
+    <p>复制本地配置文件：</p>
+    <pre><code>cp config.example.json config.local.json</code></pre>
+
+    <h2>2. 首次登录飞影</h2>
+    <p>首次使用或登录失效时运行：</p>
+    <pre><code>npm run login</code></pre>
+    <p>系统会打开浏览器。人工完成飞影登录，并确认能进入飞影工作台后，回到终端按提示继续。</p>
+
+    <h2>3. 准备商品资料</h2>
+    <p>商品信息可以填在以下任意一种表里：</p>
+    <ul>
+      <li><code>products/products.csv</code></li>
+      <li><code>products/商品信息表.xlsx</code></li>
+    </ul>
+
+    <p>商品图片统一放入：</p>
+    <pre><code>products/images/</code></pre>
+
+    <p>每个商品至少需要这些字段：</p>
+    <table>
+      <thead>
+        <tr>
+          <th>字段</th>
+          <th>说明</th>
+          <th>示例</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>sku</code></td>
+          <td>唯一商品编号，用于命名和追踪任务。</td>
+          <td><code>SKU001</code></td>
+        </tr>
+        <tr>
+          <td><code>product_name</code></td>
+          <td>产品名称，用于口播、字幕和文件名。</td>
+          <td><code>山野小青菜</code></td>
+        </tr>
+        <tr>
+          <td><code>selling_points</code></td>
+          <td>核心卖点，建议 2-3 条，用中文分号分隔。</td>
+          <td><code>根系完整；叶片厚实；清炒清甜</code></td>
+        </tr>
+        <tr>
+          <td><code>category</code></td>
+          <td>商品品类，用于匹配人物池和场景。</td>
+          <td><code>fresh_food</code></td>
+        </tr>
+        <tr>
+          <td><code>image_path</code></td>
+          <td>商品图片路径。</td>
+          <td><code>products/images/SKU001.png</code></td>
+        </tr>
+        <tr>
+          <td><code>status</code></td>
+          <td>新任务填 <code>pending</code>。</td>
+          <td><code>pending</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>4. 标准运行流程</h2>
+    <p>准备好商品表和图片后，按顺序运行：</p>
+    <pre><code>npm run validate
+npm run prepare-standard
+npm run run</code></pre>
+
+    <table>
+      <thead>
+        <tr>
+          <th>命令</th>
+          <th>作用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>npm run validate</code></td>
+          <td>检查商品表字段、图片路径和人物素材配置。</td>
+        </tr>
+        <tr>
+          <td><code>npm run prepare-standard</code></td>
+          <td>为每个待处理商品生成口播脚本、飞影提示词和质检表骨架。</td>
+        </tr>
+        <tr>
+          <td><code>npm run run</code></td>
+          <td>启动自动化浏览器，进入飞影“手里有货”页面批量生成并下载视频。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>5. 本地网页工作台</h2>
+    <p>如果想用本地网页界面录入或导入商品，运行：</p>
+    <pre><code>npm run gui</code></pre>
+    <p>终端会打印类似下面的地址：</p>
+    <pre><code>Local workbench: http://127.0.0.1:4317</code></pre>
+    <p>打开这个地址即可使用本地工作台。如果端口被占用，系统会自动换到下一个可用端口。</p>
+
+    <h2>6. 产物位置</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>目录</th>
+          <th>内容</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>outputs/standard-video-assets/scripts/</code></td>
+          <td>每个商品的标准口播脚本。</td>
+        </tr>
+        <tr>
+          <td><code>outputs/standard-video-assets/prompts/</code></td>
+          <td>每个商品的飞影左右分屏提示词。</td>
+        </tr>
+        <tr>
+          <td><code>outputs/standard-video-assets/qc/qc_report.csv</code></td>
+          <td>质检表骨架。</td>
+        </tr>
+        <tr>
+          <td><code>downloads/</code></td>
+          <td>飞影下载回来的视频文件。</td>
+        </tr>
+        <tr>
+          <td><code>logs/</code></td>
+          <td>运行日志。</td>
+        </tr>
+        <tr>
+          <td><code>screenshots/</code></td>
+          <td>失败截图和调试截图。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>7. 常见问题</h2>
+    <h3>登录失效或出现验证码</h3>
+    <p>重新运行：</p>
+    <pre><code>npm run login</code></pre>
+
+    <h3>商品校验失败</h3>
+    <p>先看终端错误提示，常见原因是商品图片路径写错、必填字段为空、状态没有填 <code>pending</code>。</p>
+
+    <h3>飞影页面按钮找不到</h3>
+    <p>飞影页面文案或结构可能变了，需要检查 <code>config.local.json</code> 里的 <code>hiflyUi</code> 配置。</p>
+
+    <h3>成片质量不稳定</h3>
+    <p>优先检查商品图是否清晰、主体是否完整；包装类商品建议用干净白底图或透明底抠图。</p>
+
+    <div class="footer">
+      V1 口径：每个商品只出 1 条标准视频。多达人、多脚本、多版本投放测试后续再升级。
+    </div>
+  </main>
+</body>
+</html>

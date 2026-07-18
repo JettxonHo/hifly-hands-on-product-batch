@@ -1,48 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveFromRoot } from "./config.js";
+import { resolvePersonStrategies } from "./core/person-strategy.js";
 
 const DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 
 export function assignPersonImages(products, config, logger) {
-  if (!config.personPool?.enabled) return products;
-
-  const counters = new Map();
-
-  return products.map((product) => {
-    if (product.person_image_path) return product;
-
-    const category = normalizeCategory(product.category, config);
-    const files = listPersonPoolFiles(config, category);
-    const fallbackFiles = category === defaultCategory(config)
-      ? []
-      : listPersonPoolFiles(config, defaultCategory(config));
-    const candidates = files.length > 0 ? files : fallbackFiles;
-
-    if (candidates.length === 0) {
-      logger?.info("person_pool_fallback_to_recommended", {
-        sku: product.sku,
-        category
-      });
-      return product;
-    }
-
-    const counterKey = files.length > 0 ? category : defaultCategory(config);
-    const nextIndex = counters.get(counterKey) ?? 0;
-    counters.set(counterKey, nextIndex + 1);
-
-    const chosenPath = candidates[nextIndex % candidates.length];
-    logger?.info("person_pool_assigned", {
-      sku: product.sku,
-      category,
-      personImagePath: chosenPath
-    });
-
-    return {
-      ...product,
-      __resolved_person_image_path: chosenPath
-    };
-  });
+  return resolvePersonStrategies(products, config, {
+    person_strategy: config.personPool?.strategy || "auto_pool"
+  }, logger);
 }
 
 export function listPersonPoolFiles(config, category) {

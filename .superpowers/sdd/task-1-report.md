@@ -1,0 +1,72 @@
+# Task 1 Report: Gated `real_live` Client and Factory Integration
+
+## Status
+
+DONE
+
+## Reviewer Fix
+
+- Important fix: after URL substitution, `real_live` now rechecks the resolved URL query keys with `isSensitiveKey()` before any transport call. A dynamic template key such as `?{{query_key}}=x` can no longer resolve to `?token=x` or `?apiKey=x` and bypass the manifest-time sensitive-key gate.
+- Added fake-transport regression coverage for resolved `token` and `apiKey` query keys. Both reject with `CAPTURE_HTTP_SENSITIVE_TEMPLATE` and assert `called === false`.
+- P1 fix: template placeholder and unresolved-marker scans now recurse through both object keys and values. Malformed header keys such as `{{asset_id` and body keys such as `{{asset-id}}` fail with `CAPTURE_HTTP_UNDECLARED_PLACEHOLDER` before the injected transport is called; ordinary header/body keys remain covered by the successful fake-transport case.
+- Critical fix: local-path validation now rejects all slash-prefixed POSIX/UNC-like request values, including decoded query values such as `//etc/passwd`, while allowing ordinary `http(s)` URL strings in headers and bodies.
+- Important fix: merged runtime authentication headers now pass through the same local-path validation before the injected transport runs, so `x-source: /etc/passwd` is rejected without sending a request.
+- Added fake-transport coverage for encoded double-slash query values, triple-slash header values, UNC-like body values, unsafe runtime-auth headers, and the successful auth-required `cookie: sid=abc` path.
+- P1 fix: placeholder declarations now must be complete `{{name}}` tokens with ASCII alphanumeric/underscore names. Bare declarations and malformed forms are rejected before variable substitution, authorization checks, or the injected transport.
+- P1 fix: URL, header, and body template strings now reject unmatched, nested, and illegal placeholder markers before transport. Valid `{{asset_id}}` substitutions continue through the existing successful fake-transport path.
+- Added fake-transport regressions for bare and malformed declarations plus unmatched, nested, and trailing-brace template markers; every rejection asserts `called === false`.
+- P1 fix: `real_live` now independently rejects request templates containing sensitive header/body keys or URL query keys before it resolves values or calls the injected transport. It reuses the capture manifest's `isSensitiveKey()` / recursive key scanner and reports the stable `CAPTURE_HTTP_SENSITIVE_TEMPLATE` error for direct, unparsed manifest objects.
+- P1 fix: local-path validation now treats `file:` URIs as forbidden request values. Header and body values such as `file:///srv/private/secret.png` fail with `CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN` before transport.
+- Added fake-transport regression coverage for `authorization`, `apiKey`, `?token=...`, and `file:` URI templates; every case asserts the transport remains uncalled. The ordinary fake-transport success case remains covered.
+- P1 fix: expanded the Windows absolute-path branch to reject both UNC values such as `\\\\server\\share\\secret.png` and rooted values such as `\\secret\\file.png` before the injected transport can run. Normal remote URL pathnames, including `/api/app/v1/...`, remain outside the request-value gate.
+- Added regression cases for both Windows path forms, each asserting `CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN` and `called === false`.
+- Second-round fix: expanded the pre-transport POSIX local-path gate from a hard-coded root list to all absolute local path values in URL query values, headers, and request bodies. URL pathnames remain outside this value gate, so normal remote paths such as `/api/app/v1/...` are accepted.
+- Second-round fix: expanded template marker detection to any `{{...}}` token. Malformed or undeclared markers such as `{{asset-id}}` in URL templates or request bodies now fail with `CAPTURE_HTTP_UNDECLARED_PLACEHOLDER` before transport.
+- Added a pre-transport declared-placeholder check across the URL, headers, body, and placeholder declaration list. Dynamic template references that are absent from `step.placeholders` now fail with `CAPTURE_HTTP_UNDECLARED_PLACEHOLDER`.
+- Added resolved-value local path checks for URL query values and nested headers/body values. POSIX and Windows absolute local paths now fail with `CAPTURE_HTTP_LOCAL_PATH_FORBIDDEN`; ordinary API paths such as `/api/app/v1/...` remain valid.
+- Added regression coverage for both errors, including URL query, header, and body path sources, with `called === false` for every rejection.
+
+## Changed Files
+
+- `src/rpa/capture/real-live-http-client.js`
+  - Added a gated `real_live` capture client and a disabled-by-default transport.
+  - Validates enablement, one-time authorization, point-risk acknowledgement, runtime auth, host allowlist, declared variables, and unresolved placeholders before the injected transport can run.
+  - Resolves request templates, merges in-memory runtime headers only for transport, and parses produced response variables.
+- `src/rpa/capture/http-client-factory.js`
+  - Routes `real_live` mode to the new client while passing `config`, `runtimeAuth`, and `transport` through explicitly.
+- `test/rpa-capture-real-live-client.test.js`
+  - Added disabled, authorization, point-risk, auth-required, host-allowlist, and fake-transport success coverage.
+- `test/rpa-capture-http-client-factory.test.js`
+  - Updated the former construction-time `real_live` rejection expectation to request-time gating and added factory transport forwarding coverage.
+- `.superpowers/sdd/task-1-report.md`
+  - This report.
+
+## Test Commands and Results
+
+- `node --test test/rpa-capture-real-live-client.test.js`
+  - Initial red phase: failed as expected because `src/rpa/capture/real-live-http-client.js` did not exist.
+- `node --test test/rpa-capture-real-live-client.test.js test/rpa-capture-http-client-factory.test.js`
+  - Passed: 23 tests, 0 failures.
+- `npm run check`
+  - Passed: checked 63 JavaScript files.
+- `npm test`
+  - Passed: 324 tests, 0 failures.
+- `git diff --check`
+  - Passed: no whitespace errors.
+
+## Self-Review
+
+- Correctness: all required stable gate errors are tested before fake transport invocation; the fake response confirms `produces` propagation.
+- Architecture: the client follows the existing mock/dry-run request and response shape and keeps network egress behind an injected `transport.request()` boundary.
+- Security: default configuration and default transport reject requests; runtime authentication remains in memory and is not returned in `request_plan`.
+- Scope: no executor, API, GUI, handoff/documentation, batch, raw HAR, output, log, screenshot, configuration, or dependency files were changed.
+
+## Real Service / HTTP / Points
+
+- Accessed Feiying: no.
+- Sent real HTTP: no.
+- Consumed Feiying points: no.
+
+## Concerns
+
+- This task intentionally provides only the gated client and injected transport boundary. It does not wire `real_live` into the executor, API, GUI, or a production network transport; those are explicitly deferred to later tasks and remain disabled by default.

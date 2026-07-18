@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="飞影手里有货批量生产自动化的客户协作与运营培训手册。">
+  <title>飞影手里有货 - 新人培训使用手册</title>
+  <style>
+    :root {
+      --ink: #18202b;
+      --muted: #5c6572;
+      --line: #d8dee7;
+      --paper: #ffffff;
+      --canvas: #f4f6f8;
+      --client: #0b6e69;
+      --client-soft: #e5f3f1;
+      --ops: #5426a8;
+      --ops-soft: #f0eaff;
+      --warning: #8d4d00;
+      --warning-soft: #fff1d9;
+      --danger: #9e2448;
+      --danger-soft: #fdeaf0;
+      --shadow: 0 10px 28px rgba(24, 32, 43, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--canvas);
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--canvas);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    a {
+      color: inherit;
+      text-decoration-color: #9eacc0;
+      text-underline-offset: 3px;
+    }
+
+    a:hover { color: var(--ops); }
+
+    code {
+      padding: 0.1em 0.35em;
+      border: 1px solid #dfe4ea;
+      border-radius: 3px;
+      background: #f7f9fb;
+      color: #243044;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.88em;
+      overflow-wrap: anywhere;
+    }
+
+    header {
+      padding: 60px max(24px, calc((100vw - 1080px) / 2));
+      color: #f7f8fc;
+      background: #242051;
+    }
+
+    header > * { max-width: 760px; }
+
+    header p:first-child,
+    section > p:first-child {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    header p:first-child { color: #cbbcff; }
+
+    header h1 {
+      max-width: 850px;
+      margin: 0;
+      color: #ffffff;
+      font-size: 42px;
+      line-height: 1.16;
+      letter-spacing: 0;
+    }
+
+    header h1 + p {
+      margin: 20px 0 8px;
+      color: #d9dced;
+    }
+
+    header a { color: #ffffff; }
+
+    nav {
+      position: sticky;
+      z-index: 2;
+      top: 0;
+      display: flex;
+      gap: 4px;
+      justify-content: center;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
+    }
+
+    nav a {
+      padding: 5px 10px;
+      border-radius: 4px;
+      color: #3d4754;
+      font-size: 14px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    nav a:hover {
+      color: var(--ops);
+      background: var(--ops-soft);
+    }
+
+    main {
+      width: min(1080px, calc(100% - 40px));
+      margin: 30px auto 70px;
+    }
+
+    section {
+      margin: 24px 0;
+      padding: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    section > p:first-child { color: var(--muted); }
+
+    #client > p:first-child { color: var(--client); }
+    #operations > p:first-child { color: var(--ops); }
+    #troubleshooting > p:first-child { color: var(--danger); }
+
+    h2, h3, h4 {
+      color: var(--ink);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 22px;
+      font-size: 29px;
+      line-height: 1.3;
+    }
+
+    h3 {
+      margin: 36px 0 12px;
+      padding-top: 4px;
+      font-size: 19px;
+      line-height: 1.4;
+    }
+
+    h4 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+
+    p, li { overflow-wrap: anywhere; }
+    ul, ol { padding-left: 1.35em; }
+    li + li { margin-top: 7px; }
+
+    section > div:not(.command),
+    section > aside {
+      margin: 18px 0;
+    }
+
+    #client > div:not(.command) {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    article {
+      padding: 20px;
+      border: 1px solid #b7ded9;
+      border-radius: 6px;
+      background: #f7fcfb;
+    }
+
+    aside {
+      padding: 16px 18px;
+      border-left: 4px solid var(--warning);
+      border-radius: 0 5px 5px 0;
+      background: var(--warning-soft);
+    }
+
+    aside h3 { margin: 0 0 6px; font-size: 16px; }
+    aside p { margin: 0; }
+
+    #operations aside {
+      border-left-color: var(--danger);
+      background: var(--danger-soft);
+    }
+
+    #operations > div:not(.command):has(ol) {
+      padding: 22px;
+      border: 1px solid #cfc2f1;
+      border-radius: 6px;
+      background: #faf8ff;
+    }
+
+    .table-wrap {
+      display: block !important;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 620px;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 11px 13px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: #314050;
+      background: #eef2f6;
+      font-weight: 700;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .command {
+      position: relative;
+      margin: 14px 0;
+      border: 1px solid #cdd5df;
+      border-radius: 5px;
+      background: #1f2935;
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px 68px 18px 18px;
+      overflow-x: auto;
+      color: #eef4fa;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    pre code {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font-size: inherit;
+      white-space: pre;
+    }
+
+    .copy-button,
+    .print-button {
+      min-height: 34px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: #ffffff;
+      background: #5b2bb7;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .copy-button {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 5px 9px;
+      background: #354456;
+    }
+
+    .copy-button:hover { background: #4a5f75; }
+    .copy-button:focus-visible,
+    .print-button:focus-visible,
+    details summary:focus-visible,
+    a:focus-visible {
+      outline: 3px solid #f2b53f;
+      outline-offset: 2px;
+    }
+
+    .action-bar {
+      display: flex;
+      justify-content: flex-end;
+      width: min(1080px, calc(100% - 40px));
+      margin: -20px auto 0;
+    }
+
+    .print-button { padding: 7px 12px; }
+    .print-button:hover { background: #45208c; }
+
+    details {
+      margin: 10px 0;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #ffffff;
+    }
+
+    details[open] { border-color: #cdbff2; }
+
+    summary {
+      padding: 14px 16px;
+      color: #2c3746;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    details p { margin: 0; padding: 0 16px 16px; }
+
+    #appendix { margin-bottom: 0; }
+
+    @media (max-width: 680px) {
+      body { font-size: 15px; }
+      header { padding: 42px 22px; }
+      header h1 { font-size: 33px; }
+      nav { justify-content: flex-start; overflow-x: auto; padding-inline: 12px; }
+      nav a { flex: 0 0 auto; }
+      main, .action-bar { width: min(100% - 24px, 1080px); }
+      main { margin-top: 18px; }
+      section { padding: 25px 19px; }
+      h2 { font-size: 25px; }
+      #client > div:not(.command) { grid-template-columns: 1fr; }
+      .action-bar { margin-top: -8px; }
+      pre { padding-right: 18px; padding-top: 52px; }
+    }
+
+    @media print {
+      @page { size: A4; margin: 13mm; }
+      html, body { background: #ffffff; }
+      body { font-size: 10.5pt; line-height: 1.5; }
+      header { padding: 0 0 10mm; color: #18202b; background: #ffffff; }
+      header h1, header p, header a { color: #18202b; }
+      header h1 { font-size: 27pt; }
+      nav, .action-bar, .copy-button { display: none !important; }
+      main { width: 100%; margin: 0; }
+      section { margin: 0 0 8mm; padding: 0; border: 0; box-shadow: none; }
+      section, details, article, aside { break-inside: avoid; }
+      h2 { margin-top: 0; }
+      a { color: inherit; text-decoration: none; }
+      .command { border-color: #8a96a3; background: #ffffff; }
+      pre, pre code { color: #18202b; }
+      pre { padding: 10px; }
+      th { background: #edf0f3 !important; }
+      .table-wrap { overflow: visible; }
+    }
+  </style>
+</head>
+<body>
+  <header id="top">
+    <p>飞影批量生产自动化</p>
+    <h1>手里有货<br>新人培训使用手册</h1>
+    <p>面向客户素材协作与内部运营执行。本文档可离线打开，适用于当前项目的网页自动化流程。</p>
+    <p><a href="https://hifly.cc/goods">目标页面：hifly.cc/goods</a></p>
+  </header>
+
+  <nav aria-label="手册目录">
+    <a href="#overview">总览</a>
+    <a href="#client">客户协作</a>
+    <a href="#operations">运营执行</a>
+    <a href="#troubleshooting">问题排查</a>
+    <a href="#appendix">附录</a>
+  </nav>
+
+  <div class="action-bar">
+    <button class="print-button" type="button" data-print aria-label="打印本使用手册">打印手册</button>
+  </div>
+
+  <main>
+    <section id="overview">
+      <p>先读这里</p>
+      <h2>这份手册解决什么</h2>
+      <div>
+        <p>项目通过飞影网页的“一键成片 - 手里有货”模式批量制作商品种草视频。该模式当前没有开放官方 API，因此使用浏览器自动化完成批量上传、生成和下载。</p>
+        <p>客户团队通常自带运营角色，因此本手册把客户与运营视为同一执行方：同一位使用者可以在本地网页工具中上传素材、提交任务、启动生成并完成质检。登录、验证码、页面改版和生成排队等外部状态，仍需要人工关注。</p>
+      </div>
+
+      <h3>开始前检查</h3>
+      <ol>
+        <li>确认飞影账号可进入“手里有货”页面，并有足够积分。</li>
+        <li>确认客户素材齐全，商品图清晰且产品名称、卖点、品类已经确定。</li>
+        <li>先用 5 至 10 条商品做校准批次，再扩到 20 至 50 条。</li>
+        <li>不要把账号密码、登录态或真实客户素材提交到 Git 仓库。</li>
+      </ol>
+
+      <aside>
+        <h3>关键限制</h3>
+        <p>当前“手里有货”页面没有提供数字人姿势参数。数字人的坐姿、站姿、景别和场景主要由人物素材图或飞影推荐模板决定。只使用同一张人物图或同一推荐模板时，批量视频容易出现姿势和背景雷同。</p>
+      </aside>
+    </section>
+
+    <section id="client">
+      <p>给客户和合作方</p>
+      <h2>客户协作区</h2>
+      <p>客户或客户自己的运营可以直接在本地网页工作台提交素材，也可以整理 CSV/XLSX 后批量导入。素材越完整，批量出片的稳定性和差异化越高。</p>
+
+      <h3>客户需提交的内容</h3>
+      <div>
+        <article>
+          <h4>必需</h4>
+          <ul>
+            <li><strong>商品图片</strong>：每个商品至少 1 张。</li>
+            <li><strong>产品名称</strong>：建议 20 字以内，方便口播和字幕展示。</li>
+            <li><strong>核心卖点</strong>：建议不超过 3 条，用分号分隔。</li>
+            <li><strong>商品品类</strong>：如 <code>fresh_food</code>、<code>beauty</code>、<code>snacks</code>，用于匹配人物素材池。</li>
+          </ul>
+        </article>
+        <article>
+          <h4>建议提供</h4>
+          <ul>
+            <li><strong>人物/背景图</strong>：能显著降低批量视频的背景与姿势重复。</li>
+            <li><strong>品牌禁用词与合规要求</strong>：尤其是食品、功效、医疗、金融相关商品。</li>
+            <li><strong>期望风格</strong>：例如亲和日常、专业讲解、轻快种草。</li>
+            <li><strong>验收要求</strong>：成片比例、时长、字幕、交付数量与命名规则。</li>
+          </ul>
+        </article>
+      </div>
+
+      <h3>商品图片要求</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>项目</th><th>要求</th><th>原因</th></tr></thead>
+          <tbody>
+            <tr><td>格式</td><td>JPG 或 PNG</td><td>飞影上传弹窗支持这两种格式。</td></tr>
+            <tr><td>大小</td><td>单张不超过 10MB</td><td>超过限制会直接上传失败。</td></tr>
+            <tr><td>主体</td><td>商品完整、清晰、无遮挡</td><td>降低“手持”合成时的形变和误识别。</td></tr>
+            <tr><td>画面</td><td>优先白底图或干净场景图</td><td>复杂背景会增加合成画面的不确定性。</td></tr>
+            <tr><td>文字</td><td>包装文字可读，但不承诺逐字还原</td><td>生成模型可能让小字产生变形。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>人物与背景素材建议</h3>
+      <p>若客户希望批量结果更像不同达人在不同环境下推荐商品，建议每个品类至少准备 3 至 5 张竖图，并刻意拉开差异：</p>
+      <ul>
+        <li>混合坐姿、站姿、半身和中景；不要全部用同一种姿势。</li>
+        <li>混合厨房、客厅、梳妆台、办公桌等与品类相关的自然场景。</li>
+        <li>人物手部和身体轮廓要清楚，避免原图就有严重遮挡。</li>
+        <li>避免人物手中已有同类商品，以免生成图出现多个商品或手部冲突。</li>
+      </ul>
+
+      <aside>
+        <h3>为什么背景会重复</h3>
+        <p>这是素材与飞影模板共同造成的结果，并不是批量脚本故意固定背景。当前脚本会优先使用客户指定的人物图；没有时才从对应品类人物池轮换；再没有才使用飞影推荐人物。人物素材不足时，成片自然会趋同。</p>
+      </aside>
+
+      <h3>商品信息表字段说明</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>谁填写</th><th>填写说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>sku</code></td><td>运营</td><td>唯一编号，例如 <code>SKU001</code>。</td></tr>
+            <tr><td><code>product_name</code></td><td>客户</td><td>产品全称或视频展示名。</td></tr>
+            <tr><td><code>selling_points</code></td><td>客户</td><td>核心卖点，用分号分隔。</td></tr>
+            <tr><td><code>category</code></td><td>客户/运营</td><td>对应人物素材池目录名。</td></tr>
+            <tr><td><code>image_path</code></td><td>运营</td><td>商品图相对路径，例如 <code>products/images/SKU001.png</code>。</td></tr>
+            <tr><td><code>person_image_path</code></td><td>客户/运营</td><td>可留空；留空时使用人物素材池轮换。</td></tr>
+            <tr><td><code>status</code></td><td>运营</td><td>新任务填写 <code>pending</code>。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>客户验收清单</h3>
+      <ul>
+        <li>视频文件可正常播放，且不是 0 字节文件。</li>
+        <li>画面比例、时长、字幕和交付数量符合双方约定。</li>
+        <li>商品外观无明显变形，包装信息没有严重错乱。</li>
+        <li>数字人口型、动作和音频没有明显卡顿或不同步。</li>
+        <li>产品名称、卖点、字幕和 CTA 没有错字、夸大或禁用表述。</li>
+        <li>同一批视频在数字人姿势、背景和景别上没有过度重复。</li>
+      </ul>
+    </section>
+
+    <section id="operations">
+      <p>给内部运营人员</p>
+      <h2>运营执行区</h2>
+      <p>请按顺序执行。跳过弹窗中的“确认”会导致下一条任务仍停留在上一条的结果弹窗内，是当前页面最容易被忽略的一步。</p>
+
+      <h3>1. 首次环境准备</h3>
+      <p>本机需要 Node.js 20+（推荐 22+）、npm 和 Playwright Chromium。进入项目根目录后依次执行：</p>
+      <div class="command">
+        <pre><code>npm install
+npx playwright install chromium
+cp config.example.json config.local.json</code></pre>
+      </div>
+      <p><code>config.local.json</code> 仅保存本地校准项，不能提交到 Git。</p>
+
+      <h3>2. 登录飞影并保存登录态</h3>
+      <p>首次使用或登录失效后执行：</p>
+      <div class="command">
+        <pre><code>npm run login</code></pre>
+      </div>
+      <ol>
+        <li>在弹出的浏览器中完成飞影登录。</li>
+        <li>确认可以进入 <a href="https://hifly.cc/goods">手里有货页面</a>。</li>
+        <li>回到终端按 Enter，脚本保存当前浏览器登录态。</li>
+      </ol>
+
+      <h3>3. 启动本地网页工作台</h3>
+      <p>Mac 和 Windows 都使用同一个命令：</p>
+      <div class="command">
+        <pre><code>npm run gui</code></pre>
+      </div>
+      <p>终端会显示本地地址，例如 <code>http://127.0.0.1:4317</code>。如果默认端口被占用，系统会自动换到下一个可用端口。工作台只在本机浏览器访问，不开放给公网或局域网。</p>
+
+      <h3>4. 在 GUI 中提交商品信息与素材</h3>
+      <div>
+        <h3>单条录入</h3>
+        <ol>
+          <li>打开「新建商品」页签。</li>
+          <li>填写产品名称、核心卖点和品类；SKU 可填写，也可由系统自动生成。</li>
+          <li>上传商品图。商品图必须是 JPG/PNG，且不超过配置中的上传上限。</li>
+          <li>点击「加入待执行」，系统会自动生成本批次需要的导入表。</li>
+        </ol>
+      </div>
+      <div>
+        <h3>批量导入</h3>
+        <ol>
+          <li>打开「批量导入」页签。</li>
+          <li>上传 CSV/XLSX 商品表和对应商品图片。</li>
+          <li>商品表中的 <code>image_path</code> 可填写上传图片文件名；若留空，建议图片文件名与 <code>sku</code> 一致。</li>
+          <li>导入完成后到「待执行任务」检查批次、商品名、卖点和状态。</li>
+        </ol>
+      </div>
+
+      <h3>5. 传统文件方式（高级/排障）</h3>
+      <ol>
+        <li>把商品图放入 <code>products/images/</code>，建议按 SKU 命名。</li>
+        <li>填写 <code>products/products.csv</code> 或 <code>products/商品信息表.xlsx</code>。</li>
+        <li>为每条商品填写唯一 <code>sku</code>、产品名、卖点、<code>category</code> 和商品图路径。</li>
+        <li>新任务将 <code>status</code> 填为 <code>pending</code>。</li>
+      </ol>
+
+      <h3>6. 配置人物素材池</h3>
+      <p>人物图的选择顺序固定如下：</p>
+      <ol>
+        <li>商品表中明确填写的 <code>person_image_path</code>。</li>
+        <li>同品类目录 <code>assets/person_pool/&lt;category&gt;/</code> 中的图片，脚本会逐条轮换。</li>
+        <li>默认目录 <code>assets/person_pool/default/</code> 中的通用人物图。</li>
+        <li>以上都没有时，按本地配置退回飞影弹窗中的推荐人物。</li>
+      </ol>
+      <p>人物池支持 JPG、JPEG、PNG。推荐将人物图按品类放置，例如：</p>
+      <div class="command">
+        <pre><code>assets/person_pool/fresh_food/
+assets/person_pool/beauty/
+assets/person_pool/snacks/
+assets/person_pool/default/</code></pre>
+      </div>
+
+      <h3>7. 生成前校验</h3>
+      <p>使用 GUI 时，导入和上传会先做基础校验；使用传统文件方式时，在消耗积分前必须运行：</p>
+      <div class="command">
+        <pre><code>npm run validate</code></pre>
+      </div>
+      <p>校验会检查必填字段、商品图路径、显式人物图路径，以及无人物图时是否存在匹配的品类池、默认池或允许使用飞影推荐人物。</p>
+
+      <h3>8. 开始批量生成</h3>
+      <p>推荐在 GUI 的「待执行任务」页点击「开始生成」，并在确认弹窗中再次确认。传统 CLI 路径可运行：</p>
+      <div class="command">
+        <pre><code>npm run run</code></pre>
+      </div>
+      <p>脚本会逐条进入 <strong>手里有货</strong> 页面，并按照下方流程处理。建议首次校准批次保持 5 至 10 条，确认成片质量和下载规则后再扩大批量。</p>
+
+      <div>
+        <h3>页面关键流程</h3>
+        <ol>
+          <li>在页面外层点击“上传人物+产品图”。</li>
+          <li>在弹窗内上传或选择人物图，并上传商品图。</li>
+          <li>点击弹窗内的“立即生成”。此步骤生成手持商品图，会消耗积分。</li>
+          <li><strong>等待生成完成后，点击弹窗右下角的“确认”。</strong></li>
+          <li>回到页面外层，点击紫色“立即生成”，提交视频制作。</li>
+          <li>任务完成后，在“最新作品”卡片右下角点击下载图标。</li>
+        </ol>
+      </div>
+
+      <aside>
+        <h3>必须点击“确认”</h3>
+        <p>弹窗中的“确认”不是可选动作。若生成完成后没有点击它，下一次点击“上传人物+产品图”时，会继续停留在上一条商品的完成弹窗，批处理无法进入下一条。只点击右上角关闭或直接重新上传都不应作为正常流程。</p>
+      </aside>
+
+      <h3>9. 下载、归档与质检</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>目录</th><th>内容</th><th>运营动作</th></tr></thead>
+          <tbody>
+            <tr><td><code>batches/</code></td><td>GUI 批次状态、上传副本和批次产物</td><td>按批次检查任务状态和产物。</td></tr>
+            <tr><td><code>downloads/</code></td><td>CLI 路径下载的视频样片或成片</td><td>检查文件能否播放并按项目规则归档。</td></tr>
+            <tr><td><code>logs/</code></td><td>JSONL 运行日志和失败原因</td><td>定位失败商品与页面状态。</td></tr>
+            <tr><td><code>screenshots/</code></td><td>异常截图和调试截图</td><td>复核页面报错、弹窗或下载状态。</td></tr>
+            <tr><td><code>outputs/</code></td><td>最终交付打包目录</td><td>在质检通过后输出给项目负责人。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="troubleshooting">
+      <p>遇到异常时按这里处理</p>
+      <h2>常见问题排查</h2>
+
+      <details>
+        <summary>本地网页工作台打不开</summary>
+        <p>先确认终端里 <code>npm run gui</code> 没有退出，并复制终端打印的完整本地地址。若提示端口占用，使用系统自动给出的新端口。工作台只支持 <code>127.0.0.1</code> 本机访问，不要把地址改成局域网 IP。</p>
+      </details>
+      <details>
+        <summary>GUI 导入后找不到商品图</summary>
+        <p>批量导入时要同时上传商品表和图片。建议图片文件名与 <code>sku</code> 一致，或在商品表 <code>image_path</code> 中填写本次上传的图片文件名。GUI 不接受客户电脑上的绝对路径作为执行依据。</p>
+      </details>
+      <details>
+        <summary>登录失效、要求验证码或无法进入手里有货页面</summary>
+        <p>重新执行 <code>npm run login</code>，在浏览器中人工完成登录或验证码，然后按 Enter 保存登录态。确认浏览器可以访问 <code>https://hifly.cc/goods</code> 后再运行批次。</p>
+      </details>
+      <details>
+        <summary>商品图或人物图上传失败</summary>
+        <p>检查图片是否为 JPG/PNG、是否小于 10MB、路径是否正确、文件是否可打开。商品图需要主体清晰；人物图避免严重遮挡和手中已有同类商品。修正后运行 <code>npm run validate</code>。</p>
+      </details>
+      <details>
+        <summary>页面没有找到“立即生成”按钮</summary>
+        <p>先确认是否位于手里有货页面。外层和弹窗各有一个“立即生成”：弹窗内用于生成手持商品图，外层用于生成视频。如果飞影页面文案或结构更新，需要在 <code>config.local.json</code> 的 <code>hiflyUi</code> 配置中重新校准，不要直接盲点其他按钮。</p>
+      </details>
+      <details>
+        <summary>手持商品图已生成，下一条任务却仍卡在弹窗</summary>
+        <p>这是没有点击生成结果弹窗中“确认”的典型表现。点击右下角“确认”回到外层页面，再继续外层视频生成或下一条任务。不要把右上角关闭当作确认。</p>
+      </details>
+      <details>
+        <summary>数字人姿势总是坐着，画面太单一</summary>
+        <p>当前飞影手里有货页面没有暴露姿势控制，因此这不是脚本遗漏的参数。优先为同一品类准备不同站姿、坐姿、景别和场景的人物图，并让商品表留空人物图时从品类池轮换。只使用飞影推荐人物时，风格和姿势更容易重复。</p>
+      </details>
+      <details>
+        <summary>背景过于雷同</summary>
+        <p>增加 <code>assets/person_pool/&lt;category&gt;/</code> 下的差异化人物/背景图，每个品类建议至少 3 至 5 张。客户若提供单张固定人物图，脚本会优先尊重该选择；要获得变化，需要客户提供多张不同场景素材或允许运营改用人物池。</p>
+      </details>
+      <details>
+        <summary>视频生成失败、长时间排队或下载失败</summary>
+        <p>先查看 <code>logs/</code> 和 <code>screenshots/</code>，确认是否为积分、队列、网络或页面异常。降低单批量并重试；下载问题则回到“最新作品”确认任务已完成，再检查浏览器下载权限和 <code>downloads/</code> 目录。失败商品修正后改回 <code>pending</code> 再运行。</p>
+      </details>
+    </section>
+
+    <section id="appendix">
+      <p>快速查阅</p>
+      <h2>附录</h2>
+
+      <h3>常用命令</h3>
+      <div class="command">
+        <pre><code>npm install
+npx playwright install chromium
+npm run login
+npm run gui
+npm run validate
+npm run run
+npm run check
+npm run package</code></pre>
+      </div>
+
+      <h3>交付前最后检查</h3>
+      <ol>
+        <li>运行 <code>npm run validate</code>，确认商品表和素材路径无误。</li>
+        <li>查看 <code>downloads/</code>，逐条抽检文件可播放性、商品质量、字幕和口型。</li>
+        <li>查看 <code>logs/</code> 与 <code>screenshots/</code>，处理失败任务。</li>
+        <li>将通过质检的文件放入交付目录，并按客户命名规则打包。</li>
+      </ol>
+
+      <p><a href="#top">返回顶部</a></p>
+    </section>
+  </main>
+  <script>
+    (function () {
+      function setButtonText(button, text) {
+        button.textContent = text;
+        window.setTimeout(function () {
+          button.textContent = "复制";
+        }, 1600);
+      }
+
+      function fallbackCopy(text) {
+        var textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        var copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        return copied;
+      }
+
+      document.querySelectorAll(".command").forEach(function (block) {
+        var button = document.createElement("button");
+        button.className = "copy-button";
+        button.type = "button";
+        button.textContent = "复制";
+        button.setAttribute("aria-label", "复制此命令或路径");
+        button.addEventListener("click", function () {
+          var text = block.querySelector("code").textContent.trim();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () {
+              setButtonText(button, "已复制");
+            }).catch(function () {
+              setButtonText(button, fallbackCopy(text) ? "已复制" : "请手动复制命令");
+            });
+            return;
+          }
+          setButtonText(button, fallbackCopy(text) ? "已复制" : "请手动复制命令");
+        });
+        block.appendChild(button);
+      });
+
+      document.querySelector("[data-print]").addEventListener("click", function () {
+        window.print();
+      });
+    }());
+  </script>
+</body>
+</html>

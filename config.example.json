@@ -1,10 +1,51 @@
 {
+  "executionBackend": "playwright",
+  "rpa": {
+    "mode": "default",
+    "captureHttpMode": "mock",
+    "manifestPath": "rpa/capture/fixtures/hifly-goods-sample.json",
+    "realLive": {
+      "enabled": false,
+      "allowedHosts": ["hiflyworks-api.lingverse.co"],
+      "artifactAllowedHosts": ["hfcdn.lingverse.co"],
+      "allowedDomains": ["hiflyworks-api.lingverse.co", "hifly.cc", "lingverse.co"],
+      "maxArtifactBytes": 209715200,
+      "timeoutMs": 30000
+    },
+    "callbackBaseUrl": "http://127.0.0.1:4317",
+    "assetTimeoutMs": 600000,
+    "submitTimeoutMs": 1200000,
+    "queryTimeoutMs": 120000,
+    "downloadTimeoutMs": 1200000,
+    "pollIntervalMs": 1000
+  },
   "hiflyWorkbenchUrl": "https://hifly.cc",
   "handsOnProductUrl": "https://hifly.cc/goods",
   "productsCsv": "products/products.csv",
   "downloadDir": "downloads",
   "logDir": "logs",
   "screenshotDir": "screenshots",
+  "gui": {
+    "host": "127.0.0.1",
+    "port": 4317,
+    "openBrowser": true
+  },
+  "uploadLimits": {
+    "maxImageBytes": 10485760,
+    "maxTableBytes": 20971520,
+    "maxBatchFiles": 500,
+    "maxBatchBytes": 1073741824,
+    "maxImagePixels": 40000000
+  },
+  "executionLock": {
+    "heartbeatIntervalMs": 5000,
+    "suspiciousAfterMs": 30000
+  },
+  "pointsEstimate": {
+    "version": "hifly-goods-2026-07",
+    "assetPointsPerItem": 350,
+    "videoPointsEstimate": null
+  },
   "browser": {
     "profileDir": "playwright/profile/hifly",
     "headless": false,
@@ -25,7 +66,7 @@
     "handsOnProductText": "",
     "productNameLabel": "产品名称",
     "sellingPointsLabel": "核心卖点",
-    "scriptLabel": "脚本文案",
+    "scriptLabel": "文案",
     "uploadLabel": "上传人物+产品图",
     "uploadPersonText": "上传人物",
     "uploadProductText": "上传商品",
