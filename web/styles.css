@@ -506,6 +506,11 @@ tr.selected {
   color: #912018;
 }
 
+.compact-notice {
+  margin: 8px 0 10px;
+  font-size: 13px;
+}
+
 .inline-actions {
   display: flex;
   flex-wrap: wrap;

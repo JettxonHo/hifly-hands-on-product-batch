@@ -400,7 +400,7 @@ test("capture GUI enables real-live action only for one-item dry-run batches", a
   const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
   await page.goto(server.url);
   await page.getByRole("tab", { name: "待执行任务" }).click();
-  await assertVisible(page.getByText("真实请求预演通过"));
+  await assertVisible(page.getByText("状态：真实请求预演通过", { exact: true }));
   await assertVisible(page.getByRole("button", { name: "真实 HTTP 生成（会访问飞影，可能消耗积分）" }));
   assert.equal(await page.getByRole("button", { name: "真实 HTTP 生成（会访问飞影，可能消耗积分）" }).isDisabled(), false);
   await assertVisible(page.getByText("真实 HTTP 生成只允许单条联调；点击后会使用浏览器登录态访问飞影，可能消耗积分。"));
@@ -472,11 +472,15 @@ test("capture GUI shows real-live completion evidence without offering a retry a
   await page.getByRole("tab", { name: "待执行任务" }).click();
   await assertVisible(page.getByText("状态：真实 HTTP 已完成", { exact: true }));
   await assertVisible(page.getByText("真实 HTTP 已完成并下载到本地。"));
-  await assertVisible(page.getByText("飞影作品 ID：640509"));
-  await assertVisible(page.getByText("下载路径：artifacts/未命名.mp4"));
+  await assertVisible(page.locator("#panel-queue").getByText("飞影作品 ID：640509"));
+  await assertVisible(page.locator("#panel-queue").getByText("下载路径：artifacts/未命名.mp4"));
   await assertVisible(page.getByText("默认不再重复生成"));
   assert.equal(await page.getByRole("button", { name: "复制路径" }).count(), 2);
   assert.equal(await page.getByRole("button", { name: /重新真实 HTTP 生成/ }).count(), 0);
+  await page.getByRole("tab", { name: "运行记录" }).click();
+  await assertVisible(page.locator("#panel-records").getByText("抓包 HTTP：已完成"));
+  await assertVisible(page.locator("#panel-records").getByText("飞影作品 ID：640509"));
+  await assertVisible(page.locator("#panel-records").getByText("下载路径：artifacts/未命名.mp4"));
 });
 
 test("capture GUI exposes a clear retry action for failed real-live batches", async (t) => {
@@ -536,10 +540,13 @@ test("capture GUI exposes a clear retry action for failed real-live batches", as
   await page.goto(server.url);
   await page.getByRole("tab", { name: "待执行任务" }).click();
   await assertVisible(page.getByText("真实 HTTP 失败"));
-  await assertVisible(page.getByText("错误码：CAPTURE_HTTP_ARTIFACT_MISSING"));
+  await assertVisible(page.locator("#panel-queue").getByText("错误码：CAPTURE_HTTP_ARTIFACT_MISSING"));
   const retry = page.getByRole("button", { name: "重新真实 HTTP 生成（会访问飞影，可能消耗积分）" });
   await assertVisible(retry);
   assert.equal(await retry.isDisabled(), false);
+  await page.getByRole("tab", { name: "运行记录" }).click();
+  await assertVisible(page.locator("#panel-records").getByText("抓包 HTTP：失败，可到待执行任务中重新真实 HTTP 生成"));
+  await assertVisible(page.locator("#panel-records").getByText("错误码：CAPTURE_HTTP_ARTIFACT_MISSING"));
 });
 
 async function assertVisible(locator) {

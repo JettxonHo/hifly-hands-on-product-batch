@@ -217,6 +217,53 @@
     }
   }
 
+  function captureRecordSummary(batch) {
+    const capture = batch.capture || {};
+    if (capture.enabled !== true) return null;
+
+    if (capture.status === "real_live_completed") {
+      const summary = capture.live_summary || {};
+      const notice = document.createElement("div");
+      notice.className = "notice success compact-notice";
+      const lines = [
+        "抓包 HTTP：已完成",
+        summary.remote_id ? `飞影作品 ID：${summary.remote_id}` : "",
+        summary.artifact_path ? `下载路径：${summary.artifact_path}` : "",
+        summary.completed_at ? `完成时间：${formatCaptureTime(summary.completed_at)}` : ""
+      ].filter(Boolean);
+      setText(notice, lines.join("\n"));
+      if (summary.artifact_path) {
+        const actions = document.createElement("div");
+        actions.className = "inline-actions";
+        actions.append(copyPathButton(summary.artifact_path));
+        notice.append(actions);
+      }
+      return notice;
+    }
+
+    if (capture.status === "real_live_failed") {
+      const error = capture.live_error || {};
+      const notice = document.createElement("div");
+      notice.className = "notice error compact-notice";
+      const lines = [
+        "抓包 HTTP：失败，可到待执行任务中重新真实 HTTP 生成",
+        error.code ? `错误码：${error.code}` : "",
+        `错误信息：${error.message || "Unable to complete the real HTTP live run."}`
+      ].filter(Boolean);
+      setText(notice, lines.join("\n"));
+      return notice;
+    }
+
+    if (capture.status && capture.status !== "disabled" && capture.status !== "not_started") {
+      const notice = document.createElement("div");
+      notice.className = "notice compact-notice";
+      setText(notice, `抓包工作流：${captureStatusLabel(capture.status)}`);
+      return notice;
+    }
+
+    return null;
+  }
+
   const BATCH_FOCUS_PRIORITY = new Map([
     ["interrupted_unknown", 0],
     ["active", 1],
@@ -602,10 +649,13 @@
       card.className = "record-card";
       const title = document.createElement("h3");
       setText(title, batch.batch_id);
+      const captureSummary = captureRecordSummary(batch);
       const list = document.createElement("ul");
       list.className = "task-list";
       for (const item of batch.items || []) list.append(taskItem(item));
-      card.append(title, list);
+      card.append(title);
+      if (captureSummary) card.append(captureSummary);
+      card.append(list);
       nodes.recordList.append(card);
     }
   }
