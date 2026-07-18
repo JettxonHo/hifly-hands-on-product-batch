@@ -520,3 +520,26 @@ test("real_live rejects non-2xx transport responses before producing variables",
     { code: "CAPTURE_HTTP_STATUS_NOT_OK" }
   );
 });
+
+test("real_live rejects non-zero Hifly response codes before producing variables", async () => {
+  const client = createRealLiveHttpClient({
+    manifest: manifestWith(),
+    config: { enabled: true },
+    runtimeAuth: { headers: { authorization: "Bearer in-memory-only" } },
+    transport: {
+      request: async () => ({
+        status: 200,
+        headers: {},
+        body: { code: 12, message: "用户未认证" }
+      })
+    }
+  });
+  await assert.rejects(
+    client.request({
+      stepId: "submit_video",
+      variables: { asset_id: "asset-1" },
+      context: { allowRealLive: true, acknowledgePointRisk: true }
+    }),
+    { code: "CAPTURE_HTTP_REMOTE_REJECTED" }
+  );
+});

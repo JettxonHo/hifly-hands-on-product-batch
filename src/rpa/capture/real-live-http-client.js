@@ -256,6 +256,9 @@ export function createRealLiveHttpClient({
         fail("CAPTURE_HTTP_STATUS_NOT_OK", "Live HTTP request returned a non-success status.");
       }
       const responseBody = response?.body ?? {};
+      if (responseBody && typeof responseBody === "object" && responseBody.code !== undefined && responseBody.code !== 0) {
+        fail("CAPTURE_HTTP_REMOTE_REJECTED", "Live HTTP request was rejected by the remote service.");
+      }
       const produced = extractProducedVariables(step.produces, responseBody);
       assertSafeProducedVariables(produced);
       return {

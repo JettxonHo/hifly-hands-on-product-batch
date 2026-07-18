@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-18 Capture HTTP 二次真实联调定位为登录态失效，已补错误识别（停止继续消耗积分）
+
+- 用户明确授权后，对已有单商品 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 再次执行了 1 次真实 HTTP 出片联调；未新建批次、未批量运行、未从 Playwright 上传素材流程重跑。
+- 结果：`capture.status = real_live_failed`，RPA state 停在 `generating_asset`，仍未进入 `submit_video`。这说明失败发生在手持商品图 asset_generation 的第一段附近；不要把它误判为 GUI 商品录入失败或下载阶段失败。
+- 关键诊断：使用当前 manifest + runtime auth 对首个 `upload_url` 做最小诊断请求，飞影返回 HTTP 200、`content-type: text/plain; charset=utf-8`，body 为 `{"code":12,"message":"用户未认证"}`。这不是内容类型问题，而是项目专用 Playwright profile 中的飞影登录态/token 已失效。
+- 已补代码：真实 fetch transport 现在会把 `text/plain` JSON 解析成 JSON；real-live client 对飞影 `code !== 0` 的业务响应统一抛 `CAPTURE_HTTP_REMOTE_REJECTED`，避免继续误报 `CAPTURE_HTTP_UNEXPECTED_CONTENT_TYPE`。
+- 验证：`node --test test/rpa-fetch-live-transport.test.js test/rpa-capture-real-live-client.test.js test/server-capture-api.test.js` 为 41/41 通过；`npm test` 为 353/353 通过；`npm run check` 通过（65 个 JS 文件）；`git diff --check` 通过。
+- 下一步：先运行 `npm run login`，在弹出的项目专用浏览器 profile 中完成飞影登录，并回到终端按 Enter 保存登录态。不要仅依赖普通 Chrome 或 Chrome for Testing 已登录页面。登录完成后，必须再次获得用户明确授权，才允许再对这 1 条批次执行真实 HTTP 联调。
+- 注意：本次联调已经访问飞影真实 API，是否消耗积分以飞影后台记录为准；当前阶段不要继续重复真实请求。
+
 ## 2026-07-18 Capture HTTP 首次真实联调失败于 asset_generation，已完成无积分修复准备
 
 - 用户授权后只对单商品批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 执行了一次 `POST /api/batches/:batchId/capture/live-run`；未重建批次、未批量执行、未从 Playwright 素材上传流程重跑。

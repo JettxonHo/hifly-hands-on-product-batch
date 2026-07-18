@@ -45,6 +45,23 @@ test("fetch live transport sends JSON request and parses JSON response", async (
   assert.deepEqual(result.body, { code: 0, data: { id: 123 } });
 });
 
+test("fetch live transport parses text/plain JSON responses", async () => {
+  const transport = createFetchLiveTransport({
+    fetchImpl: async () => new Response(JSON.stringify({ code: 12, message: "用户未认证" }), {
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" }
+    })
+  });
+  const result = await transport.request({
+    method: "POST",
+    url: "https://hiflyworks-api.lingverse.co/api/app/v1/upload_url",
+    headers: { "content-type": "application/json" },
+    body: { extension: "jpeg", media_type: 3 },
+    timeoutMs: 1000
+  });
+  assert.deepEqual(result.body, { code: 12, message: "用户未认证" });
+});
+
 test("fetch live transport returns binary artifact for non-json responses", async () => {
   const bytes = new Uint8Array([1, 2, 3, 4]);
   const transport = createFetchLiveTransport({

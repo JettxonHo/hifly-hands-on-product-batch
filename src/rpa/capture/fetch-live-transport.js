@@ -16,6 +16,12 @@ function isJsonContentType(value) {
   return typeof value === "string" && /(?:^|;|\s)application\/json(?:;|\s|$)/i.test(value);
 }
 
+function looksLikeJson(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return trimmed.startsWith("{") || trimmed.startsWith("[");
+}
+
 function isArtifactContentType(value) {
   if (typeof value !== "string") return false;
   return /^video\//i.test(value) ||
@@ -109,6 +115,17 @@ export function createFetchLiveTransport({
         if (isJsonContentType(contentType)) {
           const parsedBody = await response.json();
           return { status: response.status, headers: responseHeaders, body: parsedBody };
+        }
+
+        if (/^text\/plain\b/i.test(contentType)) {
+          const text = await response.text();
+          if (looksLikeJson(text)) {
+            try {
+              return { status: response.status, headers: responseHeaders, body: JSON.parse(text) };
+            } catch {
+              fail("CAPTURE_HTTP_UNEXPECTED_CONTENT_TYPE", "Live HTTP text response is not valid JSON.");
+            }
+          }
         }
 
         if (!isArtifactContentType(contentType)) {
