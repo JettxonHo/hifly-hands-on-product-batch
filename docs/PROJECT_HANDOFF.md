@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-19 Capture HTTP 真实单条出片已跑通：生成、提交、下载均成功
+
+- 用户明确“确认授权”后，只对已有单商品 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 调用了一次 `POST /api/batches/:batchId/capture/live-run`；未新建批次、未批量运行、未从 Playwright 重新上传素材。
+- 本次真实 HTTP 全链路成功：登录态注入正常，runtime auth 读取到 4 个 cookie 和 1 个 bearer；OSS PUT 商品图通过；手持商品图生成通过；视频提交通过；下载阶段等待当前作品 URL ready 后成功下载 mp4。
+- 批次状态：`capture.status = real_live_completed`。商品 `VERIFY-001 / 验证用吉伊卡哇公仔` 状态 `completed`，新飞影作品 `remote_id = 640509`。
+- 下载产物：`batches/batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca/artifacts/未命名.mp4`，本地文件约 56 MB。该文件属于批次运行产物，按项目规则不入 Git。
+- GUI/API 公开摘要：`live_summary.artifact_path = artifacts/未命名.mp4`，`live_summary.remote_id = 640509`，`completed_at = 2026-07-18T16:54:38.462Z`（Asia/Shanghai 为 2026-07-19 00:54:38）。
+- 结论：抓包 HTTP RPA 的单条真实出片链路已经跑通。下一步建议不要继续重复消耗积分；先做 GUI 侧可用性收尾：明确显示 `real_live_completed`、下载路径/远端 ID、失败批次重试入口，以及批量时默认继续使用 Playwright 或由开关选择 capture HTTP。
+- 本轮真实访问飞影并完成出片，是否实际消耗积分以飞影后台记录为准。
+
 ## 2026-07-18 Capture HTTP 第五次真实联调：视频再次提交成功，下载 URL 需继续轮询
 
 - 用户明确“授权同意”后，只对已有单商品 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 调用了一次 `POST /api/batches/:batchId/capture/live-run`；未新建批次、未批量运行、未从 Playwright 重新上传素材。
