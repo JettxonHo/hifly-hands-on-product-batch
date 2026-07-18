@@ -343,8 +343,24 @@ function canRetryMissingProduces(step) {
   return step.method === "GET" && step.produces && Object.keys(step.produces).length > 0;
 }
 
-async function requestWithProducesRetry({ step, request, transport, config }) {
-  const attempts = canRetryMissingProduces(step) ? Math.max(1, Number(config.pollAttempts ?? 60)) : 1;
+function canRetryArtifactList(step, responseBody) {
+  return step.method === "GET" && step.phase === "download" && Array.isArray(responseBody?.data?.list);
+}
+
+function shouldRetryResponse(step) {
+  return canRetryMissingProduces(step) || step.method === "GET" && step.phase === "download";
+}
+
+function assertDownloadListHasArtifactUrl(step, response, responseBody, variables, config) {
+  if (!canRetryArtifactList(step, responseBody)) return;
+  if (response?.artifact?.bytes) return;
+  if (normalizeArtifactDownloadUrl(responseBody, variables, config) === null) {
+    fail("CAPTURE_HTTP_ARTIFACT_MISSING", "Artifact list did not include the current video's downloadable URL yet.");
+  }
+}
+
+async function requestWithProducesRetry({ step, request, variables, transport, config }) {
+  const attempts = shouldRetryResponse(step) ? Math.max(1, Number(config.pollAttempts ?? 60)) : 1;
   const intervalMs = Math.max(0, Number(config.pollIntervalMs ?? 5000));
   let lastResponse = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -358,9 +374,11 @@ async function requestWithProducesRetry({ step, request, transport, config }) {
     }
     try {
       const produced = extractProducedVariables(step.produces, responseBody);
+      assertDownloadListHasArtifactUrl(step, response, responseBody, variables, config);
       return { response, responseBody, produced };
     } catch (error) {
-      if (error?.code !== "CAPTURE_PRODUCES_MISSING" || !canRetryMissingProduces(step) || attempt === attempts) {
+      const retryable = error?.code === "CAPTURE_PRODUCES_MISSING" || error?.code === "CAPTURE_HTTP_ARTIFACT_MISSING";
+      if (!retryable || !shouldRetryResponse(step) || attempt === attempts) {
         throw error;
       }
       lastResponse = response;
@@ -429,7 +447,7 @@ export function createRealLiveHttpClient({
         body,
         timeoutMs: config.timeoutMs ?? 30000
       };
-      const { response, responseBody, produced } = await requestWithProducesRetry({ step, request, transport, config });
+      const { response, responseBody, produced } = await requestWithProducesRetry({ step, request, variables, transport, config });
       await uploadProductImage({ step, responseBody, variables, transport, config });
       const listArtifact = response?.artifact ? null : await downloadArtifactFromList({ step, responseBody, variables, transport, config });
       const safeProduced = producedWithMatchedArtifactFilename(step, responseBody, variables, produced);

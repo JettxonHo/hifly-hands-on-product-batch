@@ -659,6 +659,7 @@ test("real_live polls until produced variables appear for GET steps", async () =
 
 test("real_live downloads artifact bytes from a matched video list URL without exposing the URL", async () => {
   const calls = [];
+  let listCalls = 0;
   const client = createRealLiveHttpClient({
     manifest: {
       schema_version: 1,
@@ -677,7 +678,7 @@ test("real_live downloads artifact bytes from a matched video list URL without e
         risk: { requires_auth: true, may_consume_points: false, replayability: "unknown" }
       }]
     },
-    config: { enabled: true },
+    config: { enabled: true, pollAttempts: 3, pollIntervalMs: 0 },
     runtimeAuth: { headers: { authorization: "Bearer in-memory-only" } },
     transport: {
       request: async (request) => {
@@ -690,16 +691,22 @@ test("real_live downloads artifact bytes from a matched video list URL without e
             artifact: { bytes: new Uint8Array([1, 2, 3]), filename: "verified.mp4" }
           };
         }
+        listCalls += 1;
         return {
           status: 200,
           headers: {},
           body: {
             code: 0,
             data: {
-              list: [
-                { id: 100, title: "old", url: "https://hfcdn.lingverse.co/videos/old.mp4", preview_url: "https://hfcdn.lingverse.co/previews/old.png" },
-                { id: 640477, title: "未命名", url: "https://hfcdn.lingverse.co/videos/current.mp4", preview_url: "https://hfcdn.lingverse.co/previews/current.png" }
-              ]
+              list: listCalls < 2
+                ? [
+                    { id: 100, title: "old", url: "https://hfcdn.lingverse.co/videos/old.mp4", preview_url: "https://hfcdn.lingverse.co/previews/old.png" },
+                    { id: 640477, title: "未命名", status: 1 }
+                  ]
+                : [
+                    { id: 100, title: "old", url: "https://hfcdn.lingverse.co/videos/old.mp4", preview_url: "https://hfcdn.lingverse.co/previews/old.png" },
+                    { id: 640477, title: "未命名", status: 2, url: "https://hfcdn.lingverse.co/videos/current.mp4", preview_url: "https://hfcdn.lingverse.co/previews/current.png" }
+                  ]
             }
           }
         };
@@ -711,8 +718,8 @@ test("real_live downloads artifact bytes from a matched video list URL without e
     variables: { remote_id: 640477 },
     context: { allowRealLive: true, acknowledgePointRisk: true }
   });
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].url, "https://hfcdn.lingverse.co/videos/current.mp4");
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].url, "https://hfcdn.lingverse.co/videos/current.mp4");
   assert.deepEqual([...result.artifact.bytes], [1, 2, 3]);
   assert.equal(result.artifact.filename, "verified.mp4");
   assert.equal(result.produced.artifact_filename, "未命名");

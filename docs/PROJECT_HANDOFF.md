@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-18 Capture HTTP 第五次真实联调：视频再次提交成功，下载 URL 需继续轮询
+
+- 用户明确“授权同意”后，只对已有单商品 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 调用了一次 `POST /api/batches/:batchId/capture/live-run`；未新建批次、未批量运行、未从 Playwright 重新上传素材。
+- 真实联调结果：登录态注入正常，runtime auth 读取到 4 个 cookie 和 1 个 bearer；OSS PUT 商品图通过；手持图生成通过并拿到 `asset_id = 201yzvgYmQNWvMuX`；视频提交通过并拿到新 `remote_id = 640482`。这再次确认抓包 HTTP 的生成和提交主链路已经可用。
+- 失败仍发生在下载阶段：`capture.status = real_live_failed`，public 错误码仍是 `CAPTURE_HTTP_ARTIFACT_MISSING`。本地 RPA state 停在 `phase = remote_query`，`capture_variables.remote_id = 640482`，说明尚未下载落盘。
+- 新根因：上一版下载适配会从作品列表 JSON 中按 `remote_id` 取 URL，但 `download_video` 第一次列表返回时当前作品可能已在列表中、但 URL 尚未 ready；代码没有继续等当前作品 URL 出现，所以还是拿不到 bytes。
+- 已完成本地修复：下载阶段只有在响应是 `data.list` 列表 JSON 时，才要求列表中当前 `remote_id` 带可用 `url`；如果当前条目还没有 URL，会按 `rpa.realLive.pollAttempts` / `pollIntervalMs` 继续轮询。直连 mp4 下载响应不受该列表等待逻辑影响。
+- 本轮真实访问飞影并完成了手持图生成与视频提交，是否实际消耗积分以飞影后台记录为准。修复后尚未再次真实联调；下一次如果要验证完整下载，仍需用户明确授权，建议只对该批次再跑 1 次。
+- 验证已执行：`node --test test/rpa-capture-real-live-client.test.js` 为 26/26 通过；`node --test test/rpa-capture-real-live-client.test.js test/rpa-fetch-live-transport.test.js test/server-capture-api.test.js test/capture-http-executor.test.js` 为 59/59 通过；`npm run check` 通过（65 个 JS 文件）；`npm test` 为 358/358 通过；`git diff --check` 通过。
+
 ## 2026-07-18 Capture HTTP 下载列表 URL 适配已本地完成（尚未再次真实联调）
 
 - 已按第四次真实联调暴露的失败点完成小切片修复：`download_video` 若返回飞影作品列表 JSON，会按当前 `remote_id` 匹配 `data.list` 中的作品条目，并仅在内存中读取该条目的 `url` 发起一次额外 GET 下载视频 bytes。
