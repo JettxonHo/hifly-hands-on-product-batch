@@ -656,3 +656,115 @@ test("real_live polls until produced variables appear for GET steps", async () =
   assert.equal(calls.length, 2);
   assert.equal(result.produced.asset_id, "asset-ready");
 });
+
+test("real_live downloads artifact bytes from a matched video list URL without exposing the URL", async () => {
+  const calls = [];
+  const client = createRealLiveHttpClient({
+    manifest: {
+      schema_version: 1,
+      sanitized: true,
+      source: "test",
+      captured_at: "2026-07-18T00:00:00.000Z",
+      steps: [{
+        id: "download_video",
+        phase: "download",
+        method: "GET",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=0&identifier=goods",
+        placeholders: ["{{remote_id}}"],
+        request_template: { headers: {}, body: null },
+        response: { status: 200, body: { code: 0, data: { list: [] } } },
+        produces: { artifact_filename: "$response.body.data.list.0.title" },
+        risk: { requires_auth: true, may_consume_points: false, replayability: "unknown" }
+      }]
+    },
+    config: { enabled: true },
+    runtimeAuth: { headers: { authorization: "Bearer in-memory-only" } },
+    transport: {
+      request: async (request) => {
+        calls.push(request);
+        if (request.url.startsWith("https://hfcdn.lingverse.co/")) {
+          return {
+            status: 200,
+            headers: { "content-type": "video/mp4" },
+            body: { artifact_filename: "verified.mp4" },
+            artifact: { bytes: new Uint8Array([1, 2, 3]), filename: "verified.mp4" }
+          };
+        }
+        return {
+          status: 200,
+          headers: {},
+          body: {
+            code: 0,
+            data: {
+              list: [
+                { id: 100, title: "old", url: "https://hfcdn.lingverse.co/videos/old.mp4", preview_url: "https://hfcdn.lingverse.co/previews/old.png" },
+                { id: 640477, title: "未命名", url: "https://hfcdn.lingverse.co/videos/current.mp4", preview_url: "https://hfcdn.lingverse.co/previews/current.png" }
+              ]
+            }
+          }
+        };
+      }
+    }
+  });
+  const result = await client.request({
+    stepId: "download_video",
+    variables: { remote_id: 640477 },
+    context: { allowRealLive: true, acknowledgePointRisk: true }
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].url, "https://hfcdn.lingverse.co/videos/current.mp4");
+  assert.deepEqual([...result.artifact.bytes], [1, 2, 3]);
+  assert.equal(result.artifact.filename, "verified.mp4");
+  assert.equal(result.produced.artifact_filename, "未命名");
+  assert.equal(JSON.stringify(result).includes("current.mp4"), false);
+  assert.equal(JSON.stringify(result).includes("preview_url"), false);
+});
+
+test("real_live refuses artifact URLs outside the artifact host allowlist", async () => {
+  const calls = [];
+  const client = createRealLiveHttpClient({
+    manifest: {
+      schema_version: 1,
+      sanitized: true,
+      source: "test",
+      captured_at: "2026-07-18T00:00:00.000Z",
+      steps: [{
+        id: "download_video",
+        phase: "download",
+        method: "GET",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id=0&identifier=goods",
+        placeholders: ["{{remote_id}}"],
+        request_template: { headers: {}, body: null },
+        response: { status: 200, body: { code: 0, data: { list: [] } } },
+        produces: { artifact_filename: "$response.body.data.list.0.title" },
+        risk: { requires_auth: true, may_consume_points: false, replayability: "unknown" }
+      }]
+    },
+    config: { enabled: true, artifactAllowedHosts: ["hfcdn.lingverse.co"] },
+    runtimeAuth: { headers: { authorization: "Bearer in-memory-only" } },
+    transport: {
+      request: async (request) => {
+        calls.push(request);
+        return {
+          status: 200,
+          headers: {},
+          body: {
+            code: 0,
+            data: {
+              list: [{ id: "work-1", title: "blocked", url: "https://example.invalid/video.mp4" }]
+            }
+          }
+        };
+      }
+    }
+  });
+  await assert.rejects(
+    client.request({
+      stepId: "download_video",
+      variables: { remote_id: "work-1" },
+      context: { allowRealLive: true, acknowledgePointRisk: true }
+    }),
+    { code: "CAPTURE_HTTP_ARTIFACT_URL_UNAVAILABLE" }
+  );
+  assert.equal(calls.length, 1);
+});

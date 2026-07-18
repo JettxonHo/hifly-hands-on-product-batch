@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-18 Capture HTTP 下载列表 URL 适配已本地完成（尚未再次真实联调）
+
+- 已按第四次真实联调暴露的失败点完成小切片修复：`download_video` 若返回飞影作品列表 JSON，会按当前 `remote_id` 匹配 `data.list` 中的作品条目，并仅在内存中读取该条目的 `url` 发起一次额外 GET 下载视频 bytes。
+- 安全边界：CDN URL 不会写入 batch、RPA state、manifest、report 或 API 响应；`publicResponseBody()` 会移除 `url` / `*_url` 字段。新增 `rpa.realLive.artifactAllowedHosts`，`config.example.json` 默认只允许 `hfcdn.lingverse.co`。
+- 修正文件名细节：历史 manifest 的 `artifact_filename` 取的是 `data.list.0.title`，但真实下载应按当前 `remote_id` 匹配条目；现在下载阶段会用匹配条目的 `title` 覆盖 artifact filename，避免拿到旧作品标题。
+- 新增错误码并进入 GUI public 白名单：`CAPTURE_HTTP_ARTIFACT_URL_UNAVAILABLE`、`CAPTURE_HTTP_ARTIFACT_DOWNLOAD_FAILED`。
+- 本轮未再次访问飞影、未再次消耗积分；只是用本地 fake transport 验证“列表 JSON → 匹配当前作品 URL → 下载 bytes → 不泄露 URL”的行为。
+- 验证已执行：`node --test test/rpa-capture-real-live-client.test.js` 为 26/26 通过；`node --test test/rpa-capture-real-live-client.test.js test/rpa-fetch-live-transport.test.js test/server-capture-api.test.js test/capture-http-executor.test.js` 为 59/59 通过；`npm run check` 通过（65 个 JS 文件）；`npm test` 为 358/358 通过；`git diff --check` 通过。
+- 下一步：如需确认抓包 HTTP 是否真正完整出片，必须再次获得用户明确授权后，只对 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 跑 1 次 `capture/live-run`。这次预期不会重复 Playwright 按钮流程，但仍会访问飞影并可能消耗积分。
+
 ## 2026-07-18 Capture HTTP 第四次真实联调：生成链路已推进到下载阶段，剩余列表 URL 下载适配
 
 - 用户再次明确授权“允许跑 1 条真实 HTTP 出片”后，只对已有单商品 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 调用了一次 `POST /api/batches/:batchId/capture/live-run`；未新建批次、未批量运行、未从 Playwright 重新上传素材。

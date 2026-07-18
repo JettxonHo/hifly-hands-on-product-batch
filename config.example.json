@@ -7,6 +7,7 @@
     "realLive": {
       "enabled": false,
       "allowedHosts": ["hiflyworks-api.lingverse.co"],
+      "artifactAllowedHosts": ["hfcdn.lingverse.co"],
       "allowedDomains": ["hiflyworks-api.lingverse.co", "hifly.cc", "lingverse.co"],
       "maxArtifactBytes": 209715200,
       "timeoutMs": 30000

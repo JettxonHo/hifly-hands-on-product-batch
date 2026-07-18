@@ -9,6 +9,7 @@ import {
 
 const DEFAULT_ALLOWED_HOSTS = new Set(["hiflyworks-api.lingverse.co"]);
 const DEFAULT_UPLOAD_ALLOWED_HOSTS = new Set(["prod-metarium.oss-cn-shanghai.aliyuncs.com"]);
+const DEFAULT_ARTIFACT_ALLOWED_HOSTS = new Set(["hfcdn.lingverse.co"]);
 const PLACEHOLDER_TOKEN = /^\{\{[A-Za-z0-9_]+\}\}$/;
 const TEMPLATE_PLACEHOLDER = /\{\{([A-Za-z0-9_]+)\}\}/g;
 const SAFE_PRODUCED_NAMES = new Set([
@@ -105,6 +106,11 @@ function hostAllowed(hostname, config) {
 
 function uploadHostAllowed(hostname, config) {
   const allowed = new Set(Array.isArray(config?.uploadAllowedHosts) ? config.uploadAllowedHosts : [...DEFAULT_UPLOAD_ALLOWED_HOSTS]);
+  return allowed.has(hostname);
+}
+
+function artifactHostAllowed(hostname, config) {
+  const allowed = new Set(Array.isArray(config?.artifactAllowedHosts) ? config.artifactAllowedHosts : [...DEFAULT_ARTIFACT_ALLOWED_HOSTS]);
   return allowed.has(hostname);
 }
 
@@ -249,16 +255,83 @@ async function uploadProductImage({ step, responseBody, variables, transport, co
   }
 }
 
-function publicResponseBody(step, responseBody) {
-  if (step.id !== "upload_image_001" || !responseBody?.data || typeof responseBody.data !== "object") {
-    return responseBody;
+function artifactListEntry(responseBody, remoteId) {
+  const list = responseBody?.data?.list;
+  if (!Array.isArray(list)) return null;
+  return list.find((entry) => entry && String(entry.id) === String(remoteId)) || null;
+}
+
+function normalizeArtifactDownloadUrl(responseBody, variables, config) {
+  const entry = artifactListEntry(responseBody, variables.remote_id);
+  const artifactUrl = typeof entry?.url === "string" ? entry.url.trim() : "";
+  if (!artifactUrl) return null;
+  try {
+    const parsed = new URL(artifactUrl);
+    if (parsed.protocol === "https:" && artifactHostAllowed(parsed.hostname, config)) return parsed.href;
+  } catch {
+    // Fall through to the stable error below.
   }
+  fail("CAPTURE_HTTP_ARTIFACT_URL_UNAVAILABLE", "Artifact list did not include an allowed HTTPS video URL.");
+}
+
+async function downloadArtifactFromList({ step, responseBody, variables, transport, config }) {
+  if (step.phase !== "download" || responseBody?.code !== 0) return null;
+  const artifactUrl = normalizeArtifactDownloadUrl(responseBody, variables, config);
+  if (!artifactUrl) return null;
+  const response = await transport.request({
+    step: { ...step, id: `${step.id}:download_artifact`, phase: step.phase },
+    method: "GET",
+    url: artifactUrl,
+    headers: { accept: "video/*,application/octet-stream;q=0.9,*/*;q=0.1" },
+    body: null,
+    timeoutMs: config.downloadTimeoutMs ?? config.timeoutMs ?? 30000
+  });
+  if (response?.status < 200 || response?.status >= 300) {
+    fail("CAPTURE_HTTP_ARTIFACT_DOWNLOAD_FAILED", "Artifact download returned a non-success status.");
+  }
+  if (!response?.artifact?.bytes) {
+    fail("CAPTURE_HTTP_ARTIFACT_MISSING", "Artifact download did not return video bytes.");
+  }
+  return response.artifact;
+}
+
+function producedWithMatchedArtifactFilename(step, responseBody, variables, produced) {
+  if (step.phase !== "download" || !Object.hasOwn(produced || {}, "artifact_filename")) return produced;
+  const entry = artifactListEntry(responseBody, variables.remote_id);
+  if (!entry || typeof entry.title !== "string" || entry.title.trim() === "") return produced;
+  return {
+    ...produced,
+    artifact_filename: entry.title.trim()
+  };
+}
+
+function withoutUrls(value) {
+  if (Array.isArray(value)) return value.map(withoutUrls);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !/^url$/i.test(key) && !/_url$/i.test(key))
+    .map(([key, child]) => [key, withoutUrls(child)]));
+}
+
+function publicResponseBody(step, responseBody) {
+  if (!responseBody || typeof responseBody !== "object") return responseBody;
+  if (step.id === "upload_image_001" && responseBody?.data && typeof responseBody.data === "object") {
+    return {
+      ...responseBody,
+      data: {
+        oss_key: responseBody.data.oss_key,
+        content_type: responseBody.data.content_type
+      }
+    };
+  }
+  return withoutUrls(responseBody);
+}
+
+function bodyWithArtifactFilename(responseBody, artifact) {
+  if (!artifact?.filename || responseBody?.artifact_filename) return responseBody;
   return {
     ...responseBody,
-    data: {
-      oss_key: responseBody.data.oss_key,
-      content_type: responseBody.data.content_type
-    }
+    artifact_filename: artifact.filename
   };
 }
 
@@ -358,13 +431,16 @@ export function createRealLiveHttpClient({
       };
       const { response, responseBody, produced } = await requestWithProducesRetry({ step, request, transport, config });
       await uploadProductImage({ step, responseBody, variables, transport, config });
-      assertSafeProducedVariables(produced);
-      const safeBody = publicResponseBody(step, responseBody);
+      const listArtifact = response?.artifact ? null : await downloadArtifactFromList({ step, responseBody, variables, transport, config });
+      const safeProduced = producedWithMatchedArtifactFilename(step, responseBody, variables, produced);
+      assertSafeProducedVariables(safeProduced);
+      const artifact = response?.artifact || listArtifact || null;
+      const safeBody = publicResponseBody(step, bodyWithArtifactFilename(responseBody, artifact));
       return {
         status: response?.status ?? step.response.status,
         body: safeBody,
-        artifact: response?.artifact || null,
-        produced,
+        artifact,
+        produced: safeProduced,
         request_plan: {
           step_id: step.id,
           phase: step.phase,
