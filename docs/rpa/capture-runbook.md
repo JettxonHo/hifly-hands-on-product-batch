@@ -12,15 +12,15 @@
 - 离线脱敏原始抓包步骤（`src/rpa/capture/redact.js` + `scripts/redact-capture-source.mjs`）。
 - 用 mock HTTP client 回放已录制响应（`src/rpa/capture/mock-http-client.js`），**只回放、绝不发起真实请求**。
 - `capture_http` 支持 `mock`（离线回放）和 `real_dry_run`（构造并校验请求计划）；两者都不发起网络，`downloadArtifact` 只写**占位文件**，不下载真实视频。
-- `real_live` 已有受控脚手架：测试中可通过 fake transport 验证变量链，但默认配置禁用，GUI 不提供真实执行入口，未授权时不会调用 transport。
+- `real_live` 已接入受控执行入口：GUI 只会在单商品批次、`dry_run_passed` 或 `real_live_failed` 状态启用“真实 HTTP 生成”按钮，并要求用户确认“会访问飞影、可能消耗积分”。测试中已通过 fake auth + fake transport 验证变量链、状态流转和真实 artifact bytes 落盘；真实飞影 HTTP 尚未进行授权联调。
 - HAR 抽取会保留经脱敏的 `request_template.headers` / `request_template.body`，并为已知上游响应值替换声明占位符；同时标注 `risk.requires_auth`，对手持图/视频提交等可能消耗积分的步骤保守标注 `risk.may_consume_points`。
 
 **当前做不到**（属后续阶段，需另授权）：
 
-- 真实发起飞影 HTTP 请求 / 真实生成视频 / 真实下载 mp4。`real_live` 目前仍明确禁用，只保留测试脚手架和安全门禁。
+- 尚未通过真实飞影 HTTP 完成出片验证。当前 `real_live` 代码能发真实请求，但尚未拿真实飞影账号做 1 条授权联调；未得到用户明确同意前不要点击 GUI 真实 HTTP 生成。
 - 全自动覆盖所有飞影页面变体。当前已覆盖 2026-07-16 采集到的 `hiflyworks-api.lingverse.co` 手里有货主链路；若飞影改接口、字段或风控，仍需重新校准。
 
-因此：`captureHttpMode: "mock"` 与 `"real_dry_run"` 都只会本地验证并生成占位文件，不会消耗积分、不会出真实视频。`"real_live"` 即使存在代码脚手架，也必须另行授权并满足多重门禁后才能接入真实 transport；当前 GUI 不开放这个入口。
+因此：`captureHttpMode: "mock"` 与 `"real_dry_run"` 都只会本地验证并生成占位文件，不会消耗积分、不会出真实视频。`"real_live"` 必须由 GUI/API 显式确认并限制 1 条商品；真实访问飞影前仍要在当前会话再次获得用户授权。
 
 ## 安全红线
 
@@ -198,30 +198,31 @@ JS
 
 `real_dry_run` 只根据 sanitized manifest 构造请求计划，不访问飞影、不消耗积分、不下载真实视频。GUI 中的“真实请求预演”按钮用于验证 URL、method、脱敏后的请求模板、占位符和风险标记是否能被安全解析。通过并不代表真实 HTTP 出片已经完成；GUI 公开 API 也只返回安全摘要，不返回请求内容。
 
-## 真实 HTTP 生成脚手架（real_live，当前禁用）
+## 真实 HTTP 生成（real_live，需授权）
 
-`real_live` 目前只是受控脚手架：代码可以在测试中通过 fake transport 验证变量链，但默认配置不会访问飞影，也不会消耗积分。
+`real_live` 已接入 GUI/API，但只作为单条授权联调用途。GUI 只有在单商品批次处于 `dry_run_passed` 或 `real_live_failed` 状态时才会启用“真实 HTTP 生成”按钮，并会弹出“访问飞影、可能消耗积分”的确认框。
 
-启用真实 HTTP 出片前必须另行满足：
+执行真实 HTTP 出片前必须满足：
 
 1. 用户明确授权访问飞影并可能消耗积分。
 2. 只跑 1 条商品。
-3. 配置 `rpa.realLive.enabled=true`。
-4. 本次执行上下文提供 `allowRealLive=true`。
-5. 若步骤可能消耗积分，本次执行上下文提供 `acknowledgePointRisk=true`。
-6. runtimeAuth 只来自内存，不写入 manifest、batch、日志或 git。
+3. 批次已经完成 `redact`、`replay`、`real_dry_run`，状态为 `dry_run_passed`。
+4. API 请求必须带 `confirm=true`、`allowRealLive=true`、`acknowledgePointRisk=true`、`limitItems=1`。
+5. runtimeAuth 只来自 Playwright profile 的内存 cookie provider，并按请求 host 过滤；不会写入 manifest、batch、日志或 git。
+6. 下载响应必须是成功 HTTP 状态和允许的 artifact content type，大小受 `rpa.realLive.maxArtifactBytes` 限制。
 
-当前 GUI 默认只展示禁用状态，不提供可点击的真实生成入口。任何真实 transport 接入都必须另起小批次计划和评审，不能把 `fetch` / `http` / `https` 默认接到现有按钮上。
+当前已通过 fake auth + fake transport 测试验证状态流转与 artifact bytes 落盘；尚未通过真实飞影 HTTP 做 1 条出片联调。
 
-## 步骤 7：真实回放（⚠️ 消耗积分，当前未实现）
+## 步骤 7：真实回放（⚠️ 消耗积分，尚未验证）
 
-**当前 `capture_http` 可使用 mock 或 real_dry_run；`real_live` 只有受控脚手架，没有 GUI 可用的真实 HTTP 生成入口。** 即使 manifest 准备好、config 切到 `capture_http`，默认也只会离线验证 + 写占位文件；`real_live` 未获授权会报禁用或未授权错误，不会出真实视频。
+**当前 `capture_http` 可使用 mock、real_dry_run 和受控 real_live。** mock / real_dry_run 不访问飞影；real_live 会访问飞影并可能消耗积分，只能在用户明确授权后跑 1 条。
 
 真实回放属于后续阶段，启动前必须满足：
 
 1. 用户明确授权消耗积分。
 2. 只跑 1 条商品。
-3. 实现真实 HTTP 执行器（替换 mock client，按 manifest 发真实请求、处理签名/一次性 token/风控；不可复放的步骤标记 `api_unavailable` 并回退网页自动化）。
+3. 优先选择已有 `dry_run_passed` 批次，不要重新从头走 Playwright 消耗积分。
+4. 若真实 HTTP 失败，记录 batch ID、SKU、错误码、capture 状态、是否产生飞影积分消耗；不要反复重试。
 
 **在用户授权前，不做这一步。** 本 runbook 只记录约定，便于将来授权后直接接上。
 

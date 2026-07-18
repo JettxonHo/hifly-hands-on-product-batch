@@ -9,7 +9,10 @@ export const CAPTURE_STATUSES = new Set([
   "replay_failed",
   "dry_run_passed",
   "dry_run_failed",
-  "real_live_disabled"
+  "real_live_disabled",
+  "real_live_running",
+  "real_live_completed",
+  "real_live_failed"
 ]);
 
 function now() {
@@ -57,7 +60,7 @@ export function publicCaptureState(capture) {
     value.dry_run_error = publicDryRunError();
   }
   if (capture.live_error !== undefined && capture.live_error !== null) {
-    value.live_error = publicLiveError(capture.live_error);
+    value.live_error = publicLiveError(capture.live_error, capture.status);
   }
   if (capture.extract_summary && Number.isInteger(capture.extract_summary.step_count)) {
     value.extract_summary = { step_count: capture.extract_summary.step_count };
@@ -73,6 +76,9 @@ export function publicCaptureState(capture) {
   }
   if (capture.dry_run_summary && typeof capture.dry_run_summary === "object") {
     value.dry_run_summary = publicDryRunSummary(capture.dry_run_summary);
+  }
+  if (capture.live_summary && typeof capture.live_summary === "object") {
+    value.live_summary = publicLiveSummary(capture.live_summary);
   }
   return value;
 }
@@ -95,7 +101,13 @@ const SAFE_LIVE_ERROR_CODES = new Set([
   "CAPTURE_HTTP_REAL_LIVE_NOT_AUTHORIZED",
   "CAPTURE_HTTP_POINT_RISK_NOT_ACKNOWLEDGED",
   "CAPTURE_HTTP_AUTH_REQUIRED",
-  "CAPTURE_HTTP_HOST_NOT_ALLOWED"
+  "CAPTURE_HTTP_HOST_NOT_ALLOWED",
+  "CAPTURE_HTTP_LIVE_RUN_FAILED",
+  "CAPTURE_HTTP_TRANSPORT_FAILED",
+  "CAPTURE_HTTP_API_UNAVAILABLE",
+  "CAPTURE_HTTP_ARTIFACT_MISSING",
+  "CAPTURE_HTTP_STATUS_NOT_OK",
+  "CAPTURE_HTTP_UNEXPECTED_CONTENT_TYPE"
 ]);
 
 function isSensitiveName(value) {
@@ -127,13 +139,35 @@ function publicReplayError() {
   };
 }
 
-function publicLiveError(error) {
+function publicLiveError(error, status) {
+  if (status === "real_live_disabled") {
+    return {
+      code: "CAPTURE_HTTP_REAL_LIVE_DISABLED",
+      message: "real_live is disabled until explicitly authorized."
+    };
+  }
+  const code = typeof error?.code === "string" && SAFE_LIVE_ERROR_CODES.has(error.code)
+    ? error.code
+    : "CAPTURE_HTTP_LIVE_RUN_FAILED";
   return {
-    code: typeof error?.code === "string" && SAFE_LIVE_ERROR_CODES.has(error.code)
-      ? error.code
-      : "CAPTURE_HTTP_REAL_LIVE_DISABLED",
-    message: "real_live is disabled until explicitly authorized."
+    code,
+    message: code === "CAPTURE_HTTP_REAL_LIVE_DISABLED"
+      ? "real_live is disabled until explicitly authorized."
+      : "Unable to complete the real HTTP live run."
   };
+}
+
+function publicLiveSummary(summary) {
+  const result = {};
+  if (typeof summary.remote_id === "string" || typeof summary.remote_id === "number") {
+    result.remote_id = String(summary.remote_id);
+  }
+  if (isSafeProjectRelativePath(summary.artifact_path)) {
+    result.artifact_path = summary.artifact_path;
+  }
+  if (typeof summary.sku === "string") result.sku = summary.sku;
+  if (summary.completed_at !== undefined) result.completed_at = summary.completed_at;
+  return result;
 }
 
 function publicRequestPlan(entry) {

@@ -1,6 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { createCaptureHttpExecutor } from "../../executors/capture-http-executor.js";
+import { createFetchLiveTransport } from "../../rpa/capture/fetch-live-transport.js";
 import { createDryRunHttpClient } from "../../rpa/capture/dry-run-http-client.js";
 import { extractRawStepsFromHar } from "../../rpa/capture/har-extractor.js";
 import { CAPTURE_PHASES, loadCaptureManifest, parseCaptureManifest, selectStepsByPhase } from "../../rpa/capture/manifest.js";
@@ -31,6 +33,13 @@ function realLiveDisabledFailure() {
   return {
     code: "CAPTURE_HTTP_REAL_LIVE_DISABLED",
     message: "real_live is disabled until explicitly authorized."
+  };
+}
+
+function realLiveFailure(code = "CAPTURE_HTTP_LIVE_RUN_FAILED") {
+  return {
+    code,
+    message: "Unable to complete the real HTTP live run."
   };
 }
 
@@ -65,7 +74,65 @@ function publicDryRunRequestPlan(step, requestPlan) {
   };
 }
 
-export async function registerCaptureRoutes(app, { batchRoot, store }) {
+function liveRunFields(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw captureError("INVALID_CAPTURE_LIVE_RUN_REQUEST");
+  if (body.confirm !== true || body.allowRealLive !== true || body.acknowledgePointRisk !== true) {
+    throw captureError("CAPTURE_HTTP_REAL_LIVE_NOT_AUTHORIZED");
+  }
+  if (body.limitItems !== 1) throw captureError("CAPTURE_HTTP_LIVE_LIMIT_ONE");
+  return {
+    confirm: true,
+    allowRealLive: true,
+    acknowledgePointRisk: true,
+    limitItems: 1
+  };
+}
+
+async function approvedImagePath(batch, batchDirectory, artifactId) {
+  const upload = batch.uploads?.find((candidate) => candidate.artifact_id === artifactId && candidate.kind === "image");
+  const manifest = batch.artifacts?.find((candidate) => candidate.artifact_id === artifactId);
+  if (!upload || !manifest || manifest.relative_path !== `uploads/${upload.storage_name}` || !isSafeRelativePath(manifest.relative_path)) {
+    throw captureError("UNAUTHORIZED_PRODUCT_IMAGE");
+  }
+  const candidatePath = path.resolve(batchDirectory, manifest.relative_path);
+  if (!contained(batchDirectory, candidatePath)) throw captureError("UNAUTHORIZED_PRODUCT_IMAGE");
+  const [realBatchDirectory, realImagePath, info] = await Promise.all([
+    realpath(batchDirectory), realpath(candidatePath), lstat(candidatePath)
+  ]);
+  if (!contained(realBatchDirectory, realImagePath) || info.isSymbolicLink() || !info.isFile()) {
+    throw captureError("UNAUTHORIZED_PRODUCT_IMAGE");
+  }
+  return candidatePath;
+}
+
+function taskWithImagePath(batch, batchDirectory) {
+  if (!Array.isArray(batch.items) || batch.items.length !== 1) {
+    throw captureError("CAPTURE_HTTP_LIVE_LIMIT_ONE");
+  }
+  const task = batch.items[0];
+  return approvedImagePath(batch, batchDirectory, task.product_image_artifact_id).then((imagePath) => ({
+    ...task,
+    image_path: imagePath
+  }));
+}
+
+function liveRunConfig(generationConfig, manifestPath) {
+  return {
+    ...generationConfig,
+    rpa: {
+      ...(generationConfig.rpa || {}),
+      mode: "capture_http",
+      manifestPath,
+      captureHttpMode: "real_live",
+      realLive: {
+        ...(generationConfig.rpa?.realLive || {}),
+        enabled: true
+      }
+    }
+  };
+}
+
+export async function registerCaptureRoutes(app, { batchRoot, store, generationConfig = {}, captureLive = {} }) {
   async function readCaptureBatch(batchId) {
     const batch = await store.read(batchId);
     if (batch.capture?.enabled !== true) throw captureError("CAPTURE_NOT_ENABLED", 409);
@@ -230,5 +297,98 @@ export async function registerCaptureRoutes(app, { batchRoot, store }) {
       })
     }));
     return { batch: publicBatch(updated) };
+  });
+
+  app.post("/api/batches/:batchId/capture/live-run", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    liveRunFields(request.body);
+    const batch = await readCaptureBatch(batchId);
+    if (!batch.capture?.manifest_path) throw captureError("CAPTURE_MANIFEST_MISSING", 409);
+    if (!["dry_run_passed", "real_live_failed"].includes(batch.capture.status)) {
+      throw captureError("CAPTURE_HTTP_LIVE_RUN_NOT_READY", 409);
+    }
+
+    const root = path.dirname(batchRoot);
+    const manifestPath = batch.capture.manifest_path;
+    resolveProjectRelative(root, manifestPath);
+    const batchDirectory = path.join(batchRoot, batchId);
+    const task = await taskWithImagePath(batch, batchDirectory);
+    const authProvider = captureLive.authProvider;
+    if (!authProvider || typeof authProvider.getRuntimeAuth !== "function") {
+      throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 503);
+    }
+
+    await store.update(batchId, (current) => ({
+      ...current,
+      capture: updateCaptureState(current.capture, {
+        enabled: true,
+        status: "real_live_running",
+        live_error: null,
+        live_summary: null
+      })
+    }));
+
+    try {
+      const runtimeAuth = await authProvider.getRuntimeAuth();
+      const executor = createCaptureHttpExecutor({
+        root,
+        config: liveRunConfig(generationConfig, manifestPath)
+      });
+      const realLive = {
+        allowRealLive: true,
+        acknowledgePointRisk: true,
+        runtimeAuth,
+        transport: captureLive.transport || createFetchLiveTransport()
+      };
+      const context = { batchId, taskId: task.task_id, realLive };
+      const asset = await executor.createAsset(task, context);
+      const submitted = await executor.submitVideo(task, asset, context);
+      const queried = await executor.querySubmission(submitted.remoteEvidence, context);
+      const artifact = await executor.downloadArtifact(queried.remoteEvidence, batchDirectory, context);
+      if (typeof store.registerArtifact === "function") {
+        try {
+          await store.registerArtifact(batchId, artifact);
+        } catch (error) {
+          if (!/already exists/i.test(error.message)) throw error;
+        }
+      }
+      const completedAt = new Date().toISOString();
+      const updated = await store.update(batchId, (current) => ({
+        ...current,
+        status: "completed",
+        items: current.items.map((item) => item.task_id === task.task_id
+          ? {
+              ...item,
+              status: "completed",
+              output_path: artifact.relative_path,
+              remote_evidence: submitted.remoteEvidence,
+              error_message: null,
+              error_phase: null
+            }
+          : item),
+        capture: updateCaptureState(current.capture, {
+          enabled: true,
+          status: "real_live_completed",
+          live_error: null,
+          live_summary: {
+            sku: task.sku || "",
+            remote_id: submitted.remoteEvidence?.remote_id ?? null,
+            artifact_path: artifact.relative_path,
+            completed_at: completedAt
+          }
+        })
+      }));
+      return { batch: publicBatch(updated) };
+    } catch (error) {
+      const updated = await store.update(batchId, (current) => ({
+        ...current,
+        capture: updateCaptureState(current.capture, {
+          enabled: true,
+          status: "real_live_failed",
+          live_error: realLiveFailure(error?.code)
+        })
+      }));
+      return { batch: publicBatch(updated) };
+    }
   });
 }

@@ -71,6 +71,15 @@
       method: "POST",
       body: JSON.stringify({})
     }),
+    runLiveCapture: (batchId) => request(`/api/batches/${encodeURIComponent(batchId)}/capture/live-run`, {
+      method: "POST",
+      body: JSON.stringify({
+        confirm: true,
+        allowRealLive: true,
+        acknowledgePointRisk: true,
+        limitItems: 1
+      })
+    }),
     startExecution: ({ batchId, idempotencyKey }) => request("/api/executions", {
       method: "POST",
       body: JSON.stringify({ batchId, idempotencyKey, confirm: true })

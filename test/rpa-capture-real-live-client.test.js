@@ -81,6 +81,29 @@ test("real_live requires runtime auth for auth-required steps", async () => {
   assert.equal(called, false);
 });
 
+test("real_live requires matching runtime auth headers for the target host", async () => {
+  let called = false;
+  const client = createRealLiveHttpClient({
+    manifest: manifestWith(),
+    config: { enabled: true },
+    runtimeAuth: {
+      headersForUrl(url) {
+        return url.includes("example.invalid") ? { cookie: "wrong-host-only" } : {};
+      }
+    },
+    transport: { request: async () => { called = true; return { status: 200, body: {} }; } }
+  });
+  await assert.rejects(
+    client.request({
+      stepId: "submit_video",
+      variables: { asset_id: "asset-1" },
+      context: { allowRealLive: true, acknowledgePointRisk: true }
+    }),
+    { code: "CAPTURE_HTTP_AUTH_REQUIRED" }
+  );
+  assert.equal(called, false);
+});
+
 test("real_live rejects hosts outside the allowlist before transport", async () => {
   let called = false;
   const client = createRealLiveHttpClient({
@@ -401,4 +424,99 @@ test("real_live permits normal runtime auth and remote URL request values", asyn
   assert.deepEqual(calls[0].body, { gen_id: "asset-1", source_url: "https://example.com/path" });
   assert.equal(result.produced.remote_id, 987);
   assert.equal(result.request_plan.host, "hiflyworks-api.lingverse.co");
+});
+
+test("real_live rejects unsafe produced variable names and values", async () => {
+  for (const stepPatch of [
+    {
+      produces: { access_token: "$response.body.data.token" },
+      responseBody: { data: { token: "private" } }
+    },
+    {
+      produces: { remote_id: "$response.body.data.url" },
+      responseBody: { data: { url: "https://example.invalid/video.mp4?sign=private" } }
+    },
+    {
+      produces: { remote_id: "$response.body.data.path" },
+      responseBody: { data: { path: "/Users/private/video.mp4" } }
+    },
+    {
+      produces: { remote_id: "$response.body.data.payload" },
+      responseBody: { data: { payload: { id: "nested" } } }
+    }
+  ]) {
+    let called = false;
+    const client = createRealLiveHttpClient({
+      manifest: manifestWith({
+        produces: stepPatch.produces,
+        risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+      }),
+      config: { enabled: true },
+      transport: {
+        request: async () => {
+          called = true;
+          return { status: 200, headers: {}, body: stepPatch.responseBody };
+        }
+      }
+    });
+    await assert.rejects(
+      client.request({
+        stepId: "submit_video",
+        variables: { asset_id: "asset-1" },
+        context: { allowRealLive: true }
+      }),
+      { code: "CAPTURE_HTTP_PRODUCES_UNSAFE" }
+    );
+    assert.equal(called, true);
+  }
+});
+
+test("real_live uses per-request runtime auth headers", async () => {
+  const calls = [];
+  const client = createRealLiveHttpClient({
+    manifest: manifestWith(),
+    config: { enabled: true },
+    runtimeAuth: {
+      headersForUrl(url) {
+        return url.includes("hiflyworks-api.lingverse.co")
+          ? { cookie: "api-cookie-only" }
+          : { cookie: "wrong-host-cookie" };
+      }
+    },
+    transport: {
+      request: async (request) => {
+        calls.push(request);
+        return { status: 200, headers: {}, body: { code: 0, data: { list: [{ id: 987, status: 1 }] } } };
+      }
+    }
+  });
+  await client.request({
+    stepId: "submit_video",
+    variables: { asset_id: "asset-1" },
+    context: { allowRealLive: true, acknowledgePointRisk: true }
+  });
+  assert.equal(calls[0].headers.cookie, "api-cookie-only");
+});
+
+test("real_live rejects non-2xx transport responses before producing variables", async () => {
+  const client = createRealLiveHttpClient({
+    manifest: manifestWith(),
+    config: { enabled: true },
+    runtimeAuth: { headers: { cookie: "in-memory-only" } },
+    transport: {
+      request: async () => ({
+        status: 401,
+        headers: {},
+        body: { code: 401, message: "login required", data: { list: [{ id: 987 }] } }
+      })
+    }
+  });
+  await assert.rejects(
+    client.request({
+      stepId: "submit_video",
+      variables: { asset_id: "asset-1" },
+      context: { allowRealLive: true, acknowledgePointRisk: true }
+    }),
+    { code: "CAPTURE_HTTP_STATUS_NOT_OK" }
+  );
 });

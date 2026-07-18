@@ -362,6 +362,193 @@ test("capture_http real_live forwards explicit authorization, transport, and run
   assert.equal(persisted.includes("kind"), false);
 });
 
+test("capture_http real_live writes transport artifact bytes", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-real-live-artifact-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const batchId = "batch-real-live-artifact";
+  const batchDirectory = path.join(root, "batches", batchId);
+  const productImagePath = path.join(batchDirectory, "uploads", "product.png");
+  const manifestPath = path.join(root, "manifest.json");
+  await mkdir(path.dirname(productImagePath), { recursive: true });
+  await Promise.all([
+    writeFile(productImagePath, "image-bytes"),
+    writeFile(manifestPath, JSON.stringify({
+      schema_version: 1,
+      sanitized: true,
+      source: "test",
+      captured_at: "2026-07-17T00:00:00.000Z",
+      steps: [
+        {
+          id: "create_asset",
+          phase: "asset_generation",
+          method: "POST",
+          url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/upload_url",
+          response: { status: 200, body: { data: { gen_id: "asset-live" } } },
+          produces: { asset_id: "$response.body.data.gen_id" },
+          risk: { requires_auth: true, replayability: "unknown" }
+        },
+        {
+          id: "submit_video",
+          phase: "remote_submit",
+          method: "POST",
+          url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos",
+          request_template: { body: { gen_id: "{{asset_id}}" } },
+          placeholders: ["{{asset_id}}"],
+          response: { status: 200, body: { data: { list: [{ id: "remote-live" }] } } },
+          produces: { remote_id: "$response.body.data.list.0.id" },
+          risk: { requires_auth: true, may_consume_points: true, replayability: "unknown" }
+        },
+        {
+          id: "query_video",
+          phase: "remote_query",
+          method: "GET",
+          url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id={{asset_id}}",
+          placeholders: ["{{asset_id}}", "{{remote_id}}"],
+          response: { status: 200, body: { data: { list: [{ id: "remote-live", status: 2 }] } } },
+          risk: { requires_auth: true, replayability: "unknown" }
+        },
+        {
+          id: "download_video",
+          phase: "download",
+          method: "GET",
+          url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos/{{remote_id}}/download",
+          placeholders: ["{{remote_id}}"],
+          response: { status: 200, body: { artifact_filename: "live-video.mp4" } },
+          produces: { artifact_filename: "$response.body.artifact_filename" },
+          risk: { requires_auth: true, replayability: "unknown" }
+        }
+      ]
+    }), "utf8")
+  ]);
+  const responses = [
+    { status: 200, body: { data: { gen_id: "asset-live" } } },
+    { status: 200, body: { data: { list: [{ id: "remote-live" }] } } },
+    { status: 200, body: { data: { list: [{ id: "remote-live", status: 2 }] } } },
+    {
+      status: 200,
+      body: { artifact_filename: "live-video.mp4" },
+      artifact: { bytes: new Uint8Array([9, 8, 7]), filename: "live-video.mp4" }
+    }
+  ];
+  const executor = createCaptureHttpExecutor({
+    root,
+    config: {
+      rpa: {
+        mode: "capture_http",
+        manifestPath,
+        captureHttpMode: "real_live",
+        realLive: { enabled: true }
+      }
+    }
+  });
+  const context = {
+    batchId,
+    taskId: "task-real-live-artifact",
+    realLive: {
+      allowRealLive: true,
+      acknowledgePointRisk: true,
+      runtimeAuth: { headers: { cookie: "in-memory-only" } },
+      transport: { request: async () => responses.shift() }
+    }
+  };
+  const task = taskFixture({ task_id: context.taskId, image_path: productImagePath });
+
+  const asset = await executor.createAsset(task, context);
+  const submitted = await executor.submitVideo(task, asset, context);
+  await executor.querySubmission(submitted.remoteEvidence, context);
+  const artifact = await executor.downloadArtifact(submitted.remoteEvidence, batchDirectory, context);
+
+  assert.equal(artifact.relative_path, "artifacts/live-video.mp4");
+  assert.deepEqual([...await readFile(path.join(batchDirectory, artifact.relative_path))], [9, 8, 7]);
+  const state = await readRpaState(batchDirectory, task.task_id);
+  assert.equal(JSON.stringify(state).includes("in-memory-only"), false);
+});
+
+test("capture_http real_live refuses placeholder artifacts when download lacks bytes", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-real-live-missing-artifact-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const batchId = "batch-real-live-missing-artifact";
+  const batchDirectory = path.join(root, "batches", batchId);
+  const productImagePath = path.join(batchDirectory, "uploads", "product.png");
+  const manifestPath = path.join(root, "manifest.json");
+  await mkdir(path.dirname(productImagePath), { recursive: true });
+  await Promise.all([
+    writeFile(productImagePath, "image-bytes"),
+    writeFile(manifestPath, JSON.stringify({
+      schema_version: 1,
+      sanitized: true,
+      source: "test",
+      captured_at: "2026-07-17T00:00:00.000Z",
+      steps: [
+        {
+          id: "create_asset",
+          phase: "asset_generation",
+          method: "POST",
+          url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/upload_url",
+          response: { status: 200, body: { data: { gen_id: "asset-live" } } },
+          produces: { asset_id: "$response.body.data.gen_id" },
+          risk: { requires_auth: true, replayability: "unknown" }
+        },
+        {
+          id: "submit_video",
+          phase: "remote_submit",
+          method: "POST",
+          url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos",
+          request_template: { body: { gen_id: "{{asset_id}}" } },
+          placeholders: ["{{asset_id}}"],
+          response: { status: 200, body: { data: { list: [{ id: "remote-live" }] } } },
+          produces: { remote_id: "$response.body.data.list.0.id" },
+          risk: { requires_auth: true, may_consume_points: true, replayability: "unknown" }
+        },
+        {
+          id: "download_video",
+          phase: "download",
+          method: "GET",
+          url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos/{{remote_id}}/download",
+          placeholders: ["{{remote_id}}"],
+          response: { status: 200, body: { artifact_filename: "login-page.mp4" } },
+          produces: { artifact_filename: "$response.body.artifact_filename" },
+          risk: { requires_auth: true, replayability: "unknown" }
+        }
+      ]
+    }), "utf8")
+  ]);
+  const responses = [
+    { status: 200, body: { data: { gen_id: "asset-live" } } },
+    { status: 200, body: { data: { list: [{ id: "remote-live" }] } } },
+    { status: 200, body: { artifact_filename: "login-page.mp4" } }
+  ];
+  const executor = createCaptureHttpExecutor({
+    root,
+    config: {
+      rpa: {
+        mode: "capture_http",
+        manifestPath,
+        captureHttpMode: "real_live",
+        realLive: { enabled: true }
+      }
+    }
+  });
+  const context = {
+    batchId,
+    taskId: "task-real-live-missing-artifact",
+    realLive: {
+      allowRealLive: true,
+      acknowledgePointRisk: true,
+      runtimeAuth: { headers: { cookie: "in-memory-only" } },
+      transport: { request: async () => responses.shift() }
+    }
+  };
+  const task = taskFixture({ task_id: context.taskId, image_path: productImagePath });
+
+  const asset = await executor.createAsset(task, context);
+  const submitted = await executor.submitVideo(task, asset, context);
+  await assert.rejects(
+    executor.downloadArtifact(submitted.remoteEvidence, batchDirectory, context),
+    { code: "CAPTURE_HTTP_ARTIFACT_MISSING" }
+  );
+});
+
 test("capture_http executor preserves variables across a redacted hiflyworks HAR pipeline", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "capture-http-hiflyworks-pipeline-"));
   t.after(() => rm(root, { recursive: true, force: true }));

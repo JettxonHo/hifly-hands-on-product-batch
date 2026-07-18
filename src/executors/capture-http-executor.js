@@ -110,6 +110,21 @@ async function writePlaceholderArtifact(absolutePath, remoteId) {
   }
 }
 
+async function writeArtifactBytes(absolutePath, bytes) {
+  let handle;
+  try {
+    handle = await open(absolutePath, "wx", 0o600);
+    await handle.writeFile(bytes);
+  } catch (error) {
+    if (error?.code === "EEXIST" || error?.code === "ELOOP") {
+      throw artifactPathError("Capture artifact destination cannot be safely created");
+    }
+    throw error;
+  } finally {
+    await handle?.close();
+  }
+}
+
 export function createCaptureHttpExecutor({ root, config = {} } = {}) {
   if (!root) throw new TypeError("createCaptureHttpExecutor requires root");
   const rpa = config.rpa ?? {};
@@ -151,6 +166,7 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
     const persistedVariables = { ...savedCaptureVariables(state) };
     const vars = { ...persistedVariables, ...variables };
     const requestPlan = [];
+    let artifact = null;
     for (const step of selectStepsByPhase(manifestCache, phase)) {
       const result = await client.request({
         stepId: step.id,
@@ -163,10 +179,11 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
       });
       Object.assign(vars, result.produced);
       Object.assign(persistedVariables, result.produced);
+      if (result.artifact) artifact = result.artifact;
       const safePlan = persistableRequestPlan(result.request_plan);
       if (safePlan) requestPlan.push(safePlan);
     }
-    return { variables: vars, persistedVariables, requestPlan };
+    return { variables: vars, persistedVariables, requestPlan, artifact };
   }
 
   async function appendRequestPlan(dir, taskId, entries) {
@@ -279,9 +296,19 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
         realLive: context.realLive
       });
       const produced = downloadReplay.variables;
-      const filename = artifactFilename(produced.artifact_filename, remoteEvidence?.remote_id);
+      const liveArtifact = downloadReplay.artifact || null;
+      if (captureHttpMode === "real_live" && !liveArtifact?.bytes) {
+        throw Object.assign(new Error("real_live download did not return artifact bytes"), {
+          code: "CAPTURE_HTTP_ARTIFACT_MISSING"
+        });
+      }
+      const filename = artifactFilename(liveArtifact?.filename || produced.artifact_filename, remoteEvidence?.remote_id);
       const absolutePath = await safeArtifactPath(dir, filename);
-      await writePlaceholderArtifact(absolutePath, remoteEvidence?.remote_id);
+      if (liveArtifact?.bytes) {
+        await writeArtifactBytes(absolutePath, liveArtifact.bytes);
+      } else {
+        await writePlaceholderArtifact(absolutePath, remoteEvidence?.remote_id);
+      }
       const artifact = {
         artifact_id: String(remoteEvidence?.remote_id),
         relative_path: path.relative(dir, absolutePath)

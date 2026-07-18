@@ -132,7 +132,10 @@
       replay_failed: "离线回放失败",
       dry_run_passed: "真实请求预演通过",
       dry_run_failed: "真实请求预演失败",
-      real_live_disabled: "真实请求已禁用"
+      real_live_disabled: "真实请求已禁用",
+      real_live_running: "真实 HTTP 生成中",
+      real_live_completed: "真实 HTTP 已完成",
+      real_live_failed: "真实 HTTP 失败"
     };
     return labels[status] || status || "未知";
   }
@@ -386,7 +389,11 @@
       capture.replay_summary?.remote_id ? `远端 ID：${capture.replay_summary.remote_id}` : "",
       capture.dry_run_summary?.executed_step_count ? `预演步骤数：${capture.dry_run_summary.executed_step_count}` : "",
       capture.dry_run_error ? `预演错误：${capture.dry_run_error.message || "Unable to construct the dry-run request plan."}` : "",
-      "仅构造请求计划，不访问飞影、不消耗积分"
+      capture.live_summary?.artifact_path ? `真实 HTTP 产物：${capture.live_summary.artifact_path}` : "",
+      capture.live_error ? `真实 HTTP 错误：${capture.live_error.message || "Unable to complete the real HTTP live run."}` : "",
+      capture.status === "real_live_completed"
+        ? "真实 HTTP 生成已完成"
+        : "真实请求预演仅构造请求计划，不访问飞影、不消耗积分"
     ].filter(Boolean)) {
       const line = document.createElement("span");
       setText(line, text);
@@ -404,12 +411,17 @@
         "dryRun",
         ["redacted", "replay_passed", "dry_run_failed"].includes(capture.status)
       ),
-      disabledRealLiveButton()
+      captureActionButton(
+        batch.batch_id,
+        "真实 HTTP 生成（会访问飞影，可能消耗积分）",
+        "liveRun",
+        ["dry_run_passed", "real_live_failed"].includes(capture.status) && (batch.items || []).length === 1
+      )
     );
     panel.append(actions);
     const liveHint = document.createElement("p");
     liveHint.className = "muted";
-    setText(liveHint, "当前阶段仅支持真实请求预演；真实 HTTP 生成需单独授权后只跑 1 条。");
+    setText(liveHint, "真实 HTTP 生成只允许单条联调；点击后会使用浏览器登录态访问飞影，可能消耗积分。");
     panel.append(liveHint);
     return panel;
   }
@@ -422,17 +434,6 @@
     button.disabled = state.busy || !enabled;
     setText(button, label);
     button.addEventListener("click", () => runCaptureAction(batchId, action));
-    return button;
-  }
-
-  function disabledRealLiveButton() {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ghost-button";
-    button.dataset.disabled = "true";
-    button.disabled = true;
-    button.title = "当前阶段未启用真实 HTTP 生成";
-    setText(button, "真实 HTTP 生成（会访问飞影，可能消耗积分）");
     return button;
   }
 
@@ -880,8 +881,15 @@
       extract: api.extractCapture,
       redact: api.redactCapture,
       replay: api.replayCapture,
-      dryRun: api.dryRunCapture
+      dryRun: api.dryRunCapture,
+      liveRun: api.runLiveCapture
     };
+    if (action === "liveRun") {
+      const approved = window.confirm(
+        "真实 HTTP 生成会访问飞影并可能消耗积分。本次只执行 1 条商品。确认继续吗？"
+      );
+      if (!approved) return;
+    }
     setBusy(true);
     try {
       const payload = await methods[action](batchId);

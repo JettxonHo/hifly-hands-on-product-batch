@@ -7,6 +7,8 @@
     "realLive": {
       "enabled": false,
       "allowedHosts": ["hiflyworks-api.lingverse.co"],
+      "allowedDomains": ["hiflyworks-api.lingverse.co", "hifly.cc", "lingverse.co"],
+      "maxArtifactBytes": 209715200,
       "timeoutMs": 30000
     },
     "callbackBaseUrl": "http://127.0.0.1:4317",

@@ -80,6 +80,7 @@ export async function buildApp({
   executionLock = {},
   pointsEstimate = {},
   generationConfig = {},
+  captureLive = {},
   webRoot = path.join(getProjectRoot(), "web")
 } = {}) {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("root is required");
@@ -115,7 +116,7 @@ export async function buildApp({
     executionBackend: generationConfig.executionBackend || "playwright"
   }));
   await registerBatchRoutes(app, { store });
-  await registerCaptureRoutes(app, { batchRoot, store });
+  await registerCaptureRoutes(app, { batchRoot, store, generationConfig, captureLive });
   await registerImportRoutes(app, { batchRoot, store, uploadLimits });
   await registerExecutionRoutes(app, { coordinator });
   await registerArtifactRoutes(app, { batchRoot, store });

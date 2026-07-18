@@ -1,5 +1,19 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-18 Capture HTTP real_live GUI 入口与 fake transport 联调已完成（未访问飞影、无新增积分）
+
+- 已按 `docs/superpowers/plans/2026-07-17-capture-http-real-live-transport.md` 继续实现方案 A：Playwright 只作为运行时登录 cookie provider，capture HTTP 负责生成、轮询和下载；默认生产链路仍是 Playwright，未切换默认 backend。
+- 新增真实 fetch transport `src/rpa/capture/fetch-live-transport.js`：HTTPS-only、JSON 请求/响应、非 JSON binary artifact、maxBytes、稳定错误码；新增 Playwright runtime auth provider `src/rpa/capture/playwright-runtime-auth.js`，只在内存中组装 allowlisted cookie header，不落盘、不输出 cookie 值。
+- `capture-http-executor` 已支持 `real_live` 下载阶段写入 transport 返回的真实 artifact bytes；RPA state 仍只保存安全 request plan 摘要，不保存 raw URL/path/query/headers/body/cookie。
+- 新增 GUI/API 入口：`POST /api/batches/:batchId/capture/live-run` 只允许单商品 capture 批次在 `dry_run_passed` 或 `real_live_failed` 状态执行，且要求 `confirm=true`、`allowRealLive=true`、`acknowledgePointRisk=true`、`limitItems=1`。GUI 按钮“真实 HTTP 生成（会访问飞影，可能消耗积分）”只在满足条件时启用，并弹确认框。
+- 已通过 fake auth + fake transport 完成本地联调：live-run 可把单条批次推进到 `real_live_completed`，写入 `artifacts/live-video.mp4`，公开 `live_summary`，响应中不含 runtime cookie。本轮没有真实访问飞影、没有发真实 HTTP 到飞影、没有消耗积分。
+- Subagent review 后已修复 3 个 Important 安全问题：runtime cookie 改为按请求 host 过滤，不再把所有 allowlisted cookie 聚合发给每个 host；real-live client 拒绝非 2xx 响应，避免把登录页/错误页当成功结果；fetch transport 只接受 JSON 或明确 video/octet-stream artifact，并用 `Content-Length` + 流式读取执行 artifact 大小上限。
+- 二次复审后继续收紧：按请求 host 的 cookie 过滤改为浏览器式单向 domain match，避免子域 cookie 发给父域；`real_live` 下载阶段必须拿到 transport artifact bytes，缺少 bytes 时以 `CAPTURE_HTTP_ARTIFACT_MISSING` 失败，不再回退占位 mp4。
+- 三次复审后继续收紧：`real_live` 的 `produces` 只允许 `product_image_id`、`person_image_id`、`goods_image_oss_key`、`asset_id`、`remote_id`、`artifact_filename` 这类业务变量，且值必须是安全标量，禁止 URL、签名 query、本地路径或对象进入 `capture_variables` / `remote_evidence`；`requires_auth` 步骤必须对当前目标 host 拿到非空 runtime auth header 才会发请求，不再因为存在 `headersForUrl` 函数就放行。
+- 最终验证已通过：`node --test test/rpa-capture-real-live-client.test.js test/capture-http-executor.test.js test/server-capture-api.test.js`，45/45 通过；`npm test`，349/349 通过；`npm run check` 通过（65 个 JS 文件）；`git diff --check` 通过。
+- 仍未完成：1 条真实飞影 HTTP 出片联调。下一步必须先获得用户同一轮明确授权，且只选择 1 条已完成 `dry_run_passed` 的 capture 批次点击真实 HTTP 生成；若失败，记录批次 ID、SKU、状态、错误码和是否消耗积分。不要重新从头跑 Playwright 批量流程。
+- 注意：`docs/resume/` 与 `.superpowers/sdd/task-6-report.md` 是已有无关改动，本轮未触碰；批次数据、HAR、下载视频、日志、截图、`config.local.json` 不得提交。
+
 ## 2026-07-17 Capture HTTP final-review 修复：real_live request plan 不落 raw URL/body（无网络、无新增积分）
 
 - 最终复审发现：授权 fake transport 跑通 `real_live` 时，client 返回的完整 `request_plan` 可能经 executor 写入本地 RPA state，包含 resolved URL、path、headers 或 body。

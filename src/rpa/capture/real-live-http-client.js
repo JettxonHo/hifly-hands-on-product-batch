@@ -9,6 +9,14 @@ import {
 const DEFAULT_ALLOWED_HOSTS = new Set(["hiflyworks-api.lingverse.co"]);
 const PLACEHOLDER_TOKEN = /^\{\{[A-Za-z0-9_]+\}\}$/;
 const TEMPLATE_PLACEHOLDER = /\{\{([A-Za-z0-9_]+)\}\}/g;
+const SAFE_PRODUCED_NAMES = new Set([
+  "product_image_id",
+  "person_image_id",
+  "goods_image_oss_key",
+  "asset_id",
+  "remote_id",
+  "artifact_filename"
+]);
 
 function fail(code, message) {
   throw Object.assign(new Error(message || code), { code });
@@ -88,25 +96,30 @@ function requestTemplate(step) {
   };
 }
 
-function hasRuntimeAuth(runtimeAuth) {
-  return Boolean(
-    runtimeAuth &&
-    typeof runtimeAuth === "object" &&
-    (
-      runtimeAuth.headers && Object.keys(runtimeAuth.headers).length > 0 ||
-      Array.isArray(runtimeAuth.cookies) && runtimeAuth.cookies.length > 0
-    )
-  );
+function hostAllowed(hostname, config) {
+  const allowed = new Set(Array.isArray(config?.allowedHosts) ? config.allowedHosts : [...DEFAULT_ALLOWED_HOSTS]);
+  return allowed.has(hostname);
 }
 
-function mergeRuntimeHeaders(headers, runtimeAuth) {
+function runtimeHeadersForUrl(runtimeAuth, url) {
   return {
-    ...headers,
-    ...(runtimeAuth?.headers && typeof runtimeAuth.headers === "object" ? runtimeAuth.headers : {})
+    ...(runtimeAuth?.headers && typeof runtimeAuth.headers === "object" ? runtimeAuth.headers : {}),
+    ...(typeof runtimeAuth?.headersForUrl === "function" ? runtimeAuth.headersForUrl(url.href) : {})
   };
 }
 
-function assertLiveGate({ config, context, step, url, runtimeAuth }) {
+function hasAuthHeaders(headers) {
+  return Boolean(headers && typeof headers === "object" && Object.keys(headers).length > 0);
+}
+
+function mergeRuntimeHeaders(headers, runtimeHeaders) {
+  return {
+    ...headers,
+    ...runtimeHeaders
+  };
+}
+
+function assertLiveGate({ config, context, step, url, runtimeHeaders }) {
   if (config?.enabled !== true) {
     fail("CAPTURE_HTTP_REAL_LIVE_DISABLED", "real_live is disabled.");
   }
@@ -116,12 +129,11 @@ function assertLiveGate({ config, context, step, url, runtimeAuth }) {
   if (step.risk?.may_consume_points === true && context?.acknowledgePointRisk !== true) {
     fail("CAPTURE_HTTP_POINT_RISK_NOT_ACKNOWLEDGED", "This capture step may consume Hifly points.");
   }
-  if (step.risk?.requires_auth === true && !hasRuntimeAuth(runtimeAuth)) {
-    fail("CAPTURE_HTTP_AUTH_REQUIRED", "This capture step requires runtime authentication.");
-  }
-  const allowed = new Set(Array.isArray(config?.allowedHosts) ? config.allowedHosts : [...DEFAULT_ALLOWED_HOSTS]);
-  if (!allowed.has(url.hostname)) {
+  if (!hostAllowed(url.hostname, config)) {
     fail("CAPTURE_HTTP_HOST_NOT_ALLOWED", `Host is not allowed for real_live: ${url.hostname}`);
+  }
+  if (step.risk?.requires_auth === true && !hasAuthHeaders(runtimeHeaders)) {
+    fail("CAPTURE_HTTP_AUTH_REQUIRED", "This capture step requires runtime authentication for the target host.");
   }
 }
 
@@ -163,6 +175,21 @@ function assertUrlHasNoLocalPaths(url) {
 function assertNoSensitiveResolvedQueryKeys(url) {
   if ([...url.searchParams.keys()].some(isSensitiveKey)) {
     fail("CAPTURE_HTTP_SENSITIVE_TEMPLATE", "Resolved request URL contains sensitive query keys.");
+  }
+}
+
+function assertSafeProducedVariables(produced) {
+  for (const [name, value] of Object.entries(produced || {})) {
+    if (!SAFE_PRODUCED_NAMES.has(name) || isSensitiveKey(name)) {
+      fail("CAPTURE_HTTP_PRODUCES_UNSAFE", "Produced variables must use approved non-sensitive names.");
+    }
+    if (!["string", "number", "boolean"].includes(typeof value)) {
+      fail("CAPTURE_HTTP_PRODUCES_UNSAFE", "Produced variables must be scalar values.");
+    }
+    const text = String(value);
+    if (text.length > 512 || /^https?:\/\//i.test(text) || /^file:/i.test(text) || /[?&]/.test(text) || hasAbsoluteLocalPath(text)) {
+      fail("CAPTURE_HTTP_PRODUCES_UNSAFE", "Produced variables must not contain URLs or signed query values.");
+    }
   }
 }
 
@@ -213,8 +240,9 @@ export function createRealLiveHttpClient({
       assertUrlHasNoLocalPaths(url);
       assertNoLocalPaths(templateHeaders);
       assertNoLocalPaths(body);
-      assertLiveGate({ config, context, step, url, runtimeAuth });
-      const headers = mergeRuntimeHeaders(templateHeaders, runtimeAuth);
+      const runtimeHeaders = runtimeHeadersForUrl(runtimeAuth, url);
+      assertLiveGate({ config, context, step, url, runtimeHeaders });
+      const headers = mergeRuntimeHeaders(templateHeaders, runtimeHeaders);
       assertNoLocalPaths(headers);
       const response = await transport.request({
         step,
@@ -224,11 +252,16 @@ export function createRealLiveHttpClient({
         body,
         timeoutMs: config.timeoutMs || 30000
       });
+      if (response?.status < 200 || response?.status >= 300) {
+        fail("CAPTURE_HTTP_STATUS_NOT_OK", "Live HTTP request returned a non-success status.");
+      }
       const responseBody = response?.body ?? {};
       const produced = extractProducedVariables(step.produces, responseBody);
+      assertSafeProducedVariables(produced);
       return {
         status: response?.status ?? step.response.status,
         body: responseBody,
+        artifact: response?.artifact || null,
         produced,
         request_plan: {
           step_id: step.id,

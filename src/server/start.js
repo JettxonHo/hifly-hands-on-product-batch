@@ -11,6 +11,8 @@ import { createCaptureHttpExecutor } from "../executors/capture-http-executor.js
 import { HiflyHandsOnProductPage } from "../hifly-page.js";
 import { BatchLogger } from "../logger.js";
 import { getProjectRoot } from "../core/project-root.js";
+import { createFetchLiveTransport } from "../rpa/capture/fetch-live-transport.js";
+import { createPlaywrightRuntimeAuthProvider } from "../rpa/capture/playwright-runtime-auth.js";
 import { buildApp } from "./app.js";
 
 const DEFAULT_PORT = 4317;
@@ -128,6 +130,20 @@ export async function startServer({
       executionLock,
       pointsEstimate,
       generationConfig,
+      captureLive: {
+        authProvider: createPlaywrightRuntimeAuthProvider({
+          chromium,
+          profileDir: resolvedPath(root, generationConfig.browser?.profileDir || "playwright/profile/hifly"),
+          allowedDomains: generationConfig.rpa?.realLive?.allowedDomains || [
+            "hiflyworks-api.lingverse.co",
+            "hifly.cc",
+            "lingverse.co"
+          ]
+        }),
+        transport: createFetchLiveTransport({
+          maxBytes: generationConfig.rpa?.realLive?.maxArtifactBytes
+        })
+      },
       executorFactory: ({ recordHarPath }) => createExecutorForBackend(root, generationConfig, { recordHarPath })
     });
     try {

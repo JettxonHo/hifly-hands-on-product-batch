@@ -443,6 +443,137 @@ test("real-live status API records disabled state without network or sensitive d
   assert.equal(JSON.stringify(body).includes("cookie"), false);
 });
 
+test("real-live run API executes one capture item with injected auth and transport", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-capture-live-api-"));
+  const authCalls = [];
+  const responses = [
+    { status: 200, body: { data: { gen_id: "asset-live" } } },
+    { status: 200, body: { data: { list: [{ id: "remote-live" }] } } },
+    { status: 200, body: { data: { list: [{ id: "remote-live", status: 2 }] } } },
+    {
+      status: 200,
+      body: { artifact_filename: "live-video.mp4" },
+      artifact: { bytes: new Uint8Array([5, 6, 7]), filename: "live-video.mp4" }
+    }
+  ];
+  const transportCalls = [];
+  const app = await buildApp({
+    root,
+    executor: createFakeExecutor(),
+    captureLive: {
+      authProvider: {
+        async getRuntimeAuth() {
+          authCalls.push("auth");
+          return { headers: { cookie: "runtime-cookie-secret" } };
+        }
+      },
+      transport: {
+        async request(request) {
+          transportCalls.push(request);
+          return responses.shift();
+        }
+      }
+    }
+  });
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const sessionResponse = await app.inject({ method: "GET", url: "/api/session", headers: { host: HOST } });
+  const session = {
+    cookie: sessionResponse.headers["set-cookie"].split(";")[0],
+    token: sessionResponse.json().token
+  };
+  const batchId = "batch-live-run";
+  const manifestRelativePath = `batches/${batchId}/capture/manifest.json`;
+  await mkdir(path.join(root, "batches", batchId, "uploads"), { recursive: true });
+  await mkdir(path.join(root, "batches", batchId, "capture"), { recursive: true });
+  await writeFile(path.join(root, "batches", batchId, "uploads", "product.png"), "image");
+  await writeFile(path.join(root, manifestRelativePath), JSON.stringify({
+    schema_version: 1,
+    sanitized: true,
+    source: "test",
+    captured_at: "2026-07-17T00:00:00.000Z",
+    steps: [
+      {
+        id: "create_asset",
+        phase: "asset_generation",
+        method: "POST",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/upload_url",
+        response: { status: 200, body: { data: { gen_id: "asset-live" } } },
+        produces: { asset_id: "$response.body.data.gen_id" },
+        risk: { requires_auth: true, replayability: "unknown" }
+      },
+      {
+        id: "submit_video",
+        phase: "remote_submit",
+        method: "POST",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos",
+        request_template: { body: { gen_id: "{{asset_id}}" } },
+        placeholders: ["{{asset_id}}"],
+        response: { status: 200, body: { data: { list: [{ id: "remote-live" }] } } },
+        produces: { remote_id: "$response.body.data.list.0.id" },
+        risk: { requires_auth: true, may_consume_points: true, replayability: "unknown" }
+      },
+      {
+        id: "query_video",
+        phase: "remote_query",
+        method: "GET",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id={{asset_id}}",
+        placeholders: ["{{asset_id}}"],
+        response: { status: 200, body: { data: { list: [{ id: "remote-live", status: 2 }] } } },
+        risk: { requires_auth: true, replayability: "unknown" }
+      },
+      {
+        id: "download_video",
+        phase: "download",
+        method: "GET",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos/{{remote_id}}/download",
+        placeholders: ["{{remote_id}}"],
+        response: { status: 200, body: { artifact_filename: "live-video.mp4" } },
+        produces: { artifact_filename: "$response.body.artifact_filename" },
+        risk: { requires_auth: true, replayability: "unknown" }
+      }
+    ]
+  }, null, 2));
+  await writeFile(path.join(root, "batches", batchId, "batch.json"), JSON.stringify({
+    batch_id: batchId,
+    status: "completed",
+    created_at: "2026-07-17T00:00:00.000Z",
+    updated_at: "2026-07-17T00:00:00.000Z",
+    uploads: [{ artifact_id: "product-1", kind: "image", storage_name: "product.png" }],
+    artifacts: [{ artifact_id: "product-1", relative_path: "uploads/product.png" }],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-LIVE",
+      status: "completed",
+      product_image_artifact_id: "product-1"
+    }],
+    capture: updateCaptureState(createInitialCaptureState({ enabled: true }), {
+      status: "dry_run_passed",
+      manifest_path: manifestRelativePath
+    })
+  }, null, 2));
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/live-run`,
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, limitItems: 1 }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.batch.capture.status, "real_live_completed");
+  assert.equal(body.batch.capture.live_summary.artifact_path, "artifacts/live-video.mp4");
+  assert.equal(body.batch.capture.live_summary.remote_id, "remote-live");
+  assert.equal(body.batch.items[0].output_path, "artifacts/live-video.mp4");
+  assert.equal(authCalls.length, 1);
+  assert.equal(transportCalls.length, 4);
+  assert.equal(JSON.stringify(body).includes("runtime-cookie-secret"), false);
+  assert.deepEqual([...await readFile(path.join(root, "batches", batchId, "artifacts", "live-video.mp4"))], [5, 6, 7]);
+});
+
 test("list and detail projections remove legacy full dry-run request details", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "capture-legacy-projection-"));
   t.after(() => rm(root, { recursive: true, force: true }));

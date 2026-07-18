@@ -306,7 +306,7 @@ test("capture GUI exposes a no-network dry-run action for redacted batches", asy
   await assertVisible(page.getByText("仅构造请求计划，不访问飞影、不消耗积分"));
 });
 
-test("capture GUI distinguishes real-live disabled from dry-run", async (t) => {
+test("capture GUI enables real-live action only for one-item dry-run batches", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-live-disabled-"));
   let server = null;
   let browser = null;
@@ -322,7 +322,7 @@ test("capture GUI distinguishes real-live disabled from dry-run", async (t) => {
     status: "completed",
     uploads: [],
     artifacts: [],
-    items: [],
+    items: [{ task_id: "task-1", sku: "SKU-1", product_name: "Live One", status: "completed" }],
     capture: {
       enabled: true,
       status: "dry_run_passed",
@@ -361,8 +361,8 @@ test("capture GUI distinguishes real-live disabled from dry-run", async (t) => {
   await page.getByRole("tab", { name: "待执行任务" }).click();
   await assertVisible(page.getByText("真实请求预演通过"));
   await assertVisible(page.getByRole("button", { name: "真实 HTTP 生成（会访问飞影，可能消耗积分）" }));
-  assert.equal(await page.getByRole("button", { name: "真实 HTTP 生成（会访问飞影，可能消耗积分）" }).isDisabled(), true);
-  await assertVisible(page.getByText("当前阶段仅支持真实请求预演；真实 HTTP 生成需单独授权后只跑 1 条。"));
+  assert.equal(await page.getByRole("button", { name: "真实 HTTP 生成（会访问飞影，可能消耗积分）" }).isDisabled(), false);
+  await assertVisible(page.getByText("真实 HTTP 生成只允许单条联调；点击后会使用浏览器登录态访问飞影，可能消耗积分。"));
 });
 
 async function assertVisible(locator) {
