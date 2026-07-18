@@ -12,6 +12,7 @@
     sessionStatus: document.querySelector("#sessionStatus"),
     batchStatus: document.querySelector("#batchStatus"),
     runtimeBackendBadge: document.querySelector("#runtimeBackendBadge"),
+    captureHttpBadge: document.querySelector("#captureHttpBadge"),
     tabs: Array.from(document.querySelectorAll(".tab")),
     panels: Array.from(document.querySelectorAll(".panel")),
     singleForm: document.querySelector("#singleForm"),
@@ -302,12 +303,15 @@
     if (!nodes.runtimeBackendBadge) return;
     try {
       const runtime = await api.getRuntime();
+      const backendLabel = runtime.executionBackend === "yingdao_rpa" ? "影刀 RPA" : "Playwright";
       setText(
         nodes.runtimeBackendBadge,
-        `执行引擎：${runtime.executionBackend === "yingdao_rpa" ? "影刀 RPA" : "Playwright"}`
+        `批量生成：${backendLabel}`
       );
+      if (nodes.captureHttpBadge) setText(nodes.captureHttpBadge, "抓包 HTTP：单条联调");
     } catch {
-      setText(nodes.runtimeBackendBadge, "执行引擎：未知");
+      setText(nodes.runtimeBackendBadge, "批量生成：未知");
+      if (nodes.captureHttpBadge) setText(nodes.captureHttpBadge, "抓包 HTTP：状态未知");
     }
   }
 

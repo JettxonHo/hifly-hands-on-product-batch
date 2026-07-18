@@ -98,6 +98,47 @@ test("single-product GUI path creates a pending batch", async (t) => {
   await assertVisible(page.getByRole("heading", { name: "运行记录" }));
 });
 
+test("GUI separates the batch backend from capture HTTP live mode", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-runtime-modes-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await assertVisible(page.getByText("批量生成：Playwright"));
+  await assertVisible(page.getByText("抓包 HTTP：单条联调"));
+});
+
 test("bulk-entry GUI path creates one batch from multiple product rows", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-bulk-"));
   const imageOne = path.join(root, "bulk-one.png");
