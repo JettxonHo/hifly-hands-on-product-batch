@@ -1,5 +1,18 @@
 import { isSensitiveKey } from "./sensitive.js";
 
+const FORBIDDEN_REPLAY_HEADERS = new Set([
+  "accept-encoding",
+  "connection",
+  "content-length",
+  "cookie",
+  "host",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade"
+]);
+
 function queryKey(part) {
   const encoded = part.split("=", 1)[0].replace(/\+/g, " ");
   try {
@@ -27,7 +40,10 @@ function removeSensitiveHeaders(headers, basePath, removed) {
   if (!headers || typeof headers !== "object") return null;
   const next = {};
   for (const [key, value] of Object.entries(headers)) {
-    if (isSensitiveKey(key)) removed.push(`${basePath}.${key}`);
+    const normalized = String(key).toLowerCase();
+    if (normalized.startsWith(":") || FORBIDDEN_REPLAY_HEADERS.has(normalized) || isSensitiveKey(key)) {
+      removed.push(`${basePath}.${key}`);
+    }
     else next[key] = value;
   }
   return next;

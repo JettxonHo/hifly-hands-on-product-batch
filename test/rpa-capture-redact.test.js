@@ -40,6 +40,41 @@ test("strips sensitive request/response headers", () => {
   assert.ok(report.removed.some((p) => p.includes("set-cookie")));
 });
 
+test("drops browser-managed headers that fetch cannot safely replay", () => {
+  const { sanitized, report } = redactCaptureSource({
+    ...RAW,
+    steps: [{
+      ...RAW.steps[0],
+      request: {
+        headers: {
+          ":authority": "hiflyworks-api.lingverse.co",
+          ":method": "POST",
+          "accept": "application/json",
+          "accept-encoding": "gzip, br",
+          "connection": "keep-alive",
+          "content-length": "35",
+          "content-type": "application/json",
+          "host": "hiflyworks-api.lingverse.co",
+          "x-client-type": "web"
+        },
+        body: { extension: "jpeg" }
+      }
+    }]
+  });
+  assert.deepEqual(sanitized.steps[0].request_template, {
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      "x-client-type": "web"
+    },
+    body: { extension: "jpeg" }
+  });
+  const removed = report.removed.join("\n");
+  assert.equal(removed.includes(":authority"), true);
+  assert.equal(removed.includes("content-length"), true);
+  assert.equal(removed.includes("accept-encoding"), true);
+});
+
 test("removes sensitive body fields and records them", () => {
   const { sanitized, report } = redactCaptureSource(RAW);
   assert.equal(sanitized.steps[0].response.body.data.access_token, undefined);

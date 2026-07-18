@@ -1,5 +1,16 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-18 Capture HTTP 首次真实联调失败于 asset_generation，已完成无积分修复准备
+
+- 用户授权后只对单商品批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 执行了一次 `POST /api/batches/:batchId/capture/live-run`；未重建批次、未批量执行、未从 Playwright 素材上传流程重跑。
+- 结果：批次进入 `capture.status = real_live_failed`，错误码 `CAPTURE_HTTP_UNEXPECTED_CONTENT_TYPE`。RPA state 停在 `generating_asset`，说明失败发生在 asset_generation 第一段附近，尚未进入 `submit_video`；是否扣除手持图积分需以飞影后台积分记录为准，但未到视频提交阶段。
+- 根因：该批次历史 manifest 是旧版抽取/脱敏产物，`upload_url` 等步骤缺少 `request_template` 与 `requires_auth`，真实请求变成裸 POST；刷新后又暴露出抓包请求头中存在 `:method`、`:path`、`content-length`、`accept-encoding` 等浏览器/HTTP2 管理头，不能直接由 Node fetch 复放。
+- 已修复代码：`redactCaptureSource()` 现在移除 fetch 不应手动复放的浏览器管理头，同时保留 `content-type`、`accept`、`origin`、`referer`、`x-client-type`、`x-lvs-language`、`x-name` 等业务可复放头；新增回归测试覆盖。
+- 已修复登录态：`createPlaywrightRuntimeAuthProvider()` 除 cookie 外，会从 `https://hifly.cc` 的 local/session storage 中读取当前 Bearer token，只在内存里对 `hiflyworks-api.lingverse.co` 注入 `Authorization`，不写入 batch/manifest/log；日志只输出 token 数量。
+- 已对同一批次执行本地无积分刷新：`extract` → `redact` → `dry-run` 全部通过，状态恢复为 `dry_run_passed`，刷新后的 manifest 有 request_template、requires_auth，并已过滤伪头/content-length/accept-encoding。登录态计数检查：4 个 cookie、1 个 Bearer token，API host 有可用 header。
+- 验证：`node --test test/rpa-capture-redact.test.js test/playwright-runtime-auth.test.js test/rpa-capture-real-live-client.test.js test/server-capture-api.test.js` 为 46/46 通过；`npm test` 为 351/351 通过；`npm run check` 通过（65 个 JS 文件）；`git diff --check` 通过。
+- 重要边界：修复后尚未再次真实访问飞影。下一次真实 `live-run` 仍必须重新获得用户明确授权，只跑该 1 条批次。
+
 ## 2026-07-18 Capture HTTP real_live GUI 入口与 fake transport 联调已完成（未访问飞影、无新增积分）
 
 - 已按 `docs/superpowers/plans/2026-07-17-capture-http-real-live-transport.md` 继续实现方案 A：Playwright 只作为运行时登录 cookie provider，capture HTTP 负责生成、轮询和下载；默认生产链路仍是 Playwright，未切换默认 backend。

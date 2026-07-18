@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { createPlaywrightRuntimeAuthProvider } from "../src/rpa/capture/playwright-runtime-auth.js";
 
-function fakeChromium({ cookies = [], onCookies, onClose, calls = [] } = {}) {
+function fakeChromium({ cookies = [], onCookies, onClose, calls = [], storage = {}, pageCalls = [] } = {}) {
   return {
     async launchPersistentContext(profileDir, options) {
       calls.push({ profileDir, options });
@@ -11,6 +11,34 @@ function fakeChromium({ cookies = [], onCookies, onClose, calls = [] } = {}) {
         async cookies() {
           if (onCookies) return onCookies();
           return cookies;
+        },
+        async newPage() {
+          return {
+            async goto(url, options) {
+              pageCalls.push({ url, options });
+            },
+            async evaluate(fn, keys) {
+              const local = storage.localStorage || {};
+              const session = storage.sessionStorage || {};
+              const previousWindow = globalThis.window;
+              globalThis.window = {
+                localStorage: {
+                  getItem: (key) => local[key] ?? null,
+                  key: (index) => Object.keys(local)[index] ?? null,
+                  get length() { return Object.keys(local).length; }
+                },
+                sessionStorage: {
+                  getItem: (key) => session[key] ?? null
+                }
+              };
+              try {
+                return fn(keys);
+              } finally {
+                globalThis.window = previousWindow;
+              }
+            },
+            async close() {}
+          };
         },
         async close() {
           if (onClose) return onClose();
@@ -44,6 +72,26 @@ test("runtime auth provider builds per-host in-memory cookie headers for allowed
   assert.equal(auth.headersForUrl("https://hiflyworks-api.lingverse.co/api").cookie, "api=def; wide=ghi");
   assert.equal(auth.headersForUrl("https://lingverse.co/account").cookie, "wide=ghi");
   assert.deepEqual(auth.headersForUrl("https://example.com"), {});
+});
+
+test("runtime auth provider adds bearer token only for the Hifly API host", async () => {
+  const pageCalls = [];
+  const token = "eyJabc.def.ghi";
+  const provider = createPlaywrightRuntimeAuthProvider({
+    chromium: fakeChromium({
+      pageCalls,
+      cookies: [{ name: "sid", value: "abc", domain: ".hifly.cc" }],
+      storage: { localStorage: { accessToken: token } }
+    }),
+    profileDir: "/tmp/profile"
+  });
+
+  const auth = await provider.getRuntimeAuth();
+
+  assert.equal(pageCalls[0].url, "https://hifly.cc");
+  assert.equal(auth.bearer_count, 1);
+  assert.equal(auth.headersForUrl("https://hiflyworks-api.lingverse.co/api").authorization, `Bearer ${token}`);
+  assert.equal(auth.headersForUrl("https://hifly.cc/goods").authorization, undefined);
 });
 
 test("runtime auth provider returns empty headers when no allowed cookies exist", async () => {
@@ -86,7 +134,10 @@ test("runtime auth provider closes context when cookies throws and does not leak
 test("runtime auth provider does not log cookie values", async () => {
   const logs = [];
   const provider = createPlaywrightRuntimeAuthProvider({
-    chromium: fakeChromium({ cookies: [{ name: "sid", value: "secret-cookie", domain: ".hifly.cc" }] }),
+    chromium: fakeChromium({
+      cookies: [{ name: "sid", value: "secret-cookie", domain: ".hifly.cc" }],
+      storage: { localStorage: { accessToken: "eyJsecret.token.value" } }
+    }),
     profileDir: "/tmp/profile",
     logger: { info: (message) => logs.push(message), warn: (message) => logs.push(message) }
   });
@@ -94,4 +145,5 @@ test("runtime auth provider does not log cookie values", async () => {
   await provider.getRuntimeAuth();
 
   assert.equal(logs.join("\n").includes("secret-cookie"), false);
+  assert.equal(logs.join("\n").includes("eyJsecret"), false);
 });
