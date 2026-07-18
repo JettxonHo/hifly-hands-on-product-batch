@@ -21,11 +21,13 @@ function validBatchId(value) {
   return typeof value === "string" && BATCH_ID_PATTERN.test(value) && value !== "." && value !== "..";
 }
 
-function publicItem(item) {
+function publicItem(item, artifactIdByPath = new Map()) {
   const value = {};
   for (const [key, field] of Object.entries(item ?? {})) {
     if (!INTERNAL_ITEM_FIELDS.has(key)) value[key] = key === "error_message" ? sanitizeMessage(field) : field;
   }
+  const artifactId = artifactIdByPath.get(item?.output_path);
+  if (artifactId) value.output_artifact_id = artifactId;
   return value;
 }
 
@@ -53,12 +55,17 @@ function publicExecutionSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return snapshot;
   return {
     ...snapshot,
-    items: Array.isArray(snapshot.items) ? snapshot.items.map(publicItem) : snapshot.items
+    items: Array.isArray(snapshot.items) ? snapshot.items.map((item) => publicItem(item)) : snapshot.items
   };
 }
 
 export function publicBatch(batch) {
   const { artifacts = [], uploads = [], items = [], ...rest } = batch;
+  const artifactIdByPath = new Map(
+    artifacts
+      .filter((artifact) => typeof artifact?.artifact_id === "string" && typeof artifact?.relative_path === "string")
+      .map((artifact) => [artifact.relative_path, artifact.artifact_id])
+  );
   return {
     ...rest,
     capture: publicCaptureState(rest.capture),
@@ -67,7 +74,7 @@ export function publicBatch(batch) {
     fixed_person_image_artifact_id: rest.fixed_person_image_artifact_id === undefined ? null : rest.fixed_person_image_artifact_id,
     execution_error: sanitizeMessage(rest.execution_error),
     execution_snapshot: publicExecutionSnapshot(rest.execution_snapshot),
-    items: items.map(publicItem),
+    items: items.map((item) => publicItem(item, artifactIdByPath)),
     uploads: uploads.map(({ artifact_id, logical_name, extension, kind, size }) => ({
       artifact_id, logical_name, extension, kind, size
     })),

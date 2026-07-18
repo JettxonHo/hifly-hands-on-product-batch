@@ -421,7 +421,7 @@ test("capture GUI shows real-live completion evidence without offering a retry a
     batch_id: "batch-real-live-completed",
     status: "completed",
     uploads: [],
-    artifacts: [],
+    artifacts: [{ artifact_id: "video-1", relative_path: "artifacts/未命名.mp4" }],
     items: [{
       task_id: "task-1",
       sku: "SKU-OK",
@@ -474,6 +474,7 @@ test("capture GUI shows real-live completion evidence without offering a retry a
   await assertVisible(page.getByText("真实 HTTP 已完成并下载到本地。"));
   await assertVisible(page.locator("#panel-queue").getByText("飞影作品 ID：640509"));
   await assertVisible(page.locator("#panel-queue").getByText("下载路径：artifacts/未命名.mp4"));
+  await assertVisible(page.locator("#panel-queue").getByRole("link", { name: "下载产物" }).first());
   await assertVisible(page.getByText("默认不再重复生成"));
   assert.equal(await page.getByRole("button", { name: "复制路径" }).count(), 2);
   assert.equal(await page.getByRole("button", { name: /重新真实 HTTP 生成/ }).count(), 0);
@@ -481,6 +482,7 @@ test("capture GUI shows real-live completion evidence without offering a retry a
   await assertVisible(page.locator("#panel-records").getByText("抓包 HTTP：已完成"));
   await assertVisible(page.locator("#panel-records").getByText("飞影作品 ID：640509"));
   await assertVisible(page.locator("#panel-records").getByText("下载路径：artifacts/未命名.mp4"));
+  await assertVisible(page.locator("#panel-records").getByRole("link", { name: "下载产物" }).first());
 });
 
 test("capture GUI exposes a clear retry action for failed real-live batches", async (t) => {

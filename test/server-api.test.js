@@ -150,6 +150,41 @@ test("runtime endpoint defaults to playwright backend", async (t) => {
   assert.equal(response.json().executionBackend, "playwright");
 });
 
+test("batch projection maps completed item outputs to artifact ids without exposing artifact paths", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-output-artifact",
+    status: "completed",
+    uploads: [],
+    artifacts: [{ artifact_id: "video-1", relative_path: "artifacts/video.mp4" }],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      product_name: "Video Product",
+      status: "completed",
+      output_path: "artifacts/video.mp4"
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-output-artifact",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const batch = response.json().batch;
+  assert.deepEqual(batch.artifacts, [{ artifact_id: "video-1" }]);
+  assert.equal(batch.items[0].output_path, "artifacts/video.mp4");
+  assert.equal(batch.items[0].output_artifact_id, "video-1");
+  assert.equal(JSON.stringify(batch.artifacts).includes("artifacts/video.mp4"), false);
+});
+
 test("accepts token-only localhost RPA callbacks while other POST routes require a session", async (t) => {
   const { app, root } = await fixture();
   t.after(async () => {
