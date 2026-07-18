@@ -140,6 +140,44 @@
     return labels[status] || status || "未知";
   }
 
+  function formatCaptureTime(value) {
+    if (!value) return "";
+    const time = new Date(value);
+    if (Number.isNaN(time.getTime())) return String(value);
+    return time.toLocaleString("zh-CN", { hour12: false });
+  }
+
+  function appendCaptureNotice(panel, capture) {
+    if (capture.status === "real_live_completed") {
+      const summary = capture.live_summary || {};
+      const notice = document.createElement("div");
+      notice.className = "notice success";
+      const lines = [
+        "真实 HTTP 已完成并下载到本地。",
+        summary.sku ? `SKU：${summary.sku}` : "",
+        summary.remote_id ? `飞影作品 ID：${summary.remote_id}` : "",
+        summary.artifact_path ? `下载路径：${summary.artifact_path}` : "",
+        summary.completed_at ? `完成时间：${formatCaptureTime(summary.completed_at)}` : ""
+      ].filter(Boolean);
+      setText(notice, lines.join("\n"));
+      panel.append(notice);
+      return;
+    }
+
+    if (capture.status === "real_live_failed") {
+      const error = capture.live_error || {};
+      const notice = document.createElement("div");
+      notice.className = "notice error";
+      const lines = [
+        "真实 HTTP 生成失败，可在确认积分风险后对该批次重新执行。",
+        error.code ? `错误码：${error.code}` : "",
+        `错误信息：${error.message || "Unable to complete the real HTTP live run."}`
+      ].filter(Boolean);
+      setText(notice, lines.join("\n"));
+      panel.append(notice);
+    }
+  }
+
   const BATCH_FOCUS_PRIORITY = new Map([
     ["interrupted_unknown", 0],
     ["active", 1],
@@ -389,16 +427,15 @@
       capture.replay_summary?.remote_id ? `远端 ID：${capture.replay_summary.remote_id}` : "",
       capture.dry_run_summary?.executed_step_count ? `预演步骤数：${capture.dry_run_summary.executed_step_count}` : "",
       capture.dry_run_error ? `预演错误：${capture.dry_run_error.message || "Unable to construct the dry-run request plan."}` : "",
-      capture.live_summary?.artifact_path ? `真实 HTTP 产物：${capture.live_summary.artifact_path}` : "",
-      capture.live_error ? `真实 HTTP 错误：${capture.live_error.message || "Unable to complete the real HTTP live run."}` : "",
       capture.status === "real_live_completed"
-        ? "真实 HTTP 生成已完成"
+        ? "该批次已完成真实 HTTP 出片，默认不再重复生成。"
         : "真实请求预演仅构造请求计划，不访问飞影、不消耗积分"
     ].filter(Boolean)) {
       const line = document.createElement("span");
       setText(line, text);
       panel.append(line);
     }
+    appendCaptureNotice(panel, capture);
     const actions = document.createElement("div");
     actions.className = "button-row";
     actions.append(
@@ -413,7 +450,9 @@
       ),
       captureActionButton(
         batch.batch_id,
-        "真实 HTTP 生成（会访问飞影，可能消耗积分）",
+        capture.status === "real_live_failed"
+          ? "重新真实 HTTP 生成（会访问飞影，可能消耗积分）"
+          : "真实 HTTP 生成（会访问飞影，可能消耗积分）",
         "liveRun",
         ["dry_run_passed", "real_live_failed"].includes(capture.status) && (batch.items || []).length === 1
       )

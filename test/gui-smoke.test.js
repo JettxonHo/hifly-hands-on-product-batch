@@ -365,6 +365,135 @@ test("capture GUI enables real-live action only for one-item dry-run batches", a
   await assertVisible(page.getByText("真实 HTTP 生成只允许单条联调；点击后会使用浏览器登录态访问飞影，可能消耗积分。"));
 });
 
+test("capture GUI shows real-live completion evidence without offering a retry action", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-live-completed-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-real-live-completed",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-OK", product_name: "Live Done", status: "completed" }],
+    capture: {
+      enabled: true,
+      status: "real_live_completed",
+      manifest_path: "batches/batch-real-live-completed/capture/manifest.json",
+      live_summary: {
+        sku: "SKU-OK",
+        remote_id: 640509,
+        artifact_path: "artifacts/未命名.mp4",
+        completed_at: "2026-07-18T16:54:38.462Z"
+      }
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("状态：真实 HTTP 已完成", { exact: true }));
+  await assertVisible(page.getByText("真实 HTTP 已完成并下载到本地。"));
+  await assertVisible(page.getByText("飞影作品 ID：640509"));
+  await assertVisible(page.getByText("下载路径：artifacts/未命名.mp4"));
+  await assertVisible(page.getByText("默认不再重复生成"));
+  assert.equal(await page.getByRole("button", { name: /重新真实 HTTP 生成/ }).count(), 0);
+});
+
+test("capture GUI exposes a clear retry action for failed real-live batches", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-live-failed-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-real-live-failed",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-FAIL", product_name: "Live Fail", status: "completed" }],
+    capture: {
+      enabled: true,
+      status: "real_live_failed",
+      manifest_path: "batches/batch-real-live-failed/capture/manifest.json",
+      live_error: {
+        code: "CAPTURE_HTTP_ARTIFACT_MISSING",
+        message: "Unable to download the generated artifact."
+      }
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("真实 HTTP 失败"));
+  await assertVisible(page.getByText("错误码：CAPTURE_HTTP_ARTIFACT_MISSING"));
+  const retry = page.getByRole("button", { name: "重新真实 HTTP 生成（会访问飞影，可能消耗积分）" });
+  await assertVisible(retry);
+  assert.equal(await retry.isDisabled(), false);
+});
+
 async function assertVisible(locator) {
   await locator.waitFor({ state: "visible", timeout: 10_000 });
   assert.equal(await locator.isVisible(), true);

@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-19 GUI 抓包结果态收尾：真实 HTTP 成功/失败可读、失败可重试（无新增积分）
+
+- 已在 GUI「抓包工作流」面板补齐真实 HTTP 结果摘要。`real_live_completed` 现在明确显示“真实 HTTP 已完成并下载到本地”、SKU、飞影作品 ID、下载路径和完成时间；并提示该批次默认不再重复生成，避免误点再次消耗积分。
+- `real_live_failed` 现在显示单独错误块，包含稳定错误码与错误信息；单商品失败批次的按钮文案改为“重新真实 HTTP 生成（会访问飞影，可能消耗积分）”，用于确认风险后继续同一批次，不需要重新录入商品。
+- 新增 GUI smoke 回归覆盖：完成态必须展示远端 ID/下载路径且不出现“重新真实 HTTP 生成”；失败态必须展示错误码并启用重新真实 HTTP 生成按钮。
+- 本轮未访问飞影、未跑真实 HTTP、未生成视频、未消耗新增积分；仅做本地 GUI/API 测试。
+- 验证已执行：`node --test test/gui-smoke.test.js test/server-capture-api.test.js` 为 19/19 通过；`npm run check` 通过（65 个 JS 文件）；`git diff --check` 通过。
+- 下一步建议：如要继续推进“GUI 全功能符合抓包 HTTP 工作流”，优先在 GUI 中增加运行模式说明/入口编排：默认 Playwright 批量生产仍可用，capture HTTP 用于单条联调或已授权的小范围验证；批量 capture HTTP 默认仍不开放，直到多商品 HTTP 队列策略和积分保护规则确认。
+
 ## 2026-07-19 Capture HTTP 真实单条出片已跑通：生成、提交、下载均成功
 
 - 用户明确“确认授权”后，只对已有单商品 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 调用了一次 `POST /api/batches/:batchId/capture/live-run`；未新建批次、未批量运行、未从 Playwright 重新上传素材。

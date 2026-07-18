@@ -491,6 +491,13 @@ tr.selected {
   padding: 12px;
   font-size: 14px;
   line-height: 1.6;
+  white-space: pre-line;
+}
+
+.notice.success {
+  border: 1px solid #abefc6;
+  background: #ecfdf3;
+  color: #067647;
 }
 
 .notice.error {
