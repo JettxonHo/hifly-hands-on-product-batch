@@ -90,7 +90,7 @@ export function createFetchLiveTransport({
   if (typeof fetchImpl !== "function") throw new TypeError("fetch live transport requires fetchImpl");
   const protocols = new Set(allowedProtocols);
   return {
-    async request({ method, url, headers = {}, body = null, timeoutMs = 30000 }) {
+    async request({ method, url, headers = {}, body = null, timeoutMs = 30000, responseType = "auto" }) {
       let parsed;
       try {
         parsed = new URL(url);
@@ -111,6 +111,9 @@ export function createFetchLiveTransport({
           signal: controller.signal
         });
         const responseHeaders = headersObject(response.headers);
+        if (responseType === "empty") {
+          return { status: response.status, headers: responseHeaders, body: {} };
+        }
         const contentType = response.headers.get("content-type") || "";
         if (isJsonContentType(contentType)) {
           const parsedBody = await response.json();

@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-18 Capture HTTP 第三次真实联调：登录态已通，失败定位为缺少 OSS PUT 上传
+
+- 用户授权“允许跑 1 条真实 HTTP 出片”后，只对已有单商品批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 调用了一次 `POST /api/batches/:batchId/capture/live-run`；未新建批次、未批量运行、未从 Playwright 重新上传素材。
+- 结果：`capture.status = real_live_failed`，错误码 `CAPTURE_HTTP_REMOTE_REJECTED`。本次登录态已通过，runtime auth 读取到 4 个 cookie 和 1 个 bearer token；失败不再是“用户未认证”。
+- 根因定位：原始 HAR 显示真实网页流程是 `upload_url` → `PUT https://prod-metarium.oss-cn-shanghai.aliyuncs.com/...` 上传商品图二进制 → `goods_holding_image_generation`。当前 manifest 只保留了飞影 API 的 7 步，没有执行 OSS PUT，因此拿到新的 `oss_key` 后图片实际未上传，后续手持图生成被飞影业务拒绝。
+- 已做无积分代码修复准备：`real_live` 在 `upload_image_001` 返回 upload URL 后，会读取本地 `product_image_path`，优先使用安全 HTTPS `safe_url`，或把飞影返回的内网 HTTP OSS URL 规范化为外网 HTTPS OSS URL，再 PUT 商品图 bytes。该 PUT 响应按 empty response 处理；返回对象会移除 `safe_url/upload_url` 等签名 URL，只保留非签名字段，避免落盘泄露。
+- 新增错误码白名单：`CAPTURE_HTTP_UPLOAD_URL_UNAVAILABLE`、`CAPTURE_HTTP_UPLOAD_ARTIFACT_MISSING`、`CAPTURE_HTTP_UPLOAD_FAILED`。
+- 验证：`node --test test/rpa-fetch-live-transport.test.js test/rpa-capture-real-live-client.test.js test/server-capture-api.test.js` 为 43/43 通过；`npm test` 为 355/355 通过；`npm run check` 通过（65 个 JS 文件）；`git diff --check` 通过。全量测试第一次遇到 `batch-runner` 单个计时抖动，单文件复跑通过，随后全量复跑通过。
+- 下一步：提交该修复后，必须再次获得用户明确授权，才能再跑 1 条真实 HTTP 出片。不要直接继续消耗积分。
+
 ## 2026-07-18 Capture HTTP 二次真实联调定位为登录态失效，已补错误识别（停止继续消耗积分）
 
 - 2026-07-18 23:28 CST 更新：用户重新登录项目专用 Playwright profile 后，已做一次无积分 `upload_url` 认证探测。结果：`status=200`、`code=0`、`message=OK`，runtime auth 读取到 4 个 cookie 和 1 个 bearer token，说明当前 profile 登录态已恢复。该探测只申请上传 URL，未生成手持图、未提交视频。

@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { createRealLiveHttpClient } from "../src/rpa/capture/real-live-http-client.js";
 
@@ -542,4 +545,70 @@ test("real_live rejects non-zero Hifly response codes before producing variables
     }),
     { code: "CAPTURE_HTTP_REMOTE_REJECTED" }
   );
+});
+
+test("real_live uploads product bytes after receiving an upload URL", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "capture-real-live-upload-"));
+  try {
+    const imagePath = path.join(root, "product.jpeg");
+    await writeFile(imagePath, new Uint8Array([9, 8, 7, 6]));
+    const calls = [];
+    const client = createRealLiveHttpClient({
+      manifest: {
+        schema_version: 1,
+        sanitized: true,
+        source: "test",
+        captured_at: "2026-07-18T00:00:00.000Z",
+        steps: [{
+          id: "upload_image_001",
+          phase: "asset_generation",
+          method: "POST",
+          url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/upload_url",
+          placeholders: [],
+          request_template: {
+            headers: { "content-type": "application/json" },
+            body: { extension: "jpeg", media_type: 3 }
+          },
+          response: { status: 200, body: { code: 0, data: {} } },
+          produces: { goods_image_oss_key: "$response.body.data.oss_key" },
+          risk: { requires_auth: true, may_consume_points: false, replayability: "unknown" }
+        }]
+      },
+      config: { enabled: true },
+      runtimeAuth: { headers: { authorization: "Bearer in-memory-only" } },
+      transport: {
+        request: async (request) => {
+          calls.push(request);
+          if (request.method === "PUT") return { status: 200, headers: {}, body: {} };
+          return {
+            status: 200,
+            headers: {},
+            body: {
+              code: 0,
+              data: {
+                safe_url: "https://prod-metarium.oss-cn-shanghai.aliyuncs.com/public/product.jpeg?Expires=1&Signature=test",
+                oss_key: "public/hf/local/100/images/product.jpeg",
+                content_type: "image/jpeg"
+              }
+            }
+          };
+        }
+      }
+    });
+    const result = await client.request({
+      stepId: "upload_image_001",
+      variables: { product_image_path: imagePath },
+      context: { allowRealLive: true, acknowledgePointRisk: true }
+    });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].method, "POST");
+    assert.equal(calls[1].method, "PUT");
+    assert.equal(calls[1].url.startsWith("https://prod-metarium.oss-cn-shanghai.aliyuncs.com/"), true);
+    assert.deepEqual([...calls[1].body], [9, 8, 7, 6]);
+    assert.equal(calls[1].headers["content-type"], "image/jpeg");
+    assert.equal(result.produced.goods_image_oss_key, "public/hf/local/100/images/product.jpeg");
+    assert.equal(JSON.stringify(result).includes("Signature=test"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

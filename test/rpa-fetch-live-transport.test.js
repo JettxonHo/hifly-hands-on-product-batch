@@ -62,6 +62,28 @@ test("fetch live transport parses text/plain JSON responses", async () => {
   assert.deepEqual(result.body, { code: 12, message: "用户未认证" });
 });
 
+test("fetch live transport accepts empty upload responses when requested", async () => {
+  const calls = [];
+  const transport = createFetchLiveTransport({
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response("", { status: 200, headers: {} });
+    }
+  });
+  const result = await transport.request({
+    method: "PUT",
+    url: "https://prod-metarium.oss-cn-shanghai.aliyuncs.com/object.jpeg",
+    headers: { "content-type": "image/jpeg" },
+    body: new Uint8Array([1, 2, 3]),
+    timeoutMs: 1000,
+    responseType: "empty"
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].init.method, "PUT");
+  assert.deepEqual([...calls[0].init.body], [1, 2, 3]);
+  assert.deepEqual(result.body, {});
+});
+
 test("fetch live transport returns binary artifact for non-json responses", async () => {
   const bytes = new Uint8Array([1, 2, 3, 4]);
   const transport = createFetchLiveTransport({

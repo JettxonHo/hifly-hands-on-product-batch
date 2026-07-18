@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { findStep } from "./manifest.js";
 import { findSensitiveKeys, isSensitiveKey } from "./sensitive.js";
 import {
@@ -7,6 +8,7 @@ import {
 } from "./step-runtime.js";
 
 const DEFAULT_ALLOWED_HOSTS = new Set(["hiflyworks-api.lingverse.co"]);
+const DEFAULT_UPLOAD_ALLOWED_HOSTS = new Set(["prod-metarium.oss-cn-shanghai.aliyuncs.com"]);
 const PLACEHOLDER_TOKEN = /^\{\{[A-Za-z0-9_]+\}\}$/;
 const TEMPLATE_PLACEHOLDER = /\{\{([A-Za-z0-9_]+)\}\}/g;
 const SAFE_PRODUCED_NAMES = new Set([
@@ -98,6 +100,11 @@ function requestTemplate(step) {
 
 function hostAllowed(hostname, config) {
   const allowed = new Set(Array.isArray(config?.allowedHosts) ? config.allowedHosts : [...DEFAULT_ALLOWED_HOSTS]);
+  return allowed.has(hostname);
+}
+
+function uploadHostAllowed(hostname, config) {
+  const allowed = new Set(Array.isArray(config?.uploadAllowedHosts) ? config.uploadAllowedHosts : [...DEFAULT_UPLOAD_ALLOWED_HOSTS]);
   return allowed.has(hostname);
 }
 
@@ -193,6 +200,68 @@ function assertSafeProducedVariables(produced) {
   }
 }
 
+function normalizeUploadUrl(data = {}, config = {}) {
+  const candidates = [data.safe_url, data.upload_url].filter((value) => typeof value === "string" && value.trim());
+  for (const candidate of candidates) {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol === "https:" && uploadHostAllowed(parsed.hostname, config)) return parsed.href;
+      if (parsed.protocol === "http:" && parsed.hostname === "prod-metarium.oss-cn-shanghai-internal.aliyuncs.com") {
+        parsed.protocol = "https:";
+        parsed.hostname = "prod-metarium.oss-cn-shanghai.aliyuncs.com";
+        if (uploadHostAllowed(parsed.hostname, config)) return parsed.href;
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  fail("CAPTURE_HTTP_UPLOAD_URL_UNAVAILABLE", "Upload URL response did not include an allowed HTTPS upload URL.");
+}
+
+function shouldUploadProductImage(step, responseBody, variables) {
+  return step.id === "upload_image_001" &&
+    typeof variables.product_image_path === "string" &&
+    responseBody?.data &&
+    typeof responseBody.data === "object";
+}
+
+async function uploadProductImage({ step, responseBody, variables, transport, config }) {
+  if (!shouldUploadProductImage(step, responseBody, variables)) return;
+  const uploadUrl = normalizeUploadUrl(responseBody.data, config);
+  let bytes;
+  try {
+    bytes = await readFile(variables.product_image_path);
+  } catch {
+    fail("CAPTURE_HTTP_UPLOAD_ARTIFACT_MISSING", "Product image file is unavailable for upload.");
+  }
+  const contentType = responseBody.data.content_type || step.request_template?.body?.content_type || "image/jpeg";
+  const response = await transport.request({
+    step: { ...step, id: `${step.id}:upload_object`, phase: step.phase },
+    method: "PUT",
+    url: uploadUrl,
+    headers: { "content-type": contentType },
+    body: bytes,
+    timeoutMs: config.uploadTimeoutMs || config.timeoutMs || 30000,
+    responseType: "empty"
+  });
+  if (response?.status < 200 || response?.status >= 300) {
+    fail("CAPTURE_HTTP_UPLOAD_FAILED", "Product image upload returned a non-success status.");
+  }
+}
+
+function publicResponseBody(step, responseBody) {
+  if (step.id !== "upload_image_001" || !responseBody?.data || typeof responseBody.data !== "object") {
+    return responseBody;
+  }
+  return {
+    ...responseBody,
+    data: {
+      oss_key: responseBody.data.oss_key,
+      content_type: responseBody.data.content_type
+    }
+  };
+}
+
 export function createDisabledLiveTransport() {
   return {
     async request() {
@@ -259,11 +328,13 @@ export function createRealLiveHttpClient({
       if (responseBody && typeof responseBody === "object" && responseBody.code !== undefined && responseBody.code !== 0) {
         fail("CAPTURE_HTTP_REMOTE_REJECTED", "Live HTTP request was rejected by the remote service.");
       }
+      await uploadProductImage({ step, responseBody, variables, transport, config });
       const produced = extractProducedVariables(step.produces, responseBody);
       assertSafeProducedVariables(produced);
+      const safeBody = publicResponseBody(step, responseBody);
       return {
         status: response?.status ?? step.response.status,
-        body: responseBody,
+        body: safeBody,
         artifact: response?.artifact || null,
         produced,
         request_plan: {
