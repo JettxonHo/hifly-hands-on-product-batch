@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-18 Capture HTTP 第四次真实联调：生成链路已推进到下载阶段，剩余列表 URL 下载适配
+
+- 用户再次明确授权“允许跑 1 条真实 HTTP 出片”后，只对已有单商品 capture 批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 调用了一次 `POST /api/batches/:batchId/capture/live-run`；未新建批次、未批量运行、未从 Playwright 重新上传素材。
+- 本轮先完成并验证了轮询修复：`real_live` 对 GET 且声明 `produces` 的步骤，在返回业务成功但目标变量暂未出现时，会按 `rpa.realLive.pollAttempts` / `pollIntervalMs` 重试；默认 60 次、5 秒间隔。POST 生成/提交步骤不会重试，避免重复扣点。
+- 真实联调结果：登录态注入正常，runtime auth 读取到 4 个 cookie 和 1 个 bearer；OSS PUT 商品图已通过；`poll_hands_on_image_ready` 已拿到新 `asset_id = ShwL6eAJvuP5oz3G`；视频提交后 `poll_video_submitted` 已拿到新 `remote_id = 640477`。这说明上一轮的 `CAPTURE_PRODUCES_MISSING` 卡点已经解决。
+- 当前剩余失败点：下载阶段 `capture.status = real_live_failed`，错误码 `CAPTURE_HTTP_ARTIFACT_MISSING`。根因不是前面生成失败，而是当前 `download_video` manifest 步骤实际请求的是飞影作品列表 JSON；列表中已有新作品 `id = 640477`，并包含该作品的 `url`，但代码仍期待该步骤直接返回 mp4 bytes。
+- 下一步设计建议：只改下载阶段。若下载步骤返回 `data.list`，按当前 `remote_id` 找对应条目，读取该条目的 `url`，仅在内存中用白名单 host 执行一次额外 GET 下载视频 bytes；不要把 CDN URL 写入 batch、state、report 或日志。建议新增 `rpa.realLive.artifactAllowedHosts`，默认只允许 `hfcdn.lingverse.co`。
+- 验证已执行：`node --test test/rpa-capture-real-live-client.test.js test/rpa-fetch-live-transport.test.js test/server-capture-api.test.js test/capture-http-executor.test.js` 为 57/57 通过；`npm run check` 通过（65 个 JS 文件）；`npm test` 为 356/356 通过。
+- 注意：本轮真实访问了飞影并完成了手持图生成与视频提交，是否实际消耗积分以飞影后台记录为准。后续再次真实下载/联调前仍需用户明确授权，尤其不要为了下载适配重新跑商品上传和生成。
+
 ## 2026-07-18 Capture HTTP 第三次真实联调：登录态已通，失败定位为缺少 OSS PUT 上传
 
 - 用户授权“允许跑 1 条真实 HTTP 出片”后，只对已有单商品批次 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 调用了一次 `POST /api/batches/:batchId/capture/live-run`；未新建批次、未批量运行、未从 Playwright 重新上传素材。

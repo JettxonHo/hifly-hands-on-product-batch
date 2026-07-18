@@ -241,7 +241,7 @@ async function uploadProductImage({ step, responseBody, variables, transport, co
     url: uploadUrl,
     headers: { "content-type": contentType },
     body: bytes,
-    timeoutMs: config.uploadTimeoutMs || config.timeoutMs || 30000,
+    timeoutMs: config.uploadTimeoutMs ?? config.timeoutMs ?? 30000,
     responseType: "empty"
   });
   if (response?.status < 200 || response?.status >= 300) {
@@ -260,6 +260,41 @@ function publicResponseBody(step, responseBody) {
       content_type: responseBody.data.content_type
     }
   };
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function canRetryMissingProduces(step) {
+  return step.method === "GET" && step.produces && Object.keys(step.produces).length > 0;
+}
+
+async function requestWithProducesRetry({ step, request, transport, config }) {
+  const attempts = canRetryMissingProduces(step) ? Math.max(1, Number(config.pollAttempts ?? 60)) : 1;
+  const intervalMs = Math.max(0, Number(config.pollIntervalMs ?? 5000));
+  let lastResponse = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const response = await transport.request(request);
+    if (response?.status < 200 || response?.status >= 300) {
+      fail("CAPTURE_HTTP_STATUS_NOT_OK", "Live HTTP request returned a non-success status.");
+    }
+    const responseBody = response?.body ?? {};
+    if (responseBody && typeof responseBody === "object" && responseBody.code !== undefined && responseBody.code !== 0) {
+      fail("CAPTURE_HTTP_REMOTE_REJECTED", "Live HTTP request was rejected by the remote service.");
+    }
+    try {
+      const produced = extractProducedVariables(step.produces, responseBody);
+      return { response, responseBody, produced };
+    } catch (error) {
+      if (error?.code !== "CAPTURE_PRODUCES_MISSING" || !canRetryMissingProduces(step) || attempt === attempts) {
+        throw error;
+      }
+      lastResponse = response;
+      await wait(intervalMs);
+    }
+  }
+  return { response: lastResponse, responseBody: lastResponse?.body ?? {}, produced: {} };
 }
 
 export function createDisabledLiveTransport() {
@@ -313,23 +348,16 @@ export function createRealLiveHttpClient({
       assertLiveGate({ config, context, step, url, runtimeHeaders });
       const headers = mergeRuntimeHeaders(templateHeaders, runtimeHeaders);
       assertNoLocalPaths(headers);
-      const response = await transport.request({
+      const request = {
         step,
         method: step.method,
         url: url.href,
         headers,
         body,
-        timeoutMs: config.timeoutMs || 30000
-      });
-      if (response?.status < 200 || response?.status >= 300) {
-        fail("CAPTURE_HTTP_STATUS_NOT_OK", "Live HTTP request returned a non-success status.");
-      }
-      const responseBody = response?.body ?? {};
-      if (responseBody && typeof responseBody === "object" && responseBody.code !== undefined && responseBody.code !== 0) {
-        fail("CAPTURE_HTTP_REMOTE_REJECTED", "Live HTTP request was rejected by the remote service.");
-      }
+        timeoutMs: config.timeoutMs ?? 30000
+      };
+      const { response, responseBody, produced } = await requestWithProducesRetry({ step, request, transport, config });
       await uploadProductImage({ step, responseBody, variables, transport, config });
-      const produced = extractProducedVariables(step.produces, responseBody);
       assertSafeProducedVariables(produced);
       const safeBody = publicResponseBody(step, responseBody);
       return {

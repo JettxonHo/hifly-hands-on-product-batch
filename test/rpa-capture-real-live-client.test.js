@@ -612,3 +612,47 @@ test("real_live uploads product bytes after receiving an upload URL", async () =
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("real_live polls until produced variables appear for GET steps", async () => {
+  const calls = [];
+  const client = createRealLiveHttpClient({
+    manifest: {
+      schema_version: 1,
+      sanitized: true,
+      source: "test",
+      captured_at: "2026-07-18T00:00:00.000Z",
+      steps: [{
+        id: "poll_hands_on_image_ready",
+        phase: "asset_generation",
+        method: "GET",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/goods_holding_image_generation?identifier=goods",
+        placeholders: [],
+        request_template: { headers: {}, body: null },
+        response: { status: 200, body: { code: 0, data: {} } },
+        produces: { asset_id: "$response.body.data.gen_id" },
+        risk: { requires_auth: true, may_consume_points: false, replayability: "unknown" }
+      }]
+    },
+    config: { enabled: true, pollAttempts: 3, pollIntervalMs: 0 },
+    runtimeAuth: { headers: { authorization: "Bearer in-memory-only" } },
+    transport: {
+      request: async (request) => {
+        calls.push(request);
+        return {
+          status: 200,
+          headers: {},
+          body: calls.length < 2
+            ? { code: 0, data: { status: 2 } }
+            : { code: 0, data: { status: 3, gen_id: "asset-ready" } }
+        };
+      }
+    }
+  });
+  const result = await client.request({
+    stepId: "poll_hands_on_image_ready",
+    variables: {},
+    context: { allowRealLive: true, acknowledgePointRisk: true }
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(result.produced.asset_id, "asset-ready");
+});
