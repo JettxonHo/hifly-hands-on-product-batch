@@ -506,6 +506,19 @@ tr.selected {
   color: #912018;
 }
 
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.compact-button {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 .toast {
   position: fixed;
   right: 24px;

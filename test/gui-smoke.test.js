@@ -24,7 +24,7 @@ test("serves the workbench without inline assets blocked by CSP", async (t) => {
   assert.equal(response.statusCode, 200);
   assert.match(response.body, /飞影批量工作台/);
   assert.match(response.body, /批量录入/);
-  assert.match(response.body, /同时录制抓包产物/);
+  assert.match(response.body, /同时录制抓包产物（不切换批量后端）/);
   assert.doesNotMatch(response.body, /<script(?![^>]+src=)/i);
   assert.doesNotMatch(response.body, /<style/i);
   assert.equal(
@@ -422,7 +422,13 @@ test("capture GUI shows real-live completion evidence without offering a retry a
     status: "completed",
     uploads: [],
     artifacts: [],
-    items: [{ task_id: "task-1", sku: "SKU-OK", product_name: "Live Done", status: "completed" }],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-OK",
+      product_name: "Live Done",
+      status: "completed",
+      output_path: "artifacts/未命名.mp4"
+    }],
     capture: {
       enabled: true,
       status: "real_live_completed",
@@ -469,6 +475,7 @@ test("capture GUI shows real-live completion evidence without offering a retry a
   await assertVisible(page.getByText("飞影作品 ID：640509"));
   await assertVisible(page.getByText("下载路径：artifacts/未命名.mp4"));
   await assertVisible(page.getByText("默认不再重复生成"));
+  assert.equal(await page.getByRole("button", { name: "复制路径" }).count(), 2);
   assert.equal(await page.getByRole("button", { name: /重新真实 HTTP 生成/ }).count(), 0);
 });
 
