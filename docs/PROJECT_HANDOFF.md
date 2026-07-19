@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-19 PR #5 独立 review 通过并转 Ready for review
+
+- 独立 reviewer（Codex）已审批 PR #5「docs: post-merge stabilization verification and P2 real-batch design」，结论 APPROVED，可转 ready。
+- 复核结论摘要：PR #5 只含 5 个 docs 文件（无 src/web/test 代码改动）；`npm run check` 通过（65 个 JS 文件）；`npm test` 为 368/368；`git diff --check` 通过；`node --test test/gui-smoke.test.js` 为 10/10；PR #3/#4 已合并；`origin/main` 是当前 HEAD 祖先。
+- 已在 GitHub 将 PR #5 从 Draft 转为 Ready for review（`isDraft=false`，`mergeable=MERGEABLE`）；是否 merge 由用户决定，未擅自合并。
+- 仍未访问飞影、未运行真实 HTTP、未生成视频、未消耗积分；默认生产路径 Playwright 未改变。
+- 本地无关脏文件 `.superpowers/sdd/task-6-report.md` 与 `docs/resume/` 未提交。
+- 下一步：等用户决定是否合并 PR #5。若继续 P2 真实抓包 HTTP 小批量实现，必须新开分支，按 `docs/superpowers/plans/2026-07-19-capture-http-real-small-batch.md` 从 Task 1 起步；Tasks 1-4 只用 fake runtime auth + fake transport；任何真实 HTTP 小批量联调须另行获得用户明确授权并先从 1 条商品开始。
+
 ## 2026-07-19 P1 接力：PR #3/#4 已合并，进入合并后稳定性验证
 
 - GitHub 状态已确认：PR #3 `Add safe GUI artifact downloads` 已合并（mergedAt 2026-07-19T05:51:07Z）；PR #4 `Add capture HTTP small-batch preview queue` 已合并（mergedAt 2026-07-19T05:52:12Z）。
