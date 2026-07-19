@@ -735,6 +735,12 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
     if (!authProvider || typeof authProvider.getRuntimeAuth !== "function") {
       throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 409);
     }
+    let runtimeAuth;
+    try {
+      runtimeAuth = await authProvider.getRuntimeAuth();
+    } catch {
+      throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 409);
+    }
 
     const startedAt = new Date().toISOString();
     let completedCount = batch.items.filter(completedQueueItem).length;
@@ -759,7 +765,6 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
 
     let currentTaskId = null;
     try {
-      const runtimeAuth = await authProvider.getRuntimeAuth();
       for (const item of eligible) {
         currentTaskId = item.task_id;
 
