@@ -31,7 +31,11 @@ const SAFE_REMOTE_EVIDENCE_FIELDS = new Set([
 ]);
 
 function isUrlLikeScalar(value) {
-  return typeof value === "string" && (value.includes("://") || /^https?:/i.test(value));
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  // Reject scheme URLs (https:, data:, blob:, javascript:, ...) and protocol-relative (//host).
+  // A leading digit is intentionally NOT a scheme, so the work_key fallback "0:label" survives.
+  return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(trimmed);
 }
 
 function publicRemoteEvidence(evidence) {
@@ -48,12 +52,27 @@ function publicRemoteEvidence(evidence) {
   return Object.keys(value).length > 0 ? value : undefined;
 }
 
+function publicRemoteCandidates(candidates) {
+  if (!Array.isArray(candidates)) return undefined;
+  const projected = [];
+  for (const candidate of candidates) {
+    const safe = publicRemoteEvidence(candidate);
+    if (safe !== undefined) projected.push(safe);
+  }
+  return projected.length > 0 ? projected : undefined;
+}
+
 function publicItem(item, artifactIdByPath = new Map()) {
   const value = {};
   for (const [key, field] of Object.entries(item ?? {})) {
     if (INTERNAL_ITEM_FIELDS.has(key)) continue;
     if (key === "remote_evidence") {
       const projected = publicRemoteEvidence(field);
+      if (projected !== undefined) value[key] = projected;
+      continue;
+    }
+    if (key === "remote_candidates") {
+      const projected = publicRemoteCandidates(field);
       if (projected !== undefined) value[key] = projected;
       continue;
     }
