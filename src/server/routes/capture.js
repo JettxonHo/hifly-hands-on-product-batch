@@ -631,6 +631,12 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
     if (!authProvider || typeof authProvider.getRuntimeAuth !== "function") {
       throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 409);
     }
+    let runtimeAuth;
+    try {
+      runtimeAuth = await authProvider.getRuntimeAuth();
+    } catch {
+      throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 409);
+    }
 
     await store.update(batchId, (current) => ({
       ...current,
@@ -643,7 +649,6 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
     }));
 
     try {
-      const runtimeAuth = await authProvider.getRuntimeAuth();
       const executor = createCaptureHttpExecutor({
         root,
         config: liveRunConfig(generationConfig, manifestPath)

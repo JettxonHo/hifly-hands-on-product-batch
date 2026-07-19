@@ -1554,3 +1554,54 @@ test("real-batch-run treats getRuntimeAuth failure as a preflight 409 and leaves
   assert.equal(after.capture.status, before.capture.status);
   assert.deepEqual(after.capture.queue, before.capture.queue);
 });
+
+test("live-run rejects with 409 when runtime auth provider is unavailable", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-live-run-noauth-"));
+  const { app, session } = await buildRealBatchApp({
+    root,
+    generationConfig: REAL_BATCH_GEN_CONFIG,
+    captureLive: {}
+  });
+  await seedRealBatch(root, "batch-live-run-noauth", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const before = JSON.parse(await readFile(path.join(root, "batches", "batch-live-run-noauth", "batch.json"), "utf8"));
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-live-run-noauth/capture/live-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, limitItems: 1 }
+  });
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.json().error, "CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE");
+  const after = JSON.parse(await readFile(path.join(root, "batches", "batch-live-run-noauth", "batch.json"), "utf8"));
+  assert.equal(after.capture.status, before.capture.status);
+});
+
+test("live-run treats getRuntimeAuth failure as a preflight 409 and leaves batch state untouched", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-live-run-auth-throws-"));
+  const authProvider = {
+    async getRuntimeAuth() {
+      const err = new Error("runtime auth unavailable");
+      err.code = "CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE";
+      throw err;
+    }
+  };
+  const { app, session } = await buildRealBatchApp({
+    root,
+    generationConfig: REAL_BATCH_GEN_CONFIG,
+    captureLive: { authProvider }
+  });
+  await seedRealBatch(root, "batch-live-run-auth-throws", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const before = JSON.parse(await readFile(path.join(root, "batches", "batch-live-run-auth-throws", "batch.json"), "utf8"));
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-live-run-auth-throws/capture/live-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, limitItems: 1 }
+  });
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.json().error, "CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE");
+  const after = JSON.parse(await readFile(path.join(root, "batches", "batch-live-run-auth-throws", "batch.json"), "utf8"));
+  assert.equal(after.capture.status, before.capture.status);
+});
