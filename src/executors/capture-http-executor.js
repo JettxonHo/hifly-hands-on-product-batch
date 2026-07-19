@@ -223,7 +223,9 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
       }
       const assetReplay = await replayPhase("asset_generation", {
         product_image_path: packageData.product_image_path,
-        person_image_path: packageData.person_image_path
+        person_image_path: packageData.person_image_path,
+        task_id: task.task_id,
+        sku: task.sku || ""
       }, { dir, taskId: task.task_id, realLive: context.realLive });
       const produced = assetReplay.variables;
       const asset = { asset_id: produced.asset_id || `capture-asset-${task.task_id}` };
