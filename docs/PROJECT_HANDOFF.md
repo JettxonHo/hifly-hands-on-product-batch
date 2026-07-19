@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-20 PR #7 review important 修复：URL-like 收紧 + remote_candidates 投影（本地安全修复，未访问飞影、未消耗积分）
+
+- 修复 PR #7 reviewer 标记的 2 个 important（均在 `src/server/routes/batches.js`），TDD，全绿。
+- **important 1 — URL-like 检测收紧**：`isUrlLikeScalar` 原只拦 `contains("://")` 或 `^https?:`，放过 `//cdn`、`data:`、`blob:`、`javascript:`；改为 `^(?:[a-z][a-z0-9+.-]*:|//)`（scheme URL 或协议相对），数字开头的 work_key fallback `0:label` 不受影响。
+- **important 2 — remote_candidates 投影**：`publicItem` 原透传 `remote_candidates`（ambiguous 提交候选，可能含 `remote_url` + URL 形态 `work_key`）；新增 `publicRemoteCandidates`，逐项复用 `publicRemoteEvidence` 白名单 + URL 过滤，空则不公开。
+- 新增回归测试（`test/server-api.test.js`）：`//cdn`/`data:`/`blob:`/`javascript:` 形态的 `remote_evidence` 字段被丢弃；`remote_candidates` 含 `remote_url`/URL `work_key`/`token`/`headers` 时 public JSON 只保留安全字段、不含 cdn/token。
+- 验证：`npm run check` 65 文件；`npm test` 389/389；`node --test test/server-capture-api.test.js` 30/30；`node --test test/server-api.test.js` 44/44；`node --test test/gui-smoke.test.js` 12/12；`git diff --check main...HEAD` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**（只本地 fake/runtime 测试）。
+- 默认 Playwright 生产路径未改；`captureHttpMode=mock`/queue-run（fake）/live-run（单条）语义不变；runtime auth 仍只在内存；CDN/签名 URL 不进 public batch JSON（白名单 + scheme/协议相对 URL 双重过滤）。
+- 下一步：推送 PR #7 分支等 Codex 复审；真实联调仍需新会话授权。
+
 ## 2026-07-20 P2 hardening follow-up：修 3 minor + 2 review 修复（全绿，未跑真实飞影）
 
 - 在分支 `feat/p2-hardening-followup`（基于 main `6e86012`）一次性修复 PR #6 双重 review 标记的 3 个不阻塞 minor，并经 Workflow 对抗式 review（3 维度并行 + 逐条 verify，7 agents）再发现并修复 2 个（1 important + 1 minor），全程 TDD。
