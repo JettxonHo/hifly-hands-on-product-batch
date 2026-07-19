@@ -190,6 +190,17 @@
     return labels[status] || status || "未知";
   }
 
+  function captureQueueStatusLabel(status) {
+    const labels = {
+      not_started: "未开始",
+      running: "运行中",
+      completed: "已完成",
+      failed: "失败",
+      interrupted: "已中断"
+    };
+    return labels[status] || status || "未开始";
+  }
+
   function formatCaptureTime(value) {
     if (!value) return "";
     const time = new Date(value);
@@ -538,6 +549,8 @@
       capture.replay_summary?.remote_id ? `远端 ID：${capture.replay_summary.remote_id}` : "",
       capture.dry_run_summary?.executed_step_count ? `预演步骤数：${capture.dry_run_summary.executed_step_count}` : "",
       capture.dry_run_error ? `预演错误：${capture.dry_run_error.message || "Unable to construct the dry-run request plan."}` : "",
+      capture.queue ? `小批量预演：${captureQueueStatusLabel(capture.queue.status)}（${capture.queue.completed || 0}/${capture.queue.total || 0}）` : "",
+      capture.queue?.last_error ? `小批量错误：${capture.queue.last_error.code}` : "",
       capture.status === "real_live_completed"
         ? "该批次已完成真实 HTTP 出片，默认不再重复生成。"
         : "真实请求预演仅构造请求计划，不访问飞影、不消耗积分"
@@ -561,6 +574,12 @@
       ),
       captureActionButton(
         batch.batch_id,
+        "抓包 HTTP 小批量预演",
+        "queueRun",
+        Boolean(capture.manifest_path) && (batch.items || []).length > 0 && capture.status !== "real_live_running"
+      ),
+      captureActionButton(
+        batch.batch_id,
         capture.status === "real_live_failed"
           ? "重新真实 HTTP 生成（会访问飞影，可能消耗积分）"
           : "真实 HTTP 生成（会访问飞影，可能消耗积分）",
@@ -571,7 +590,7 @@
     panel.append(actions);
     const liveHint = document.createElement("p");
     liveHint.className = "muted";
-    setText(liveHint, "真实 HTTP 生成只允许单条联调；点击后会使用浏览器登录态访问飞影，可能消耗积分。");
+    setText(liveHint, "小批量预演只使用本地 mock，不访问飞影、不消耗积分；真实 HTTP 生成只允许单条联调，且可能消耗积分。");
     panel.append(liveHint);
     return panel;
   }
@@ -1042,8 +1061,15 @@
       redact: api.redactCapture,
       replay: api.replayCapture,
       dryRun: api.dryRunCapture,
+      queueRun: api.runCaptureQueue,
       liveRun: api.runLiveCapture
     };
+    if (action === "queueRun") {
+      const approved = window.confirm(
+        "抓包 HTTP 小批量预演只使用本地 mock，不访问飞影、不消耗积分。确认继续吗？"
+      );
+      if (!approved) return;
+    }
     if (action === "liveRun") {
       const approved = window.confirm(
         "真实 HTTP 生成会访问飞影并可能消耗积分。本次只执行 1 条商品。确认继续吗？"
