@@ -138,6 +138,15 @@ const SAFE_QUEUE_ERROR_CODES = new Set([
   "CAPTURE_HTTP_AUTH_REQUIRED",
   "CAPTURE_HTTP_API_UNAVAILABLE",
   "CAPTURE_HTTP_ARTIFACT_MISSING",
+  "CAPTURE_HTTP_ARTIFACT_DOWNLOAD_FAILED",
+  "CAPTURE_HTTP_ARTIFACT_URL_UNAVAILABLE",
+  "CAPTURE_HTTP_STATUS_NOT_OK",
+  "CAPTURE_HTTP_REMOTE_REJECTED",
+  "CAPTURE_HTTP_UPLOAD_FAILED",
+  "CAPTURE_HTTP_UPLOAD_URL_UNAVAILABLE",
+  "CAPTURE_HTTP_UPLOAD_ARTIFACT_MISSING",
+  "CAPTURE_HTTP_REAL_BATCH_FAILED",
+  "CAPTURE_HTTP_REAL_BATCH_DUPLICATE_SUBMIT",
   "CAPTURE_ARTIFACT_PATH_UNSAFE",
   "CAPTURE_ARTIFACT_FILENAME_INVALID"
 ]);
@@ -204,7 +213,9 @@ function publicLiveSummary(summary) {
 
 function publicQueueSummary(queue) {
   const result = {};
+  const isRealBatch = queue.mode === "real_live";
   if (queue.mode === "fake") result.mode = "fake";
+  else if (isRealBatch) result.mode = "real_live";
   if (SAFE_QUEUE_STATUSES.has(queue.status)) result.status = queue.status;
   for (const key of ["total", "completed", "failed"]) {
     if (Number.isInteger(queue[key]) && queue[key] >= 0) result[key] = queue[key];
@@ -215,12 +226,18 @@ function publicQueueSummary(queue) {
   for (const key of ["started_at", "updated_at"]) {
     if (typeof queue[key] === "string") result[key] = queue[key];
   }
+  if (isRealBatch) {
+    if (Number.isInteger(queue.point_budget) && queue.point_budget >= 1) result.point_budget = queue.point_budget;
+    if (Number.isInteger(queue.max_items) && queue.max_items >= 1) result.max_items = queue.max_items;
+  }
   if (queue.last_error && typeof queue.last_error === "object") {
     result.last_error = {
       code: typeof queue.last_error.code === "string" && SAFE_QUEUE_ERROR_CODES.has(queue.last_error.code)
         ? queue.last_error.code
-        : "CAPTURE_HTTP_QUEUE_FAILED",
-      message: "Unable to complete the capture HTTP queue."
+        : (isRealBatch ? "CAPTURE_HTTP_REAL_BATCH_FAILED" : "CAPTURE_HTTP_QUEUE_FAILED"),
+      message: isRealBatch
+        ? "Unable to complete the real capture HTTP small-batch."
+        : "Unable to complete the capture HTTP queue."
     };
   }
   return Object.keys(result).length > 0 ? result : null;
