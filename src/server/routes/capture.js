@@ -110,6 +110,25 @@ function queueRunFields(body) {
   };
 }
 
+function realBatchRunFields(body, maxItems) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw captureError("INVALID_CAPTURE_REAL_BATCH_REQUEST");
+  const allowed = new Set(["confirm", "allowRealLive", "acknowledgePointRisk", "pointBudget", "resume"]);
+  for (const key of Object.keys(body)) {
+    if (!allowed.has(key)) throw captureError("INVALID_CAPTURE_REAL_BATCH_REQUEST");
+  }
+  if (body.confirm !== true || body.allowRealLive !== true || body.acknowledgePointRisk !== true) {
+    throw captureError("CAPTURE_HTTP_REAL_BATCH_NOT_AUTHORIZED");
+  }
+  const ceiling = Number.isInteger(maxItems) && maxItems >= 1 ? maxItems : 3;
+  if (!Number.isInteger(body.pointBudget) || body.pointBudget < 1 || body.pointBudget > ceiling) {
+    throw captureError("CAPTURE_HTTP_REAL_BATCH_BUDGET_INVALID");
+  }
+  return {
+    pointBudget: body.pointBudget,
+    resume: body.resume === true
+  };
+}
+
 async function approvedImagePath(batch, batchDirectory, artifactId) {
   const upload = batch.uploads?.find((candidate) => candidate.artifact_id === artifactId && candidate.kind === "image");
   const manifest = batch.artifacts?.find((candidate) => candidate.artifact_id === artifactId);
@@ -616,5 +635,15 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
       }));
       return { batch: publicBatch(updated) };
     }
+  });
+
+  app.post("/api/batches/:batchId/capture/real-batch-run", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    const batchConfig = generationConfig.rpa?.realLive?.batch || {};
+    if (batchConfig.enabled !== true) throw captureError("CAPTURE_HTTP_REAL_BATCH_DISABLED");
+    realBatchRunFields(request.body, batchConfig.maxItems ?? 3);
+    await readCaptureBatch(batchId);
+    // Real batch execution lands in a later task; this gate only enforces the disabled flag and field validation.
+    throw captureError("CAPTURE_HTTP_REAL_BATCH_NOT_READY");
   });
 }

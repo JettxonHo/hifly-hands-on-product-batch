@@ -1107,3 +1107,133 @@ test("dry-run failure clears old summaries and keeps local manifest errors out o
     assert.equal(response.body.includes("CAPTURE_HAR_MISSING"), false);
   }
 });
+
+async function buildRealBatchApp({ root, generationConfig = {}, captureLive = {} }) {
+  const app = await buildApp({ root, executor: createFakeExecutor(), generationConfig, captureLive });
+  const response = await app.inject({ method: "GET", url: "/api/session", headers: { host: HOST } });
+  return {
+    app,
+    session: {
+      cookie: response.headers["set-cookie"].split(";")[0],
+      token: response.json().token
+    }
+  };
+}
+
+const REAL_BATCH_MANIFEST_STEPS = [
+  {
+    id: "create_asset",
+    phase: "asset_generation",
+    method: "POST",
+    url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/upload_url",
+    response: { status: 200, body: { data: { gen_id: "asset-batch" } } },
+    produces: { asset_id: "$response.body.data.gen_id" },
+    risk: { requires_auth: true, replayability: "unknown" }
+  },
+  {
+    id: "submit_video",
+    phase: "remote_submit",
+    method: "POST",
+    url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos",
+    request_template: { body: { gen_id: "{{asset_id}}" } },
+    placeholders: ["{{asset_id}}"],
+    response: { status: 200, body: { data: { list: [{ id: "remote-batch" }] } } },
+    produces: { remote_id: "$response.body.data.list.0.id" },
+    risk: { requires_auth: true, may_consume_points: true, replayability: "unknown" }
+  },
+  {
+    id: "query_video",
+    phase: "remote_query",
+    method: "GET",
+    url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id={{asset_id}}",
+    placeholders: ["{{asset_id}}"],
+    response: { status: 200, body: { data: { list: [{ id: "remote-batch", status: 2 }] } } },
+    risk: { requires_auth: true, replayability: "unknown" }
+  },
+  {
+    id: "download_video",
+    phase: "download",
+    method: "GET",
+    url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos/{{remote_id}}/download",
+    placeholders: ["{{remote_id}}"],
+    response: { status: 200, body: { artifact_filename: "video.mp4" } },
+    produces: { artifact_filename: "$response.body.artifact_filename" },
+    risk: { requires_auth: true, replayability: "unknown" }
+  }
+];
+
+async function seedRealBatch(root, batchId, items) {
+  const manifestRelativePath = `batches/${batchId}/capture/manifest.json`;
+  await mkdir(path.join(root, "batches", batchId, "capture"), { recursive: true });
+  await writeFile(path.join(root, manifestRelativePath), JSON.stringify({
+    schema_version: 1,
+    sanitized: true,
+    source: "test",
+    captured_at: "2026-07-19T00:00:00.000Z",
+    steps: REAL_BATCH_MANIFEST_STEPS
+  }, null, 2));
+  await writeFile(path.join(root, "batches", batchId, "batch.json"), JSON.stringify({
+    batch_id: batchId,
+    status: "completed",
+    created_at: "2026-07-19T00:00:00.000Z",
+    updated_at: "2026-07-19T00:00:00.000Z",
+    uploads: [],
+    artifacts: [],
+    items,
+    capture: updateCaptureState(createInitialCaptureState({ enabled: true }), {
+      status: "dry_run_passed",
+      manifest_path: manifestRelativePath
+    })
+  }, null, 2));
+}
+
+test("real-batch-run is disabled by default and rejects before any state change", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-disabled-"));
+  const { app, session } = await buildRealBatchApp({ root });
+  await seedRealBatch(root, "batch-real-disabled", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const before = JSON.parse(await readFile(path.join(root, "batches", "batch-real-disabled", "batch.json"), "utf8"));
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-disabled/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, "CAPTURE_HTTP_REAL_BATCH_DISABLED");
+  const after = JSON.parse(await readFile(path.join(root, "batches", "batch-real-disabled", "batch.json"), "utf8"));
+  assert.equal(after.capture.status, before.capture.status);
+});
+
+test("real-batch-run validates authorization fields and point budget", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-gate-"));
+  const { app, session } = await buildRealBatchApp({
+    root,
+    generationConfig: { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } }
+  });
+  await seedRealBatch(root, "batch-real-gate", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const base = { confirm: true, allowRealLive: true, acknowledgePointRisk: true };
+  const cases = [
+    [{ ...base, pointBudget: 1, extra: 1 }, "INVALID_CAPTURE_REAL_BATCH_REQUEST"],
+    [{ allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }, "CAPTURE_HTTP_REAL_BATCH_NOT_AUTHORIZED"],
+    [{ ...base, pointBudget: 0 }, "CAPTURE_HTTP_REAL_BATCH_BUDGET_INVALID"],
+    [{ ...base, pointBudget: 4 }, "CAPTURE_HTTP_REAL_BATCH_BUDGET_INVALID"]
+  ];
+  for (const [payload, code] of cases) {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/batches/batch-real-gate/capture/real-batch-run",
+      headers: headers(session),
+      payload
+    });
+    assert.equal(res.statusCode, 400, `payload ${JSON.stringify(payload)}`);
+    assert.equal(res.json().error, code, `payload ${JSON.stringify(payload)}`);
+  }
+});

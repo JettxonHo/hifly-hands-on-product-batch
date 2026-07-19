@@ -12,7 +12,10 @@ export const CAPTURE_STATUSES = new Set([
   "real_live_disabled",
   "real_live_running",
   "real_live_completed",
-  "real_live_failed"
+  "real_live_failed",
+  "real_batch_running",
+  "real_batch_completed",
+  "real_batch_failed"
 ]);
 
 function now() {
