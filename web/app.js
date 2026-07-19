@@ -1121,7 +1121,7 @@
         `确认以积分预算 ${pointBudget} 条执行真实 HTTP 小批量？会访问飞影并可能消耗积分。`
       );
       if (!approved) return;
-      options = { pointBudget };
+      options = { pointBudget, resume: true };
     }
     setBusy(true);
     try {

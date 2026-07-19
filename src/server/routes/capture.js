@@ -181,7 +181,7 @@ function realBatchQueue(items, {
     current_task_id: currentTaskId,
     point_budget: pointBudget,
     max_items: maxItems,
-    started_at: prevQueue?.started_at || timestamp,
+    started_at: (prevQueue?.mode === "real_live" && prevQueue?.started_at) || timestamp,
     updated_at: timestamp,
     last_error: lastError
   };
@@ -191,6 +191,10 @@ function itemHasSubmittedArtifact(batch, item) {
   if (!item?.remote_evidence?.remote_id) return false;
   if (typeof item.output_path !== "string" || item.output_path.length === 0) return false;
   return Array.isArray(batch.artifacts) && batch.artifacts.some((a) => a && a.relative_path === item.output_path);
+}
+
+function failedRealBatchItem(item) {
+  return ["failed_remote", "failed_pre_submit", "interrupted_unknown"].includes(item?.status);
 }
 
 async function approvedImagePath(batch, batchDirectory, artifactId) {
@@ -272,6 +276,7 @@ function safeQueueErrorMessage() {
 }
 
 export async function registerCaptureRoutes(app, { batchRoot, store, generationConfig = {}, captureLive = {} }) {
+  const activeRealBatchBatches = new Set();
   async function readCaptureBatch(batchId) {
     const batch = await store.read(batchId);
     if (batch.capture?.enabled !== true) throw captureError("CAPTURE_NOT_ENABLED", 409);
@@ -705,10 +710,13 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
     const batchId = assertBatchId(request.params.batchId);
     const batchConfig = generationConfig.rpa?.realLive?.batch || {};
     if (batchConfig.enabled !== true) throw captureError("CAPTURE_HTTP_REAL_BATCH_DISABLED");
+    if (activeRealBatchBatches.has(batchId)) throw captureError("CAPTURE_HTTP_REAL_BATCH_IN_PROGRESS", 409);
+    activeRealBatchBatches.add(batchId);
+    try {
     const fields = realBatchRunFields(request.body, batchConfig.maxItems ?? 3);
     const batch = await readCaptureBatch(batchId);
     if (!batch.capture?.manifest_path) throw captureError("CAPTURE_MANIFEST_MISSING", 409);
-    if (!["dry_run_passed", "real_batch_failed"].includes(batch.capture.status)) {
+    if (!["dry_run_passed", "real_batch_failed", "real_batch_running", "real_batch_completed"].includes(batch.capture.status)) {
       throw captureError("CAPTURE_HTTP_REAL_BATCH_NOT_READY", 409);
     }
     if (!Array.isArray(batch.items) || batch.items.length === 0) {
@@ -830,6 +838,12 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
         const executor = createCaptureHttpExecutor({ root, config: liveRunConfig(generationConfig, manifestPath) });
         const asset = await executor.createAsset(task, context);
         const submitted = await executor.submitVideo(task, asset, context);
+        await store.update(batchId, (current) => ({
+          ...current,
+          items: current.items.map((candidate) => candidate.task_id === item.task_id
+            ? { ...candidate, remote_evidence: submitted.remoteEvidence }
+            : candidate)
+        }));
         const queried = await executor.querySubmission(submitted.remoteEvidence, context);
         const artifact = await executor.downloadArtifact(queried.remoteEvidence, batchDirectory, context);
         if (typeof store.registerArtifact === "function") {
@@ -884,7 +898,7 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
             status: "completed",
             currentTaskId: null,
             completed: current.items.filter(completedQueueItem).length,
-            failed: 0,
+            failed: current.items.filter(failedRealBatchItem).length,
             pointBudget: fields.pointBudget,
             maxItems,
             timestamp: completedAt,
@@ -894,7 +908,7 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
       }));
       return { batch: publicBatch(updated) };
     } catch (error) {
-      const failedTaskId = currentTaskId || eligible[0]?.task_id || null;
+      const failedTaskId = currentTaskId;
       const failedAt = new Date().toISOString();
       const updated = await store.update(batchId, (current) => {
         const items = current.items.map((candidate) => candidate.task_id === failedTaskId
@@ -916,7 +930,7 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
               status: "failed",
               currentTaskId: failedTaskId,
               completed: items.filter(completedQueueItem).length,
-              failed: 1,
+              failed: items.filter(failedRealBatchItem).length,
               pointBudget: fields.pointBudget,
               maxItems,
               timestamp: failedAt,
@@ -927,6 +941,9 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
         };
       });
       return { batch: publicBatch(updated) };
+    }
+    } finally {
+      activeRealBatchBatches.delete(batchId);
     }
   });
 }

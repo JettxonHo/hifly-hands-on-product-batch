@@ -1449,3 +1449,52 @@ test("real-batch-run refuses to re-submit an item that already has a remote_id w
   assert.equal(batch.items[0].status, "failed_remote");
   assert.equal(transport.calls.filter((c) => c.phase === "remote_submit").length, 0);
 });
+
+test("real-batch-run persists remote_id after submit so resume never re-submits (no double charge)", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-no-double-"));
+  const transport = realBatchTransport({ downloadWithoutBytes: true });
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-no-double", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  const res1 = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-no-double/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res1.statusCode, 200);
+  const batch1 = res1.json().batch;
+  assert.equal(batch1.capture.status, "real_batch_failed");
+  assert.equal(batch1.items[0].status, "failed_remote");
+  assert.equal(batch1.items[0].remote_evidence?.remote_id, "remote-1");
+  const submitsAfterFirst = transport.calls.filter((c) => c.phase === "remote_submit").length;
+
+  const res2 = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-no-double/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1, resume: true }
+  });
+  assert.equal(res2.statusCode, 200);
+  const batch2 = res2.json().batch;
+  assert.equal(batch2.capture.queue.last_error.code, "CAPTURE_HTTP_REAL_BATCH_DUPLICATE_SUBMIT");
+  const submitsAfterSecond = transport.calls.filter((c) => c.phase === "remote_submit").length;
+  assert.equal(submitsAfterSecond, submitsAfterFirst);
+});
+
+test("real-batch-run without resume does not retry failed items", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-no-resume-"));
+  const transport = realBatchTransport();
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-no-resume", [{ task_id: "task-1", sku: "SKU-1", status: "failed_remote" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-no-resume/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.json().error, "CAPTURE_HTTP_REAL_BATCH_NOT_READY");
+});
