@@ -187,6 +187,12 @@ function realBatchQueue(items, {
   };
 }
 
+function itemHasSubmittedArtifact(batch, item) {
+  if (!item?.remote_evidence?.remote_id) return false;
+  if (typeof item.output_path !== "string" || item.output_path.length === 0) return false;
+  return Array.isArray(batch.artifacts) && batch.artifacts.some((a) => a && a.relative_path === item.output_path);
+}
+
 async function approvedImagePath(batch, batchDirectory, artifactId) {
   const upload = batch.uploads?.find((candidate) => candidate.artifact_id === artifactId && candidate.kind === "image");
   const manifest = batch.artifacts?.find((candidate) => candidate.artifact_id === artifactId);
@@ -748,6 +754,46 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
       const runtimeAuth = await authProvider.getRuntimeAuth();
       for (const item of eligible) {
         currentTaskId = item.task_id;
+
+        if (item.remote_evidence?.remote_id) {
+          if (itemHasSubmittedArtifact(batch, item)) {
+            completedCount += 1;
+            const reuseFinishedAt = new Date().toISOString();
+            await store.update(batchId, (current) => {
+              const items = current.items.map((candidate) => candidate.task_id === item.task_id
+                ? {
+                    ...candidate,
+                    status: "completed",
+                    output_path: item.output_path,
+                    remote_evidence: item.remote_evidence,
+                    error_message: null,
+                    error_phase: null
+                  }
+                : candidate);
+              return {
+                ...current,
+                status: summarizeBatch(items),
+                items,
+                capture: updateCaptureState(current.capture, {
+                  enabled: true,
+                  queue: realBatchQueue(items, {
+                    status: "running",
+                    currentTaskId: item.task_id,
+                    completed: completedCount,
+                    failed: 0,
+                    pointBudget: fields.pointBudget,
+                    maxItems,
+                    timestamp: reuseFinishedAt,
+                    prevQueue: current.capture?.queue
+                  })
+                })
+              };
+            });
+            continue;
+          }
+          throw captureError("CAPTURE_HTTP_REAL_BATCH_DUPLICATE_SUBMIT");
+        }
+
         const itemStartedAt = new Date().toISOString();
         await store.update(batchId, (current) => ({
           ...current,
