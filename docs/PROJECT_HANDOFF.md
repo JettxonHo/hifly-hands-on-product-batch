@@ -1,5 +1,37 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-19 PR #5 独立 review 通过并转 Ready for review
+
+- 独立 reviewer（Codex）已审批 PR #5「docs: post-merge stabilization verification and P2 real-batch design」，结论 APPROVED，可转 ready。
+- 复核结论摘要：PR #5 只含 5 个 docs 文件（无 src/web/test 代码改动）；`npm run check` 通过（65 个 JS 文件）；`npm test` 为 368/368；`git diff --check` 通过；`node --test test/gui-smoke.test.js` 为 10/10；PR #3/#4 已合并；`origin/main` 是当前 HEAD 祖先。
+- 已在 GitHub 将 PR #5 从 Draft 转为 Ready for review（`isDraft=false`，`mergeable=MERGEABLE`）；是否 merge 由用户决定，未擅自合并。
+- 仍未访问飞影、未运行真实 HTTP、未生成视频、未消耗积分；默认生产路径 Playwright 未改变。
+- 本地无关脏文件 `.superpowers/sdd/task-6-report.md` 与 `docs/resume/` 未提交。
+- 下一步：等用户决定是否合并 PR #5。若继续 P2 真实抓包 HTTP 小批量实现，必须新开分支，按 `docs/superpowers/plans/2026-07-19-capture-http-real-small-batch.md` 从 Task 1 起步；Tasks 1-4 只用 fake runtime auth + fake transport；任何真实 HTTP 小批量联调须另行获得用户明确授权并先从 1 条商品开始。
+
+## 2026-07-19 P1 接力：PR #3/#4 已合并，进入合并后稳定性验证
+
+- GitHub 状态已确认：PR #3 `Add safe GUI artifact downloads` 已合并（mergedAt 2026-07-19T05:51:07Z）；PR #4 `Add capture HTTP small-batch preview queue` 已合并（mergedAt 2026-07-19T05:52:12Z）。
+- 当前生产建议不变：默认批量生产继续使用 Playwright；抓包 HTTP 小批量仍只是 fake/mock 预演，不访问飞影、不消耗积分。
+- 下一步优先做合并后主分支回归：`npm run check`、`npm test`、`git diff --check`。
+- 不要误提交既有无关文件 `.superpowers/sdd/task-6-report.md` 与 `docs/resume/`。
+- 真实飞影生成、真实 HTTP live-run 或任何可能消耗积分的动作，仍必须先获得用户明确授权。
+- 合并后本地验证：`npm run check` 通过（65 个 JS 文件）；`git diff --check` 通过；`npm test` 为 368/368 通过。
+- GUI 无积分冒烟：`node --test test/gui-smoke.test.js` 为 10/10 通过，自动化断言本地页面能区分「批量生成：Playwright」「抓包 HTTP：单条联调」「抓包 HTTP 小批量预演（fake/mock，不消耗积分）」和安全「下载产物」入口；测试输出含 `Local workbench: http://127.0.0.1:4317`，未点击真实生成。因自动执行无人看屏，按 plan Task 3 Step 3 采用自动化冒烟，未单独长驻 `npm run gui`。
+- P2 真实抓包 HTTP 小批量设计已产出（仅设计，未实现）：spec `docs/superpowers/specs/2026-07-19-capture-http-real-small-batch-design.md` 与 plan `docs/superpowers/plans/2026-07-19-capture-http-real-small-batch.md`。该模式默认禁用（`rpa.realLive.batch.enabled=false`）、串行、首失败即停、可续跑、按 task 幂等防重复提交，并复用现有 fake 小批量队列与单条 live-run 的安全门禁；本轮未触碰 `src/server/routes/capture.js`、`src/executors/capture-http-executor.js`、`web/app.js`、`web/api.js` 等实现文件。
+- P2 真实抓包 HTTP 小批量仍未实现；如需推进，先执行上述 spec 和 plan，且真实联调前必须重新获得用户明确授权（会访问飞影、可能消耗积分）。
+- 本轮未访问飞影、未运行真实 HTTP、未生成视频、未消耗新增积分。
+
+## 2026-07-19 P1/P2 接力计划已产出：合并后稳定性与抓包 HTTP 后续路线
+
+- 已确认 GitHub 状态：PR #3 `Add safe GUI artifact downloads` 已合并；PR #4 `Add capture HTTP small-batch preview queue` 已合并。
+- 已新增 spec：`docs/superpowers/specs/2026-07-19-post-merge-stabilization-roadmap-design.md`。
+- 已新增 implementation plan：`docs/superpowers/plans/2026-07-19-post-merge-stabilization-roadmap.md`。
+- 该计划用于交给 Claude Code 或其他接手代理执行：先做合并后主分支回归、GUI 无积分冒烟和接力文档同步，再单独设计真实抓包 HTTP 小批量；不在本计划中直接实现真实 HTTP 批量。
+- 当前生产建议不变：默认批量生产继续使用 Playwright；抓包 HTTP 小批量仍只是 fake/mock 预演，不访问飞影、不消耗积分。
+- 真实飞影生成、真实 HTTP live-run 或任何可能消耗积分的动作，仍必须先获得用户明确授权。
+- 本轮只产出文档，未访问飞影、未运行真实 HTTP、未生成视频、未消耗新增积分。
+
 ## 2026-07-19 P2 完成：抓包 HTTP 小批量 fake 队列预演（无网络、无新增积分）
 
 - 已按 `docs/superpowers/specs/2026-07-19-capture-http-small-batch-queue-design.md` 和 `docs/superpowers/plans/2026-07-19-capture-http-small-batch-queue.md` 完成受控实现。
