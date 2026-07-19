@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-19 P1/P2 接力计划已产出：合并后稳定性与抓包 HTTP 后续路线
+
+- 已确认 GitHub 状态：PR #3 `Add safe GUI artifact downloads` 已合并；PR #4 `Add capture HTTP small-batch preview queue` 已合并。
+- 已新增 spec：`docs/superpowers/specs/2026-07-19-post-merge-stabilization-roadmap-design.md`。
+- 已新增 implementation plan：`docs/superpowers/plans/2026-07-19-post-merge-stabilization-roadmap.md`。
+- 该计划用于交给 Claude Code 或其他接手代理执行：先做合并后主分支回归、GUI 无积分冒烟和接力文档同步，再单独设计真实抓包 HTTP 小批量；不在本计划中直接实现真实 HTTP 批量。
+- 当前生产建议不变：默认批量生产继续使用 Playwright；抓包 HTTP 小批量仍只是 fake/mock 预演，不访问飞影、不消耗积分。
+- 真实飞影生成、真实 HTTP live-run 或任何可能消耗积分的动作，仍必须先获得用户明确授权。
+- 本轮只产出文档，未访问飞影、未运行真实 HTTP、未生成视频、未消耗新增积分。
+
 ## 2026-07-19 P2 完成：抓包 HTTP 小批量 fake 队列预演（无网络、无新增积分）
 
 - 已按 `docs/superpowers/specs/2026-07-19-capture-http-small-batch-queue-design.md` 和 `docs/superpowers/plans/2026-07-19-capture-http-small-batch-queue.md` 完成受控实现。
