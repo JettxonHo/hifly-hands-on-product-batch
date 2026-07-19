@@ -347,6 +347,78 @@ test("capture GUI exposes a no-network dry-run action for redacted batches", asy
   await assertVisible(page.getByText("仅构造请求计划，不访问飞影、不消耗积分"));
 });
 
+test("capture GUI exposes fake small-batch queue preview status and action", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-capture-queue-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-capture-queue",
+    status: "failed",
+    uploads: [],
+    artifacts: [],
+    items: [
+      { task_id: "task-1", sku: "SKU-1", product_name: "Queue One", status: "completed", output_path: "artifacts/one.mp4" },
+      { task_id: "task-2", sku: "SKU-2", product_name: "Queue Two", status: "failed_remote" }
+    ],
+    capture: {
+      enabled: true,
+      status: "dry_run_passed",
+      manifest_path: "batches/batch-capture-queue/capture/manifest.json",
+      queue: {
+        mode: "fake",
+        status: "failed",
+        total: 2,
+        completed: 1,
+        failed: 1,
+        current_task_id: "task-2",
+        last_error: { code: "CAPTURE_HTTP_QUEUE_FAILED", message: "private path /Users/ketchup" }
+      }
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("小批量预演：失败（1/2）"));
+  await assertVisible(page.getByText("小批量错误：CAPTURE_HTTP_QUEUE_FAILED"));
+  await assertVisible(page.getByText("小批量预演只使用本地 mock，不访问飞影、不消耗积分"));
+  const button = page.getByRole("button", { name: "抓包 HTTP 小批量预演" });
+  await assertVisible(button);
+  assert.equal(await button.isDisabled(), false);
+});
+
 test("capture GUI enables real-live action only for one-item dry-run batches", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-live-disabled-"));
   let server = null;
@@ -403,7 +475,7 @@ test("capture GUI enables real-live action only for one-item dry-run batches", a
   await assertVisible(page.getByText("状态：真实请求预演通过", { exact: true }));
   await assertVisible(page.getByRole("button", { name: "真实 HTTP 生成（会访问飞影，可能消耗积分）" }));
   assert.equal(await page.getByRole("button", { name: "真实 HTTP 生成（会访问飞影，可能消耗积分）" }).isDisabled(), false);
-  await assertVisible(page.getByText("真实 HTTP 生成只允许单条联调；点击后会使用浏览器登录态访问飞影，可能消耗积分。"));
+  await assertVisible(page.getByText("小批量预演只使用本地 mock，不访问飞影、不消耗积分；真实 HTTP 生成只允许单条联调，且可能消耗积分。"));
 });
 
 test("capture GUI shows real-live completion evidence without offering a retry action", async (t) => {

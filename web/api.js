@@ -82,6 +82,10 @@
         limitItems: 1
       })
     }),
+    runCaptureQueue: (batchId) => request(`/api/batches/${encodeURIComponent(batchId)}/capture/queue-run`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true, mode: "fake", resume: true })
+    }),
     startExecution: ({ batchId, idempotencyKey }) => request("/api/executions", {
       method: "POST",
       body: JSON.stringify({ batchId, idempotencyKey, confirm: true })

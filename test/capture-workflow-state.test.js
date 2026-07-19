@@ -44,6 +44,47 @@ test("public capture state exposes only safe project-relative capture paths", ()
   }
 });
 
+test("public capture state exposes only safe queue summary fields", () => {
+  const publicState = publicCaptureState({
+    enabled: true,
+    status: "dry_run_passed",
+    queue: {
+      mode: "fake",
+      status: "failed",
+      total: 3,
+      completed: 1,
+      failed: 1,
+      current_task_id: "task-2",
+      started_at: "2026-07-19T00:00:00.000Z",
+      updated_at: "2026-07-19T00:01:00.000Z",
+      last_error: {
+        code: "CAPTURE_HTTP_AUTH_REQUIRED",
+        message: "/Users/ketchup/private token=secret"
+      },
+      request_plan: [{ headers: { cookie: "secret" } }],
+      manifest_path: "/Users/ketchup/private/manifest.json"
+    }
+  });
+
+  assert.deepEqual(publicState.queue, {
+    mode: "fake",
+    status: "failed",
+    total: 3,
+    completed: 1,
+    failed: 1,
+    current_task_id: "task-2",
+    started_at: "2026-07-19T00:00:00.000Z",
+    updated_at: "2026-07-19T00:01:00.000Z",
+    last_error: {
+      code: "CAPTURE_HTTP_AUTH_REQUIRED",
+      message: "Unable to complete the capture HTTP queue."
+    }
+  });
+  assert.equal(JSON.stringify(publicState).includes("secret"), false);
+  assert.equal(JSON.stringify(publicState).includes("/Users/ketchup"), false);
+  assert.equal(JSON.stringify(publicState).includes("request_plan"), false);
+});
+
 test("invalid capture status is rejected", () => {
   assert.throws(
     () => updateCaptureState(createInitialCaptureState({ enabled: true }), { status: "surprise" }),

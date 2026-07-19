@@ -1,6 +1,7 @@
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { summarizeBatch } from "../../core/state-machine.js";
 import { createCaptureHttpExecutor } from "../../executors/capture-http-executor.js";
 import { createFetchLiveTransport } from "../../rpa/capture/fetch-live-transport.js";
 import { createDryRunHttpClient } from "../../rpa/capture/dry-run-http-client.js";
@@ -40,6 +41,13 @@ function realLiveFailure(code = "CAPTURE_HTTP_LIVE_RUN_FAILED") {
   return {
     code,
     message: "Unable to complete the real HTTP live run."
+  };
+}
+
+function queueFailure(code = "CAPTURE_HTTP_QUEUE_FAILED") {
+  return {
+    code,
+    message: "Unable to complete the capture HTTP queue."
   };
 }
 
@@ -88,6 +96,20 @@ function liveRunFields(body) {
   };
 }
 
+function queueRunFields(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw captureError("INVALID_CAPTURE_QUEUE_RUN_REQUEST");
+  const allowed = new Set(["confirm", "mode", "resume"]);
+  for (const key of Object.keys(body)) {
+    if (!allowed.has(key)) throw captureError("INVALID_CAPTURE_QUEUE_RUN_REQUEST");
+  }
+  if (body.confirm !== true) throw captureError("EXPLICIT_CONFIRMATION_REQUIRED");
+  if (body.mode !== "fake") throw captureError("CAPTURE_HTTP_QUEUE_MODE_INVALID");
+  return {
+    mode: "fake",
+    resume: body.resume === true
+  };
+}
+
 async function approvedImagePath(batch, batchDirectory, artifactId) {
   const upload = batch.uploads?.find((candidate) => candidate.artifact_id === artifactId && candidate.kind === "image");
   const manifest = batch.artifacts?.find((candidate) => candidate.artifact_id === artifactId);
@@ -105,6 +127,13 @@ async function approvedImagePath(batch, batchDirectory, artifactId) {
   return candidatePath;
 }
 
+function taskWithApprovedImagePath(batch, batchDirectory, task) {
+  return approvedImagePath(batch, batchDirectory, task.product_image_artifact_id).then((imagePath) => ({
+    ...task,
+    image_path: imagePath
+  }));
+}
+
 function taskWithImagePath(batch, batchDirectory) {
   if (!Array.isArray(batch.items) || batch.items.length !== 1) {
     throw captureError("CAPTURE_HTTP_LIVE_LIMIT_ONE");
@@ -114,6 +143,18 @@ function taskWithImagePath(batch, batchDirectory) {
     ...task,
     image_path: imagePath
   }));
+}
+
+function queueRunConfig(generationConfig, manifestPath) {
+  return {
+    ...generationConfig,
+    rpa: {
+      ...(generationConfig.rpa || {}),
+      mode: "capture_http",
+      manifestPath,
+      captureHttpMode: "mock"
+    }
+  };
 }
 
 function liveRunConfig(generationConfig, manifestPath) {
@@ -130,6 +171,21 @@ function liveRunConfig(generationConfig, manifestPath) {
       }
     }
   };
+}
+
+function completedQueueItem(item) {
+  return item?.status === "completed" && typeof item.output_path === "string" && item.output_path.length > 0;
+}
+
+function runnableQueueItem(item, { resume }) {
+  if (completedQueueItem(item)) return false;
+  if (["pending", "confirmed", "completed"].includes(item?.status)) return true;
+  if (resume && ["failed_remote", "failed_pre_submit", "interrupted_unknown"].includes(item?.status)) return true;
+  return false;
+}
+
+function safeQueueErrorMessage() {
+  return "Capture HTTP small-batch preview failed. No Hifly request was sent.";
 }
 
 export async function registerCaptureRoutes(app, { batchRoot, store, generationConfig = {}, captureLive = {} }) {
@@ -297,6 +353,176 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
       })
     }));
     return { batch: publicBatch(updated) };
+  });
+
+  app.post("/api/batches/:batchId/capture/queue-run", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    const fields = queueRunFields(request.body);
+    const batch = await readCaptureBatch(batchId);
+    if (!batch.capture?.manifest_path) throw captureError("CAPTURE_MANIFEST_MISSING", 409);
+    if (!Array.isArray(batch.items) || batch.items.length === 0) throw captureError("CAPTURE_HTTP_QUEUE_NOT_READY", 409);
+
+    const root = path.dirname(batchRoot);
+    const manifestPath = batch.capture.manifest_path;
+    resolveProjectRelative(root, manifestPath);
+    const batchDirectory = path.join(batchRoot, batchId);
+    const eligible = batch.items.filter((item) => runnableQueueItem(item, fields));
+    if (eligible.length === 0) throw captureError("CAPTURE_HTTP_QUEUE_NOT_READY", 409);
+
+    const startedAt = new Date().toISOString();
+    let completedCount = batch.items.filter(completedQueueItem).length;
+    await store.update(batchId, (current) => ({
+      ...current,
+      capture: updateCaptureState(current.capture, {
+        enabled: true,
+        queue: {
+          mode: "fake",
+          status: "running",
+          total: current.items.length,
+          completed: completedCount,
+          failed: 0,
+          current_task_id: eligible[0]?.task_id || null,
+          started_at: startedAt,
+          updated_at: startedAt,
+          last_error: null
+        }
+      })
+    }));
+
+    const executor = createCaptureHttpExecutor({
+      root,
+      config: queueRunConfig(generationConfig, manifestPath)
+    });
+
+    let currentTaskId = null;
+    try {
+      for (const item of eligible) {
+        currentTaskId = item.task_id;
+        const currentStartedAt = new Date().toISOString();
+        await store.update(batchId, (current) => ({
+          ...current,
+          status: "active",
+          items: current.items.map((candidate) => candidate.task_id === item.task_id
+            ? { ...candidate, status: "generating_asset", error_message: null, error_phase: null }
+            : candidate),
+          capture: updateCaptureState(current.capture, {
+            enabled: true,
+            queue: {
+              ...(current.capture?.queue || {}),
+              mode: "fake",
+              status: "running",
+              total: current.items.length,
+              completed: completedCount,
+              failed: 0,
+              current_task_id: item.task_id,
+              updated_at: currentStartedAt,
+              last_error: null
+            }
+          })
+        }));
+
+        const task = await taskWithApprovedImagePath(batch, batchDirectory, item);
+        const context = { batchId, taskId: task.task_id };
+        const asset = await executor.createAsset(task, context);
+        const submitted = await executor.submitVideo(task, asset, context);
+        const queried = await executor.querySubmission(submitted.remoteEvidence, context);
+        const artifact = await executor.downloadArtifact(queried.remoteEvidence, batchDirectory, context);
+        if (typeof store.registerArtifact === "function") {
+          try {
+            await store.registerArtifact(batchId, artifact);
+          } catch (error) {
+            if (!/already exists/i.test(error.message)) throw error;
+          }
+        }
+        completedCount += 1;
+        const finishedAt = new Date().toISOString();
+        await store.update(batchId, (current) => {
+          const items = current.items.map((candidate) => candidate.task_id === item.task_id
+            ? {
+                ...candidate,
+                status: "completed",
+                output_path: artifact.relative_path,
+                remote_evidence: submitted.remoteEvidence,
+                error_message: null,
+                error_phase: null
+              }
+            : candidate);
+          return {
+            ...current,
+            status: summarizeBatch(items),
+            items,
+            capture: updateCaptureState(current.capture, {
+              enabled: true,
+              queue: {
+                ...(current.capture?.queue || {}),
+                mode: "fake",
+                status: "running",
+                total: items.length,
+                completed: completedCount,
+                failed: 0,
+                current_task_id: item.task_id,
+                updated_at: finishedAt,
+                last_error: null
+              }
+            })
+          };
+        });
+      }
+
+      const completedAt = new Date().toISOString();
+      const updated = await store.update(batchId, (current) => ({
+        ...current,
+        status: summarizeBatch(current.items),
+        capture: updateCaptureState(current.capture, {
+          enabled: true,
+          queue: {
+            ...(current.capture?.queue || {}),
+            mode: "fake",
+            status: "completed",
+            total: current.items.length,
+            completed: current.items.filter(completedQueueItem).length,
+            failed: 0,
+            current_task_id: null,
+            updated_at: completedAt,
+            last_error: null
+          }
+        })
+      }));
+      return { batch: publicBatch(updated) };
+    } catch (error) {
+      const failedTaskId = currentTaskId || eligible[0]?.task_id || null;
+      const failedAt = new Date().toISOString();
+      const updated = await store.update(batchId, (current) => {
+        const items = current.items.map((candidate) => candidate.task_id === failedTaskId
+          ? {
+              ...candidate,
+              status: "failed_remote",
+              error_phase: "capture_http_queue",
+              error_message: safeQueueErrorMessage()
+            }
+          : candidate);
+        return {
+          ...current,
+          status: summarizeBatch(items),
+          items,
+          capture: updateCaptureState(current.capture, {
+            enabled: true,
+            queue: {
+              ...(current.capture?.queue || {}),
+              mode: "fake",
+              status: "failed",
+              total: items.length,
+              completed: items.filter(completedQueueItem).length,
+              failed: 1,
+              current_task_id: failedTaskId,
+              updated_at: failedAt,
+              last_error: queueFailure(error?.code)
+            }
+          })
+        };
+      });
+      return { batch: publicBatch(updated) };
+    }
   });
 
   app.post("/api/batches/:batchId/capture/live-run", async (request) => {

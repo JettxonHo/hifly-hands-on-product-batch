@@ -178,6 +178,113 @@ function classifiedRawSteps() {
   };
 }
 
+function captureQueueManifest() {
+  return {
+    schema_version: 1,
+    sanitized: true,
+    source: "test",
+    captured_at: "2026-07-19T00:00:00.000Z",
+    steps: [
+      {
+        id: "create_asset",
+        phase: "asset_generation",
+        method: "POST",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/mock/create",
+        placeholders: ["{{task_id}}"],
+        response: { status: 200, body: { data: { gen_id: "asset-{{task_id}}" } } },
+        produces: { asset_id: "$response.body.data.gen_id" },
+        risk: { replayability: "unknown" }
+      },
+      {
+        id: "submit_video",
+        phase: "remote_submit",
+        method: "POST",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/mock/submit",
+        placeholders: ["{{asset_id}}"],
+        response: { status: 200, body: { data: { work_id: "remote-{{asset_id}}" } } },
+        produces: { remote_id: "$response.body.data.work_id" },
+        risk: { replayability: "unknown" }
+      },
+      {
+        id: "query_video",
+        phase: "remote_query",
+        method: "GET",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/mock/query/{{remote_id}}",
+        placeholders: ["{{remote_id}}"],
+        response: { status: 200, body: { data: { status: 2 } } },
+        risk: { replayability: "unknown" }
+      },
+      {
+        id: "download_video",
+        phase: "download",
+        method: "GET",
+        url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/mock/download/{{remote_id}}",
+        placeholders: ["{{remote_id}}"],
+        response: { status: 200, body: { data: { filename: "video-{{remote_id}}.mp4" } } },
+        produces: { artifact_filename: "$response.body.data.filename" },
+        risk: { replayability: "unknown" }
+      }
+    ]
+  };
+}
+
+function staticCaptureQueueManifest() {
+  const manifest = captureQueueManifest();
+  for (const step of manifest.steps) {
+    if (step.phase === "asset_generation") {
+      step.url_template = "https://hiflyworks-api.lingverse.co/api/app/v1/mock/create";
+      step.placeholders = [];
+      step.response = { status: 200, body: { data: { gen_id: "asset-static" } } };
+    }
+    if (step.phase === "remote_submit") {
+      step.url_template = "https://hiflyworks-api.lingverse.co/api/app/v1/mock/submit";
+      step.placeholders = [];
+      step.response = { status: 200, body: { data: { work_id: "remote-static" } } };
+    }
+    if (step.phase === "download") {
+      step.response = { status: 200, body: { data: { filename: "video-static.mp4" } } };
+    }
+  }
+  return manifest;
+}
+
+async function createCaptureQueueBatch(root, batchId, items, { manifest = captureQueueManifest() } = {}) {
+  const store = createBatchStore(path.join(root, "batches"));
+  const manifestRelativePath = `batches/${batchId}/capture/manifest.json`;
+  const uploads = [];
+  const artifacts = [];
+  for (const item of items) {
+    const storageName = `${item.task_id}.png`;
+    uploads.push({ artifact_id: `${item.task_id}-image`, kind: "image", storage_name: storageName });
+    artifacts.push({ artifact_id: `${item.task_id}-image`, relative_path: `uploads/${storageName}` });
+  }
+  const batch = await store.create({
+    batch_id: batchId,
+    status: "pending",
+    uploads,
+    artifacts,
+    items: items.map((item) => ({
+      task_id: item.task_id,
+      sku: item.sku || item.task_id,
+      product_name: item.product_name || item.task_id,
+      status: item.status || "pending",
+      product_image_artifact_id: `${item.task_id}-image`,
+      ...(item.output_path ? { output_path: item.output_path } : {})
+    })),
+    capture: updateCaptureState(createInitialCaptureState({ enabled: true }), {
+      status: "dry_run_passed",
+      manifest_path: manifestRelativePath
+    })
+  });
+  await mkdir(path.join(root, "batches", batchId, "uploads"), { recursive: true });
+  await mkdir(path.join(root, "batches", batchId, "capture"), { recursive: true });
+  for (const item of items) {
+    await writeFile(path.join(root, "batches", batchId, "uploads", `${item.task_id}.png`), `image-${item.task_id}`);
+  }
+  await writeFile(path.join(root, manifestRelativePath), JSON.stringify(manifest, null, 2));
+  return batch;
+}
+
 test("extract capture API writes raw steps and updates batch state", async (t) => {
   const { app, root, session } = await fixture();
   t.after(async () => {
@@ -441,6 +548,157 @@ test("real-live status API records disabled state without network or sensitive d
   assert.equal(body.batch.capture.live_error.code, "CAPTURE_HTTP_REAL_LIVE_DISABLED");
   assert.equal(JSON.stringify(body).includes(root), false);
   assert.equal(JSON.stringify(body).includes("cookie"), false);
+});
+
+test("capture queue-run API rejects missing confirmation and non-fake modes", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const batchId = "batch-queue-reject";
+  await createCaptureQueueBatch(root, batchId, [{ task_id: "task-1" }]);
+
+  const missingConfirm = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/queue-run`,
+    headers: headers(session),
+    payload: { mode: "fake" }
+  });
+  const realMode = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/queue-run`,
+    headers: headers(session),
+    payload: { confirm: true, mode: "real_live" }
+  });
+  const realFlags = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/queue-run`,
+    headers: headers(session),
+    payload: { confirm: true, mode: "fake", allowRealLive: true }
+  });
+
+  assert.equal(missingConfirm.statusCode, 400);
+  assert.equal(missingConfirm.json().error, "EXPLICIT_CONFIRMATION_REQUIRED");
+  assert.equal(realMode.statusCode, 400);
+  assert.equal(realMode.json().error, "CAPTURE_HTTP_QUEUE_MODE_INVALID");
+  assert.equal(realFlags.statusCode, 400);
+  assert.equal(realFlags.json().error, "INVALID_CAPTURE_QUEUE_RUN_REQUEST");
+});
+
+test("capture queue-run API completes three fake items and registers artifacts", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const batchId = "batch-queue-three";
+  await createCaptureQueueBatch(root, batchId, [
+    { task_id: "task-1", sku: "SKU-1" },
+    { task_id: "task-2", sku: "SKU-2" },
+    { task_id: "task-3", sku: "SKU-3" }
+  ]);
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/queue-run`,
+    headers: headers(session),
+    payload: { confirm: true, mode: "fake" }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const batch = response.json().batch;
+  assert.equal(batch.status, "completed");
+  assert.equal(batch.capture.queue.status, "completed");
+  assert.equal(batch.capture.queue.mode, "fake");
+  assert.equal(batch.capture.queue.total, 3);
+  assert.equal(batch.capture.queue.completed, 3);
+  assert.equal(batch.capture.queue.failed, 0);
+  assert.equal(batch.items.length, 3);
+  for (const item of batch.items) {
+    assert.equal(item.status, "completed");
+    assert.match(item.output_path, /^artifacts\/task-\d-video-remote-asset-task-\d\.mp4$/);
+    assert.equal(typeof item.output_artifact_id, "string");
+  }
+  const persisted = JSON.parse(await readFile(path.join(root, "batches", batchId, "batch.json"), "utf8"));
+  const videoArtifacts = persisted.artifacts.filter((artifact) => artifact.relative_path.startsWith("artifacts/"));
+  assert.equal(videoArtifacts.length, 3);
+});
+
+test("capture queue-run API completes static captured responses with unique mock artifacts", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const batchId = "batch-queue-static";
+  await createCaptureQueueBatch(root, batchId, [
+    { task_id: "task-1", sku: "SKU-1" },
+    { task_id: "task-2", sku: "SKU-2" },
+    { task_id: "task-3", sku: "SKU-3" }
+  ], { manifest: staticCaptureQueueManifest() });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/queue-run`,
+    headers: headers(session),
+    payload: { confirm: true, mode: "fake" }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const batch = response.json().batch;
+  assert.equal(batch.status, "completed");
+  assert.equal(batch.capture.queue.status, "completed");
+  assert.deepEqual(batch.items.map((item) => item.output_path), [
+    "artifacts/task-1-video-static.mp4",
+    "artifacts/task-2-video-static.mp4",
+    "artifacts/task-3-video-static.mp4"
+  ]);
+  assert.deepEqual(batch.items.map((item) => item.output_artifact_id), [
+    "task-1-remote-static",
+    "task-2-remote-static",
+    "task-3-remote-static"
+  ]);
+});
+
+test("capture queue-run API resumes failed and interrupted items without recreating a batch", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const batchId = "batch-queue-resume";
+  await createCaptureQueueBatch(root, batchId, [
+    {
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "completed",
+      output_path: "artifacts/existing.mp4"
+    },
+    { task_id: "task-2", sku: "SKU-2", status: "failed_remote" },
+    { task_id: "task-3", sku: "SKU-3", status: "interrupted_unknown" }
+  ]);
+  const store = createBatchStore(path.join(root, "batches"));
+  await mkdir(path.join(root, "batches", batchId, "artifacts"), { recursive: true });
+  await writeFile(path.join(root, "batches", batchId, "artifacts", "existing.mp4"), "existing");
+  await store.registerArtifact(batchId, { artifact_id: "existing-video", relative_path: "artifacts/existing.mp4" });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/batches/${batchId}/capture/queue-run`,
+    headers: headers(session),
+    payload: { confirm: true, mode: "fake", resume: true }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const batch = response.json().batch;
+  assert.equal(batch.capture.queue.status, "completed");
+  assert.equal(batch.capture.queue.completed, 3);
+  assert.deepEqual(batch.items.map((item) => item.status), ["completed", "completed", "completed"]);
+  assert.equal(batch.items[0].output_path, "artifacts/existing.mp4");
+  assert.equal(batch.items[0].output_artifact_id, "existing-video");
+  assert.equal(batch.items[1].output_path, "artifacts/task-2-video-remote-asset-task-2.mp4");
+  assert.equal(batch.items[2].output_path, "artifacts/task-3-video-remote-asset-task-3.mp4");
 });
 
 test("real-live run API executes one capture item with injected auth and transport", async (t) => {

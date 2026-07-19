@@ -127,7 +127,7 @@ test("capture_http executor drives full asset -> submit -> download flow offline
     assert.equal(queried.status, "ready");
 
     const artifact = await executor.downloadArtifact(submitted.remoteEvidence, f.batchDirectory, context);
-    assert.equal(artifact.artifact_id, "632410");
+    assert.equal(artifact.artifact_id, "task-cap-1-632410");
     assert.equal(path.isAbsolute(artifact.relative_path), false);
     const fileBuffer = await readFile(path.join(f.batchDirectory, artifact.relative_path));
     assert.ok(fileBuffer.length > 0);
@@ -757,7 +757,7 @@ test("capture_http executor will not follow an artifact file symlink", async (t)
   const artifactDirectory = path.join(f.batchDirectory, "artifacts");
   await mkdir(artifactDirectory);
   await writeFile(externalFile, "do-not-overwrite");
-  await symlink(externalFile, path.join(artifactDirectory, "output.mp4"));
+  await symlink(externalFile, path.join(artifactDirectory, "task-1-output.mp4"));
 
   await assert.rejects(
     () => f.executor.downloadArtifact(f.remoteEvidence, null, f.context),
@@ -770,12 +770,12 @@ test("capture_http executor will not follow an artifact directory symlink", asyn
   const f = await prepareArtifactWrite(t);
   const externalDirectory = path.join(f.root, "outside-artifacts");
   await mkdir(externalDirectory);
-  await writeFile(path.join(externalDirectory, "output.mp4"), "do-not-overwrite");
+  await writeFile(path.join(externalDirectory, "task-1-output.mp4"), "do-not-overwrite");
   await symlink(externalDirectory, path.join(f.batchDirectory, "artifacts"));
 
   await assert.rejects(
     () => f.executor.downloadArtifact(f.remoteEvidence, null, f.context),
     { code: "CAPTURE_ARTIFACT_PATH_UNSAFE" }
   );
-  assert.equal(await readFile(path.join(externalDirectory, "output.mp4"), "utf8"), "do-not-overwrite");
+  assert.equal(await readFile(path.join(externalDirectory, "task-1-output.mp4"), "utf8"), "do-not-overwrite");
 });

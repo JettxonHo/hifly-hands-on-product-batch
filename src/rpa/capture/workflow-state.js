@@ -80,6 +80,10 @@ export function publicCaptureState(capture) {
   if (capture.live_summary && typeof capture.live_summary === "object") {
     value.live_summary = publicLiveSummary(capture.live_summary);
   }
+  if (capture.queue && typeof capture.queue === "object") {
+    const queue = publicQueueSummary(capture.queue);
+    if (queue) value.queue = queue;
+  }
   return value;
 }
 
@@ -114,6 +118,25 @@ const SAFE_LIVE_ERROR_CODES = new Set([
   "CAPTURE_HTTP_UPLOAD_FAILED",
   "CAPTURE_HTTP_ARTIFACT_URL_UNAVAILABLE",
   "CAPTURE_HTTP_ARTIFACT_DOWNLOAD_FAILED"
+]);
+
+const SAFE_QUEUE_STATUSES = new Set([
+  "not_started",
+  "running",
+  "completed",
+  "failed",
+  "interrupted"
+]);
+
+const SAFE_QUEUE_ERROR_CODES = new Set([
+  "CAPTURE_HTTP_QUEUE_FAILED",
+  "CAPTURE_HTTP_QUEUE_NOT_READY",
+  "CAPTURE_HTTP_QUEUE_MODE_INVALID",
+  "CAPTURE_HTTP_AUTH_REQUIRED",
+  "CAPTURE_HTTP_API_UNAVAILABLE",
+  "CAPTURE_HTTP_ARTIFACT_MISSING",
+  "CAPTURE_ARTIFACT_PATH_UNSAFE",
+  "CAPTURE_ARTIFACT_FILENAME_INVALID"
 ]);
 
 function isSensitiveName(value) {
@@ -174,6 +197,30 @@ function publicLiveSummary(summary) {
   if (typeof summary.sku === "string") result.sku = summary.sku;
   if (summary.completed_at !== undefined) result.completed_at = summary.completed_at;
   return result;
+}
+
+function publicQueueSummary(queue) {
+  const result = {};
+  if (queue.mode === "fake") result.mode = "fake";
+  if (SAFE_QUEUE_STATUSES.has(queue.status)) result.status = queue.status;
+  for (const key of ["total", "completed", "failed"]) {
+    if (Number.isInteger(queue[key]) && queue[key] >= 0) result[key] = queue[key];
+  }
+  if (typeof queue.current_task_id === "string" && /^[A-Za-z0-9._:-]+$/.test(queue.current_task_id)) {
+    result.current_task_id = queue.current_task_id;
+  }
+  for (const key of ["started_at", "updated_at"]) {
+    if (typeof queue[key] === "string") result[key] = queue[key];
+  }
+  if (queue.last_error && typeof queue.last_error === "object") {
+    result.last_error = {
+      code: typeof queue.last_error.code === "string" && SAFE_QUEUE_ERROR_CODES.has(queue.last_error.code)
+        ? queue.last_error.code
+        : "CAPTURE_HTTP_QUEUE_FAILED",
+      message: "Unable to complete the capture HTTP queue."
+    };
+  }
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 function publicRequestPlan(entry) {
