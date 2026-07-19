@@ -81,6 +81,23 @@
     return button;
   }
 
+  function downloadArtifactButton(batchId, artifactId) {
+    const link = document.createElement("a");
+    link.className = "ghost-button compact-button";
+    link.href = api.artifactUrl(batchId, artifactId);
+    link.download = "";
+    setText(link, "下载产物");
+    return link;
+  }
+
+  function outputArtifactIdForPath(batch, artifactPath) {
+    if (!artifactPath) return "";
+    const item = (batch.items || []).find((candidate) =>
+      candidate.output_path === artifactPath && candidate.output_artifact_id
+    );
+    return item?.output_artifact_id || "";
+  }
+
   function setBusy(isBusy) {
     state.busy = isBusy;
     for (const button of document.querySelectorAll("button")) {
@@ -180,7 +197,8 @@
     return time.toLocaleString("zh-CN", { hour12: false });
   }
 
-  function appendCaptureNotice(panel, capture) {
+  function appendCaptureNotice(panel, batch) {
+    const capture = batch.capture || {};
     if (capture.status === "real_live_completed") {
       const summary = capture.live_summary || {};
       const notice = document.createElement("div");
@@ -196,6 +214,8 @@
       if (summary.artifact_path) {
         const actions = document.createElement("div");
         actions.className = "inline-actions";
+        const artifactId = outputArtifactIdForPath(batch, summary.artifact_path);
+        if (artifactId) actions.append(downloadArtifactButton(batch.batch_id, artifactId));
         actions.append(copyPathButton(summary.artifact_path));
         notice.append(actions);
       }
@@ -235,6 +255,8 @@
       if (summary.artifact_path) {
         const actions = document.createElement("div");
         actions.className = "inline-actions";
+        const artifactId = outputArtifactIdForPath(batch, summary.artifact_path);
+        if (artifactId) actions.append(downloadArtifactButton(batch.batch_id, artifactId));
         actions.append(copyPathButton(summary.artifact_path));
         notice.append(actions);
       }
@@ -484,7 +506,7 @@
     const list = document.createElement("ul");
     list.className = "task-list";
     for (const item of batch.items || []) {
-      list.append(taskItem(item));
+      list.append(taskItem(item, batch));
     }
     nodes.batchDetail.append(summary);
     if (error) nodes.batchDetail.append(error);
@@ -524,7 +546,7 @@
       setText(line, text);
       panel.append(line);
     }
-    appendCaptureNotice(panel, capture);
+    appendCaptureNotice(panel, batch);
     const actions = document.createElement("div");
     actions.className = "button-row";
     actions.append(
@@ -574,7 +596,7 @@
     return button;
   }
 
-  function taskItem(item) {
+  function taskItem(item, batch) {
     const li = document.createElement("li");
     li.className = "task-item";
     const title = document.createElement("div");
@@ -594,6 +616,7 @@
     if (item.output_path) {
       const actions = document.createElement("div");
       actions.className = "inline-actions";
+      if (item.output_artifact_id) actions.append(downloadArtifactButton(batch.batch_id, item.output_artifact_id));
       actions.append(copyPathButton(item.output_path));
       li.append(actions);
     }
@@ -652,7 +675,7 @@
       const captureSummary = captureRecordSummary(batch);
       const list = document.createElement("ul");
       list.className = "task-list";
-      for (const item of batch.items || []) list.append(taskItem(item));
+      for (const item of batch.items || []) list.append(taskItem(item, batch));
       card.append(title);
       if (captureSummary) card.append(captureSummary);
       card.append(list);

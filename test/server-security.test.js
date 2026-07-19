@@ -145,14 +145,20 @@ test("serves only manifest-authorized artifacts from the requested batch", async
   await store.create({ batch_id: "batch-b", items: [] });
   await mkdir(path.join(root, "batches", "batch-a", "downloads"));
   await writeFile(path.join(root, "batches", "batch-a", "downloads", "proof.txt"), "authorized");
+  await writeFile(path.join(root, "batches", "batch-a", "downloads", "未命名.mp4"), "video");
   await store.registerArtifact("batch-a", { artifact_id: "proof", relative_path: "downloads/proof.txt" });
+  await store.registerArtifact("batch-a", { artifact_id: "unicode", relative_path: "downloads/未命名.mp4" });
 
   const allowed = await app.inject({ method: "GET", url: "/api/artifacts/batch-a/proof", headers: { host: HOST } });
+  const unicode = await app.inject({ method: "GET", url: "/api/artifacts/batch-a/unicode", headers: { host: HOST } });
   const crossBatch = await app.inject({ method: "GET", url: "/api/artifacts/batch-b/proof", headers: { host: HOST } });
   const traversal = await app.inject({ method: "GET", url: "/api/artifacts/batch-a/../proof", headers: { host: HOST } });
 
   assert.equal(allowed.statusCode, 200);
   assert.equal(allowed.body, "authorized");
+  assert.equal(allowed.headers["content-disposition"], "attachment; filename=\"proof.txt\"; filename*=UTF-8''proof.txt");
+  assert.equal(unicode.statusCode, 200);
+  assert.equal(unicode.headers["content-disposition"], "attachment; filename=\"___.mp4\"; filename*=UTF-8''%E6%9C%AA%E5%91%BD%E5%90%8D.mp4");
   assert.equal(crossBatch.statusCode, 404);
   assert.equal(traversal.statusCode, 404);
 });

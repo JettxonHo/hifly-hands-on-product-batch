@@ -14,6 +14,19 @@ function contained(parent, child) {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
+function safeAsciiAttachmentName(filename) {
+  const fallback = filename
+    .replace(/[\r\n"]/g, "_")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/[/\\]/g, "_");
+  return fallback && fallback !== "." && fallback !== ".." ? fallback : "artifact.bin";
+}
+
+function attachmentDisposition(relativePath) {
+  const filename = path.basename(relativePath) || "artifact.bin";
+  return `attachment; filename="${safeAsciiAttachmentName(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
 export async function registerArtifactRoutes(app, { batchRoot, store }) {
   app.get("/api/artifacts/:batchId/:artifactId", async (request, reply) => {
     const batchId = assertBatchId(request.params.batchId);
@@ -36,7 +49,9 @@ export async function registerArtifactRoutes(app, { batchRoot, store }) {
       throw Object.assign(new Error("Artifact not found"), { code: "ARTIFACT_NOT_FOUND" });
     }
 
-    reply.type("application/octet-stream");
+    reply
+      .type("application/octet-stream")
+      .header("content-disposition", attachmentDisposition(artifact.relative_path));
     return readFile(realArtifactPath);
   });
 }

@@ -1,5 +1,16 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-19 P1 完成：GUI 安全下载产物入口（无新增积分）
+
+- 已新增设计记录：`docs/superpowers/specs/2026-07-19-artifact-download-gui-design.md`。
+- 后端沿用 `GET /api/artifacts/:batchId/:artifactId`，继续只允许读取当前 batch 中已登记 artifact；下载前校验 batch-relative path、realpath containment、普通文件和非 symlink，并新增 `Content-Disposition: attachment`。
+- `publicBatch()` 仍不公开 artifact `relative_path` 列表；仅当任务 `output_path` 与当前批次已登记 artifact 精确匹配时，在该任务公开 `output_artifact_id`。
+- GUI 在任务行、抓包 HTTP 完成摘要、运行记录中新增“下载产物”按钮；没有 `output_artifact_id` 时不显示下载按钮，仍保留“复制路径”。
+- 本轮未访问飞影、未跑 Playwright 真实生成、未跑真实 HTTP、未生成视频、未消耗新增积分。
+- 已执行定向验证：`node --test test/server-api.test.js` 为 40/40 通过；`node --test test/server-security.test.js` 为 7/7 通过；`node --test test/gui-smoke.test.js` 为 9/9 通过。
+- 已执行最终验证：`npm run check` 通过（65 个 JS 文件）；`git diff --check` 通过；`npm test` 为 362/362 通过。
+- 下一步建议：后续 P2 才考虑抓包 HTTP 小批量队列，默认批量生产仍保持 Playwright。
+
 ## 2026-07-19 P1 完成：运行记录集中展示抓包 HTTP 摘要（无新增积分）
 
 - 运行记录卡片现在会在任务列表上方展示抓包工作流摘要。

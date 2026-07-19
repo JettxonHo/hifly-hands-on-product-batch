@@ -41,6 +41,8 @@
     ensureSession,
     getRuntime: () => request("/api/runtime"),
     getBatches: () => request("/api/batches"),
+    artifactUrl: (batchId, artifactId) =>
+      `/api/artifacts/${encodeURIComponent(batchId)}/${encodeURIComponent(artifactId)}`,
     createBatch: (payload = {}) => request("/api/batches", {
       method: "POST",
       body: JSON.stringify(typeof payload === "string" ? { batchId: payload } : payload)

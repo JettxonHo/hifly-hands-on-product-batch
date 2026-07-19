@@ -285,6 +285,10 @@ textarea:focus {
   border: 1px solid var(--line);
   background: white;
   color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .danger-button {

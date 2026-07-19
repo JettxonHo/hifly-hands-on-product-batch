@@ -117,6 +117,12 @@ node scripts/redact-capture-source.mjs <raw-steps.json> --out=<manifest.json> --
 - `outputs/`：最终交付打包目录。
 - `assets/person_pool/`：按商品品类轮换的人物/背景图。
 
+### GUI 产物下载
+
+GUI 中的“下载产物”按钮只读取当前批次已登记的 artifact ID，不接受用户输入的本地路径。后端会在返回文件前检查 artifact 路径仍位于当前 batch 目录内、不是 symlink、且是普通文件。
+
+前端公开的 batch JSON 仍不会暴露 artifact 的 `relative_path` 列表；只有任务输出路径与已登记 artifact 精确匹配时，任务行才会额外出现 `output_artifact_id`，用于生成同源下载链接。
+
 ## 不入库内容
 
 以下内容涉及账号、环境、本地状态或大文件，不提交到 Git，也不进入交付包：
