@@ -1,5 +1,16 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-20 PR #7 第 3 轮 important 修复：submit_checkpoint evidence 投影（本地安全修复，未访问飞影、未消耗积分）
+
+- 修复 Codex 复审发现的新同源 important：`submit_checkpoint` 经 `publicItem` 透传，其 `evidence.works`（每个 work 含 `remote_url` + 可能 URL 的 `work_key`）与 `work_keys` 会泄漏到 `/api/batches/:id`。
+- 修复：`src/server/routes/batches.js` 新增 `publicSubmitCheckpoint`，保留 `phase`/`observed_at` + evidence 的安全标量（数字与非 URL string，如 GUI 读取的 `elapsed_ms`/`candidate_count`），丢弃 object/array（`works`/`work_keys`）；`publicItem` 对 `submit_checkpoint` 走它。GUI 进度文案（`taskProgressText`）不受影响。
+- 至此 evidence 类 public 面已全面收敛：`remote_evidence`/`remote_candidates`/`submit_checkpoint` 均经白名单 + URL 过滤投影。
+- `asset_evidence` 经确认结构为 `{asset_id}`（非 URL id）、GUI 不消费、风险低，本轮保留未改；如需进一步收敛可后续加入 `INTERNAL_ITEM_FIELDS`。
+- 新增回归测试（`test/server-api.test.js`）：seed `submit_checkpoint.evidence` 含 `works[{remote_url, work_key:"//cdn...?token=secret"}]` + `work_keys`，断言 public 保留 `phase`/`observed_at`/`elapsed_ms`/`candidate_count`，丢弃 `works`/`work_keys`，不含 cdn/token/remote_url。
+- 验证：`npm run check` 65 文件；`npm test` 390/390；`node --test test/server-capture-api.test.js` 30/30；`node --test test/server-api.test.js` 45/45；`node --test test/gui-smoke.test.js` 12/12；`git diff --check main...HEAD` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改；runtime auth 仍只在内存；CDN/签名 URL 不进 public batch JSON。
+- 下一步：推送等 Codex 复审；真实联调仍需新会话授权。
+
 ## 2026-07-20 PR #7 review important 修复：URL-like 收紧 + remote_candidates 投影（本地安全修复，未访问飞影、未消耗积分）
 
 - 修复 PR #7 reviewer 标记的 2 个 important（均在 `src/server/routes/batches.js`），TDD，全绿。
