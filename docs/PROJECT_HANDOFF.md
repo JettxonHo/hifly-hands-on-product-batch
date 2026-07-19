@@ -1,5 +1,20 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-19 P2 完成：抓包 HTTP 小批量 fake 队列预演（无网络、无新增积分）
+
+- 已按 `docs/superpowers/specs/2026-07-19-capture-http-small-batch-queue-design.md` 和 `docs/superpowers/plans/2026-07-19-capture-http-small-batch-queue.md` 完成受控实现。
+- 新增 `POST /api/batches/:batchId/capture/queue-run`，仅接受 `{ confirm: true, mode: "fake", resume?: boolean }`；缺少确认、非 `fake` mode、夹带 real-live 授权字段都会被拒绝。
+- 小批量队列使用现有 `capture_http` executor 的 `mock` 模式串行执行每个商品，成功后为每个 item 写入 `output_path`、登记 batch artifact，并通过 public batch 暴露 `output_artifact_id`。
+- 支持对已失败或 `interrupted_unknown` 的同一批次用 `resume: true` 继续预演；已 `completed` 且有 `output_path` 的 item 会跳过，不需要重新逐条录入。
+- `capture.queue` 已有 public-safe 投影，只显示 mode/status/计数/current task/timestamps/稳定错误码，不公开 manifest 内部、请求内容、cookie、URL、绝对路径或 transport 细节。
+- GUI 抓包面板新增“抓包 HTTP 小批量预演”按钮和 queue 摘要；确认文案明确“小批量预演只使用本地 mock，不访问飞影、不消耗积分”。
+- Playwright 默认批量生产路径未改变；`live-run` 仍保持单条真实 HTTP 联调入口，未改成批量真实执行。
+- 曾尝试调用本机 Claude Code 作为开发 subagent；Claude CLI 健康检查可用，但长任务执行卡住且只留下一个无效 import，已撤销该无效 diff。最终实现由 Codex 主控完成。
+- 本轮未访问飞影、未跑 Playwright 真实生成、未跑真实 HTTP、未生成视频、未消耗新增积分。
+- 已执行定向验证：`node --test test/capture-workflow-state.test.js test/server-capture-api.test.js test/gui-smoke.test.js` 为 30/30 通过。
+- 已执行最终验证：`npm run check` 通过（65 个 JS 文件）；`git diff --check` 通过；`npm test` 为 367/367 通过。
+- 下一步建议：创建/推送 PR；真实 HTTP 小批量仍未开放，除非另行设计积分预算、限速、失败停机和用户明确授权。
+
 ## 2026-07-19 P1 完成：GUI 安全下载产物入口（无新增积分）
 
 - 已新增设计记录：`docs/superpowers/specs/2026-07-19-artifact-download-gui-design.md`。

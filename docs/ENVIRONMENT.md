@@ -104,6 +104,8 @@ node scripts/redact-capture-source.mjs <raw-steps.json> --out=<manifest.json> --
 
 把人工整理的原始抓包步骤脱敏成可入库的 capture manifest，内置 `parseCaptureManifest` 门禁作双重保险。完整采集→脱敏→复核→离线回放流程见 `docs/rpa/capture-runbook.md`。
 
+GUI 的“抓包 HTTP 小批量预演”同样是本地能力：它使用 `capture_http` 的 mock 队列验证多商品编排、状态恢复和 artifact 登记，不读取运行时飞影登录态，不调用真实 Hifly HTTP transport，不访问飞影，也不消耗积分。该入口不替代 Playwright 批量生产；真实 HTTP 出片仍只允许单条授权联调。
+
 ## 沙箱 / 代理网络（排障用）
 
 在这台 Mac 上用 Claude Code 等沙箱工具排障时：`hifly.cc` 在沙箱里可能被解析到 `198.18.x.x`（RFC2544 fake-ip，不可路由），且无 `HTTP_PROXY` 环境变量——看起来「连不上」。但本机系统配了代理（TUN 模式），fake-ip 会被转发到真实 hifly，所以 GUI 触发的 Playwright 浏览器能正常访问。**判断能否连 hifly，以实际跑一次飞影链路（能否走到 asset_generation/submit）为准，不要只看 `dns.resolve4` 就下结论。**
