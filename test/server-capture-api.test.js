@@ -1498,3 +1498,27 @@ test("real-batch-run without resume does not retry failed items", async (t) => {
   assert.equal(res.statusCode, 409);
   assert.equal(res.json().error, "CAPTURE_HTTP_REAL_BATCH_NOT_READY");
 });
+
+test("real-batch-run rejects with 409 when runtime auth provider is unavailable", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-no-auth-provider-"));
+  const transport = realBatchTransport();
+  const { app, session } = await buildRealBatchApp({
+    root,
+    generationConfig: REAL_BATCH_GEN_CONFIG,
+    captureLive: { transport }
+  });
+  await seedRealBatch(root, "batch-real-no-auth-provider", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const before = JSON.parse(await readFile(path.join(root, "batches", "batch-real-no-auth-provider", "batch.json"), "utf8"));
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-no-auth-provider/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.json().error, "CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE");
+  assert.equal(transport.calls.length, 0);
+  const after = JSON.parse(await readFile(path.join(root, "batches", "batch-real-no-auth-provider", "batch.json"), "utf8"));
+  assert.equal(after.capture.status, before.capture.status);
+});
