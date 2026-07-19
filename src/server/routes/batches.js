@@ -62,6 +62,25 @@ function publicRemoteCandidates(candidates) {
   return projected.length > 0 ? projected : undefined;
 }
 
+function publicSubmitCheckpoint(checkpoint) {
+  if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) return undefined;
+  const value = {};
+  if (typeof checkpoint.phase === "string") value.phase = checkpoint.phase;
+  if (typeof checkpoint.observed_at === "string" && !isUrlLikeScalar(checkpoint.observed_at)) {
+    value.observed_at = checkpoint.observed_at;
+  }
+  if (isPlainObject(checkpoint.evidence)) {
+    const safeEvidence = {};
+    for (const [ek, ev] of Object.entries(checkpoint.evidence)) {
+      if (typeof ev === "number") safeEvidence[ek] = ev;
+      else if (typeof ev === "string" && !isUrlLikeScalar(ev)) safeEvidence[ek] = ev;
+      // objects/arrays (works, work_keys) are dropped — they can carry remote URLs
+    }
+    if (Object.keys(safeEvidence).length > 0) value.evidence = safeEvidence;
+  }
+  return Object.keys(value).length > 0 ? value : undefined;
+}
+
 function publicItem(item, artifactIdByPath = new Map()) {
   const value = {};
   for (const [key, field] of Object.entries(item ?? {})) {
@@ -73,6 +92,11 @@ function publicItem(item, artifactIdByPath = new Map()) {
     }
     if (key === "remote_candidates") {
       const projected = publicRemoteCandidates(field);
+      if (projected !== undefined) value[key] = projected;
+      continue;
+    }
+    if (key === "submit_checkpoint") {
+      const projected = publicSubmitCheckpoint(field);
       if (projected !== undefined) value[key] = projected;
       continue;
     }

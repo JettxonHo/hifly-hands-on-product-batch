@@ -393,6 +393,64 @@ test("public batch projects remote_candidates through the same safe allowlist an
   assert.equal(JSON.stringify(item).includes("data:text/plain,leak"), false);
 });
 
+test("public batch keeps checkpoint progress scalars but drops works/work_keys evidence", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-submit-checkpoint",
+    status: "active",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "submitted",
+      submit_checkpoint: {
+        phase: "remote_submit_wait",
+        observed_at: "2026-07-20T00:00:00.000Z",
+        evidence: {
+          observed_at: "2026-07-20T00:00:00.000Z",
+          elapsed_ms: 5000,
+          candidate_count: 1,
+          work_keys: ["//cdn.example.com/signed/a?token=secret", "https://cdn.example.com/b"],
+          works: [
+            {
+              remote_id: "w-1",
+              remote_url: "https://cdn.example.com/signed/video?token=secret",
+              work_key: "//cdn.example.com/c?token=secret",
+              label: "2026-07-20T00:00:00.000Z"
+            }
+          ]
+        }
+      }
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-submit-checkpoint",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const item = response.json().batch.items[0];
+  const checkpoint = item.submit_checkpoint;
+  assert.ok(checkpoint, "submit_checkpoint retained for GUI progress");
+  assert.equal(checkpoint.phase, "remote_submit_wait");
+  assert.equal(checkpoint.observed_at, "2026-07-20T00:00:00.000Z");
+  assert.equal(checkpoint.evidence.elapsed_ms, 5000);
+  assert.equal(checkpoint.evidence.candidate_count, 1);
+  assert.equal("works" in checkpoint.evidence, false);
+  assert.equal("work_keys" in checkpoint.evidence, false);
+  assert.equal(JSON.stringify(item).includes("cdn.example.com"), false);
+  assert.equal(JSON.stringify(item).includes("token=secret"), false);
+  assert.equal(JSON.stringify(item).includes("remote_url"), false);
+});
+
 test("accepts token-only localhost RPA callbacks while other POST routes require a session", async (t) => {
   const { app, root } = await fixture();
   t.after(async () => {
