@@ -1,5 +1,16 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-19 P2 实现完成：抓包 HTTP 真实小批量（默认禁用，fake transport 全绿，未跑真实飞影）
+
+- 已在分支 `codex/capture-http-real-small-batch`（基于 main `2ff8243`）按 `docs/superpowers/plans/2026-07-19-capture-http-real-small-batch.md` 完成 Task 1-5（实现 + GUI + 文档），逐 task TDD 提交。
+- 新增 `POST /api/batches/:batchId/capture/real-batch-run`：默认禁用（`rpa.realLive.batch.enabled=false` → `CAPTURE_HTTP_REAL_BATCH_DISABLED`）；要求 `confirm`/`allowRealLive`/`acknowledgePointRisk` + `pointBudget`（1..maxItems，硬上限默认 3）。
+- 执行模型：串行、首失败即停、可续跑；按 task 幂等（有 `remote_id` + 已登记 artifact 复用，有 `remote_id` 无 artifact 抛 `CAPTURE_HTTP_REAL_BATCH_DUPLICATE_SUBMIT` 绝不重提）；runtime auth 仅内存，CDN/签名 URL 不进 public batch JSON。
+- GUI：`/api/runtime` 暴露 `realBatchEnabled`/`realBatchMaxItems`；capture 面板仅在启用时显示「真实 HTTP 小批量生成」按钮 + 积分风险文案，操作前需输入 pointBudget 并二次确认。
+- 验证：`npm run check` 通过（65 文件）；`npm test` 为 379/379；`node --test test/server-capture-api.test.js` 24/24（含 9 个 real-batch 场景）；`node --test test/gui-smoke.test.js` 12/12。全流程只用 fake runtime auth + fake transport，**未访问飞影、未发真实 HTTP、未消耗积分**。
+- 默认生产路径 Playwright、`captureHttpMode=mock`、queue-run（fake）、live-run（单条）均未改动。
+- 本地无关脏文件 `.superpowers/sdd/task-6-report.md`（已 stash 保留）与 `docs/resume/` 未提交。
+- 下一步：真实 HTTP 小批量联调需用户在新会话明确授权（会消耗积分），先按 `docs/rpa/capture-real-batch-checklist.md` 走 1 条 → 最多 3 条。本轮不执行真实联调。
+
 ## 2026-07-19 PR #5 独立 review 通过并转 Ready for review
 
 - 独立 reviewer（Codex）已审批 PR #5「docs: post-merge stabilization verification and P2 real-batch design」，结论 APPROVED，可转 ready。
