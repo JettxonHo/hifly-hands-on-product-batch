@@ -21,10 +21,86 @@ function validBatchId(value) {
   return typeof value === "string" && BATCH_ID_PATTERN.test(value) && value !== "." && value !== "..";
 }
 
+const SAFE_REMOTE_EVIDENCE_FIELDS = new Set([
+  "remote_id",
+  "work_key",
+  "label",
+  "task_id",
+  "batch_id",
+  "evidence_source"
+]);
+
+function isUrlLikeScalar(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  // Reject scheme URLs (https:, data:, blob:, javascript:, ...) and protocol-relative (//host).
+  // A leading digit is intentionally NOT a scheme, so the work_key fallback "0:label" survives.
+  return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(trimmed);
+}
+
+function publicRemoteEvidence(evidence) {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return undefined;
+  const value = {};
+  for (const [key, field] of Object.entries(evidence)) {
+    if (!SAFE_REMOTE_EVIDENCE_FIELDS.has(key)) continue;
+    if (typeof field === "number") {
+      value[key] = field;
+    } else if (typeof field === "string" && !isUrlLikeScalar(field)) {
+      value[key] = field;
+    }
+  }
+  return Object.keys(value).length > 0 ? value : undefined;
+}
+
+function publicRemoteCandidates(candidates) {
+  if (!Array.isArray(candidates)) return undefined;
+  const projected = [];
+  for (const candidate of candidates) {
+    const safe = publicRemoteEvidence(candidate);
+    if (safe !== undefined) projected.push(safe);
+  }
+  return projected.length > 0 ? projected : undefined;
+}
+
+function publicSubmitCheckpoint(checkpoint) {
+  if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) return undefined;
+  const value = {};
+  if (typeof checkpoint.phase === "string") value.phase = checkpoint.phase;
+  if (typeof checkpoint.observed_at === "string" && !isUrlLikeScalar(checkpoint.observed_at)) {
+    value.observed_at = checkpoint.observed_at;
+  }
+  if (isPlainObject(checkpoint.evidence)) {
+    const safeEvidence = {};
+    for (const [ek, ev] of Object.entries(checkpoint.evidence)) {
+      if (typeof ev === "number") safeEvidence[ek] = ev;
+      else if (typeof ev === "string" && !isUrlLikeScalar(ev)) safeEvidence[ek] = ev;
+      // objects/arrays (works, work_keys) are dropped — they can carry remote URLs
+    }
+    if (Object.keys(safeEvidence).length > 0) value.evidence = safeEvidence;
+  }
+  return Object.keys(value).length > 0 ? value : undefined;
+}
+
 function publicItem(item, artifactIdByPath = new Map()) {
   const value = {};
   for (const [key, field] of Object.entries(item ?? {})) {
-    if (!INTERNAL_ITEM_FIELDS.has(key)) value[key] = key === "error_message" ? sanitizeMessage(field) : field;
+    if (INTERNAL_ITEM_FIELDS.has(key)) continue;
+    if (key === "remote_evidence") {
+      const projected = publicRemoteEvidence(field);
+      if (projected !== undefined) value[key] = projected;
+      continue;
+    }
+    if (key === "remote_candidates") {
+      const projected = publicRemoteCandidates(field);
+      if (projected !== undefined) value[key] = projected;
+      continue;
+    }
+    if (key === "submit_checkpoint") {
+      const projected = publicSubmitCheckpoint(field);
+      if (projected !== undefined) value[key] = projected;
+      continue;
+    }
+    value[key] = key === "error_message" ? sanitizeMessage(field) : field;
   }
   const artifactId = artifactIdByPath.get(item?.output_path);
   if (artifactId) value.output_artifact_id = artifactId;

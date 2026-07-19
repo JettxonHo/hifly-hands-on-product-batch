@@ -629,7 +629,13 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
     const task = await taskWithImagePath(batch, batchDirectory);
     const authProvider = captureLive.authProvider;
     if (!authProvider || typeof authProvider.getRuntimeAuth !== "function") {
-      throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 503);
+      throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 409);
+    }
+    let runtimeAuth;
+    try {
+      runtimeAuth = await authProvider.getRuntimeAuth();
+    } catch {
+      throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 409);
     }
 
     await store.update(batchId, (current) => ({
@@ -643,7 +649,6 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
     }));
 
     try {
-      const runtimeAuth = await authProvider.getRuntimeAuth();
       const executor = createCaptureHttpExecutor({
         root,
         config: liveRunConfig(generationConfig, manifestPath)
@@ -733,7 +738,13 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
 
     const authProvider = captureLive.authProvider;
     if (!authProvider || typeof authProvider.getRuntimeAuth !== "function") {
-      throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 503);
+      throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 409);
+    }
+    let runtimeAuth;
+    try {
+      runtimeAuth = await authProvider.getRuntimeAuth();
+    } catch {
+      throw captureError("CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE", 409);
     }
 
     const startedAt = new Date().toISOString();
@@ -759,7 +770,6 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
 
     let currentTaskId = null;
     try {
-      const runtimeAuth = await authProvider.getRuntimeAuth();
       for (const item of eligible) {
         currentTaskId = item.task_id;
 

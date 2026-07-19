@@ -1,5 +1,39 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-20 PR #7 第 3 轮 important 修复：submit_checkpoint evidence 投影（本地安全修复，未访问飞影、未消耗积分）
+
+- 修复 Codex 复审发现的新同源 important：`submit_checkpoint` 经 `publicItem` 透传，其 `evidence.works`（每个 work 含 `remote_url` + 可能 URL 的 `work_key`）与 `work_keys` 会泄漏到 `/api/batches/:id`。
+- 修复：`src/server/routes/batches.js` 新增 `publicSubmitCheckpoint`，保留 `phase`/`observed_at` + evidence 的安全标量（数字与非 URL string，如 GUI 读取的 `elapsed_ms`/`candidate_count`），丢弃 object/array（`works`/`work_keys`）；`publicItem` 对 `submit_checkpoint` 走它。GUI 进度文案（`taskProgressText`）不受影响。
+- 至此 evidence 类 public 面已全面收敛：`remote_evidence`/`remote_candidates`/`submit_checkpoint` 均经白名单 + URL 过滤投影。
+- `asset_evidence` 经确认结构为 `{asset_id}`（非 URL id）、GUI 不消费、风险低，本轮保留未改；如需进一步收敛可后续加入 `INTERNAL_ITEM_FIELDS`。
+- 新增回归测试（`test/server-api.test.js`）：seed `submit_checkpoint.evidence` 含 `works[{remote_url, work_key:"//cdn...?token=secret"}]` + `work_keys`，断言 public 保留 `phase`/`observed_at`/`elapsed_ms`/`candidate_count`，丢弃 `works`/`work_keys`，不含 cdn/token/remote_url。
+- 验证：`npm run check` 65 文件；`npm test` 390/390；`node --test test/server-capture-api.test.js` 30/30；`node --test test/server-api.test.js` 45/45；`node --test test/gui-smoke.test.js` 12/12；`git diff --check main...HEAD` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改；runtime auth 仍只在内存；CDN/签名 URL 不进 public batch JSON。
+- 下一步：推送等 Codex 复审；真实联调仍需新会话授权。
+
+## 2026-07-20 PR #7 review important 修复：URL-like 收紧 + remote_candidates 投影（本地安全修复，未访问飞影、未消耗积分）
+
+- 修复 PR #7 reviewer 标记的 2 个 important（均在 `src/server/routes/batches.js`），TDD，全绿。
+- **important 1 — URL-like 检测收紧**：`isUrlLikeScalar` 原只拦 `contains("://")` 或 `^https?:`，放过 `//cdn`、`data:`、`blob:`、`javascript:`；改为 `^(?:[a-z][a-z0-9+.-]*:|//)`（scheme URL 或协议相对），数字开头的 work_key fallback `0:label` 不受影响。
+- **important 2 — remote_candidates 投影**：`publicItem` 原透传 `remote_candidates`（ambiguous 提交候选，可能含 `remote_url` + URL 形态 `work_key`）；新增 `publicRemoteCandidates`，逐项复用 `publicRemoteEvidence` 白名单 + URL 过滤，空则不公开。
+- 新增回归测试（`test/server-api.test.js`）：`//cdn`/`data:`/`blob:`/`javascript:` 形态的 `remote_evidence` 字段被丢弃；`remote_candidates` 含 `remote_url`/URL `work_key`/`token`/`headers` 时 public JSON 只保留安全字段、不含 cdn/token。
+- 验证：`npm run check` 65 文件；`npm test` 389/389；`node --test test/server-capture-api.test.js` 30/30；`node --test test/server-api.test.js` 44/44；`node --test test/gui-smoke.test.js` 12/12；`git diff --check main...HEAD` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**（只本地 fake/runtime 测试）。
+- 默认 Playwright 生产路径未改；`captureHttpMode=mock`/queue-run（fake）/live-run（单条）语义不变；runtime auth 仍只在内存；CDN/签名 URL 不进 public batch JSON（白名单 + scheme/协议相对 URL 双重过滤）。
+- 下一步：推送 PR #7 分支等 Codex 复审；真实联调仍需新会话授权。
+
+## 2026-07-20 P2 hardening follow-up：修 3 minor + 2 review 修复（全绿，未跑真实飞影）
+
+- 在分支 `feat/p2-hardening-followup`（基于 main `6e86012`）一次性修复 PR #6 双重 review 标记的 3 个不阻塞 minor，并经 Workflow 对抗式 review（3 维度并行 + 逐条 verify，7 agents）再发现并修复 2 个（1 important + 1 minor），全程 TDD。
+- 修复：
+  - **[minor 1]** `publicItem` 对 `remote_evidence` 改白名单投影（新增 `publicRemoteEvidence`，`SAFE_REMOTE_EVIDENCE_FIELDS` = `remote_id/work_key/label/task_id/batch_id/evidence_source`，仅 string/number 标量）。
+  - **[review important]** 上述白名单的 `work_key` 在默认 Playwright 路径可携带抓到的 remote URL（`remoteId || remoteUrl || index:label`，`src/hifly-page.js:365`），绕过泄漏；新增 `isUrlLikeScalar` 丢弃任何含 `://` 的 URL 形态标量，无论哪个字段携带。
+  - **[minor 2]** `CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE` 由 503（被 `apiError` 吞成 `500 INTERNAL_ERROR`）改为 409，并加入 `CLIENT_ERROR_CODES`（real-batch + live-run 路由）。
+  - **[minor 3]** real-batch-run 的 `getRuntimeAuth` 前置到写 `real_batch_running` 之前，失败转 preflight 409，batch 状态不变、不提交。
+  - **[review minor]** live-run 单条路由的 `getRuntimeAuth` 同样前置化（对称 real-batch），失败转 409；补 live-run missing-provider 与 getRuntimeAuth-throws 的 409 测试覆盖。
+- 验证：`npm run check` 65 文件；`npm test` 387/387；`node --test test/server-capture-api.test.js` 30/30（含 real-batch + live-run preflight 各场景）；`node --test test/server-api.test.js` 42/42（含 `remote_evidence` 白名单 + URL 丢弃）；`node --test test/gui-smoke.test.js` 12/12。全程只用 fake runtime auth + fake transport，**未访问飞影、未消耗积分**。
+- 默认生产路径 Playwright 未改变；`captureHttpMode=mock`、queue-run（fake）、live-run（单条）行为不变；runtime auth 仍只在内存；CDN/签名 URL 不进 public batch JSON（白名单 + URL-shape 双重防护）。
+- 下一步：推送分支 + 开 PR；真实 HTTP 小批量联调仍需用户在新会话明确授权，按 `docs/rpa/capture-real-batch-checklist.md` 先 1 条 → 最多 3 条。
+
 ## 2026-07-19 P2 对抗式 review 完成：修复 double-charge 与卡死状态（fake transport 全绿，未跑真实飞影）
 
 - 用 Workflow 多 agent 对 P2 实现做对抗式审查（5 维度并行 review + 逐条 verify，19 agents / 971k tokens），14 findings，11 confirmed real，已全部修复并提交（`7a9c979`）。

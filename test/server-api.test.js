@@ -185,6 +185,272 @@ test("batch projection maps completed item outputs to artifact ids without expos
   assert.equal(JSON.stringify(batch.artifacts).includes("artifacts/video.mp4"), false);
 });
 
+test("public batch projects remote_evidence through a safe allowlist only", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-remote-evidence",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "completed",
+      output_path: "artifacts/video.mp4",
+      remote_evidence: {
+        remote_id: "remote-1",
+        work_key: "remote-1",
+        label: "2026-07-20T00:00:00.000Z",
+        task_id: "task-1",
+        batch_id: "batch-remote-evidence",
+        evidence_source: "direct_submission",
+        url: "https://cdn.example.com/signed/abc?token=secret",
+        signed_url: "https://cdn.example.com/signed/xyz",
+        cookie: "session=secret",
+        token: "bearer-secret",
+        headers: { authorization: "Bearer x" }
+      }
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-remote-evidence",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const evidence = response.json().batch.items[0].remote_evidence;
+  assert.deepEqual(evidence, {
+    remote_id: "remote-1",
+    work_key: "remote-1",
+    label: "2026-07-20T00:00:00.000Z",
+    task_id: "task-1",
+    batch_id: "batch-remote-evidence",
+    evidence_source: "direct_submission"
+  });
+  for (const key of ["url", "signed_url", "cookie", "token", "headers"]) {
+    assert.equal(key in (evidence || {}), false, `leaked field ${key}`);
+  }
+});
+
+test("public batch drops URL-shaped values even inside allowlisted remote_evidence fields", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-remote-evidence-url",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "completed",
+      output_path: "artifacts/video.mp4",
+      remote_evidence: {
+        remote_id: "remote-1",
+        work_key: "https://cdn.example.com/signed/video.mp4?token=secret",
+        label: "2026-07-20T00:00:00.000Z",
+        task_id: "task-1",
+        batch_id: "batch-remote-evidence-url",
+        evidence_source: "direct_submission"
+      }
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-remote-evidence-url",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const evidence = response.json().batch.items[0].remote_evidence;
+  assert.equal(evidence.work_key, undefined);
+  assert.equal(evidence.remote_id, "remote-1");
+  assert.equal(evidence.label, "2026-07-20T00:00:00.000Z");
+  assert.equal(JSON.stringify(evidence).includes("cdn.example.com"), false);
+  assert.equal(JSON.stringify(evidence).includes("token=secret"), false);
+});
+
+test("public batch drops scheme-relative and non-http URL-shaped remote_evidence values", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-evidence-url-schemes",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "completed",
+      output_path: "artifacts/video.mp4",
+      remote_evidence: {
+        remote_id: "//cdn.example.com/video.mp4?token=secret",
+        work_key: "data:text/plain;base64,SGVsbG8=",
+        label: "blob:abc123-no-slash",
+        task_id: "javascript:alert(1)",
+        batch_id: "0:label-fallback",
+        evidence_source: "direct_submission"
+      }
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-evidence-url-schemes",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const evidence = response.json().batch.items[0].remote_evidence;
+  assert.equal(evidence.batch_id, "0:label-fallback");
+  assert.equal(evidence.evidence_source, "direct_submission");
+  for (const key of ["remote_id", "work_key", "label", "task_id"]) {
+    assert.equal(key in (evidence || {}), false, `leaked URL-shaped field ${key}`);
+  }
+  assert.equal(JSON.stringify(evidence).includes("cdn.example.com"), false);
+  assert.equal(JSON.stringify(evidence).includes("token=secret"), false);
+  assert.equal(JSON.stringify(evidence).includes("base64"), false);
+  assert.equal(JSON.stringify(evidence).includes("alert(1)"), false);
+});
+
+test("public batch projects remote_candidates through the same safe allowlist and URL filter", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-remote-candidates",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "interrupted_unknown",
+      remote_evidence: {
+        remote_id: "kept-1",
+        evidence_source: "direct_submission"
+      },
+      remote_candidates: [
+        {
+          remote_id: "cand-1",
+          remote_url: "https://cdn.example.com/signed/cand-1?token=secret",
+          work_key: "//cdn.example.com/cand-1?token=secret",
+          label: "2026-07-20T00:00:00.000Z",
+          token: "bearer-secret",
+          headers: { authorization: "Bearer x" },
+          index: 0
+        },
+        {
+          remote_url: "https://cdn.example.com/cand-2?token=leak",
+          work_key: "data:text/plain,leak"
+        }
+      ]
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-remote-candidates",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const item = response.json().batch.items[0];
+  const candidates = item.remote_candidates;
+  assert.ok(Array.isArray(candidates), "remote_candidates projected as array");
+  assert.equal(candidates.length, 1, "only the candidate with a safe field survives");
+  assert.deepEqual(candidates[0], {
+    remote_id: "cand-1",
+    label: "2026-07-20T00:00:00.000Z"
+  });
+  assert.equal("remote_url" in candidates[0], false);
+  assert.equal("work_key" in candidates[0], false);
+  assert.equal("token" in candidates[0], false);
+  assert.equal("headers" in candidates[0], false);
+  assert.equal("index" in candidates[0], false);
+  assert.equal(JSON.stringify(item).includes("cdn.example.com"), false);
+  assert.equal(JSON.stringify(item).includes("token=secret"), false);
+  assert.equal(JSON.stringify(item).includes("bearer-secret"), false);
+  assert.equal(JSON.stringify(item).includes("data:text/plain,leak"), false);
+});
+
+test("public batch keeps checkpoint progress scalars but drops works/work_keys evidence", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-submit-checkpoint",
+    status: "active",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "submitted",
+      submit_checkpoint: {
+        phase: "remote_submit_wait",
+        observed_at: "2026-07-20T00:00:00.000Z",
+        evidence: {
+          observed_at: "2026-07-20T00:00:00.000Z",
+          elapsed_ms: 5000,
+          candidate_count: 1,
+          work_keys: ["//cdn.example.com/signed/a?token=secret", "https://cdn.example.com/b"],
+          works: [
+            {
+              remote_id: "w-1",
+              remote_url: "https://cdn.example.com/signed/video?token=secret",
+              work_key: "//cdn.example.com/c?token=secret",
+              label: "2026-07-20T00:00:00.000Z"
+            }
+          ]
+        }
+      }
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-submit-checkpoint",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const item = response.json().batch.items[0];
+  const checkpoint = item.submit_checkpoint;
+  assert.ok(checkpoint, "submit_checkpoint retained for GUI progress");
+  assert.equal(checkpoint.phase, "remote_submit_wait");
+  assert.equal(checkpoint.observed_at, "2026-07-20T00:00:00.000Z");
+  assert.equal(checkpoint.evidence.elapsed_ms, 5000);
+  assert.equal(checkpoint.evidence.candidate_count, 1);
+  assert.equal("works" in checkpoint.evidence, false);
+  assert.equal("work_keys" in checkpoint.evidence, false);
+  assert.equal(JSON.stringify(item).includes("cdn.example.com"), false);
+  assert.equal(JSON.stringify(item).includes("token=secret"), false);
+  assert.equal(JSON.stringify(item).includes("remote_url"), false);
+});
+
 test("accepts token-only localhost RPA callbacks while other POST routes require a session", async (t) => {
   const { app, root } = await fixture();
   t.after(async () => {
