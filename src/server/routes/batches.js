@@ -21,10 +21,36 @@ function validBatchId(value) {
   return typeof value === "string" && BATCH_ID_PATTERN.test(value) && value !== "." && value !== "..";
 }
 
+const SAFE_REMOTE_EVIDENCE_FIELDS = new Set([
+  "remote_id",
+  "work_key",
+  "label",
+  "task_id",
+  "batch_id",
+  "evidence_source"
+]);
+
+function publicRemoteEvidence(evidence) {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return undefined;
+  const value = {};
+  for (const [key, field] of Object.entries(evidence)) {
+    if (SAFE_REMOTE_EVIDENCE_FIELDS.has(key) && (typeof field === "string" || typeof field === "number")) {
+      value[key] = field;
+    }
+  }
+  return Object.keys(value).length > 0 ? value : undefined;
+}
+
 function publicItem(item, artifactIdByPath = new Map()) {
   const value = {};
   for (const [key, field] of Object.entries(item ?? {})) {
-    if (!INTERNAL_ITEM_FIELDS.has(key)) value[key] = key === "error_message" ? sanitizeMessage(field) : field;
+    if (INTERNAL_ITEM_FIELDS.has(key)) continue;
+    if (key === "remote_evidence") {
+      const projected = publicRemoteEvidence(field);
+      if (projected !== undefined) value[key] = projected;
+      continue;
+    }
+    value[key] = key === "error_message" ? sanitizeMessage(field) : field;
   }
   const artifactId = artifactIdByPath.get(item?.output_path);
   if (artifactId) value.output_artifact_id = artifactId;

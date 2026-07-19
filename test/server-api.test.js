@@ -185,6 +185,60 @@ test("batch projection maps completed item outputs to artifact ids without expos
   assert.equal(JSON.stringify(batch.artifacts).includes("artifacts/video.mp4"), false);
 });
 
+test("public batch projects remote_evidence through a safe allowlist only", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-remote-evidence",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "completed",
+      output_path: "artifacts/video.mp4",
+      remote_evidence: {
+        remote_id: "remote-1",
+        work_key: "remote-1",
+        label: "2026-07-20T00:00:00.000Z",
+        task_id: "task-1",
+        batch_id: "batch-remote-evidence",
+        evidence_source: "direct_submission",
+        url: "https://cdn.example.com/signed/abc?token=secret",
+        signed_url: "https://cdn.example.com/signed/xyz",
+        cookie: "session=secret",
+        token: "bearer-secret",
+        headers: { authorization: "Bearer x" }
+      }
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-remote-evidence",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const evidence = response.json().batch.items[0].remote_evidence;
+  assert.deepEqual(evidence, {
+    remote_id: "remote-1",
+    work_key: "remote-1",
+    label: "2026-07-20T00:00:00.000Z",
+    task_id: "task-1",
+    batch_id: "batch-remote-evidence",
+    evidence_source: "direct_submission"
+  });
+  for (const key of ["url", "signed_url", "cookie", "token", "headers"]) {
+    assert.equal(key in (evidence || {}), false, `leaked field ${key}`);
+  }
+});
+
 test("accepts token-only localhost RPA callbacks while other POST routes require a session", async (t) => {
   const { app, root } = await fixture();
   t.after(async () => {
