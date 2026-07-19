@@ -117,9 +117,14 @@ export async function buildApp({
   });
 
   app.get("/api/session", async (request, reply) => security.bootstrap(reply));
-  app.get("/api/runtime", async () => ({
-    executionBackend: generationConfig.executionBackend || "playwright"
-  }));
+  app.get("/api/runtime", async () => {
+    const batchConfig = generationConfig.rpa?.realLive?.batch || {};
+    return {
+      executionBackend: generationConfig.executionBackend || "playwright",
+      realBatchEnabled: batchConfig.enabled === true,
+      realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
+    };
+  });
   await registerBatchRoutes(app, { store });
   await registerCaptureRoutes(app, { batchRoot, store, generationConfig, captureLive });
   await registerImportRoutes(app, { batchRoot, store, uploadLimits });
