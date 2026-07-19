@@ -627,3 +627,118 @@ async function assertVisible(locator) {
   await locator.waitFor({ state: "visible", timeout: 10_000 });
   assert.equal(await locator.isVisible(), true);
 }
+
+test("real-batch GUI control is hidden when the runtime disables it", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-batch-off-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-gui-real-off",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-1", product_name: "Real One", status: "pending" }],
+    capture: {
+      enabled: true,
+      status: "dry_run_passed",
+      manifest_path: "batches/batch-gui-real-off/capture/manifest.json"
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("抓包工作流"));
+  assert.equal(await page.getByRole("button", { name: /真实 HTTP 小批量生成/ }).count(), 0);
+});
+
+test("real-batch GUI control shows point-risk copy when the runtime enables it", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-batch-on-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-gui-real-on",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-1", product_name: "Real One", status: "pending" }],
+    capture: {
+      enabled: true,
+      status: "dry_run_passed",
+      manifest_path: "batches/batch-gui-real-on/capture/manifest.json"
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      generationConfig: { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } },
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("sandbox disallows local TCP listening");
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("抓包工作流"));
+  const button = page.getByRole("button", { name: /真实 HTTP 小批量生成/ });
+  await assertVisible(button);
+  await assertVisible(page.getByText("真实 HTTP 小批量会访问飞影，可能消耗积分"));
+});

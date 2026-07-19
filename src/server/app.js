@@ -21,6 +21,11 @@ const CLIENT_ERROR_CODES = new Set([
   "BATCH_NOT_READY",
   "BATCH_ID_MUST_PRECEDE_FILES",
   "CAPTURE_HAR_MISSING",
+  "CAPTURE_HTTP_REAL_BATCH_BUDGET_INVALID",
+  "CAPTURE_HTTP_REAL_BATCH_DISABLED",
+  "CAPTURE_HTTP_REAL_BATCH_IN_PROGRESS",
+  "CAPTURE_HTTP_REAL_BATCH_NOT_AUTHORIZED",
+  "CAPTURE_HTTP_REAL_BATCH_NOT_READY",
   "CAPTURE_MANIFEST_MISSING",
   "CAPTURE_NO_CANDIDATES",
   "CAPTURE_NOT_ENABLED",
@@ -38,6 +43,7 @@ const CLIENT_ERROR_CODES = new Set([
   "INVALID_BATCH_ID",
   "INVALID_CAPTURE_PATH",
   "INVALID_CAPTURE_MANIFEST",
+  "INVALID_CAPTURE_REAL_BATCH_REQUEST",
   "INVALID_CSV_ENCODING",
   "INVALID_EXECUTION_REQUEST",
   "INVALID_IDEMPOTENCY_KEY",
@@ -112,9 +118,14 @@ export async function buildApp({
   });
 
   app.get("/api/session", async (request, reply) => security.bootstrap(reply));
-  app.get("/api/runtime", async () => ({
-    executionBackend: generationConfig.executionBackend || "playwright"
-  }));
+  app.get("/api/runtime", async () => {
+    const batchConfig = generationConfig.rpa?.realLive?.batch || {};
+    return {
+      executionBackend: generationConfig.executionBackend || "playwright",
+      realBatchEnabled: batchConfig.enabled === true,
+      realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
+    };
+  });
   await registerBatchRoutes(app, { store });
   await registerCaptureRoutes(app, { batchRoot, store, generationConfig, captureLive });
   await registerImportRoutes(app, { batchRoot, store, uploadLimits });

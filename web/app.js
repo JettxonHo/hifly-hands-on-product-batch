@@ -4,7 +4,9 @@
     selectedBatchId: null,
     busy: false,
     pollTimer: null,
-    pollFailures: 0
+    pollFailures: 0,
+    realBatchEnabled: false,
+    realBatchMaxItems: 3
   };
 
   const api = window.HiflyApi;
@@ -185,7 +187,10 @@
       real_live_disabled: "真实请求已禁用",
       real_live_running: "真实 HTTP 生成中",
       real_live_completed: "真实 HTTP 已完成",
-      real_live_failed: "真实 HTTP 失败"
+      real_live_failed: "真实 HTTP 失败",
+      real_batch_running: "真实 HTTP 小批量生成中",
+      real_batch_completed: "真实 HTTP 小批量已完成",
+      real_batch_failed: "真实 HTTP 小批量失败"
     };
     return labels[status] || status || "未知";
   }
@@ -422,6 +427,10 @@
     try {
       const runtime = await api.getRuntime();
       const backendLabel = runtime.executionBackend === "yingdao_rpa" ? "影刀 RPA" : "Playwright";
+      state.realBatchEnabled = runtime.realBatchEnabled === true;
+      state.realBatchMaxItems = Number.isInteger(runtime.realBatchMaxItems) && runtime.realBatchMaxItems >= 1
+        ? runtime.realBatchMaxItems
+        : 3;
       setText(
         nodes.runtimeBackendBadge,
         `批量生成：${backendLabel}`
@@ -587,11 +596,29 @@
         ["dry_run_passed", "real_live_failed"].includes(capture.status) && (batch.items || []).length === 1
       )
     );
+    if (state.realBatchEnabled) {
+      actions.append(
+        captureActionButton(
+          batch.batch_id,
+          capture.status === "real_batch_failed"
+            ? "重新真实 HTTP 小批量生成"
+            : "真实 HTTP 小批量生成",
+          "realBatchRun",
+          ["dry_run_passed", "real_batch_failed"].includes(capture.status) && (batch.items || []).length > 0
+        )
+      );
+    }
     panel.append(actions);
     const liveHint = document.createElement("p");
     liveHint.className = "muted";
     setText(liveHint, "小批量预演只使用本地 mock，不访问飞影、不消耗积分；真实 HTTP 生成只允许单条联调，且可能消耗积分。");
     panel.append(liveHint);
+    if (state.realBatchEnabled) {
+      const realBatchHint = document.createElement("p");
+      realBatchHint.className = "muted";
+      setText(realBatchHint, "真实 HTTP 小批量会访问飞影，可能消耗积分；按商品逐条执行，首失败即停，可在确认积分预算后续跑。");
+      panel.append(realBatchHint);
+    }
     return panel;
   }
 
@@ -1062,8 +1089,10 @@
       replay: api.replayCapture,
       dryRun: api.dryRunCapture,
       queueRun: api.runCaptureQueue,
-      liveRun: api.runLiveCapture
+      liveRun: api.runLiveCapture,
+      realBatchRun: api.runRealBatchCapture
     };
+    let options = {};
     if (action === "queueRun") {
       const approved = window.confirm(
         "抓包 HTTP 小批量预演只使用本地 mock，不访问飞影、不消耗积分。确认继续吗？"
@@ -1076,9 +1105,27 @@
       );
       if (!approved) return;
     }
+    if (action === "realBatchRun") {
+      const maxItems = state.realBatchMaxItems || 3;
+      const input = window.prompt(
+        `真实 HTTP 小批量会访问飞影并可能消耗积分（最多 ${maxItems} 条）。请输入本次积分预算（1-${maxItems} 的整数）：`,
+        "1"
+      );
+      if (input === null) return;
+      const pointBudget = Number.parseInt(input, 10);
+      if (!Number.isInteger(pointBudget) || pointBudget < 1 || pointBudget > maxItems) {
+        showToast(`积分预算必须是 1-${maxItems} 的整数`);
+        return;
+      }
+      const approved = window.confirm(
+        `确认以积分预算 ${pointBudget} 条执行真实 HTTP 小批量？会访问飞影并可能消耗积分。`
+      );
+      if (!approved) return;
+      options = { pointBudget, resume: true };
+    }
     setBusy(true);
     try {
-      const payload = await methods[action](batchId);
+      const payload = await methods[action](batchId, options);
       state.selectedBatchId = payload.batch.batch_id;
       await refreshBatches({ silent: true });
       showToast(`抓包工作流已更新：${captureStatusLabel(payload.batch.capture?.status)}`);

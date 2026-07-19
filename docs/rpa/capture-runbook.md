@@ -213,6 +213,18 @@ JS
 
 当前已通过 fake auth + fake transport 测试验证状态流转与 artifact bytes 落盘；尚未通过真实飞影 HTTP 做 1 条出片联调。
 
+## 真实 HTTP 小批量（real_batch，需授权，默认禁用）
+
+`real_batch` 是 capture HTTP 的批量真实执行模式，默认禁用（`rpa.realLive.batch.enabled=false`）。默认批量生产仍走 Playwright；real_batch 仅在用户当次明确授权（会消耗积分）后启用。
+
+- 串行执行、首失败即停；`resume` 只重试 `failed_remote` / `failed_pre_submit` / `interrupted_unknown`，已 `completed` 跳过。
+- 按 task 幂等：已有 `remote_id` 且已登记 artifact 的条目直接复用证据、不重提；有 `remote_id` 但无 artifact 抛 `CAPTURE_HTTP_REAL_BATCH_DUPLICATE_SUBMIT`，绝不重提（避免重复扣分）。
+- 受 `pointBudget`（每次运行 1..maxItems）和硬上限 `maxItems`（默认 3）双重限制。
+- runtime auth 仅内存使用，不写入 batch / manifest / 日志；CDN/签名 URL 不进 public batch JSON。
+- 已通过 fake auth + fake transport 测试覆盖 success、stop-on-failure、auth-expired、download-missing、budget、resume、idempotency；尚未做真实飞影联调。
+
+真实联调前先按 `docs/rpa/capture-real-batch-checklist.md` 走 1 条 → 最多 3 条，并记录每条的 batch id、SKU、output_path、remote_id 与积分消耗。
+
 ## 步骤 7：真实回放（⚠️ 消耗积分，尚未验证）
 
 **当前 `capture_http` 可使用 mock、real_dry_run 和受控 real_live。** mock / real_dry_run 不访问飞影；real_live 会访问飞影并可能消耗积分，只能在用户明确授权后跑 1 条。

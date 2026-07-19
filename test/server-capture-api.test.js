@@ -1107,3 +1107,394 @@ test("dry-run failure clears old summaries and keeps local manifest errors out o
     assert.equal(response.body.includes("CAPTURE_HAR_MISSING"), false);
   }
 });
+
+async function buildRealBatchApp({ root, generationConfig = {}, captureLive = {} }) {
+  const app = await buildApp({ root, executor: createFakeExecutor(), generationConfig, captureLive });
+  const response = await app.inject({ method: "GET", url: "/api/session", headers: { host: HOST } });
+  return {
+    app,
+    session: {
+      cookie: response.headers["set-cookie"].split(";")[0],
+      token: response.json().token
+    }
+  };
+}
+
+const REAL_BATCH_MANIFEST_STEPS = [
+  {
+    id: "create_asset",
+    phase: "asset_generation",
+    method: "POST",
+    url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/upload_url",
+    response: { status: 200, body: { data: { gen_id: "asset-batch" } } },
+    produces: { asset_id: "$response.body.data.gen_id" },
+    risk: { requires_auth: true, replayability: "unknown" }
+  },
+  {
+    id: "submit_video",
+    phase: "remote_submit",
+    method: "POST",
+    url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos",
+    request_template: { body: { gen_id: "{{asset_id}}" } },
+    placeholders: ["{{asset_id}}"],
+    response: { status: 200, body: { data: { list: [{ id: "remote-batch" }] } } },
+    produces: { remote_id: "$response.body.data.list.0.id" },
+    risk: { requires_auth: true, may_consume_points: true, replayability: "unknown" }
+  },
+  {
+    id: "query_video",
+    phase: "remote_query",
+    method: "GET",
+    url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id={{asset_id}}",
+    placeholders: ["{{asset_id}}"],
+    response: { status: 200, body: { data: { list: [{ id: "remote-batch", status: 2 }] } } },
+    risk: { requires_auth: true, replayability: "unknown" }
+  },
+  {
+    id: "download_video",
+    phase: "download",
+    method: "GET",
+    url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos/{{remote_id}}/download",
+    placeholders: ["{{remote_id}}"],
+    response: { status: 200, body: { artifact_filename: "video.mp4" } },
+    produces: { artifact_filename: "$response.body.artifact_filename" },
+    risk: { requires_auth: true, replayability: "unknown" }
+  }
+];
+
+async function seedRealBatch(root, batchId, items) {
+  const manifestRelativePath = `batches/${batchId}/capture/manifest.json`;
+  await mkdir(path.join(root, "batches", batchId, "uploads"), { recursive: true });
+  await mkdir(path.join(root, "batches", batchId, "capture"), { recursive: true });
+  await writeFile(path.join(root, "batches", batchId, "uploads", "product.png"), "image-bytes");
+  await writeFile(path.join(root, manifestRelativePath), JSON.stringify({
+    schema_version: 1,
+    sanitized: true,
+    source: "test",
+    captured_at: "2026-07-19T00:00:00.000Z",
+    steps: REAL_BATCH_MANIFEST_STEPS
+  }, null, 2));
+  await writeFile(path.join(root, "batches", batchId, "batch.json"), JSON.stringify({
+    batch_id: batchId,
+    status: "completed",
+    created_at: "2026-07-19T00:00:00.000Z",
+    updated_at: "2026-07-19T00:00:00.000Z",
+    uploads: [{ artifact_id: "product-1", kind: "image", storage_name: "product.png" }],
+    artifacts: [{ artifact_id: "product-1", relative_path: "uploads/product.png" }],
+    items: items.map((item) => ({ product_image_artifact_id: "product-1", ...item })),
+    capture: updateCaptureState(createInitialCaptureState({ enabled: true }), {
+      status: "dry_run_passed",
+      manifest_path: manifestRelativePath
+    })
+  }, null, 2));
+}
+
+test("real-batch-run is disabled by default and rejects before any state change", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-disabled-"));
+  const { app, session } = await buildRealBatchApp({ root });
+  await seedRealBatch(root, "batch-real-disabled", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const before = JSON.parse(await readFile(path.join(root, "batches", "batch-real-disabled", "batch.json"), "utf8"));
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-disabled/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, "CAPTURE_HTTP_REAL_BATCH_DISABLED");
+  const after = JSON.parse(await readFile(path.join(root, "batches", "batch-real-disabled", "batch.json"), "utf8"));
+  assert.equal(after.capture.status, before.capture.status);
+});
+
+test("real-batch-run validates authorization fields and point budget", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-gate-"));
+  const { app, session } = await buildRealBatchApp({
+    root,
+    generationConfig: { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } }
+  });
+  await seedRealBatch(root, "batch-real-gate", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const base = { confirm: true, allowRealLive: true, acknowledgePointRisk: true };
+  const cases = [
+    [{ ...base, pointBudget: 1, extra: 1 }, "INVALID_CAPTURE_REAL_BATCH_REQUEST"],
+    [{ allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }, "CAPTURE_HTTP_REAL_BATCH_NOT_AUTHORIZED"],
+    [{ ...base, pointBudget: 0 }, "CAPTURE_HTTP_REAL_BATCH_BUDGET_INVALID"],
+    [{ ...base, pointBudget: 4 }, "CAPTURE_HTTP_REAL_BATCH_BUDGET_INVALID"]
+  ];
+  for (const [payload, code] of cases) {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/batches/batch-real-gate/capture/real-batch-run",
+      headers: headers(session),
+      payload
+    });
+    assert.equal(res.statusCode, 400, `payload ${JSON.stringify(payload)}`);
+    assert.equal(res.json().error, code, `payload ${JSON.stringify(payload)}`);
+  }
+});
+
+function realBatchTransport(options = {}) {
+  const calls = [];
+  let itemIndex = 0;
+  return {
+    calls,
+    async request(request) {
+      const phase = request?.step?.phase;
+      if (phase === "asset_generation") itemIndex += 1;
+      const n = itemIndex;
+      calls.push({ phase, itemIndex: n });
+      if (options.failOnItem === n && options.failPhase === phase) {
+        if (options.failCode === null) throw new Error("simulated non-capture failure");
+        throw Object.assign(new Error("simulated"), { code: options.failCode });
+      }
+      if (phase === "asset_generation") return { status: 200, body: { data: { gen_id: `asset-${n}` } } };
+      if (phase === "remote_submit") return { status: 200, body: { data: { list: [{ id: `remote-${n}` }] } } };
+      if (phase === "remote_query") return { status: 200, body: { data: { list: [{ id: `remote-${n}`, status: 2 }] } } };
+      if (phase === "download") {
+        if (options.downloadWithoutBytes) return { status: 200, body: { artifact_filename: `video-${n}.mp4` } };
+        return {
+          status: 200,
+          body: { artifact_filename: `video-${n}.mp4` },
+          artifact: { bytes: new Uint8Array([n]), filename: `video-${n}.mp4` }
+        };
+      }
+      return { status: 200, body: {} };
+    }
+  };
+}
+
+const REAL_BATCH_GEN_CONFIG = { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } };
+const REAL_BATCH_AUTH = { async getRuntimeAuth() { return { headers: { cookie: "runtime-cookie-secret" } }; } };
+
+async function realBatchApp(root, transport) {
+  return buildRealBatchApp({
+    root,
+    generationConfig: REAL_BATCH_GEN_CONFIG,
+    captureLive: { authProvider: REAL_BATCH_AUTH, transport }
+  });
+}
+
+test("real-batch-run completes a serial 2-item run with unique artifacts", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-success-"));
+  const transport = realBatchTransport();
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-success", [
+    { task_id: "task-1", sku: "SKU-1", status: "pending" },
+    { task_id: "task-2", sku: "SKU-2", status: "pending" }
+  ]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-success/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 2 }
+  });
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.capture.status, "real_batch_completed");
+  assert.equal(batch.capture.queue.mode, "real_live");
+  assert.equal(batch.capture.queue.status, "completed");
+  assert.equal(batch.capture.queue.completed, 2);
+  assert.equal(batch.capture.queue.point_budget, 2);
+  assert.equal(batch.capture.queue.max_items, 3);
+  assert.deepEqual(batch.items.map((i) => i.status), ["completed", "completed"]);
+  assert.notEqual(batch.items[0].output_path, batch.items[1].output_path);
+  assert.equal(JSON.stringify(batch).includes("runtime-cookie-secret"), false);
+});
+
+test("real-batch-run stops on first failure and leaves later items untouched", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-stop-"));
+  const transport = realBatchTransport({ failOnItem: 1, failPhase: "asset_generation", failCode: null });
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-stop", [
+    { task_id: "task-1", sku: "SKU-1", status: "pending" },
+    { task_id: "task-2", sku: "SKU-2", status: "pending" }
+  ]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-stop/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 2 }
+  });
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.capture.status, "real_batch_failed");
+  assert.equal(batch.capture.queue.status, "failed");
+  assert.equal(batch.capture.queue.failed, 1);
+  assert.equal(batch.capture.queue.last_error.code, "CAPTURE_HTTP_REAL_BATCH_FAILED");
+  assert.equal(batch.items[0].status, "failed_remote");
+  assert.equal(batch.items[0].error_phase, "capture_http_real_batch");
+  assert.equal(batch.items[1].status, "pending");
+});
+
+test("real-batch-run surfaces auth-expired as a stable remote-rejected code", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-auth-"));
+  const transport = realBatchTransport({ failOnItem: 1, failPhase: "asset_generation", failCode: "CAPTURE_HTTP_REMOTE_REJECTED" });
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-auth", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-auth/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.capture.queue.last_error.code, "CAPTURE_HTTP_REMOTE_REJECTED");
+  assert.equal(batch.items[0].status, "failed_remote");
+});
+
+test("real-batch-run surfaces a missing download artifact as a stable code", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-download-"));
+  const transport = realBatchTransport({ downloadWithoutBytes: true });
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-download", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-download/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.capture.queue.last_error.code, "CAPTURE_HTTP_ARTIFACT_MISSING");
+  assert.equal(batch.items[0].status, "failed_remote");
+});
+
+test("real-batch-run attempts at most pointBudget items and leaves the rest untouched", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-budget-"));
+  const transport = realBatchTransport();
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-budget", [
+    { task_id: "task-1", sku: "SKU-1", status: "pending" },
+    { task_id: "task-2", sku: "SKU-2", status: "pending" }
+  ]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-budget/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.items[0].status, "completed");
+  assert.equal(batch.items[1].status, "pending");
+  assert.equal(batch.capture.queue.completed, 1);
+  assert.equal(transport.calls.filter((c) => c.phase === "remote_submit").length, 1);
+});
+
+test("real-batch-run resume skips already-submitted items and does not re-submit", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-idempotent-"));
+  const transport = realBatchTransport();
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-idempotent", [
+    {
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "failed_remote",
+      output_path: "artifacts/existing.mp4",
+      remote_evidence: { remote_id: "remote-existing" }
+    },
+    { task_id: "task-2", sku: "SKU-2", status: "failed_remote" }
+  ]);
+  const store = createBatchStore(path.join(root, "batches"));
+  await mkdir(path.join(root, "batches", "batch-real-idempotent", "artifacts"), { recursive: true });
+  await writeFile(path.join(root, "batches", "batch-real-idempotent", "artifacts", "existing.mp4"), "existing");
+  await store.registerArtifact("batch-real-idempotent", { artifact_id: "existing-video", relative_path: "artifacts/existing.mp4" });
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-idempotent/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 2, resume: true }
+  });
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.capture.status, "real_batch_completed");
+  assert.equal(batch.items[0].status, "completed");
+  assert.equal(batch.items[0].output_path, "artifacts/existing.mp4");
+  assert.equal(batch.items[1].status, "completed");
+  assert.equal(transport.calls.filter((c) => c.phase === "remote_submit").length, 1);
+});
+
+test("real-batch-run refuses to re-submit an item that already has a remote_id without an artifact", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-duplicate-"));
+  const transport = realBatchTransport();
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-duplicate", [
+    { task_id: "task-1", sku: "SKU-1", status: "failed_remote", remote_evidence: { remote_id: "remote-orphan" } }
+  ]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-duplicate/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1, resume: true }
+  });
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.capture.status, "real_batch_failed");
+  assert.equal(batch.capture.queue.last_error.code, "CAPTURE_HTTP_REAL_BATCH_DUPLICATE_SUBMIT");
+  assert.equal(batch.items[0].status, "failed_remote");
+  assert.equal(transport.calls.filter((c) => c.phase === "remote_submit").length, 0);
+});
+
+test("real-batch-run persists remote_id after submit so resume never re-submits (no double charge)", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-no-double-"));
+  const transport = realBatchTransport({ downloadWithoutBytes: true });
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-no-double", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  const res1 = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-no-double/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res1.statusCode, 200);
+  const batch1 = res1.json().batch;
+  assert.equal(batch1.capture.status, "real_batch_failed");
+  assert.equal(batch1.items[0].status, "failed_remote");
+  assert.equal(batch1.items[0].remote_evidence?.remote_id, "remote-1");
+  const submitsAfterFirst = transport.calls.filter((c) => c.phase === "remote_submit").length;
+
+  const res2 = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-no-double/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1, resume: true }
+  });
+  assert.equal(res2.statusCode, 200);
+  const batch2 = res2.json().batch;
+  assert.equal(batch2.capture.queue.last_error.code, "CAPTURE_HTTP_REAL_BATCH_DUPLICATE_SUBMIT");
+  const submitsAfterSecond = transport.calls.filter((c) => c.phase === "remote_submit").length;
+  assert.equal(submitsAfterSecond, submitsAfterFirst);
+});
+
+test("real-batch-run without resume does not retry failed items", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-no-resume-"));
+  const transport = realBatchTransport();
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-no-resume", [{ task_id: "task-1", sku: "SKU-1", status: "failed_remote" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-no-resume/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.json().error, "CAPTURE_HTTP_REAL_BATCH_NOT_READY");
+});
