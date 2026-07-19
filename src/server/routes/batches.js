@@ -10,7 +10,8 @@ const INTERNAL_ITEM_FIELDS = new Set([
   "image_path",
   "person_image_path",
   "__resolved_person_image_path",
-  "resolved_person_image_path"
+  "resolved_person_image_path",
+  "asset_evidence"
 ]);
 
 function isPlainObject(value) {

@@ -451,6 +451,43 @@ test("public batch keeps checkpoint progress scalars but drops works/work_keys e
   assert.equal(JSON.stringify(item).includes("remote_url"), false);
 });
 
+test("public batch does not expose asset_evidence even if it carries a URL", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-asset-evidence",
+    status: "active",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "asset_confirmed",
+      asset_evidence: {
+        asset_id: "asset-1",
+        upload_url: "https://cdn.example.com/upload?token=secret",
+        remote_url: "//cdn.example.com/signed/asset?token=secret"
+      }
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-asset-evidence",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const item = response.json().batch.items[0];
+  assert.equal("asset_evidence" in item, false);
+  assert.equal(JSON.stringify(item).includes("cdn.example.com"), false);
+  assert.equal(JSON.stringify(item).includes("token=secret"), false);
+});
+
 test("accepts token-only localhost RPA callbacks while other POST routes require a session", async (t) => {
   const { app, root } = await fixture();
   t.after(async () => {
