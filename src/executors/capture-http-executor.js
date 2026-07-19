@@ -62,6 +62,24 @@ function artifactFilename(value, remoteId) {
   return path.extname(filename) ? filename : `${filename}.mp4`;
 }
 
+function safeTaskFilenamePrefix(taskId) {
+  if (typeof taskId !== "string") return "";
+  return taskId.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^[._-]+|[._-]+$/g, "");
+}
+
+function mockArtifactFilename(filename, taskId) {
+  const prefix = safeTaskFilenamePrefix(taskId);
+  if (!prefix) return filename;
+  const extension = path.extname(filename);
+  const basename = path.basename(filename, extension);
+  return `${prefix}-${basename}${extension}`;
+}
+
+function artifactId(remoteId, taskId, mode) {
+  if (mode !== "mock" || !taskId) return String(remoteId);
+  return `${taskId}-${remoteId}`;
+}
+
 function artifactPathError(message) {
   return Object.assign(new Error(message), { code: "CAPTURE_ARTIFACT_PATH_UNSAFE" });
 }
@@ -304,7 +322,8 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
           code: "CAPTURE_HTTP_ARTIFACT_MISSING"
         });
       }
-      const filename = artifactFilename(liveArtifact?.filename || produced.artifact_filename, remoteEvidence?.remote_id);
+      const baseFilename = artifactFilename(liveArtifact?.filename || produced.artifact_filename, remoteEvidence?.remote_id);
+      const filename = captureHttpMode === "mock" ? mockArtifactFilename(baseFilename, taskId) : baseFilename;
       const absolutePath = await safeArtifactPath(dir, filename);
       if (liveArtifact?.bytes) {
         await writeArtifactBytes(absolutePath, liveArtifact.bytes);
@@ -312,7 +331,7 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
         await writePlaceholderArtifact(absolutePath, remoteEvidence?.remote_id);
       }
       const artifact = {
-        artifact_id: String(remoteEvidence?.remote_id),
+        artifact_id: artifactId(remoteEvidence?.remote_id, taskId, captureHttpMode),
         relative_path: path.relative(dir, absolutePath)
       };
       await writeRpaState(dir, taskId, {
