@@ -30,11 +30,18 @@ const SAFE_REMOTE_EVIDENCE_FIELDS = new Set([
   "evidence_source"
 ]);
 
+function isUrlLikeScalar(value) {
+  return typeof value === "string" && (value.includes("://") || /^https?:/i.test(value));
+}
+
 function publicRemoteEvidence(evidence) {
   if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return undefined;
   const value = {};
   for (const [key, field] of Object.entries(evidence)) {
-    if (SAFE_REMOTE_EVIDENCE_FIELDS.has(key) && (typeof field === "string" || typeof field === "number")) {
+    if (!SAFE_REMOTE_EVIDENCE_FIELDS.has(key)) continue;
+    if (typeof field === "number") {
+      value[key] = field;
+    } else if (typeof field === "string" && !isUrlLikeScalar(field)) {
       value[key] = field;
     }
   }

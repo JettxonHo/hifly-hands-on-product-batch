@@ -239,6 +239,49 @@ test("public batch projects remote_evidence through a safe allowlist only", asyn
   }
 });
 
+test("public batch drops URL-shaped values even inside allowlisted remote_evidence fields", async (t) => {
+  const { app, root, session } = await fixture();
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-remote-evidence-url",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{
+      task_id: "task-1",
+      sku: "SKU-1",
+      status: "completed",
+      output_path: "artifacts/video.mp4",
+      remote_evidence: {
+        remote_id: "remote-1",
+        work_key: "https://cdn.example.com/signed/video.mp4?token=secret",
+        label: "2026-07-20T00:00:00.000Z",
+        task_id: "task-1",
+        batch_id: "batch-remote-evidence-url",
+        evidence_source: "direct_submission"
+      }
+    }]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-remote-evidence-url",
+    headers: headers(session)
+  });
+
+  assert.equal(response.statusCode, 200);
+  const evidence = response.json().batch.items[0].remote_evidence;
+  assert.equal(evidence.work_key, undefined);
+  assert.equal(evidence.remote_id, "remote-1");
+  assert.equal(evidence.label, "2026-07-20T00:00:00.000Z");
+  assert.equal(JSON.stringify(evidence).includes("cdn.example.com"), false);
+  assert.equal(JSON.stringify(evidence).includes("token=secret"), false);
+});
+
 test("accepts token-only localhost RPA callbacks while other POST routes require a session", async (t) => {
   const { app, root } = await fixture();
   t.after(async () => {
