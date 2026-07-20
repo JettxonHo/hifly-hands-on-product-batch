@@ -1,5 +1,31 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-20 real-batch 抓包 HTTP 真实联调首次成功（消耗 1 条积分，全链路通过）
+
+- 用户在新会话明确授权后，对重置后的 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 执行**首次** `POST /api/batches/:id/capture/real-batch-run`（body `{confirm:true, allowRealLive:true, acknowledgePointRisk:true, pointBudget:1}`），real-batch 队列路径全链路真实跑通，HTTP 200，耗时 340.9s（09:09:33→09:15:14 CST）。
+- **结果**：capture.status=`real_batch_completed`，item `completed`，新作品 `remote_id=641922`，新手持图 `asset_id=LAY38DCltvGuIGt9`，下载产物 `batches/batch-8d74e3ce-.../artifacts/未命名.mp4`（62655581 bytes≈60MB，`file` 识别为 ISO MP4 v1，2026-07-20 09:15 落盘）。rpa state 终态 `status=completed/phase=download`，7 步 manifest 全执行。**积分消耗 1 条**（`create_hands_on_image` + `submit_video` 均标 may_consume_points）。无失败阶段、无 HTTP 错误码。
+- **本轮验证重点结论**：
+  1. **real-batch 队列路径本身首次真实跑通**——此前只有 live-run 单条（07-19）真实跑过；本轮验证 real-batch 的 pointBudget 门禁（config `maxItems:1` 硬顶）、串行、per-batch active guard、submit 成功后立即持久化 remote_evidence、queue 状态机；无失败、无重复扣分。
+  2. **下载列表 URL 适配在 real-batch 路径同样工作**：641922 新作品经 `downloadArtifactFromList`（list 按 remote_id 匹配条目 → `hfcdn.lingverse.co` 的 HTTPS url → GET bytes）真实下载 60MB mp4。real-batch 复用 live-run 同一 executor 与下载逻辑，行为一致。
+  3. runtime auth 真实通过：4 cookie + 1 bearer（与 07-19 一致）；网络经本机 fake-ip 代理（DNS→198.18.x.x）转发到飞影，goto hifly.cc 秒回。
+- **准备过程操作点（供复现）**：
+  - `config.local.json` 补 `rpa.realLive.batch.enabled=true` + `maxItems:1`（注意 `loadConfig` 是「local 存在则只用 local、不合并 example」，故 local 须自包含 rpa 块；real-batch 门禁只读 `batch.enabled`，其余 realLive 子字段有代码默认，但建议补 `downloadTimeoutMs=1200000`/`pollAttempts=60`/`pollIntervalMs=5000`）。文件 gitignored，未提交。
+  - **无现成可用 real-batch batch**：唯一有 manifest 的 8d74e3ce 原是 `real_live_completed`+item completed，不在 real-batch 允许状态集 `{dry_run_passed,real_batch_*}`，且 resume 按 task 幂等会直接跳过不真跑。**重置方式**：capture.status→`dry_run_passed`、item.status→`pending`、**删除 item.remote_evidence 与 output_path**（关键，否则不真跑）、旧 live-run mp4 改名备份（否则 `safeArtifactPath` 因目标已存在报 `CAPTURE_ARTIFACT_PATH_UNSAFE`）。备份在 `batches/.../batch.json.bak-2026-07-20T00-55-23`。
+  - **login 的「按 Enter 保存」被绕过**：用户在浏览器登录飞影后未回终端按 Enter，login.js 卡在 stdin。新版 macOS 已禁用 TIOCSTI（`ENOTTY`），无法向 ttys 注入回车；改用 SIGKILL login.js+chromium（Chromium 运行期已 flush cookie 到磁盘），再用 `createPlaywrightRuntimeAuthProvider().getRuntimeAuth()` 验证 cookie+bearer 有效（不扣分，等同 07-18 无积分探测）。**后续仍建议正常按 Enter 保存**，更可靠。
+- **发现项（仅记录，未改代码，待用户决定）**：
+  1. **`poll_video_submitted` 中间态曾读到旧作品 id**：submit 后约 15s 时 rpa state `remote_id` 短暂为 `640509`（07-19 旧作品），最终修正为 `641922`（新作品）。manifest 该步 produces=`$response.body.data.list.0.id`，submit 后新作品若尚未排到 list.0 会先拿到旧 id。本次最终拿到新 id 且下载了新 mp4，但存在「误用旧 id 下载旧视频」的时序风险，建议后续评估（优先用 submit 响应返回的 work_id，或按创建时间匹配最新作品）。
+  2. `capture.live_summary` 仍残留 07-19 旧值（remote_id 640509），real-batch 只更新 queue 不更新 live_summary；GUI 对 `real_batch_completed` 走 queue 摘要，live_summary 残留可能造成显示混淆（次要）。
+- 默认 Playwright 生产路径未改；未提交 config.local.json/登录态/batches/mp4/HAR/日志/截图/raw capture。本轮真实访问飞影并消耗 1 条积分，下载产物已落盘。
+
+## 2026-07-20 GUI/Playwright 默认路径无积分验证 + 异常批次恢复入口确认（未访问飞影、未消耗积分）
+
+- **无积分冒烟**：`node --test test/gui-smoke.test.js test/server-api.test.js` 58/58（gui-smoke 12 + server-api 46），覆盖单条/批量录入→batch 创建、Playwright 后端与 capture HTTP live 区分、capture dry-run/fake queue/real-live、failed batch retry。默认 Playwright 生产路径 GUI 录入与批次创建无积分可用。
+- **异常批次恢复入口（全失败/异常批次）完整**：`POST /api/batches/:id/retry`（`src/server/routes/batches.js:200-217`）：`failed_pre_submit`/`failed_remote`/`interrupted_unknown` → `pending`；有 `interrupted_unknown` 需 `allowUnknown:true`。GUI（`web/app.js:636-643/1062-1077`）：`retryHasUnknown` → 「重新生成异常批次」+ 重复扣分确认，否则「重试失败批次」。server-api retry 测试 + gui-smoke 560 均覆盖。
+- **`batch-bdbf3cec` 状态纠正（AGENTS.md 过时）**：当前是 **failed 混合态**（CHI-001 `completed` 已出片 / BEAR-001 `failed_pre_submit` asset_generation 页面关闭 / IPAD-001 `pending`），**非** AGENTS.md 记录的 `interrupted_unknown`。`canRetryBatch`（`web/app.js:379`）/`retryable` 要求**所有** item 可重试 → 该混合态批次 retry 不可用（GUI 无按钮、API `BATCH_NOT_RETRYABLE 409`）。
+- **`batch-bdbf3cec` 处理决定**：它是 Playwright 历史批次，与 real-batch 抓包 HTTP 真实联调无关；默认**保留不碰**（CHI 已出片），不手动改用户批次数据。如需继续 BEAR/IPAD，待用户选：(a) 手动重置该批次 batch.json / (c) 改进 retry 放宽到混合态（保留 completed、仅重置 failed/unknown，小 PR）。建议同步更新 AGENTS.md 的「当前关键批次」记录。
+- **真实联调前置清单（1、2 不消除）**：(1) 新会话明确授权积分；(2) 真实飞影登录态（`npm run login` + runtime auth）；(3) manifest 与真实 API 兼容性未验证——历史 07-18 真实联调停在「下载列表 URL 适配」（本地完成未真实跑），real-batch 复用同 executor，预期可能需按真实响应改 manifest；(4) 按 `docs/rpa/capture-real-batch-checklist.md` 先 1 条、首失败即停、记录批次/SKU/时间/路径/失败阶段。
+- 结论：real-batch 代码就绪（PR #5-8 merged，evidence 收敛 + auth preflight），1、2 完成后**可进入真实联调**，但需带着「manifest 可能现场修 + 会扣分」的预期，在新会话、可控预算下做。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+
 ## 2026-07-20 asset_evidence 隐藏：evidence public 面彻底收敛（本地安全修复，未访问飞影、未消耗积分）
 
 - Codex 复审 PR #7 时点名的最后一块 evidence 收尾：`asset_evidence` 经 `publicItem` 透传。现加入 `INTERNAL_ITEM_FIELDS`（`src/server/routes/batches.js`），public batch 不再公开它。
