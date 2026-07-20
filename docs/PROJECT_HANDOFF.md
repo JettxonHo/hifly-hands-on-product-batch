@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-21 Task 1：manifest 漂移检测（稳定错误码 + GUI 提示，本地，未访问飞影、未消耗积分）
+
+- Codex 规划的「无积分生产健壮性」Task 1：飞影 API 字段缺失/结构变化时，明确提示「接口结构变化，需重新抓包」，而非神秘的 `CAPTURE_PRODUCES_MISSING`。
+- 实现：`src/rpa/capture/real-live-http-client.js` 把重试耗尽后的 `CAPTURE_PRODUCES_MISSING` 包装成稳定 `CAPTURE_HTTP_MANIFEST_DRIFT`；`capture.js` SAFE_REAL_BATCH_ERROR_CODES + `workflow-state.js` SAFE_QUEUE_ERROR_CODES + `app.js` CLIENT_ERROR_CODES 均加入该码（public 暴露、不泄漏原始响应）；`web/app.js` 新增 `formatQueueLastError`，MANIFEST_DRIFT 显示「飞影接口结构可能变化，请重新抓包/重新录制流程」。
+- 测试：client（重试耗尽 → MANIFEST_DRIFT）、server（real-batch queue.last_error.code = MANIFEST_DRIFT）、gui（重新抓包文案可见）。
+- 验证：`npm run check` 65 文件；`npm test` 396/396；real-live 28/28；server-capture-api 32/32；gui-smoke 13/13；`git diff --check` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改。
+- 下一步：Task 2（登录态失效提示闭环）+ Task 3（多条联调前检查器），同组无积分 TDD。
+
 ## 2026-07-21 发现项 1 修复：poll 按 create_time 最新匹配（防下载旧视频，本地修复，未访问飞影、未消耗积分）
 
 - real-batch 真实联调发现的重要项：`poll_video_submitted` produces `$response.body.data.list.0.id`（位置匹配），submit 后新作品若未排到 list[0]，remote_id 会先读到旧作品 id → download 链（`artifactListEntry` 按 remote_id 匹配）可能下载旧视频。本次联调侥幸最终拿到新 id，但存在误下载旧视频的时序风险。
