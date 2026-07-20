@@ -4,11 +4,20 @@
 
 - real-batch 真实联调发现的重要项：`poll_video_submitted` produces `$response.body.data.list.0.id`（位置匹配），submit 后新作品若未排到 list[0]，remote_id 会先读到旧作品 id → download 链（`artifactListEntry` 按 remote_id 匹配）可能下载旧视频。本次联调侥幸最终拿到新 id，但存在误下载旧视频的时序风险。
 - 调查：submit POST 响应为空 `{code:0,data:{}}`（不返回新作品 id，方案 A 不可行）；list 条目含 `create_time`（方案 B 可行）。
-- 修复（`src/rpa/capture/real-live-http-client.js`）：新增 `latestListEntry(responseBody)`（create_time 最大的条目）；`requestWithProducesRetry` 解析 produces 后，若 `produced.remote_id` 存在且响应是 works list，用 latest 条目的 id 覆盖（而非 list.0）。download 链按正确 remote_id 自动匹配最新作品。单条目 list 不受影响（唯一条目即最新）。
+- 修复（`src/rpa/capture/real-live-http-client.js`）：新增 `latestListEntry(responseBody)`（create_time 最大的条目）；`requestWithProducesRetry` 解析 produces 后，若 `produced.remote_id` 存在且响应是 works list，用 latest 条目的 id 覆盖（而非 list.0）。download 链按正确 remote_id 自动匹配最新作品。单条目 list 不受影响（唯一条目即最新）。Codex 复审可 merge（无 create_time / 单条目 / 多条目同值 / 非 number / 非 works list / `632410` 断言 / download 链均正确）。
 - 新增回归测试（`test/rpa-capture-real-live-client.test.js`）：list 含旧作品（list.0，create_time 小）+ 新作品（create_time 更大），断言 `produced.remote_id` = 新作品 id。
-- 验证：`npm run check` 65 文件；`npm test` 392/392（本分支 = main 391 + 本 PR 1 新）；`node --test test/rpa-capture-real-live-client.test.js test/capture-http-executor.test.js` 40/40；`node --test test/server-capture-api.test.js` 30/30；`node --test test/gui-smoke.test.js` 12/12；`git diff --check main...HEAD` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 验证：`npm run check` 65 文件；`npm test` 392/392（本分支）；real-live + capture-http-executor 40/40；server-capture-api 30/30；gui-smoke 12/12；`git diff --check` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
 - 默认 Playwright 生产路径未改；仅影响 capture HTTP real_live/real_batch 路径。
 - 下一步：多条真实联调（2-3 条）验证串行/resume/并发 guard（需授权积分）；manifest 漂移检测 + 登录态续期（生产健壮性）。
+
+## 2026-07-20 发现项 2 修复：real-batch 清残留 live_summary（本地安全修复，未访问飞影、未消耗积分）
+
+- real-batch 真实联调发现的次要项：`real-batch-run` 的 running 写入只 patch `live_error`/`queue`/`status`，不清 `capture.live_summary`，导致前一次 live-run（单条）的旧摘要残留并经 `publicLiveSummary` 暴露，GUI 可能显示混淆。
+- 修复（`src/server/routes/capture.js`）：real-batch 进入 `real_batch_running` 时置 `live_summary: null`（对称 live-run 路由启动时清 live_summary 的做法）。完成/失败写入不再设 live_summary，保持 null。
+- 新增回归测试（`test/server-capture-api.test.js`）：seed 旧 `live_summary`（模拟 07-19 残留）→ run real-batch → 断言 `capture.live_summary` 已清（public 不暴露）。
+- 验证：`npm run check` 65 文件；`npm test` 392/392（本分支）；server-capture-api 31/31；gui-smoke 12/12；`git diff --check` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改。
+- 关联：发现项 1（poll 旧 id 时序风险）已由 PR #11 `create_time` 最新匹配修复。
 
 ## 2026-07-20 real-batch 抓包 HTTP 真实联调首次成功（消耗 1 条积分，全链路通过）
 

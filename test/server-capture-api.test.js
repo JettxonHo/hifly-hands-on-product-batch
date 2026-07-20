@@ -1605,3 +1605,32 @@ test("live-run treats getRuntimeAuth failure as a preflight 409 and leaves batch
   const after = JSON.parse(await readFile(path.join(root, "batches", "batch-live-run-auth-throws", "batch.json"), "utf8"));
   assert.equal(after.capture.status, before.capture.status);
 });
+
+test("real-batch-run clears a stale capture.live_summary when it starts", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-clear-summary-"));
+  const transport = realBatchTransport();
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-clear-summary", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  const batchPath = path.join(root, "batches", "batch-real-clear-summary", "batch.json");
+  const staged = JSON.parse(await readFile(batchPath, "utf8"));
+  staged.capture.live_summary = {
+    sku: "SKU-OLD",
+    remote_id: "640509",
+    artifact_path: "artifacts/old.mp4",
+    completed_at: "2026-07-19T00:00:00.000Z"
+  };
+  await writeFile(batchPath, JSON.stringify(staged, null, 2));
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-clear-summary/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+
+  assert.equal(res.statusCode, 200);
+  const capture = res.json().batch.capture;
+  assert.equal(capture.status, "real_batch_completed");
+  assert.equal(capture.live_summary, undefined);
+});
