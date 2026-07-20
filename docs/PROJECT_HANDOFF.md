@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-20 发现项 2 修复：real-batch 清残留 live_summary（本地安全修复，未访问飞影、未消耗积分）
+
+- real-batch 真实联调发现的次要项：`real-batch-run` 的 running 写入只 patch `live_error`/`queue`/`status`，不清 `capture.live_summary`，导致前一次 live-run（单条）的旧摘要残留并经 `publicLiveSummary` 暴露，GUI 可能显示混淆。
+- 修复（`src/server/routes/capture.js`）：real-batch 进入 `real_batch_running` 时置 `live_summary: null`（对称 live-run 路由启动时清 live_summary 的做法）。完成/失败写入不再设 live_summary，保持 null。
+- 新增回归测试（`test/server-capture-api.test.js`）：seed 旧 `live_summary`（模拟 07-19 残留）→ run real-batch → 断言 `capture.live_summary` 已清（public 不暴露）。
+- 验证：`npm run check` 65 文件；`npm test` 392/392；`node --test test/server-capture-api.test.js` 31/31；`node --test test/gui-smoke.test.js` 12/12；`git diff --check main...HEAD` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改。
+- 下一步：发现项 1（`poll_video_submitted` 用 `list.0.id` → 改 submit 前后列表差异匹配，防下载旧视频）作为独立中等 PR，待设计。
+
 ## 2026-07-20 real-batch 抓包 HTTP 真实联调首次成功（消耗 1 条积分，全链路通过）
 
 - 用户在新会话明确授权后，对重置后的 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 执行**首次** `POST /api/batches/:id/capture/real-batch-run`（body `{confirm:true, allowRealLive:true, acknowledgePointRisk:true, pointBudget:1}`），real-batch 队列路径全链路真实跑通，HTTP 200，耗时 340.9s（09:09:33→09:15:14 CST）。
