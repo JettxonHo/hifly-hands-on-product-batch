@@ -1,5 +1,15 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-21 发现项 1 修复：poll 按 create_time 最新匹配（防下载旧视频，本地修复，未访问飞影、未消耗积分）
+
+- real-batch 真实联调发现的重要项：`poll_video_submitted` produces `$response.body.data.list.0.id`（位置匹配），submit 后新作品若未排到 list[0]，remote_id 会先读到旧作品 id → download 链（`artifactListEntry` 按 remote_id 匹配）可能下载旧视频。本次联调侥幸最终拿到新 id，但存在误下载旧视频的时序风险。
+- 调查：submit POST 响应为空 `{code:0,data:{}}`（不返回新作品 id，方案 A 不可行）；list 条目含 `create_time`（方案 B 可行）。
+- 修复（`src/rpa/capture/real-live-http-client.js`）：新增 `latestListEntry(responseBody)`（create_time 最大的条目）；`requestWithProducesRetry` 解析 produces 后，若 `produced.remote_id` 存在且响应是 works list，用 latest 条目的 id 覆盖（而非 list.0）。download 链按正确 remote_id 自动匹配最新作品。单条目 list 不受影响（唯一条目即最新）。
+- 新增回归测试（`test/rpa-capture-real-live-client.test.js`）：list 含旧作品（list.0，create_time 小）+ 新作品（create_time 更大），断言 `produced.remote_id` = 新作品 id。
+- 验证：`npm run check` 65 文件；`npm test` 392/392（本分支 = main 391 + 本 PR 1 新）；`node --test test/rpa-capture-real-live-client.test.js test/capture-http-executor.test.js` 40/40；`node --test test/server-capture-api.test.js` 30/30；`node --test test/gui-smoke.test.js` 12/12；`git diff --check main...HEAD` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改；仅影响 capture HTTP real_live/real_batch 路径。
+- 下一步：多条真实联调（2-3 条）验证串行/resume/并发 guard（需授权积分）；manifest 漂移检测 + 登录态续期（生产健壮性）。
+
 ## 2026-07-20 real-batch 抓包 HTTP 真实联调首次成功（消耗 1 条积分，全链路通过）
 
 - 用户在新会话明确授权后，对重置后的 `batch-8d74e3ce-42f6-4ae3-b6ea-328d3fdfe3ca` 执行**首次** `POST /api/batches/:id/capture/real-batch-run`（body `{confirm:true, allowRealLive:true, acknowledgePointRisk:true, pointBudget:1}`），real-batch 队列路径全链路真实跑通，HTTP 200，耗时 340.9s（09:09:33→09:15:14 CST）。
