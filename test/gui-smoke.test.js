@@ -803,3 +803,64 @@ test("real-batch GUI shows re-capture hint for manifest drift", async (t) => {
   await assertVisible(page.getByText("抓包工作流"));
   await assertVisible(page.getByText(/重新抓包|接口结构可能变化/));
 });
+
+test("real-batch GUI shows re-login hint for auth-expired queue error", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-batch-auth-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-gui-auth",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-1", product_name: "Auth", status: "pending" }],
+    capture: {
+      enabled: true,
+      status: "real_batch_failed",
+      manifest_path: "batches/batch-gui-auth/capture/manifest.json",
+      queue: {
+        mode: "real_live",
+        status: "failed",
+        total: 1,
+        completed: 0,
+        failed: 1,
+        last_error: { code: "CAPTURE_HTTP_AUTH_REQUIRED" }
+      }
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      generationConfig: { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } },
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") { t.skip("sandbox disallows local TCP listening"); return; }
+    throw error;
+  }
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("抓包工作流"));
+  await assertVisible(page.getByText(/登录态不可用|重新 npm run login/));
+});

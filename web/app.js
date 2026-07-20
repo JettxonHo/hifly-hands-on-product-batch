@@ -197,7 +197,15 @@
 
   function formatQueueLastError(code) {
     if (code === "CAPTURE_HTTP_MANIFEST_DRIFT") return "小批量错误：飞影接口结构可能变化，请重新抓包/重新录制流程";
+    if (code === "CAPTURE_HTTP_AUTH_REQUIRED" || code === "CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE") return "小批量错误：登录态不可用，请重新 npm run login 后再试";
     return code ? `小批量错误：${code}` : "";
+  }
+
+  function formatCaptureActionError(error) {
+    const code = error?.message || "";
+    if (code === "CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE" || code === "CAPTURE_HTTP_AUTH_REQUIRED") return "登录态不可用，请重新 npm run login 后再试";
+    if (code === "CAPTURE_HTTP_MANIFEST_DRIFT") return "飞影接口结构可能变化，请重新抓包/重新录制流程";
+    return `抓包处理失败：${code || "未知错误"}`;
   }
 
   function captureQueueStatusLabel(status) {
@@ -1135,7 +1143,7 @@
       await refreshBatches({ silent: true });
       showToast(`抓包工作流已更新：${captureStatusLabel(payload.batch.capture?.status)}`);
     } catch (error) {
-      showToast(`抓包处理失败：${error.message}`);
+      showToast(formatCaptureActionError(error));
     } finally {
       setBusy(false);
     }
