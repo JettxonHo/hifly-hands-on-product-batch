@@ -195,6 +195,11 @@
     return labels[status] || status || "未知";
   }
 
+  function formatQueueLastError(code) {
+    if (code === "CAPTURE_HTTP_MANIFEST_DRIFT") return "小批量错误：飞影接口结构可能变化，请重新抓包/重新录制流程";
+    return code ? `小批量错误：${code}` : "";
+  }
+
   function captureQueueStatusLabel(status) {
     const labels = {
       not_started: "未开始",
@@ -559,7 +564,7 @@
       capture.dry_run_summary?.executed_step_count ? `预演步骤数：${capture.dry_run_summary.executed_step_count}` : "",
       capture.dry_run_error ? `预演错误：${capture.dry_run_error.message || "Unable to construct the dry-run request plan."}` : "",
       capture.queue ? `小批量预演：${captureQueueStatusLabel(capture.queue.status)}（${capture.queue.completed || 0}/${capture.queue.total || 0}）` : "",
-      capture.queue?.last_error ? `小批量错误：${capture.queue.last_error.code}` : "",
+      capture.queue?.last_error ? formatQueueLastError(capture.queue.last_error.code) : "",
       capture.status === "real_live_completed"
         ? "该批次已完成真实 HTTP 出片，默认不再重复生成。"
         : "真实请求预演仅构造请求计划，不访问飞影、不消耗积分"

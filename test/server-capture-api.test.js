@@ -1634,3 +1634,25 @@ test("real-batch-run clears a stale capture.live_summary when it starts", async 
   assert.equal(capture.status, "real_batch_completed");
   assert.equal(capture.live_summary, undefined);
 });
+
+test("real-batch-run surfaces manifest drift code when remote structure changed", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-drift-"));
+  const transport = {
+    async request() { return { status: 200, body: { code: 0, data: {} } }; }
+  };
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-drift", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-drift/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.capture.status, "real_batch_failed");
+  assert.equal(batch.capture.queue.last_error.code, "CAPTURE_HTTP_MANIFEST_DRIFT");
+});
