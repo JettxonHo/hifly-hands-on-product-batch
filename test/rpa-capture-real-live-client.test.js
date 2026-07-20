@@ -347,6 +347,33 @@ test("real_live permits normal URL pathnames", async () => {
   assert.equal(called, true);
 });
 
+test("real_live picks the newest list entry by create_time for remote_id", async () => {
+  const client = createRealLiveHttpClient({
+    manifest: manifestWith({ risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" } }),
+    config: { enabled: true },
+    transport: {
+      request: async () => ({
+        status: 200,
+        body: {
+          code: 0,
+          data: {
+            list: [
+              { id: 640509, status: 1, create_time: 1784000000 },
+              { id: 641922, status: 1, create_time: 1784194017 }
+            ]
+          }
+        }
+      })
+    }
+  });
+  const result = await client.request({
+    stepId: "submit_video",
+    variables: { asset_id: "asset-1" },
+    context: { allowRealLive: true }
+  });
+  assert.equal(result.produced.remote_id, 641922);
+});
+
 test("real_live rejects malformed template placeholders before transport", async () => {
   for (const templatePatch of [
     { url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?id={{asset-id}}" },

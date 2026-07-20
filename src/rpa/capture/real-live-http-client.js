@@ -255,6 +255,17 @@ async function uploadProductImage({ step, responseBody, variables, transport, co
   }
 }
 
+function latestListEntry(responseBody) {
+  const list = responseBody?.data?.list;
+  if (!Array.isArray(list)) return null;
+  let latest = null;
+  for (const entry of list) {
+    if (!entry || typeof entry.create_time !== "number") continue;
+    if (latest === null || entry.create_time > latest.create_time) latest = entry;
+  }
+  return latest;
+}
+
 function artifactListEntry(responseBody, remoteId) {
   const list = responseBody?.data?.list;
   if (!Array.isArray(list)) return null;
@@ -374,6 +385,14 @@ async function requestWithProducesRetry({ step, request, variables, transport, c
     }
     try {
       const produced = extractProducedVariables(step.produces, responseBody);
+      // Discovery 1: a freshly submitted video may not have reached list[0] yet, so
+      // prefer the newest entry by create_time over the positional list[0].id.
+      if (produced.remote_id !== undefined) {
+        const latest = latestListEntry(responseBody);
+        if (latest && latest.id !== undefined && latest.id !== null) {
+          produced.remote_id = latest.id;
+        }
+      }
       assertDownloadListHasArtifactUrl(step, response, responseBody, variables, config);
       return { response, responseBody, produced };
     } catch (error) {
