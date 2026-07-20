@@ -755,6 +755,7 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
         enabled: true,
         status: "real_batch_running",
         live_error: null,
+        live_summary: null,
         queue: realBatchQueue(current.items, {
           status: "running",
           currentTaskId: eligible[0]?.task_id || null,
