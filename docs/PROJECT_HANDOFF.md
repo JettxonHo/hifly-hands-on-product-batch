@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-20 GUI/Playwright 默认路径无积分验证 + 异常批次恢复入口确认（未访问飞影、未消耗积分）
+
+- **无积分冒烟**：`node --test test/gui-smoke.test.js test/server-api.test.js` 58/58（gui-smoke 12 + server-api 46），覆盖单条/批量录入→batch 创建、Playwright 后端与 capture HTTP live 区分、capture dry-run/fake queue/real-live、failed batch retry。默认 Playwright 生产路径 GUI 录入与批次创建无积分可用。
+- **异常批次恢复入口（全失败/异常批次）完整**：`POST /api/batches/:id/retry`（`src/server/routes/batches.js:200-217`）：`failed_pre_submit`/`failed_remote`/`interrupted_unknown` → `pending`；有 `interrupted_unknown` 需 `allowUnknown:true`。GUI（`web/app.js:636-643/1062-1077`）：`retryHasUnknown` → 「重新生成异常批次」+ 重复扣分确认，否则「重试失败批次」。server-api retry 测试 + gui-smoke 560 均覆盖。
+- **`batch-bdbf3cec` 状态纠正（AGENTS.md 过时）**：当前是 **failed 混合态**（CHI-001 `completed` 已出片 / BEAR-001 `failed_pre_submit` asset_generation 页面关闭 / IPAD-001 `pending`），**非** AGENTS.md 记录的 `interrupted_unknown`。`canRetryBatch`（`web/app.js:379`）/`retryable` 要求**所有** item 可重试 → 该混合态批次 retry 不可用（GUI 无按钮、API `BATCH_NOT_RETRYABLE 409`）。
+- **`batch-bdbf3cec` 处理决定**：它是 Playwright 历史批次，与 real-batch 抓包 HTTP 真实联调无关；默认**保留不碰**（CHI 已出片），不手动改用户批次数据。如需继续 BEAR/IPAD，待用户选：(a) 手动重置该批次 batch.json / (c) 改进 retry 放宽到混合态（保留 completed、仅重置 failed/unknown，小 PR）。建议同步更新 AGENTS.md 的「当前关键批次」记录。
+- **真实联调前置清单（1、2 不消除）**：(1) 新会话明确授权积分；(2) 真实飞影登录态（`npm run login` + runtime auth）；(3) manifest 与真实 API 兼容性未验证——历史 07-18 真实联调停在「下载列表 URL 适配」（本地完成未真实跑），real-batch 复用同 executor，预期可能需按真实响应改 manifest；(4) 按 `docs/rpa/capture-real-batch-checklist.md` 先 1 条、首失败即停、记录批次/SKU/时间/路径/失败阶段。
+- 结论：real-batch 代码就绪（PR #5-8 merged，evidence 收敛 + auth preflight），1、2 完成后**可进入真实联调**，但需带着「manifest 可能现场修 + 会扣分」的预期，在新会话、可控预算下做。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+
 ## 2026-07-20 asset_evidence 隐藏：evidence public 面彻底收敛（本地安全修复，未访问飞影、未消耗积分）
 
 - Codex 复审 PR #7 时点名的最后一块 evidence 收尾：`asset_evidence` 经 `publicItem` 透传。现加入 `INTERNAL_ITEM_FIELDS`（`src/server/routes/batches.js`），public batch 不再公开它。
