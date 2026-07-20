@@ -1656,3 +1656,27 @@ test("real-batch-run surfaces manifest drift code when remote structure changed"
   assert.equal(batch.capture.status, "real_batch_failed");
   assert.equal(batch.capture.queue.last_error.code, "CAPTURE_HTTP_MANIFEST_DRIFT");
 });
+
+test("live-run surfaces manifest drift code when remote structure changed", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-live-run-drift-"));
+  const transport = { async request() { return { status: 200, body: { code: 0, data: {} } }; } };
+  const { app, session } = await buildRealBatchApp({
+    root,
+    generationConfig: REAL_BATCH_GEN_CONFIG,
+    captureLive: { authProvider: REAL_BATCH_AUTH, transport }
+  });
+  await seedRealBatch(root, "batch-live-drift", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-live-drift/capture/live-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, limitItems: 1 }
+  });
+
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.capture.status, "real_live_failed");
+  assert.equal(batch.capture.live_error.code, "CAPTURE_HTTP_MANIFEST_DRIFT");
+});
