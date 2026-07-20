@@ -712,6 +712,31 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
     }
   });
 
+  app.get("/api/batches/:batchId/capture/real-batch-preflight", async (request) => {
+    const batchId = assertBatchId(request.params.batchId);
+    const batchConfig = generationConfig.rpa?.realLive?.batch || {};
+    const enabled = batchConfig.enabled === true;
+    const maxItems = Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3;
+    const authProvider = captureLive.authProvider;
+    let runtimeAuthReady = Boolean(authProvider && typeof authProvider.getRuntimeAuth === "function");
+    if (runtimeAuthReady) {
+      try { await authProvider.getRuntimeAuth(); } catch { runtimeAuthReady = false; }
+    }
+    let batchReady = false;
+    let batchStatus = null;
+    let eligibleCount = 0;
+    try {
+      const batch = await store.read(batchId);
+      batchStatus = batch?.capture?.status ?? null;
+      batchReady = ["dry_run_passed", "real_batch_failed", "real_batch_running", "real_batch_completed"].includes(batchStatus)
+        && Array.isArray(batch?.items) && batch.items.length > 0;
+      eligibleCount = batchReady ? batch.items.filter((item) => runnableRealBatchItem(item, { resume: true })).length : 0;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    return { enabled, maxItems, runtimeAuthReady, batchReady, batchStatus, eligibleCount };
+  });
+
   app.post("/api/batches/:batchId/capture/real-batch-run", async (request) => {
     const batchId = assertBatchId(request.params.batchId);
     const batchConfig = generationConfig.rpa?.realLive?.batch || {};

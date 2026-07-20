@@ -631,6 +631,11 @@
       realBatchHint.className = "muted";
       setText(realBatchHint, "真实 HTTP 小批量会访问飞影，可能消耗积分；按商品逐条执行，首失败即停，可在确认积分预算后续跑。");
       panel.append(realBatchHint);
+      const realBatchReady = ["dry_run_passed", "real_batch_failed", "real_batch_running", "real_batch_completed"].includes(capture.status) && (batch.items || []).length > 0;
+      const checklist = document.createElement("p");
+      checklist.className = "muted";
+      setText(checklist, `真实小批量就绪检查：${realBatchReady ? "✓ 批次可执行" : "✗ 批次未就绪（需 dry_run_passed 且有商品）"} · 积分预算 1-${state.realBatchMaxItems}（会消耗积分）`);
+      panel.append(checklist);
     }
     return panel;
   }

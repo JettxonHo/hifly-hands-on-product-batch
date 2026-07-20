@@ -741,6 +741,7 @@ test("real-batch GUI control shows point-risk copy when the runtime enables it",
   const button = page.getByRole("button", { name: /真实 HTTP 小批量生成/ });
   await assertVisible(button);
   await assertVisible(page.getByText("真实 HTTP 小批量会访问飞影，可能消耗积分"));
+  await assertVisible(page.getByText(/就绪检查.*批次可执行/));
 });
 
 test("real-batch GUI shows re-capture hint for manifest drift", async (t) => {

@@ -1680,3 +1680,45 @@ test("live-run surfaces manifest drift code when remote structure changed", asyn
   assert.equal(batch.capture.status, "real_live_failed");
   assert.equal(batch.capture.live_error.code, "CAPTURE_HTTP_MANIFEST_DRIFT");
 });
+
+test("real-batch preflight reports readiness without triggering real run", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-preflight-"));
+  const transport = realBatchTransport();
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-preflight", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-preflight/capture/real-batch-preflight",
+    headers: headers(session)
+  });
+
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.enabled, true);
+  assert.equal(body.maxItems, 3);
+  assert.equal(body.runtimeAuthReady, true);
+  assert.equal(body.batchReady, true);
+  assert.equal(body.batchStatus, "dry_run_passed");
+  assert.equal(body.eligibleCount, 1);
+  assert.equal(transport.calls.length, 0);
+});
+
+test("real-batch preflight reports not-ready when disabled and batch missing", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-preflight-off-"));
+  const { app, session } = await buildRealBatchApp({ root });
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/batches/batch-preflight-missing/capture/real-batch-preflight",
+    headers: headers(session)
+  });
+
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.enabled, false);
+  assert.equal(body.runtimeAuthReady, false);
+  assert.equal(body.batchReady, false);
+});
