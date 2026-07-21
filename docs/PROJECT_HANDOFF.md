@@ -1,5 +1,12 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-22 修复：Task 3 preflight 接入 GUI（Codex important，本地，未访问飞影、未消耗积分）
+
+- Codex 复审 PR #12 的 important：Task 3 preflight 后端就绪但未接入 GUI，原 checklist 按 `capture.status + 商品数` 误报「可执行」（全部完成时也 ✓，但按钮禁用、后端 409）；且默认 auth provider 会启动浏览器读 hifly token，不能每次刷新自动请求。
+- 修复：`web/api.js` 暴露 `realBatchPreflight` GET；`web/app.js` 移除误报 checklist，改为显式「检查联调条件」按钮（点击 fetch preflight，显示 `enabled/runtimeAuthReady/batchReady/eligibleCount`，四项满足才「可执行」；不自动请求）；`src/server/start.js` `startServer` 接受 `captureLive` 覆盖（默认真实，允许测试注入 fake authProvider 避免真启浏览器）；`test/gui-smoke.test.js` 按钮可见 + 点击显示就绪（fake auth）。
+- 验证：`npm run check` 65 文件；`npm test` 401/401；gui-smoke 15/15；`git diff --check` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改。
+
 ## 2026-07-21 Task 2+3：登录态失效提示 + 多条联调前检查器（本地，未访问飞影、未消耗积分）
 
 - Codex「无积分生产健壮性」Task 2 + Task 3。
