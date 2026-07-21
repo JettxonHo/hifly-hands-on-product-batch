@@ -195,6 +195,19 @@
     return labels[status] || status || "未知";
   }
 
+  function formatQueueLastError(code) {
+    if (code === "CAPTURE_HTTP_MANIFEST_DRIFT") return "小批量错误：飞影接口结构可能变化，请重新抓包/重新录制流程";
+    if (code === "CAPTURE_HTTP_AUTH_REQUIRED" || code === "CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE") return "小批量错误：登录态不可用，请重新 npm run login 后再试";
+    return code ? `小批量错误：${code}` : "";
+  }
+
+  function formatCaptureActionError(error) {
+    const code = error?.message || "";
+    if (code === "CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE" || code === "CAPTURE_HTTP_AUTH_REQUIRED") return "登录态不可用，请重新 npm run login 后再试";
+    if (code === "CAPTURE_HTTP_MANIFEST_DRIFT") return "飞影接口结构可能变化，请重新抓包/重新录制流程";
+    return `抓包处理失败：${code || "未知错误"}`;
+  }
+
   function captureQueueStatusLabel(status) {
     const labels = {
       not_started: "未开始",
@@ -559,7 +572,7 @@
       capture.dry_run_summary?.executed_step_count ? `预演步骤数：${capture.dry_run_summary.executed_step_count}` : "",
       capture.dry_run_error ? `预演错误：${capture.dry_run_error.message || "Unable to construct the dry-run request plan."}` : "",
       capture.queue ? `小批量预演：${captureQueueStatusLabel(capture.queue.status)}（${capture.queue.completed || 0}/${capture.queue.total || 0}）` : "",
-      capture.queue?.last_error ? `小批量错误：${capture.queue.last_error.code}` : "",
+      capture.queue?.last_error ? formatQueueLastError(capture.queue.last_error.code) : "",
       capture.status === "real_live_completed"
         ? "该批次已完成真实 HTTP 出片，默认不再重复生成。"
         : "真实请求预演仅构造请求计划，不访问飞影、不消耗积分"
@@ -618,6 +631,29 @@
       realBatchHint.className = "muted";
       setText(realBatchHint, "真实 HTTP 小批量会访问飞影，可能消耗积分；按商品逐条执行，首失败即停，可在确认积分预算后续跑。");
       panel.append(realBatchHint);
+      const checklist = document.createElement("p");
+      checklist.className = "muted";
+      setText(checklist, "联调条件未检查（enabled/登录态/可执行任务数）。点击下方按钮检查；检查登录态会启动浏览器读取飞影登录态。");
+      panel.append(checklist);
+      const checkBtn = document.createElement("button");
+      checkBtn.type = "button";
+      checkBtn.className = "secondary-button";
+      setText(checkBtn, "检查联调条件");
+      checkBtn.addEventListener("click", async () => {
+        setText(checkBtn, "检查中…");
+        checkBtn.disabled = true;
+        try {
+          const result = await api.realBatchPreflight(batch.batch_id);
+          const ok = result.enabled && result.runtimeAuthReady && result.batchReady && result.eligibleCount > 0;
+          setText(checklist, `联调条件：${ok ? "✓ 可执行" : "✗ 未就绪"} · enabled ${result.enabled ? "✓" : "✗"} · 登录态 ${result.runtimeAuthReady ? "✓" : "✗"} · 批次 ${result.batchReady ? "✓" : "✗"} · 可执行任务 ${result.eligibleCount} · 积分预算 1-${result.maxItems}（会消耗积分）`);
+        } catch (error) {
+          setText(checklist, `联调条件检查失败：${error.message || error}`);
+        } finally {
+          setText(checkBtn, "检查联调条件");
+          checkBtn.disabled = false;
+        }
+      });
+      panel.append(checkBtn);
     }
     return panel;
   }
@@ -1130,7 +1166,7 @@
       await refreshBatches({ silent: true });
       showToast(`抓包工作流已更新：${captureStatusLabel(payload.batch.capture?.status)}`);
     } catch (error) {
-      showToast(`抓包处理失败：${error.message}`);
+      showToast(formatCaptureActionError(error));
     } finally {
       setBusy(false);
     }

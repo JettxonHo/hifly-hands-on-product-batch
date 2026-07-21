@@ -115,7 +115,8 @@ export async function startServer({
   uploadLimits = null,
   executionLock = {},
   pointsEstimate = {},
-  generationConfig = {}
+  generationConfig = {},
+  captureLive = null
 } = {}) {
   let selectedPort = await findAvailablePort(port);
   let app;
@@ -130,7 +131,7 @@ export async function startServer({
       executionLock,
       pointsEstimate,
       generationConfig,
-      captureLive: {
+      captureLive: captureLive || {
         authProvider: createPlaywrightRuntimeAuthProvider({
           chromium,
           profileDir: resolvedPath(root, generationConfig.browser?.profileDir || "playwright/profile/hifly"),

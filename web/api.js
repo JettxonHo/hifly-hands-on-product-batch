@@ -96,6 +96,7 @@
         resume: options.resume === true
       })
     }),
+    realBatchPreflight: (batchId) => request(`/api/batches/${encodeURIComponent(batchId)}/capture/real-batch-preflight`),
     startExecution: ({ batchId, idempotencyKey }) => request("/api/executions", {
       method: "POST",
       body: JSON.stringify({ batchId, idempotencyKey, confirm: true })

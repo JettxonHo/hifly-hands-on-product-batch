@@ -1,5 +1,30 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-22 修复：Task 3 preflight 接入 GUI（Codex important，本地，未访问飞影、未消耗积分）
+
+- Codex 复审 PR #12 的 important：Task 3 preflight 后端就绪但未接入 GUI，原 checklist 按 `capture.status + 商品数` 误报「可执行」（全部完成时也 ✓，但按钮禁用、后端 409）；且默认 auth provider 会启动浏览器读 hifly token，不能每次刷新自动请求。
+- 修复：`web/api.js` 暴露 `realBatchPreflight` GET；`web/app.js` 移除误报 checklist，改为显式「检查联调条件」按钮（点击 fetch preflight，显示 `enabled/runtimeAuthReady/batchReady/eligibleCount`，四项满足才「可执行」；不自动请求）；`src/server/start.js` `startServer` 接受 `captureLive` 覆盖（默认真实，允许测试注入 fake authProvider 避免真启浏览器）；`test/gui-smoke.test.js` 按钮可见 + 点击显示就绪（fake auth）。
+- 验证：`npm run check` 65 文件；`npm test` 401/401；gui-smoke 15/15；`git diff --check` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改。
+
+## 2026-07-21 Task 2+3：登录态失效提示 + 多条联调前检查器（本地，未访问飞影、未消耗积分）
+
+- Codex「无积分生产健壮性」Task 2 + Task 3。
+- **Task 2（登录态失效提示）**：`web/app.js` `formatQueueLastError`（capture 面板）+ 新增 `formatCaptureActionError`（runCaptureAction catch toast）对 `CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE`（preflight 409）+ `CAPTURE_HTTP_AUTH_REQUIRED`（远端 auth-expired）显示「登录态不可用，请重新 npm run login」；`MANIFEST_DRIFT` 同样友好文案。gui-smoke：AUTH_REQUIRED queue 错误显示重新登录提示。preflight 409 + 不写 running/不提交 保证已就绪。
+- **Task 3（多条联调前检查器）**：新增只读 `GET /api/batches/:id/capture/real-batch-preflight`（`src/server/routes/capture.js`），返回 `{enabled, maxItems, runtimeAuthReady, batchReady, batchStatus, eligibleCount}`，不触发 transport/submit；`store.read` + catch ENOENT（missing batch → not-ready，不 404）。`web/app.js` real-batch 面板加就绪 checklist（批次可执行/未就绪 + pointBudget 1-maxItems）。tests：preflight readiness + disabled/missing + GUI checklist 文案。
+- 验证：`npm run check` 65 文件；`npm test` 400/400；server-capture-api 35/35；gui-smoke 14/14；`git diff --check` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改。
+- 至此 Codex 规划的「Capture HTTP 生产健壮性」Task 1+2+3 全部完成（PR #12）。下一步：多条真实联调（2-3 条，需授权积分，从 pointBudget=2 起）。
+
+## 2026-07-21 Task 1：manifest 漂移检测（稳定错误码 + GUI 提示，本地，未访问飞影、未消耗积分）
+
+- Codex 规划的「无积分生产健壮性」Task 1：飞影 API 字段缺失/结构变化时，明确提示「接口结构变化，需重新抓包」，而非神秘的 `CAPTURE_PRODUCES_MISSING`。
+- 实现：`src/rpa/capture/real-live-http-client.js` 把重试耗尽后的 `CAPTURE_PRODUCES_MISSING` 包装成稳定 `CAPTURE_HTTP_MANIFEST_DRIFT`；`capture.js` SAFE_REAL_BATCH_ERROR_CODES + `workflow-state.js` SAFE_QUEUE_ERROR_CODES + `app.js` CLIENT_ERROR_CODES 均加入该码（public 暴露、不泄漏原始响应）；`web/app.js` 新增 `formatQueueLastError`，MANIFEST_DRIFT 显示「飞影接口结构可能变化，请重新抓包/重新录制流程」。
+- 测试：client（重试耗尽 → MANIFEST_DRIFT）、server（real-batch queue.last_error.code = MANIFEST_DRIFT）、gui（重新抓包文案可见）。
+- 验证：`npm run check` 65 文件；`npm test` 396/396；real-live 28/28；server-capture-api 32/32；gui-smoke 13/13；`git diff --check` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改。
+- 下一步：Task 2（登录态失效提示闭环）+ Task 3（多条联调前检查器），同组无积分 TDD。
+
 ## 2026-07-21 发现项 1 修复：poll 按 create_time 最新匹配（防下载旧视频，本地修复，未访问飞影、未消耗积分）
 
 - real-batch 真实联调发现的重要项：`poll_video_submitted` produces `$response.body.data.list.0.id`（位置匹配），submit 后新作品若未排到 list[0]，remote_id 会先读到旧作品 id → download 链（`artifactListEntry` 按 remote_id 匹配）可能下载旧视频。本次联调侥幸最终拿到新 id，但存在误下载旧视频的时序风险。

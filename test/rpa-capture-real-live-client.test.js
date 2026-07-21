@@ -374,6 +374,29 @@ test("real_live picks the newest list entry by create_time for remote_id", async
   assert.equal(result.produced.remote_id, 641922);
 });
 
+test("real_live surfaces manifest drift when produces stays missing after retries", async () => {
+  let calls = 0;
+  const client = createRealLiveHttpClient({
+    manifest: manifestWith({
+      method: "GET",
+      url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/one_stop/goods_in_hand/videos?id={{asset_id}}",
+      request_template: { headers: { "content-type": "application/json" } },
+      placeholders: ["{{asset_id}}"],
+      produces: { remote_id: "$response.body.data.list.0.id" },
+      risk: { requires_auth: false, may_consume_points: false, replayability: "unknown" }
+    }),
+    config: { enabled: true, pollAttempts: 3, pollIntervalMs: 0 },
+    transport: {
+      request: async () => { calls += 1; return { status: 200, body: { code: 0, data: { list: [] } } }; }
+    }
+  });
+  await assert.rejects(
+    client.request({ stepId: "submit_video", variables: { asset_id: "asset-1" }, context: { allowRealLive: true } }),
+    { code: "CAPTURE_HTTP_MANIFEST_DRIFT" }
+  );
+  assert.equal(calls, 3);
+});
+
 test("real_live rejects malformed template placeholders before transport", async () => {
   for (const templatePatch of [
     { url_template: "https://hiflyworks-api.lingverse.co/api/app/v1/status?id={{asset-id}}" },

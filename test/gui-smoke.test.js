@@ -741,4 +741,280 @@ test("real-batch GUI control shows point-risk copy when the runtime enables it",
   const button = page.getByRole("button", { name: /真实 HTTP 小批量生成/ });
   await assertVisible(button);
   await assertVisible(page.getByText("真实 HTTP 小批量会访问飞影，可能消耗积分"));
+  await assertVisible(page.getByRole("button", { name: "检查联调条件" }));
+});
+
+test("real-batch GUI shows re-capture hint for manifest drift", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-batch-drift-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-gui-drift",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-1", product_name: "Drift", status: "pending" }],
+    capture: {
+      enabled: true,
+      status: "real_batch_failed",
+      manifest_path: "batches/batch-gui-drift/capture/manifest.json",
+      queue: {
+        mode: "real_live",
+        status: "failed",
+        total: 1,
+        completed: 0,
+        failed: 1,
+        last_error: { code: "CAPTURE_HTTP_MANIFEST_DRIFT" }
+      }
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      generationConfig: { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } },
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") { t.skip("sandbox disallows local TCP listening"); return; }
+    throw error;
+  }
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("抓包工作流"));
+  await assertVisible(page.getByText(/重新抓包|接口结构可能变化/));
+});
+
+test("real-batch GUI shows re-login hint for auth-expired queue error", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-batch-auth-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-gui-auth",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-1", product_name: "Auth", status: "pending" }],
+    capture: {
+      enabled: true,
+      status: "real_batch_failed",
+      manifest_path: "batches/batch-gui-auth/capture/manifest.json",
+      queue: {
+        mode: "real_live",
+        status: "failed",
+        total: 1,
+        completed: 0,
+        failed: 1,
+        last_error: { code: "CAPTURE_HTTP_AUTH_REQUIRED" }
+      }
+    }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      generationConfig: { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } },
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") { t.skip("sandbox disallows local TCP listening"); return; }
+    throw error;
+  }
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("抓包工作流"));
+  await assertVisible(page.getByText(/登录态不可用|重新 npm run login/));
+});
+
+test("real-batch GUI checks preflight on demand and shows readiness", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-batch-preflight-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-gui-preflight",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-1", product_name: "Preflight", status: "pending" }],
+    capture: { enabled: true, status: "dry_run_passed", manifest_path: "batches/batch-gui-preflight/capture/manifest.json" }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      generationConfig: { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } },
+      captureLive: { authProvider: { async getRuntimeAuth() { return { headers: { cookie: "fake-session" } }; } } },
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") { t.skip("sandbox disallows local TCP listening"); return; }
+    throw error;
+  }
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await page.getByRole("button", { name: "检查联调条件" }).click();
+  await assertVisible(page.getByText(/联调条件.*可执行.*登录态 ✓/));
+});
+
+test("real-batch GUI does not invoke auth provider on initial render", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-batch-no-auto-"));
+  let server = null;
+  let browser = null;
+  let authCalls = 0;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-gui-no-auto",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-1", product_name: "NoAuto", status: "pending" }],
+    capture: { enabled: true, status: "dry_run_passed", manifest_path: "batches/batch-gui-no-auto/capture/manifest.json" }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      generationConfig: { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } },
+      captureLive: { authProvider: { async getRuntimeAuth() { authCalls += 1; return { headers: { cookie: "fake" } }; } } },
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") { t.skip("sandbox disallows local TCP listening"); return; }
+    throw error;
+  }
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await assertVisible(page.getByText("抓包工作流"));
+  await assertVisible(page.getByRole("button", { name: "检查联调条件" }));
+  await page.waitForTimeout(200);
+  assert.equal(authCalls, 0);
+});
+
+test("real-batch GUI shows not-ready when no eligible items", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-gui-real-batch-no-eligible-"));
+  let server = null;
+  let browser = null;
+  t.after(async () => {
+    await browser?.close();
+    await server?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  await store.create({
+    batch_id: "batch-gui-no-eligible",
+    status: "completed",
+    uploads: [],
+    artifacts: [],
+    items: [{ task_id: "task-1", sku: "SKU-1", product_name: "Done", status: "completed" }],
+    capture: { enabled: true, status: "dry_run_passed", manifest_path: "batches/batch-gui-no-eligible/capture/manifest.json" }
+  });
+
+  try {
+    server = await startServer({
+      root,
+      executor: createFakeExecutor(),
+      generationConfig: { rpa: { realLive: { batch: { enabled: true, maxItems: 3 } } } },
+      captureLive: { authProvider: { async getRuntimeAuth() { return { headers: { cookie: "fake" } }; } } },
+      openBrowser: async () => {},
+      handleSignals: false
+    });
+  } catch (error) {
+    if (error?.code === "EPERM") { t.skip("sandbox disallows local TCP listening"); return; }
+    throw error;
+  }
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+      t.skip("Playwright browser is unavailable in this environment");
+      return;
+    }
+    throw error;
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  await page.goto(server.url);
+  await page.getByRole("tab", { name: "待执行任务" }).click();
+  await page.getByRole("button", { name: "检查联调条件" }).click();
+  await assertVisible(page.getByText(/联调条件.*未就绪.*可执行任务 0/));
 });
