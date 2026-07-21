@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-21 Task 2+3：登录态失效提示 + 多条联调前检查器（本地，未访问飞影、未消耗积分）
+
+- Codex「无积分生产健壮性」Task 2 + Task 3。
+- **Task 2（登录态失效提示）**：`web/app.js` `formatQueueLastError`（capture 面板）+ 新增 `formatCaptureActionError`（runCaptureAction catch toast）对 `CAPTURE_HTTP_RUNTIME_AUTH_UNAVAILABLE`（preflight 409）+ `CAPTURE_HTTP_AUTH_REQUIRED`（远端 auth-expired）显示「登录态不可用，请重新 npm run login」；`MANIFEST_DRIFT` 同样友好文案。gui-smoke：AUTH_REQUIRED queue 错误显示重新登录提示。preflight 409 + 不写 running/不提交 保证已就绪。
+- **Task 3（多条联调前检查器）**：新增只读 `GET /api/batches/:id/capture/real-batch-preflight`（`src/server/routes/capture.js`），返回 `{enabled, maxItems, runtimeAuthReady, batchReady, batchStatus, eligibleCount}`，不触发 transport/submit；`store.read` + catch ENOENT（missing batch → not-ready，不 404）。`web/app.js` real-batch 面板加就绪 checklist（批次可执行/未就绪 + pointBudget 1-maxItems）。tests：preflight readiness + disabled/missing + GUI checklist 文案。
+- 验证：`npm run check` 65 文件；`npm test` 400/400；server-capture-api 35/35；gui-smoke 14/14；`git diff --check` clean。全程**未访问飞影、未跑真实 HTTP、未消耗积分**。
+- 默认 Playwright 生产路径未改。
+- 至此 Codex 规划的「Capture HTTP 生产健壮性」Task 1+2+3 全部完成（PR #12）。下一步：多条真实联调（2-3 条，需授权积分，从 pointBudget=2 起）。
+
 ## 2026-07-21 Task 1：manifest 漂移检测（稳定错误码 + GUI 提示，本地，未访问飞影、未消耗积分）
 
 - Codex 规划的「无积分生产健壮性」Task 1：飞影 API 字段缺失/结构变化时，明确提示「接口结构变化，需重新抓包」，而非神秘的 `CAPTURE_PRODUCES_MISSING`。
