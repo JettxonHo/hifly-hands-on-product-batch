@@ -399,7 +399,7 @@ async function requestWithProducesRetry({ step, request, variables, transport, c
       const retryable = error?.code === "CAPTURE_PRODUCES_MISSING" || error?.code === "CAPTURE_HTTP_ARTIFACT_MISSING";
       if (!retryable || !shouldRetryResponse(step) || attempt === attempts) {
         if (error?.code === "CAPTURE_PRODUCES_MISSING") {
-          fail("CAPTURE_HTTP_MANIFEST_DRIFT", "Capture response kept missing expected produces fields; the remote API structure may have changed — re-capture the flow.");
+          fail("CAPTURE_HTTP_MANIFEST_DRIFT", `Manifest drift on capture step "${step.id}": ${error.message} (transport already dispatched; remote API may have changed — re-capture).`);
         }
         throw error;
       }

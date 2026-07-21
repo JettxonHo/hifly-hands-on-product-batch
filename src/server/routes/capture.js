@@ -276,6 +276,13 @@ function safeQueueErrorMessage() {
   return "Capture HTTP small-batch preview failed. No Hifly request was sent.";
 }
 
+function safeRealBatchErrorMessage(error) {
+  const detail = typeof error?.message === "string" && error.message.trim().length > 0
+    ? error.message
+    : "Real capture HTTP small-batch failed (see queue last_error code).";
+  return detail;
+}
+
 export async function registerCaptureRoutes(app, { batchRoot, store, generationConfig = {}, captureLive = {} }) {
   const activeRealBatchBatches = new Set();
   async function readCaptureBatch(batchId) {
@@ -953,7 +960,7 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
               ...candidate,
               status: "failed_remote",
               error_phase: "capture_http_real_batch",
-              error_message: safeQueueErrorMessage()
+              error_message: safeRealBatchErrorMessage(error)
             }
           : candidate);
         return {
