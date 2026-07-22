@@ -277,10 +277,11 @@ function safeQueueErrorMessage() {
 }
 
 function safeRealBatchErrorMessage(error) {
-  const detail = typeof error?.message === "string" && error.message.trim().length > 0
-    ? error.message
-    : "Real capture HTTP small-batch failed (see queue last_error code).";
-  return detail;
+  if (error?.code === "CAPTURE_HTTP_MANIFEST_DRIFT" && error.driftDetail) {
+    const d = error.driftDetail;
+    return `Manifest drift on step "${d.step_id}": missing produces "${d.missing_produces_name}" (${d.missing_produces_path}); HTTP ${d.http_status ?? "?"}; transport dispatched.`;
+  }
+  return "Real capture HTTP small-batch failed (see queue last_error code).";
 }
 
 export async function registerCaptureRoutes(app, { batchRoot, store, generationConfig = {}, captureLive = {} }) {

@@ -399,7 +399,16 @@ async function requestWithProducesRetry({ step, request, variables, transport, c
       const retryable = error?.code === "CAPTURE_PRODUCES_MISSING" || error?.code === "CAPTURE_HTTP_ARTIFACT_MISSING";
       if (!retryable || !shouldRetryResponse(step) || attempt === attempts) {
         if (error?.code === "CAPTURE_PRODUCES_MISSING") {
-          fail("CAPTURE_HTTP_MANIFEST_DRIFT", `Manifest drift on capture step "${step.id}": ${error.message} (transport already dispatched; remote API may have changed — re-capture).`);
+          const driftErr = new Error("Manifest drift: remote response missing an expected produces field (re-capture the flow).");
+          driftErr.code = "CAPTURE_HTTP_MANIFEST_DRIFT";
+          driftErr.driftDetail = {
+            step_id: step.id,
+            missing_produces_name: error.producesName ?? null,
+            missing_produces_path: error.producesPath ?? null,
+            http_status: response?.status ?? null,
+            transport_dispatched: true
+          };
+          throw driftErr;
         }
         throw error;
       }

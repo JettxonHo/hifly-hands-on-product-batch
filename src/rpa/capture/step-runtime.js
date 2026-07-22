@@ -37,7 +37,9 @@ export function extractProducedVariables(produces, body) {
     for (const segment of segments) {
       if (current == null || typeof current !== "object" || !(segment in current)) {
         throw Object.assign(new Error(`produces path not found for ${name}: ${path}`), {
-          code: "CAPTURE_PRODUCES_MISSING"
+          code: "CAPTURE_PRODUCES_MISSING",
+          producesName: name,
+          producesPath: path
         });
       }
       current = current[segment];
