@@ -1,5 +1,14 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-23 Capture HTTP manifest drift 恢复成功（用户授权真实执行，1 条恢复任务）
+
+- 用户本会话明确允许「重新录制并最多恢复 1 条真实 HTTP 任务」。本轮严格按该边界执行：先做 1 条 Playwright 校准录制，再只恢复 `MULTI-001`；没有运行 `MULTI-002`，没有额外重提。
+- **当前校准录制**：新建 `batch-calibration-ca47262f-a9bc-4b85-9da8-502242c086f5`，使用 `MULTI-002` 商品图跑完默认 Playwright「手里有货」链路。飞影手持图生成、确认、外层视频生成和下载均完成；产物为 `batches/batch-calibration-ca47262f-a9bc-4b85-9da8-502242c086f5/2026-07-23T08-05-25-260Z-652218-未命名.mp4`，远端作品 `652218`。本次录制可能消耗积分，需以飞影后台为准。
+- **录制处理（无飞影请求）**：校准 HAR 只保存在本地 gitignore 路径 `rpa/capture/raw/`，提取到 7 步后立即脱敏（移除 56 处敏感值）；`offline replay` 通过，`real_dry_run` 通过（7/7 步）。未提交 HAR、raw steps、视频、批次或登录态。
+- **恢复准备**：没有猜测或手改 `produces` 路径。将新录制的脱敏 manifest/report 复制到原失败批次 `batch-ec174f28-e9b8-4541-b2e7-c60b10e22474/capture/`，以 `manifest-recovery-2026-07-23.json` 更新其本地 manifest 指针；旧 manifest 保留。恢复前 preflight：`enabled=true`、`maxItems=2`、`runtimeAuthReady=true`、`batchReady=true`、`capture.status=dry_run_passed`。
+- **真实 HTTP 恢复结果**：对原批次只调用一次 `real-batch-run`，参数为 `{confirm:true, allowRealLive:true, acknowledgePointRisk:true, pointBudget:1, resume:true}`。仅 `MULTI-001` 被选中，新的远端作品为 `652265`，状态 `completed`，下载产物 `batches/batch-ec174f28-e9b8-4541-b2e7-c60b10e22474/artifacts/未命名.mp4`（32,782,095 bytes，SHA-256 `a90c97fcc5f4ff9189f46f050505866b5ee9945643c0acbe4f716432e2e56bfd`）。队列终态：`real_batch_completed` / `point_budget=1` / `completed=1` / `failed=0`。`MULTI-002` 保持 `pending`，未发送请求。
+- **积分与后续**：本轮校准片和 `MULTI-001` 的真实 HTTP 恢复都可能消耗飞影积分；准确扣费以飞影后台为准。后续如要执行 `MULTI-002`，必须在新会话再次取得明确积分授权，且先人工核对作品 `652265` 与本地下载文件。默认生产路径 Playwright 未改。
+
 ## 2026-07-23 接手状态：PR #13 已合并，Capture HTTP 等待重新录制（未访问飞影、未消耗积分）
 
 - `main` 已包含 PR #13（merge commit `8af50b9`）。该 PR 修复了 real-batch manifest drift 的诊断安全性：真实 HTTP 异常的原始 `error.message` 不再写入 batch/GUI；drift 只保留受控字段；manifest 的 `produces` 名称和路径均有语法白名单，阻止 URL/签名文本借错误文案泄漏。

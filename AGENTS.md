@@ -78,12 +78,12 @@ batch-ec174f28-e9b8-4541-b2e7-c60b10e22474
 最近状态：
 
 ```text
-batch status: real_batch_failed
-MULTI-001: failed_remote / CAPTURE_HTTP_MANIFEST_DRIFT
-MULTI-002: pending (首失败即停)
+batch status: real_batch_completed (2026-07-23 恢复后)
+MULTI-001: completed / remote_id 652265 / artifacts/未命名.mp4
+MULTI-002: pending (未获新的积分授权，未执行)
 ```
 
-该失败批次复用了历史 manifest/原始样本，不能据此猜测飞影当前字段。正确恢复方式是重新录制当前响应 → 脱敏 → offline replay + real_dry_run → 经用户再次授权后以 `resume: true`、`pointBudget: 1` 重试首条。详见 `docs/PROJECT_HANDOFF.md` 与 `docs/rpa/capture-real-batch-checklist.md`。
+原 manifest drift 已按正确流程恢复：重新录制当前响应 → 脱敏 → offline replay + real_dry_run → 用户授权下以 `resume: true`、`pointBudget: 1` 完成首条。详见 `docs/PROJECT_HANDOFF.md` 顶部。后续不得执行 `MULTI-002`，除非用户在新会话再次明确授权积分风险。
 
 ## 飞影积分和真实执行规则
 
