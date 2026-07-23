@@ -61,24 +61,29 @@ docs/PROJECT_HANDOFF.md
 
 ## 当前关键批次
 
-当前用于 GUI 排障的小批量：
+Playwright 历史 GUI 排障批次：
 
 ```text
 batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f
 ```
 
+它目前是混合态（已有完成产物 + 失败/待执行条目），仅作为 GUI 重试行为的历史样本；不要为了验证一个按钮从头重跑并消耗积分。
+
+当前 Capture HTTP 调试批次：
+
+```text
+batch-ec174f28-e9b8-4541-b2e7-c60b10e22474
+```
+
 最近状态：
 
 ```text
-batch status: interrupted_unknown
-item status: interrupted_unknown
-error_phase: remote_submit
-error_message: Remote submission did not produce unique evidence
+batch status: real_batch_failed
+MULTI-001: failed_remote / CAPTURE_HTTP_MANIFEST_DRIFT
+MULTI-002: pending (首失败即停)
 ```
 
-含义：自动化已走到飞影提交视频附近，但没有识别到唯一的新作品证据。不要误判为商品录入失败。
-
-优先验证 GUI 是否能显示「重新生成异常批次」并把该批次恢复到可执行状态。不要为了验证一个按钮重新从头跑流程浪费积分。
+该失败批次复用了历史 manifest/原始样本，不能据此猜测飞影当前字段。正确恢复方式是重新录制当前响应 → 脱敏 → offline replay + real_dry_run → 经用户再次授权后以 `resume: true`、`pointBudget: 1` 重试首条。详见 `docs/PROJECT_HANDOFF.md` 与 `docs/rpa/capture-real-batch-checklist.md`。
 
 ## 飞影积分和真实执行规则
 

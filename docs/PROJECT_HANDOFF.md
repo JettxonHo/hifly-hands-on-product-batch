@@ -1,5 +1,21 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-23 接手状态：PR #13 已合并，Capture HTTP 等待重新录制（未访问飞影、未消耗积分）
+
+- `main` 已包含 PR #13（merge commit `8af50b9`）。该 PR 修复了 real-batch manifest drift 的诊断安全性：真实 HTTP 异常的原始 `error.message` 不再写入 batch/GUI；drift 只保留受控字段；manifest 的 `produces` 名称和路径均有语法白名单，阻止 URL/签名文本借错误文案泄漏。
+- 本地检查：`npm test` 405/405、`npm run check` 65 个 JS 文件、`git diff --check main...HEAD` 均通过。本轮没有访问飞影，也没有消耗积分。工作区仍有接手前的无关改动：`.gitignore`、`package.json`、`package-lock.json`、`docs/resume/`、`wrangler.jsonc`；保持不动、不提交。
+- 当前 Capture HTTP 调试批次：`batch-ec174f28-e9b8-4541-b2e7-c60b10e22474`。状态为 `real_batch_failed`：`MULTI-001` = `failed_remote` / `CAPTURE_HTTP_MANIFEST_DRIFT`，`MULTI-002` = `pending`（首失败即停生效）。该批次的历史 `item.error_message` 仍是 PR #13 之前写入的旧文案，**不要把它当成当前代码行为，也不要手改该批次来测试文案**。
+- 已知根因边界：该批次复用了 07-20 成功批次的 `manifest.json` 与 `raw-steps.json`，后者不是 07-22 的真实响应，因此只能确定当日 `upload_image_001` 未得到 `data.oss_key`，不能判断是飞影字段漂移、返回异常还是录制复用导致。失败发生在 `upload_url` 早期、尚未到视频 submit；是否扣分以飞影后台为准。
+
+### 下一步（P0，需新的明确积分授权）
+
+1. **不要猜字段或手改 manifest。** 先确认飞影后台本次 `MULTI-001` 是否扣分。
+2. 以当前登录态重新录制当前 `/upload_url` 及其必要的 asset-generation 响应；录制可能进入付费链路，必须把它当作积分风险，先获得当次授权，且只操作 1 条测试商品。
+3. 将新录制立即脱敏，确认没有 cookie、bearer、签名 URL 或原始响应正文进入仓库；生成新 manifest 后依次做 offline replay 和 `real_dry_run`。
+4. 仅在 dry-run 通过后，对 `MULTI-001` 执行 `resume: true`、`pointBudget: 1`；保留 `MULTI-002` pending，首条成功后才决定是否再跑第二条。记录 batch、SKU、远端作品 ID、下载产物、积分与失败阶段。
+
+在用户明确授权上述真实操作前，可继续做的仅限本地 fake/文档/测试工作；默认生产路径仍是 Playwright。
+
 ## 2026-07-22 修复：Task 3 preflight 接入 GUI（Codex important，本地，未访问飞影、未消耗积分）
 
 - Codex 复审 PR #12 的 important：Task 3 preflight 后端就绪但未接入 GUI，原 checklist 按 `capture.status + 商品数` 误报「可执行」（全部完成时也 ✓，但按钮禁用、后端 409）；且默认 auth provider 会启动浏览器读 hifly token，不能每次刷新自动请求。
