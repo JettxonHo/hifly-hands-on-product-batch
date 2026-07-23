@@ -88,6 +88,16 @@ function validateStep(step, index, seenIds) {
   }
   const request_template = validateRequestTemplate(step.request_template, index);
   const risk = validateRisk(step.risk, index);
+  const produces = {};
+  if (step.produces && typeof step.produces === "object") {
+    for (const [name, path] of Object.entries(step.produces)) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) fail(`steps[${index}].produces has an invalid name: ${name}`);
+      if (typeof path !== "string" || !/^\$response\.body(\.[A-Za-z0-9_]+)+$/.test(path)) {
+        fail(`steps[${index}].produces.${name} must be a $response.body.<identifier>... path`);
+      }
+      produces[name] = path;
+    }
+  }
   return {
     id,
     phase,
@@ -95,7 +105,7 @@ function validateStep(step, index, seenIds) {
     url_template,
     placeholders: Array.isArray(step.placeholders) ? [...step.placeholders] : [],
     response: { status: response.status, body: structuredClone(response.body) },
-    produces: step.produces && typeof step.produces === "object" ? { ...step.produces } : {},
+    produces,
     ...(request_template ? { request_template } : {}),
     risk
   };
