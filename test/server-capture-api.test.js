@@ -1655,6 +1655,40 @@ test("real-batch-run surfaces manifest drift code when remote structure changed"
   const batch = res.json().batch;
   assert.equal(batch.capture.status, "real_batch_failed");
   assert.equal(batch.capture.queue.last_error.code, "CAPTURE_HTTP_MANIFEST_DRIFT");
+  const driftMsg = batch.items[0].error_message;
+  assert.match(driftMsg, /Manifest drift on step/);
+  assert.match(driftMsg, /missing produces/);
+  assert.match(driftMsg, /transport dispatched/);
+  assert.doesNotMatch(driftMsg, /No Hifly request/);
+});
+
+test("real-batch failure does not leak remote URL/token from transport errors", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-real-batch-leak-"));
+  const transport = {
+    async request() {
+      const e = new Error("GET https://cdn.example.com/signed?token=SECRET-VALUE failed");
+      e.code = "CAPTURE_HTTP_STATUS_NOT_OK";
+      throw e;
+    }
+  };
+  const { app, session } = await realBatchApp(root, transport);
+  await seedRealBatch(root, "batch-real-leak", [{ task_id: "task-1", sku: "SKU-1", status: "pending" }]);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/batches/batch-real-leak/capture/real-batch-run",
+    headers: headers(session),
+    payload: { confirm: true, allowRealLive: true, acknowledgePointRisk: true, pointBudget: 1 }
+  });
+
+  assert.equal(res.statusCode, 200);
+  const batch = res.json().batch;
+  assert.equal(batch.capture.status, "real_batch_failed");
+  const serialized = JSON.stringify(batch);
+  assert.doesNotMatch(serialized, /cdn\.example\.com|SECRET-VALUE|token=/);
+  const stored = JSON.parse(await readFile(path.join(root, "batches", "batch-real-leak", "batch.json"), "utf8"));
+  assert.doesNotMatch(JSON.stringify(stored), /cdn\.example\.com|SECRET-VALUE/);
 });
 
 test("live-run surfaces manifest drift code when remote structure changed", async (t) => {

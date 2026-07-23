@@ -276,6 +276,16 @@ function safeQueueErrorMessage() {
   return "Capture HTTP small-batch preview failed. No Hifly request was sent.";
 }
 
+function safeRealBatchErrorMessage(error) {
+  if (error?.code === "CAPTURE_HTTP_MANIFEST_DRIFT" && error.driftDetail) {
+    const d = error.driftDetail;
+    const nameOk = typeof d.missing_produces_name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(d.missing_produces_name);
+    const pathOk = typeof d.missing_produces_path === "string" && /^\$response\.body(\.[A-Za-z0-9_]+)+$/.test(d.missing_produces_path);
+    return `Manifest drift on step "${d.step_id}": missing produces "${nameOk ? d.missing_produces_name : "?"}" (${pathOk ? d.missing_produces_path : "?"}); HTTP ${d.http_status ?? "?"}; transport dispatched.`;
+  }
+  return "Real capture HTTP small-batch failed (see queue last_error code).";
+}
+
 export async function registerCaptureRoutes(app, { batchRoot, store, generationConfig = {}, captureLive = {} }) {
   const activeRealBatchBatches = new Set();
   async function readCaptureBatch(batchId) {
@@ -953,7 +963,7 @@ export async function registerCaptureRoutes(app, { batchRoot, store, generationC
               ...candidate,
               status: "failed_remote",
               error_phase: "capture_http_real_batch",
-              error_message: safeQueueErrorMessage()
+              error_message: safeRealBatchErrorMessage(error)
             }
           : candidate);
         return {

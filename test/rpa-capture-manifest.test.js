@@ -178,3 +178,9 @@ test("rejects invalid replayability values", () => {
     /risk.replayability is invalid/
   );
 });
+
+test("parseCaptureManifest rejects produces path containing a URL", () => {
+  const malicious = JSON.parse(JSON.stringify(SAMPLE));
+  malicious.steps[0] = { ...malicious.steps[0], produces: { leak: "$response.body.https://cdn.example.com/signed?token=SECRET" } };
+  assert.throws(() => parseCaptureManifest(malicious), /produces/);
+});
