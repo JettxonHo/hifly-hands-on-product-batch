@@ -1,5 +1,51 @@
 # 项目接力文档：飞影「手里有货」GUI 跑通优先
 
+## 2026-07-25 GUI 视觉与交互刷新（仅样式层，未访问飞影、未消耗积分）
+
+- 分支 `gui/visual-refresh`，用户拍板：不换技术栈（保持 vanilla HTML/CSS/JS 零构建），只做 GUI 美观 + 人机交互优化，且不得影响原有功能。范围限定为**仅样式层**：不改 DOM 结构、断言文案、role/id、前端逻辑。
+- 改动只在 `web/styles.css`（commit `1eb3c72`）：
+  - 字体分层：中文系统字体栈（Noto Sans SC / PingFang SC / Microsoft YaHei 回退）+ 等宽回退链用于 `code/.mono/.metric`；抗锯齿与字距微调。曾尝试 Google Fonts 外链，因 CSP `default-src 'self'`（`src/server/request-security.js`）拦截而撤销，保持零网络依赖。
+  - 排版：`h1` 用 `clamp(30px, 4.4vw, 46px)` 流式字号、标题负字距。
+  - 面板/卡片：圆角统一 10–14px、纵向渐变、双层柔和投影；side-panel / bulk-row / strategy-panel / task-item / record-card 同步。
+  - 按钮：primary/danger 渐变 + 内高光 + hover 加深 + active 位移；ghost 加浅阴影与 hover。
+  - 输入：圆角 9px、hover 边框色、accent focus ring；`::file-selector-button` 样式化（原生文件选择按钮不再突兀）。
+  - 表格：表头大写字距、行 hover 过渡、选中行左侧 accent 指示条（box-shadow inset，不改布局）。
+  - Toast 深色渐变 + 入场动画；dialog 圆角加大；badge 加细边框。
+  - 可访问性：`:focus-visible` 统一焦点环（active tab 上用白色焦点环保证对比度）、`prefers-reduced-motion` 全量降级、按钮/输入/表格行过渡动画。
+- 验证：preview server 桌面 + 移动端截图对比通过，console 无报错；`gui-smoke` 17/17、`npm test` 405/405、`npm run check` 65 个 JS 文件全通过。功能零回归。
+- 工作区既有无关改动（`.gitignore`、`package.json`、`package-lock.json`、`docs/resume/`、`wrangler.jsonc`）与 stash@{0} 保持不动、未纳入提交。
+- 注意：本分支基线是 `codex/manifest-drift-recovery-docs`（含两个尚未进 main 的 docs commit `f895c8a`、`4177f96`），开 PR/合并时需留意这两个 docs commit 会一并进入。
+
+### 下一步
+
+1. 推送 `gui/visual-refresh` 并开 PR，交 Codex 复审（重点确认：纯样式层、无断言风险、CSP 约束未被绕过）。
+2. 回到 task #37 之前：重新录制 `/upload_url` 根因修复已在 2026-07-23 章节完成（MULTI-001 恢复成功）；`MULTI-002` 仍为 pending，需新会话明确积分授权后才可执行。
+
+## 2026-07-23 Capture HTTP manifest drift 恢复成功（用户授权真实执行，1 条恢复任务）
+
+- 用户本会话明确允许「重新录制并最多恢复 1 条真实 HTTP 任务」。本轮严格按该边界执行：先做 1 条 Playwright 校准录制，再只恢复 `MULTI-001`；没有运行 `MULTI-002`，没有额外重提。
+- **当前校准录制**：新建 `batch-calibration-ca47262f-a9bc-4b85-9da8-502242c086f5`，使用 `MULTI-002` 商品图跑完默认 Playwright「手里有货」链路。飞影手持图生成、确认、外层视频生成和下载均完成；产物为 `batches/batch-calibration-ca47262f-a9bc-4b85-9da8-502242c086f5/2026-07-23T08-05-25-260Z-652218-未命名.mp4`，远端作品 `652218`。本次录制可能消耗积分，需以飞影后台为准。
+- **录制处理（无飞影请求）**：校准 HAR 只保存在本地 gitignore 路径 `rpa/capture/raw/`，提取到 7 步后立即脱敏（移除 56 处敏感值）；`offline replay` 通过，`real_dry_run` 通过（7/7 步）。未提交 HAR、raw steps、视频、批次或登录态。
+- **恢复准备**：没有猜测或手改 `produces` 路径。将新录制的脱敏 manifest/report 复制到原失败批次 `batch-ec174f28-e9b8-4541-b2e7-c60b10e22474/capture/`，以 `manifest-recovery-2026-07-23.json` 更新其本地 manifest 指针；旧 manifest 保留。恢复前 preflight：`enabled=true`、`maxItems=2`、`runtimeAuthReady=true`、`batchReady=true`、`capture.status=dry_run_passed`。
+- **真实 HTTP 恢复结果**：对原批次只调用一次 `real-batch-run`，参数为 `{confirm:true, allowRealLive:true, acknowledgePointRisk:true, pointBudget:1, resume:true}`。仅 `MULTI-001` 被选中，新的远端作品为 `652265`，状态 `completed`，下载产物 `batches/batch-ec174f28-e9b8-4541-b2e7-c60b10e22474/artifacts/未命名.mp4`（32,782,095 bytes，SHA-256 `a90c97fcc5f4ff9189f46f050505866b5ee9945643c0acbe4f716432e2e56bfd`）。队列终态：`real_batch_completed` / `point_budget=1` / `completed=1` / `failed=0`。`MULTI-002` 保持 `pending`，未发送请求。
+- **积分与后续**：本轮校准片和 `MULTI-001` 的真实 HTTP 恢复都可能消耗飞影积分；准确扣费以飞影后台为准。后续如要执行 `MULTI-002`，必须在新会话再次取得明确积分授权，且先人工核对作品 `652265` 与本地下载文件。默认生产路径 Playwright 未改。
+
+## 2026-07-23 接手状态：PR #13 已合并，Capture HTTP 等待重新录制（未访问飞影、未消耗积分）
+
+- `main` 已包含 PR #13（merge commit `8af50b9`）。该 PR 修复了 real-batch manifest drift 的诊断安全性：真实 HTTP 异常的原始 `error.message` 不再写入 batch/GUI；drift 只保留受控字段；manifest 的 `produces` 名称和路径均有语法白名单，阻止 URL/签名文本借错误文案泄漏。
+- 本地检查：`npm test` 405/405、`npm run check` 65 个 JS 文件、`git diff --check main...HEAD` 均通过。本轮没有访问飞影，也没有消耗积分。工作区仍有接手前的无关改动：`.gitignore`、`package.json`、`package-lock.json`、`docs/resume/`、`wrangler.jsonc`；保持不动、不提交。
+- 当前 Capture HTTP 调试批次：`batch-ec174f28-e9b8-4541-b2e7-c60b10e22474`。状态为 `real_batch_failed`：`MULTI-001` = `failed_remote` / `CAPTURE_HTTP_MANIFEST_DRIFT`，`MULTI-002` = `pending`（首失败即停生效）。该批次的历史 `item.error_message` 仍是 PR #13 之前写入的旧文案，**不要把它当成当前代码行为，也不要手改该批次来测试文案**。
+- 已知根因边界：该批次复用了 07-20 成功批次的 `manifest.json` 与 `raw-steps.json`，后者不是 07-22 的真实响应，因此只能确定当日 `upload_image_001` 未得到 `data.oss_key`，不能判断是飞影字段漂移、返回异常还是录制复用导致。失败发生在 `upload_url` 早期、尚未到视频 submit；是否扣分以飞影后台为准。
+
+### 下一步（P0，需新的明确积分授权）
+
+1. **不要猜字段或手改 manifest。** 先确认飞影后台本次 `MULTI-001` 是否扣分。
+2. 以当前登录态重新录制当前 `/upload_url` 及其必要的 asset-generation 响应；录制可能进入付费链路，必须把它当作积分风险，先获得当次授权，且只操作 1 条测试商品。
+3. 将新录制立即脱敏，确认没有 cookie、bearer、签名 URL 或原始响应正文进入仓库；生成新 manifest 后依次做 offline replay 和 `real_dry_run`。
+4. 仅在 dry-run 通过后，对 `MULTI-001` 执行 `resume: true`、`pointBudget: 1`；保留 `MULTI-002` pending，首条成功后才决定是否再跑第二条。记录 batch、SKU、远端作品 ID、下载产物、积分与失败阶段。
+
+在用户明确授权上述真实操作前，可继续做的仅限本地 fake/文档/测试工作；默认生产路径仍是 Playwright。
+
 ## 2026-07-22 修复：Task 3 preflight 接入 GUI（Codex important，本地，未访问飞影、未消耗积分）
 
 - Codex 复审 PR #12 的 important：Task 3 preflight 后端就绪但未接入 GUI，原 checklist 按 `capture.status + 商品数` 误报「可执行」（全部完成时也 ✓，但按钮禁用、后端 409）；且默认 auth provider 会启动浏览器读 hifly token，不能每次刷新自动请求。

@@ -61,24 +61,29 @@ docs/PROJECT_HANDOFF.md
 
 ## 当前关键批次
 
-当前用于 GUI 排障的小批量：
+Playwright 历史 GUI 排障批次：
 
 ```text
 batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f
 ```
 
+它目前是混合态（已有完成产物 + 失败/待执行条目），仅作为 GUI 重试行为的历史样本；不要为了验证一个按钮从头重跑并消耗积分。
+
+当前 Capture HTTP 调试批次：
+
+```text
+batch-ec174f28-e9b8-4541-b2e7-c60b10e22474
+```
+
 最近状态：
 
 ```text
-batch status: interrupted_unknown
-item status: interrupted_unknown
-error_phase: remote_submit
-error_message: Remote submission did not produce unique evidence
+batch status: real_batch_completed (2026-07-23 恢复后)
+MULTI-001: completed / remote_id 652265 / artifacts/未命名.mp4
+MULTI-002: pending (未获新的积分授权，未执行)
 ```
 
-含义：自动化已走到飞影提交视频附近，但没有识别到唯一的新作品证据。不要误判为商品录入失败。
-
-优先验证 GUI 是否能显示「重新生成异常批次」并把该批次恢复到可执行状态。不要为了验证一个按钮重新从头跑流程浪费积分。
+原 manifest drift 已按正确流程恢复：重新录制当前响应 → 脱敏 → offline replay + real_dry_run → 用户授权下以 `resume: true`、`pointBudget: 1` 完成首条。详见 `docs/PROJECT_HANDOFF.md` 顶部。后续不得执行 `MULTI-002`，除非用户在新会话再次明确授权积分风险。
 
 ## 飞影积分和真实执行规则
 
