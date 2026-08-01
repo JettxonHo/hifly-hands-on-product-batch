@@ -1,8 +1,8 @@
 # 项目当前状态
 
 > 最后更新：2026-08-01
-> 最后验证 commit：`cecca1b` (ci: add cross-platform quality gates)
-> 稳定 main commit：`cecca1b`
+> 最后验证 commit：`da96d35` (docs: establish project governance and persistence system)
+> 稳定 main commit：`da96d35`
 
 ## Open PR
 
@@ -38,14 +38,15 @@
 
 1. MULTI-002 需用户新会话明确授权积分后才可执行。
 2. PR #15 需人工视觉确认后合并。
+3. Windows CI 10 个测试失败（Issue #18，既有问题，不阻塞 ubuntu CI）。
 
 ## 下一步（最多 5 项）
 
-1. 完成 Phase 4-7 项目治理（当前会话）。
-2. PR #15 视觉确认后合并。
-3. 人物策略实验方案评审。
-4. 云端控制面 PoC 前置条件定义。
-5. v0.2 milestone Issue 逐步推进。
+1. PR #15 视觉确认后合并。
+2. Issue #18 Windows 跨平台测试修复。
+3. 人物策略实验方案评审（EXP-001）。
+4. v0.2 milestone Issue 逐步推进（CORE-001/002/003, OBS-001, UX-001）。
+5. 云端控制面 PoC 前置条件定义（ARCH-001）。
 
 ## 必须禁止的操作
 
