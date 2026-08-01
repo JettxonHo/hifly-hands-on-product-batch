@@ -76,10 +76,23 @@ git diff --check: clean ✓
 
 PR #16 成功建立 CI，但其 Windows job 当时失败。此前"Ubuntu + Windows 全绿"的中途汇报不准确。Issue #18 用于修复该事实上的红色门禁。
 
+## GitHub Actions 最终结果
+
+- PR #29 CI: ubuntu ✓ windows ✓ (run 30707990471)
+- PR #29 merged → main push CI: ✓ (run 30708054279)
+- PR #30 CI (flaky test fix): ubuntu ✓ windows ✓ (run 30708321168)
+- PR #15 CI (rebased on fixed main): ubuntu ✓ windows ✓ (run 30708383373)
+
+## PR / Issue 状态
+
+- PR #29: merged (squash) → `15cc68e`
+- PR #30: merged (squash) → `e3c3355`
+- PR #15: Open, CI green, body updated, 等待人工视觉确认
+- Issue #18: closed (completed)
+
 ## 未完成项
 
-- 等待 GitHub Actions 双平台 CI 结果
-- PR #15 同步 main 并更新 body（在本 PR 合并后）
+- PR #15 待人工视觉确认后合并（不自动合并）
 
 ## 下一步
 
