@@ -15,6 +15,15 @@
 4. 批次已脱敏、离线回放通过、`real_dry_run`（真实请求预演）通过，即 `capture.status = dry_run_passed`（或 `real_batch_failed` 续跑）。
 5. Playwright 登录态有效（`npm run login`），runtime auth provider 能读到 cookie + bearer。
 
+## Manifest Drift 恢复（出现 `CAPTURE_HTTP_MANIFEST_DRIFT` 时必做）
+
+1. **首失败即停。** 不要修改 `produces` 路径猜测字段，也不要直接重跑同一份历史 manifest。
+2. 先在飞影后台核对失败条目是否实际扣分。`upload_url` 阶段通常早于视频提交，但后台才是积分事实来源。
+3. 重新录制当前响应。录制过程可能进入飞影付费链路，仍需获得当次明确授权；只使用 1 条测试商品，并把录制范围限制在失败步骤及其必要的 asset-generation 链路。
+4. 新录制必须独立保存并立即脱敏；不得复用旧批次的 `raw-steps.json` 冒充当前响应，也不得提交 raw capture、cookie、bearer、签名 URL、日志或截图。
+5. 由新录制生成 manifest 后，先完成 offline replay 和 `real_dry_run`；两者通过前不得恢复真实 batch。
+6. 对原失败条目使用 `resume: true` 且 `pointBudget: 1`。后续 pending 条目保持不动，直至恢复条目完成并人工核对远端作品与下载产物。
+
 ## 第一次：只跑 1 条（pointBudget = 1）
 
 - 选一个单商品 capture 批次，pointBudget = 1。
