@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
+import { access, copyFile, mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -41,7 +41,8 @@ test("local workbench starts from a non-project cwd", async (t) => {
   }
 
   assert.match(server.url, /^http:\/\/127\.0\.0\.1:\d+$/);
-  assert.equal(getProjectRoot().endsWith("Product Recommendation clip"), true);
+  const projectRoot = getProjectRoot();
+  await access(path.join(projectRoot, "package.json"));
 });
 
 test("config fallback resolves next to an absolute missing local config", async (t) => {
