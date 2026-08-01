@@ -1,14 +1,12 @@
 # 项目当前状态
 
 > 最后更新：2026-08-02
-> 最后验证 commit：`2774285` (docs: finalize Windows CI recovery session record)
-> 稳定 main commit：`2774285`
+> 最后验证 commit：`6f8e84e` (style(gui): refresh visual and interaction details (#15))
+> 稳定 main commit：`6f8e84e`
 
 ## Open PR
 
-| # | 标题 | 分支 | 状态 |
-|---|------|------|------|
-| 15 | style(gui): 视觉与交互细节刷新(仅样式层) | gui/visual-refresh | Open, 等待 owner 视觉确认 |
+无（PR #15 已由 owner 视觉确认后 squash 合并）。
 
 ## 当前工作分支
 
@@ -37,7 +35,6 @@
 ## 已知阻塞项
 
 1. MULTI-002 需用户新会话明确授权积分后才可执行。
-2. PR #15 需 owner 视觉确认后合并（CI 已全绿）。
 
 ## 已知技术债
 
@@ -45,11 +42,11 @@
 
 ## 下一步（最多 5 项）
 
-1. PR #15 完成视觉验收并由 owner 决定是否合并。
-2. 推进 CORE-001：batch schema version 与 migrations。
-3. 推进 CORE-002：crash-recovery fault-injection tests。
-4. 推进 CORE-003：stale execution-lock recovery。
-5. 评审 EXP-001 人物策略实验方案。
+1. 推进 CORE-001：batch schema version 与 migrations。
+2. 推进 CORE-002：crash-recovery fault-injection tests。
+3. 推进 CORE-003：stale execution-lock recovery。
+4. 评审 EXP-001 人物策略实验方案。
+5. 评估 OBS-001 或 UX-001 的下一项工作。
 
 ## 必须禁止的操作
 
@@ -62,10 +59,14 @@
 ## 最近一次验证
 
 ```
+main commit: 6f8e84e (PR #15 squash merge)
 npm run check: 66 JavaScript file(s) ✓
-npm test: 404 pass / 16 skipped / 0 fail ✓
-npm run validate: 3 product rows ✓
-GitHub Actions CI: ubuntu-latest + windows-latest 全绿 ✓ (run 30708523937)
+npm test: 420 tests / 404 pass / 16 skipped / 0 fail ✓
+npm run validate: Validated 3 product row(s) ✓
+git diff --check: ✓
+Ubuntu CI: success ✓
+Windows CI: success ✓
+GitHub Actions run ID: 30718127693
 ```
 
 ## 重要文档索引

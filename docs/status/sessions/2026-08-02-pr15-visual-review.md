@@ -128,3 +128,42 @@ git diff --name-only origin/main...HEAD: web/styles.css ✓
 - 1 预防性修复（background-attachment: fixed 移除，已在前一轮完成）
 - 所有 viewport 布局正常，无水平溢出
 - 移动端 tabs/form/status pills 均正确响应
+
+---
+
+## 最终 Owner 视觉审批与合并
+
+- 视觉证据 ZIP：`pr15-2026-08-02-v2.zip`
+- ZIP size：`18409548` bytes
+- ZIP SHA-256：`09a688451c4beb54694f5f10aad16df5c7a627363c3d3e9dbd44d3ec5aee584f`
+- baseline PNG：15
+- candidate PNG：15
+- comparison PNG：15
+- 空文件：0
+- manifest SHA-256 校验：全部通过
+- 覆盖场景：A/B/C/D/E
+- 覆盖 viewport：1440×900、1024×768、390×844
+- iOS Safari 真机测试：未进行
+- 项目 owner 视觉结论：通过
+- Owner 授权原文：`视觉确认通过，允许 squash merge PR #15。`
+- PR #15 合并方式：squash
+- PR #15 原 head：`2858019`
+- PR #15 合并 commit：`6f8e84ef8ec497699155c2959ec79c03fd22e942`
+- PR #15 merged at：`2026-08-01T20:58:17Z`
+- 合并后 main CI run：`30718127693`
+- Ubuntu：通过
+- Windows：通过
+
+### 视觉审查结论
+
+未发现阻塞性布局回归、横向溢出、按钮裁切、信息遮挡或移动端不可操作问题。
+
+候选版本在信息层级、焦点可见性、按钮状态、表单、表格、
+Toast、badge 和移动端响应方面均优于或不弱于 baseline。
+
+### 说明
+
+- 视觉产物（PNG / ZIP / HTML 报告 / manifest）仅保存在本地 gitignored 目录
+  `artifacts/visual-review/pr15-2026-08-02-v2/`，**未提交仓库**。
+- 未进行 iOS Safari 真机测试，未验证所有真实设备。
+- 未访问飞影，未消耗积分。
