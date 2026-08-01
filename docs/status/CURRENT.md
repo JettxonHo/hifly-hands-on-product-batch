@@ -1,8 +1,8 @@
 # 项目当前状态
 
-> 最后更新：2026-08-01
-> 最后验证 commit：`da96d35` (docs: establish project governance and persistence system)
-> 稳定 main commit：`da96d35`
+> 最后更新：2026-08-02
+> 最后验证 commit：`e3c3355` (fix(test): increase capture execution poll budget)
+> 稳定 main commit：`e3c3355`
 
 ## Open PR
 
@@ -37,13 +37,13 @@
 ## 已知阻塞项
 
 1. MULTI-002 需用户新会话明确授权积分后才可执行。
-2. PR #15 需人工视觉确认后合并。
-3. Issue #18 Windows CI 修复中（PR 待 CI 全绿后合并）。
+2. PR #15 需人工视觉确认后合并（CI 已全绿）。
 
 ## 下一步（最多 5 项）
 
-1. Issue #18 PR 合并（CI 全绿后）。
-2. PR #15 同步 main + 视觉确认后合并。
+1. PR #15 视觉确认后合并。
+2. v0.2 milestone Issue 逐步推进（CORE-001/002/003, OBS-001, UX-001）。
+3. 人物策略实验方案评审（EXP-001）。
 2. Issue #18 Windows 跨平台测试修复。
 3. 人物策略实验方案评审（EXP-001）。
 4. v0.2 milestone Issue 逐步推进（CORE-001/002/003, OBS-001, UX-001）。
