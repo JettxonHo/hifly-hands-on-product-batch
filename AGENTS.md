@@ -16,17 +16,30 @@ GUI 跑通的最低标准：
 
 ## 必读接力文档
 
-继续任何开发、测试或排障前，先阅读：
+继续任何开发、测试或排障前，**按顺序**阅读：
 
 ```text
-docs/PROJECT_HANDOFF.md
+docs/status/CURRENT.md      ← 当前状态唯一事实来源
+AGENTS.md                    ← 本文件
+docs/ROADMAP.md              ← 版本目标与 Issue 依赖
+docs/PROJECT_HANDOFF.md      ← 仅在需要历史背景时阅读
 ```
 
-该文档记录当前项目状态、已知卡点、关键批次、验证命令和接力步骤。若上下文丢失、模型切换、账号切换或工具切换，应以该文档为恢复入口。
+若上下文丢失、模型切换、账号切换或工具切换，应以 `docs/status/CURRENT.md` 为恢复入口。
 
-## 持久化记录规则
+## 持久化记录规则（2026-08-01 更新）
 
-为了避免不同模型之间产生误解，每个接手代理都必须把重要工作进度写入持久文档。
+1. 聊天记忆不是项目事实来源。
+2. 每轮重要工作必须更新 `docs/status/CURRENT.md`。
+3. 每轮必须创建或更新 `docs/status/sessions/` 下的 session 文档。
+4. GitHub Issue 是任务事实来源。
+5. ADR（`docs/decisions/`）是架构决策事实来源。
+6. 当前状态不得只追加到超长 handoff 顶部。
+7. 不得使用 Claude 私有 memory、Codex 私有上下文或 `.claude/` 替代仓库文档。
+
+## 持久化记录内容要求
+
+每个接手代理都必须把重要工作进度写入持久文档。
 
 必须记录的内容：
 
@@ -39,10 +52,12 @@ docs/PROJECT_HANDOFF.md
 
 记录位置：
 
-- 长期接力状态写入 `docs/PROJECT_HANDOFF.md`。
-- 若是架构或流程决策，新增或更新 `docs/` 下合适的说明文档。
+- 当前快照 → `docs/status/CURRENT.md`。
+- 会话记录 → `docs/status/sessions/YYYY-MM-DD-<slug>.md`。
+- 架构决策 → `docs/decisions/ADR-NNN-<slug>.md`。
+- 历史接力 → `docs/PROJECT_HANDOFF.md`（仅追加，不再作为唯一来源）。
 - 不要只把关键状态留在聊天上下文里。
-- 不要用某个模型私有的记忆空间（如 Claude 的 `~/.claude` memory）替代项目文档——本项目跨模型协作，知识必须落在随仓库的 `docs/` 里，其他模型才看得到。
+- 不要用某个模型私有的记忆空间替代项目文档。
 
 `docs/` 文档职责划分（学到的经验、坑、决策按主题写进对应文档，不要全堆进 PROJECT_HANDOFF）：
 
