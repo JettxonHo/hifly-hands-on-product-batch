@@ -1,18 +1,18 @@
 # 项目当前状态
 
 > 最后更新：2026-08-02
-> 最后验证 commit：`e3c3355` (fix(test): increase capture execution poll budget)
-> 稳定 main commit：`e3c3355`
+> 最后验证 commit：`2774285` (docs: finalize Windows CI recovery session record)
+> 稳定 main commit：`2774285`
 
 ## Open PR
 
 | # | 标题 | 分支 | 状态 |
 |---|------|------|------|
-| 15 | style(gui): 视觉与交互细节刷新(仅样式层) | gui/visual-refresh | Open, 等待人工视觉确认 |
+| 15 | style(gui): 视觉与交互细节刷新(仅样式层) | gui/visual-refresh | Open, 等待 owner 视觉确认 |
 
 ## 当前工作分支
 
-无（所有 Phase 1-3 工作已合并或提交 PR）
+无
 
 ## 当前生产路径
 
@@ -37,17 +37,19 @@
 ## 已知阻塞项
 
 1. MULTI-002 需用户新会话明确授权积分后才可执行。
-2. PR #15 需人工视觉确认后合并（CI 已全绿）。
+2. PR #15 需 owner 视觉确认后合并（CI 已全绿）。
+
+## 已知技术债
+
+- CORE-004：portable-path API 边界加固（`toPortableRelativePath` 不强制验证，依赖调用者纪律）
 
 ## 下一步（最多 5 项）
 
-1. PR #15 视觉确认后合并。
-2. v0.2 milestone Issue 逐步推进（CORE-001/002/003, OBS-001, UX-001）。
-3. 人物策略实验方案评审（EXP-001）。
-2. Issue #18 Windows 跨平台测试修复。
-3. 人物策略实验方案评审（EXP-001）。
-4. v0.2 milestone Issue 逐步推进（CORE-001/002/003, OBS-001, UX-001）。
-5. 云端控制面 PoC 前置条件定义（ARCH-001）。
+1. PR #15 完成视觉验收并由 owner 决定是否合并。
+2. 推进 CORE-001：batch schema version 与 migrations。
+3. 推进 CORE-002：crash-recovery fault-injection tests。
+4. 推进 CORE-003：stale execution-lock recovery。
+5. 评审 EXP-001 人物策略实验方案。
 
 ## 必须禁止的操作
 
@@ -60,10 +62,10 @@
 ## 最近一次验证
 
 ```
-npm run check: 65 JavaScript file(s) ✓
-npm test: 389 pass / 16 skipped / 0 fail ✓
+npm run check: 66 JavaScript file(s) ✓
+npm test: 404 pass / 16 skipped / 0 fail ✓
 npm run validate: 3 product rows ✓
-GitHub Actions CI: ubuntu-latest + windows-latest 全绿 ✓
+GitHub Actions CI: ubuntu-latest + windows-latest 全绿 ✓ (run 30708523937)
 ```
 
 ## 重要文档索引
