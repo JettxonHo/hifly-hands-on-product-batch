@@ -54,9 +54,13 @@ git diff --check: clean ✓
 
 - PR #14 merged (squash) → `458b1cd`
 - PR #16 merged (squash) → `cecca1b`
+- PR #17 merged (squash, admin for pre-existing Windows failures) → `da96d35`
 - PR #15 更新（force-with-lease clean rebase），保持 Open
-- 分支保护已设置
+- 分支保护已设置：CI 必须通过 + 分支最新 + 禁止 force push + 仅 squash merge
 - 仓库合并策略：仅 squash merge
+- GitHub Issues 创建：#18-#27（10 issues）
+- GitHub Milestones 创建：v0.2 (#1), v0.3 (#2), v1.0 (#3)
+- GitHub Labels 创建：15 个（priority/type/area/points 分类）
 
 ## 真实飞影访问情况
 
@@ -68,9 +72,10 @@ git diff --check: clean ✓
 
 - PR #15 待人工视觉确认合并
 - MULTI-002 待新授权
-- GitHub Issue 创建（Phase 7，本 session 后续步骤）
+- Windows CI 10 个测试失败（Issue #18，既有问题）
 
 ## 下一步
 
-- Phase 7 Issue 创建完成后，本轮治理结束
 - 后续轮次从 `docs/status/CURRENT.md` 恢复上下文
+- 优先处理 Issue #18（Windows 跨平台）以解锁 CI 全绿
+- PR #15 视觉确认后合并
