@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveFromRoot } from "./config.js";
 import { resolvePersonStrategies } from "./core/person-strategy.js";
+import { toPortableRelativePath } from "./core/portable-path.js";
 
 const DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 
@@ -26,7 +27,7 @@ export function listPersonPoolFiles(config, category) {
   return fs.readdirSync(absoluteDir)
     .filter((fileName) => allowed.has(path.extname(fileName).toLowerCase()))
     .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"))
-    .map((fileName) => path.join(relativeDir, fileName));
+    .map((fileName) => toPortableRelativePath(path.join(relativeDir, fileName)));
 }
 
 export function normalizeCategory(category, config) {
