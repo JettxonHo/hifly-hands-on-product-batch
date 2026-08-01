@@ -38,11 +38,12 @@
 
 1. MULTI-002 需用户新会话明确授权积分后才可执行。
 2. PR #15 需人工视觉确认后合并。
-3. Windows CI 10 个测试失败（Issue #18，既有问题，不阻塞 ubuntu CI）。
+3. Issue #18 Windows CI 修复中（PR 待 CI 全绿后合并）。
 
 ## 下一步（最多 5 项）
 
-1. PR #15 视觉确认后合并。
+1. Issue #18 PR 合并（CI 全绿后）。
+2. PR #15 同步 main + 视觉确认后合并。
 2. Issue #18 Windows 跨平台测试修复。
 3. 人物策略实验方案评审（EXP-001）。
 4. v0.2 milestone Issue 逐步推进（CORE-001/002/003, OBS-001, UX-001）。
