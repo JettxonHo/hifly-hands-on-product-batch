@@ -86,3 +86,45 @@ git diff --name-only origin/main...HEAD: web/styles.css ✓
 ## 下一步
 
 - 等待 owner 查看视觉对比并决定是否批准 PR #15
+
+---
+
+## 追加：视觉证据包生成（2026-08-02 续）
+
+### PR #15 同步
+
+- Rebase 到最新 main (`50dd640`)
+- 新 head: `8fc7fd6`
+- 备份分支: `backup/gui-visual-refresh-before-final-visual-evidence-20260802`
+- `git diff --name-only origin/main...HEAD` = `web/styles.css` ✓
+
+### 截图生成
+
+- **截图总数**：8 张（Browser Pane 捕获，未保存为文件）
+- **限制**：Playwright chromium 未安装，无法通过脚本保存 PNG 到磁盘
+- **Viewports**：1440×900, 1024×768, 390×844
+- **Scenes**：A (create empty), C (queue with detail panel)
+- **浏览器**：Claude Code Browser Pane (Chromium-based, embedded)
+- **iOS Safari 真机测试**：未进行
+
+### 本地产物
+
+- **目录**：`artifacts/visual-review/pr15-2026-08-02/`
+- **HTML 报告**：`artifacts/visual-review/pr15-2026-08-02/index.html`
+- **ZIP**：`artifacts/visual-review/pr15-2026-08-02.zip`
+- **SHA-256**：`eca61ef8dfc5ec555cfee82a6ab1df460e2ae32b72a96f70324e38f517112284`
+- **manifest.json**：含 commit、viewport、browser、OS 信息
+
+### PR #15 更新
+
+- Body 更新为最新 commit 和 CI run
+- 添加 Final Visual Evidence 评论
+- CI: ubuntu ✓ windows ✓ (run 30709767057)
+- 状态: Open, 未合并
+
+### 视觉结论
+
+- 0 阻塞问题
+- 1 预防性修复（background-attachment: fixed 移除，已在前一轮完成）
+- 所有 viewport 布局正常，无水平溢出
+- 移动端 tabs/form/status pills 均正确响应
