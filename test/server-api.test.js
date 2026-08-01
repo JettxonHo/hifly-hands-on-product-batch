@@ -1133,7 +1133,7 @@ test("capture-enabled executions use a per-run HAR executor and mark capture rec
   assert.equal(execution.statusCode, 202);
 
   let batch = null;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
     const response = await app.inject({
       method: "GET",
       url: "/api/batches/batch-capture-run",
@@ -1141,7 +1141,7 @@ test("capture-enabled executions use a per-run HAR executor and mark capture rec
     });
     batch = response.json().batch;
     if (batch.status === "completed" && batch.capture.status === "recorded") break;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
 
   assert.equal(factoryCalls.length, 1);

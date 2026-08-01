@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveFromRoot } from "../config.js";
+import { toPortableRelativePath } from "./portable-path.js";
 
 const DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 const PERSON_STRATEGIES = new Set(["auto_pool", "fixed_upload", "hifly_recommended"]);
@@ -79,7 +80,7 @@ function listPoolImages(config, category) {
   return fs.readdirSync(absoluteDir)
     .filter((file) => allowed.has(path.extname(file).toLowerCase()))
     .sort((left, right) => left.localeCompare(right, "zh-Hans-CN"))
-    .map((file) => path.join(returnedDir, file));
+    .map((file) => toPortableRelativePath(path.join(returnedDir, file)));
 }
 
 function normalizePathSegment(value) {

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, realpath, rm, writeFile, mkdir, symlink } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -124,7 +125,7 @@ test("copies external person images into batch-local rpa inputs", async () => {
     });
 
     assert.match(pkg.person_image_path, /rpa[\\/]inputs[\\/]task-1-person-[\w-]+\.jpg$/);
-    assert.equal(pkg.person_image_path.startsWith(await realpath(f.batchDirectory)), true);
+    assert.equal(pkg.person_image_path.startsWith(realpathSync(f.batchDirectory)), true);
     assert.equal(await readFile(pkg.person_image_path, "utf8"), "person-image");
     assert.equal(JSON.stringify(pkg).includes(personImage), false);
   } finally {

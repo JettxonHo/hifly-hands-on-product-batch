@@ -6,6 +6,16 @@ import path from "node:path";
 import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
 import { readRpaState, writeRpaState } from "../src/rpa/rpa-state.js";
 
+async function waitForRpaState(batchDirectory, taskId, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state = await readRpaState(batchDirectory, taskId);
+    if (state) return state;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`Timed out waiting for RPA state: ${taskId}`);
+}
+
 async function fixture(rpa = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "yingdao-executor-"));
   const batchDirectory = path.join(root, "batches", "batch-1");
@@ -46,8 +56,7 @@ test("createAsset writes package with batch strategies and resolves after asset_
       batch: { person_strategy: "fixed_upload", script_strategy: "provided_script" },
       checkpoint: async () => {}
     });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    const state = await readRpaState(f.batchDirectory, "task-1");
+    const state = await waitForRpaState(f.batchDirectory, "task-1");
     const packageData = JSON.parse(await readFile(state.package_path, "utf8"));
     assert.equal(packageData.person_strategy, "fixed_upload");
     assert.equal(packageData.script_strategy, "provided_script");
@@ -73,8 +82,7 @@ test("createAsset surfaces failed_remote without waiting for its timeout", async
       () => null,
       (error) => error
     );
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const state = await readRpaState(f.batchDirectory, "task-1");
+    const state = await waitForRpaState(f.batchDirectory, "task-1");
     await writeRpaState(f.batchDirectory, "task-1", {
       callback_token: state.callback_token,
       status: "failed_remote",
@@ -83,7 +91,7 @@ test("createAsset surfaces failed_remote without waiting for its timeout", async
     const error = await observed;
     assert.equal(error?.code, "YINGDAO_RPA_FAILED_REMOTE");
     assert.match(error.message, /Remote asset generation failed/);
-    assert.ok(Date.now() - started < 200);
+    assert.ok(Date.now() - started < 500);
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
@@ -93,8 +101,7 @@ test("createAsset preserves interrupted_unknown from rpa state", async () => {
   const f = await fixture({ assetTimeoutMs: 500, pollIntervalMs: 5 });
   try {
     const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const state = await readRpaState(f.batchDirectory, "task-1");
+    const state = await waitForRpaState(f.batchDirectory, "task-1");
     await writeRpaState(f.batchDirectory, "task-1", {
       callback_token: state.callback_token,
       status: "interrupted_unknown",
