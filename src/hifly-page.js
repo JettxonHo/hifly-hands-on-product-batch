@@ -1,6 +1,6 @@
 import path from "node:path";
 import { resolveFromRoot } from "./config.js";
-import { toPortableRelativePath } from "./core/portable-path.js";
+import { relativePortablePath } from "./core/portable-path.js";
 import { timestampForFile } from "./logger.js";
 
 function normalizeScriptText(value) {
@@ -215,12 +215,25 @@ export class HiflyHandsOnProductPage {
     const suggested = download.suggestedFilename();
     const artifactId = candidates[0].remote_id ?? candidates[0].work_key;
     const outputName = `${timestampForFile()}-${sanitizeFileName(artifactId)}-${sanitizeFileName(suggested)}`;
-    const outputPath = path.join(destination ?? this.config.downloadDir, outputName);
+    // Resolve the destination to an absolute filesystem path under the
+    // project root BEFORE validation: the configured downloadDir is relative
+    // by default and must be anchored to config.__rootDir (or process.cwd()
+    // as the explicit fallback), never to the incidental process cwd via
+    // path.resolve.
+    const projectRoot = this.config.__rootDir ?? process.cwd();
+    const requestedDestination = destination ?? this.config.downloadDir;
+    const absoluteDestination = path.isAbsolute(requestedDestination)
+      ? requestedDestination
+      : path.join(projectRoot, requestedDestination);
+    const outputPath = path.join(absoluteDestination, outputName);
+    // Validate BEFORE the filesystem side effect: an output path outside the
+    // project root fails closed here, and saveAs never creates the file.
+    const relativePath = relativePortablePath(projectRoot, outputPath);
     await download.saveAs(outputPath);
 
     return {
       artifact_id: artifactId,
-      relative_path: toPortableRelativePath(path.relative(this.config.__rootDir ?? process.cwd(), outputPath))
+      relative_path: relativePath
     };
   }
 

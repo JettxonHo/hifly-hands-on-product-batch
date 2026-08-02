@@ -1,9 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
-import { resolveFromRoot } from "../config.js";
-import { toPortableRelativePath } from "./portable-path.js";
+import { listPoolImageFiles } from "./person-pool-files.js";
 
-const DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 const PERSON_STRATEGIES = new Set(["auto_pool", "fixed_upload", "hifly_recommended"]);
 
 export function normalizePersonStrategy(value) {
@@ -72,15 +68,9 @@ function nextImage(images, key, counters) {
 }
 
 function listPoolImages(config, category) {
-  const rootDir = config.personPool?.rootDir || "assets/person_pool";
-  const absoluteDir = path.join(resolveFromRoot(config, rootDir), category);
-  const returnedDir = path.join(rootDir, category);
-  if (!fs.existsSync(absoluteDir)) return [];
-  const allowed = new Set((config.personPool?.allowedExtensions || DEFAULT_EXTENSIONS).map((ext) => ext.toLowerCase()));
-  return fs.readdirSync(absoluteDir)
-    .filter((file) => allowed.has(path.extname(file).toLowerCase()))
-    .sort((left, right) => left.localeCompare(right, "zh-Hans-CN"))
-    .map((file) => toPortableRelativePath(path.join(returnedDir, file)));
+  // Shared with person-pool.js: lexical + canonical containment, regular-file
+  // filtering, and project-root-relative POSIX path generation.
+  return listPoolImageFiles(config, category);
 }
 
 function normalizePathSegment(value) {

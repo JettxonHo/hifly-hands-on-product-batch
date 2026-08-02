@@ -1,7 +1,7 @@
 import path from "node:path";
 import { lstat, mkdir, open, realpath } from "node:fs/promises";
 import { assertExecutorAdapter } from "../core/executor-adapter.js";
-import { toPortableRelativePath } from "../core/portable-path.js";
+import { relativePortablePath } from "../core/portable-path.js";
 import { createRpaTaskPackage, writeRpaTaskPackage } from "../rpa/task-package.js";
 import { registerRpaCallbackToken, revokeRpaCallbackToken } from "../rpa/callback-token-registry.js";
 import { readRpaState, writeRpaState } from "../rpa/rpa-state.js";
@@ -333,7 +333,7 @@ export function createCaptureHttpExecutor({ root, config = {} } = {}) {
       }
       const artifact = {
         artifact_id: artifactId(remoteEvidence?.remote_id, taskId, captureHttpMode),
-        relative_path: toPortableRelativePath(path.relative(dir, absolutePath))
+        relative_path: relativePortablePath(dir, absolutePath)
       };
       await writeRpaState(dir, taskId, {
         status: "completed",

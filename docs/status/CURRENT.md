@@ -1,16 +1,16 @@
 # 项目当前状态
 
-> 最后更新：2026-08-02
-> 最后验证 commit：`6f8e84e` (style(gui): refresh visual and interaction details (#15))
-> 稳定 main commit：`6f8e84e`
+> 最后更新：2026-08-03
+> 最后验证 commit：`7157d07` (fix(core): make capture execution completion deterministic (#38))
+> 稳定 main commit：`7157d0799d60ca7cbb5d3cc2939bf5924a23bf4e`
 
 ## Open PR
 
-无（PR #15 已由 owner 视觉确认后 squash 合并）。
+- **CORE-004 / Issue #33**：portable-path API 边界加固（`fix/core-004-safe-portable-path-boundaries`），**待审查，未合并**。
 
 ## 当前工作分支
 
-无
+`fix/core-004-safe-portable-path-boundaries`（基于 `7157d07`，独立 worktree，等待审查）
 
 ## 当前生产路径
 
@@ -38,8 +38,13 @@
 
 ## 已知技术债
 
-- CORE-004：portable-path API 边界加固（`toPortableRelativePath` 不强制验证，依赖调用者纪律）
-- **CI-002（处理中，PR #38 待审查合并）**：Windows capture completion timing flake。
+- **CORE-004（进行中，PR 待审查）**：portable-path API 边界加固（Issue #33）。
+  - **统一安全语义**：模块只有一套私有验证核心（`normalizeAndValidatePortablePath`）与一个 segment 验证循环；`toPortableRelativePath`、`assertSafeRelative`、`relativePortablePath`、`fromPortablePath` 全部执行同一规则，fail-closed：必须 string（null/undefined/非 string 抛 TypeError）；先规范化 `\`→`/` 再验证；拒绝空串、裸 `"."`、内嵌 `"."` 段、`..` traversal、空段、绝对 POSIX/Windows drive/UNC/单反斜杠 rooted。纯分隔符转换隔离为模块私有 `normalizePortableSeparatorsUnsafe`（不导出）。**旧 `assertSafeRelative` 放行空串/`"."`/内嵌 `"."` 段的公开绕过入口已删除**，不得有任何公开 validator 允许空路径或 `"."`。
+  - **参数边界**：`relativePortablePath(from, to)` 要求 from/to 均为当前平台 absolute path string；`fromPortablePath(root, portablePath)` 要求 root 为 absolute path string；相对或非 string 参数在边界拒绝（不再隐式依赖 `process.cwd()`）；错误为稳定边界错误，不来自 Node 内部偶然异常。
+  - **person pool 契约**（`person-pool.js` 与 `person-strategy.js` 语义一致，共享窄范围 helper `src/core/person-pool-files.js`，不再重复实现）：配置 rootDir 先经 `resolveFromRoot` 解析为 absolute filesystem path；持久化路径始终从项目根（`config.__rootDir`）到 absolute file 重新计算（`relativePortablePath(projectRoot, absoluteFile)`），配置值本身不直接持久化。**relative rootDir 支持；absolute rootDir 位于项目根内支持，且与 relative 形式产生完全相同的 persisted POSIX 路径；absolute/traversal rootDir 越出项目根 fail-closed，在 `readdirSync` 前拒绝、不读取外部目录**；缺 absolute `__rootDir` 的配置抛稳定边界错误。**containment 双层**：lexical（`relativePortablePath`，在任何 FS 操作前拒绝 `../`、absolute 外部、跨盘）+ **canonical realpath**（`readdirSync` 前 canonicalize 项目根与 pool 目录，canonical pool 必须等于 canonical 项目根 + lexical 相对路径；**中间目录组件的 symlink/junction 重定向一律 fail-closed 拒绝**，项目根本身可经 symlink 启动）。枚举仅接受 `dirent.isFile()` 的常规文件 + 允许扩展名：**symlinked image entry 不进入候选列表**（不返回、不被策略选中、不成为 `__resolved_person_image_path`、不持久化）。
+  - **Hifly 下载**：`downloadArtifact` 先把 destination 在项目根（`config.__rootDir ?? process.cwd()` 明确 fallback）下解析为 absolute filesystem path（**默认相对 `downloadDir`（如 `"downloads"`）、显式相对 destination、absolute destination 均支持**；不经 `path.resolve` 隐式依赖进程偶然 cwd），再在 `saveAs` 之前计算并验证 relative path（先验证后副作用）；越界/traversal destination 在创建文件前抛错（saveAs 零调用、外部目录零写入），合法下载（含 `submitAndDownload` 生产调用链）的文件名与 persisted relative path 不变。
+  - **持久化格式不变**（POSIX `/`），无 batch 迁移。旧 null/空值放行与 absolute rootDir 静默持久化绝对路径的行为为有意移除的安全契约修正。
+- **CI-002（已完成，由 PR #38 squash 合并）**：Windows capture completion timing flake。PR #38 squash commit `7157d0799d60ca7cbb5d3cc2939bf5924a23bf4e`，mergedAt `2026-08-02T18:35:28Z`；合并后 main CI run `30761463482` Ubuntu/Windows 双绿（check：Checked 67 JavaScript file(s)；test：477 total / 461 passed / 0 failed / 16 skipped；validate：Validated 3 product row(s)；git diff --check success）。已合并其已证明的 lifecycle、Windows rename、snapshot 与 idempotency 修复：
   - **首次失败**：main commit `afdb32b`，run `30718340154`，Windows job 测试 #328 `capture-enabled executions use a per-run HAR executor and mark capture recorded`，expected `completed` / actual `interrupted_unknown`（420 total / 403 pass / 1 fail / 16 skipped）；同 commit Ubuntu 通过；failed-job rerun 通过（**这是一次 rerun，非首次成功**）；前一 main commit `6f8e84e` Ubuntu/Windows 均通过。
   - **已证明并修复的 lifecycle 缺陷**（均经确定性测试固定）：
     1. 缺供外部调用方等待完整 execution 生命周期的边界——此前只能轮询 `completed` 与 `capture.recorded` 两个独立持久化的合取。
@@ -63,15 +68,15 @@
     - **恢复原始用户路径回归**：POST /api/executions → 周期 GET /api/batches/:batchId → 严格断言 completed+recorded，不允许 interrupted_unknown、不扩大 5s 预算，失败时输出观察到的状态时间线+持久化 item/batch/capture/execution_error+provenance。
   - **确定性验证**：全量 461 pass/0 fail ×3（含 per-batch queue / 背压 / TTL-from-settle 等新测试）；batch-store ×100（cold/update queue+驱逐+合并）、idempotency-registry ×100（active 不过期+背压+TTL-from-settle）、server-api ×100（polling+rename-fault+idempotency 集成+503 背压+safe-stop-over-TTL+capture lifecycle+completion）均 0 失败；`npm ci/check（67 文件）/test/validate` 与 `git diff --check` 全绿；全程注入 gate/clock/rename/read，零真实 sleep。
   - **Windows 专项压力**：`.github/workflows/capture-stress.yml` 现对 lifecycle 相关路径在 `pull_request` 触发（另保留 `workflow_dispatch`），重复原始轮询+completion API+deterministic 测试 **≥20 次**，任一失败即失败并保留 TAP（状态时间线+provenance）。**最新 head `b1d9d26` 已达成 20/20**：stress run `30760463897` `reps=20 failed=0`、标准 CI run `30760463905` Ubuntu/Windows 双绿。历史：retry-only（`ea6ad08`）19/20 → snapshot reader（`f9d2577`）20/20 → 第三轮三修复（`75bc688`/`f2c2faf`）20/20 → 第四轮 per-batch queue + 背压（`b1d9d26`）20/20。门禁引用最新 head，不引用旧 commit。
-  - **待办**：Issue #37 保持 Open，直到原始 `interrupted_unknown` 有确定 provenance，或被压力充分证明不再出现；稳定 main commit 届时更新到真实通过压力验证的 commit。
+  - **待办**：Issue #37 保持 Open，直到原始 `interrupted_unknown` 有确定 provenance，或被压力充分证明不再出现。**最初 `interrupted_unknown` 的精确写入者仍未获得 provenance 证据，不得视为根因已完全解决。**
 
 ## 下一步（最多 5 项）
 
-1. 审查并决定 CI-002 修复 PR #38（合并后触发 Windows 压力 workflow 完成验收）。
-2. 推进 CORE-001：batch schema version 与 migrations。
+1. 审查 CORE-004 PR（portable-path 边界加固，Issue #33）。
+2. CORE-004 合并后推进 CORE-001：batch schema version 与 migrations。
 3. 推进 CORE-002：crash-recovery fault-injection tests。
 4. 推进 CORE-003：stale execution-lock recovery。
-5. 评审 EXP-001 人物策略实验方案。
+5. 继续观察 Issue #37 provenance（原始 `interrupted_unknown` 写入者）。
 
 ## 必须禁止的操作
 
@@ -84,14 +89,14 @@
 ## 最近一次验证
 
 ```
-main commit: 6f8e84e (PR #15 squash merge)
-npm run check: 66 JavaScript file(s) ✓
-npm test: 420 tests / 404 pass / 16 skipped / 0 fail ✓
+main commit: 7157d07 (PR #38 squash merge)
+GitHub Actions run ID: 30761463482 (event=push, branch=main, headSha=7157d07)
+npm run check: Checked 67 JavaScript file(s) ✓
+npm test: 477 tests / 461 passed / 0 failed / 16 skipped ✓
 npm run validate: Validated 3 product row(s) ✓
 git diff --check: ✓
 Ubuntu CI: success ✓
 Windows CI: success ✓
-GitHub Actions run ID: 30718127693
 ```
 
 ## 重要文档索引

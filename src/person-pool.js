@@ -1,10 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
-import { resolveFromRoot } from "./config.js";
+import { listPoolImageFiles } from "./core/person-pool-files.js";
 import { resolvePersonStrategies } from "./core/person-strategy.js";
-import { toPortableRelativePath } from "./core/portable-path.js";
-
-const DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 
 export function assignPersonImages(products, config, logger) {
   return resolvePersonStrategies(products, config, {
@@ -13,21 +8,10 @@ export function assignPersonImages(products, config, logger) {
 }
 
 export function listPersonPoolFiles(config, category) {
-  const rootDir = config.personPool?.rootDir || "assets/person_pool";
-  const absoluteDir = path.join(resolveFromRoot(config, rootDir), normalizePathSegment(category));
-  const relativeDir = path.join(rootDir, normalizePathSegment(category));
-
-  if (!fs.existsSync(absoluteDir)) return [];
-
-  const allowed = new Set(
-    (config.personPool?.allowedExtensions || DEFAULT_EXTENSIONS)
-      .map((extension) => extension.toLowerCase())
-  );
-
-  return fs.readdirSync(absoluteDir)
-    .filter((fileName) => allowed.has(path.extname(fileName).toLowerCase()))
-    .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"))
-    .map((fileName) => toPortableRelativePath(path.join(relativeDir, fileName)));
+  // Containment (lexical + canonical realpath), regular-file filtering, and
+  // project-root-relative POSIX path generation all live in the shared
+  // person-pool-files helper.
+  return listPoolImageFiles(config, normalizePathSegment(category));
 }
 
 export function normalizeCategory(category, config) {

@@ -1,6 +1,6 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-01
+> 最后更新：2026-08-03
 
 ## v0.2 Local Stable
 
@@ -11,9 +11,11 @@
 - [ ] Batch schema version 与 migrations (CORE-001)
 - [ ] Crash-recovery fault-injection tests (CORE-002)
 - [ ] Stale execution-lock recovery 改进 (CORE-003)
+- [ ] Portable-path API 边界加固 (CORE-004 / Issue #33，PR 待审查)
 - [ ] Structured redacted diagnostics (OBS-001)
 - [ ] GUI 稳定性与错误状态优化 (UX-001)
-- [ ] PR #15 视觉确认合并
+- [x] PR #15 视觉确认合并
+- [x] Windows capture completion / filesystem stability hardening (CI-002 / PR #38)
 
 ## v0.3 Production Pilot
 
