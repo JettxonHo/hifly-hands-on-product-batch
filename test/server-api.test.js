@@ -1768,14 +1768,17 @@ test("the registry evicts the oldest settled receipt at capacity but keeps the n
     assert.equal(exec.statusCode, 202);
     await awaitSettled(app, session, batchId, exec.json().executionId);
   }
-  // cap-1 (oldest settled) was evicted when cap-3 was recorded -> reusable on a fresh batch.
-  await newCaptureBatch(app, session, "batch-idem-cap-1b");
-  const retry1 = await startKey(app, session, "batch-idem-cap-1b", "cap-1");
-  assert.equal(retry1.statusCode, 202, "oldest settled receipt evicted -> key reusable");
-  // cap-2 and cap-3 (the two newest) are retained -> still duplicates.
+  // Check the RETAINED keys first: a rejected retry (409) never reaches the
+  // synchronous reserve, so it does not perturb the registry. cap-2 and cap-3
+  // (the two newest) must still be duplicates.
   await newCaptureBatch(app, session, "batch-idem-cap-2b");
-  const retry2 = await startKey(app, session, "batch-idem-cap-2b", "cap-2");
-  assert.equal(retry2.statusCode, 409, "retained receipt still blocks reuse");
+  assert.equal((await startKey(app, session, "batch-idem-cap-2b", "cap-2")).statusCode, 409, "cap-2 retained");
+  await newCaptureBatch(app, session, "batch-idem-cap-3b");
+  assert.equal((await startKey(app, session, "batch-idem-cap-3b", "cap-3")).statusCode, 409, "cap-3 retained");
+  // cap-1 (oldest settled) was evicted when cap-3 was recorded -> reusable. This
+  // accepted retry is checked LAST so its reserve cannot evict a later assertion.
+  await newCaptureBatch(app, session, "batch-idem-cap-1b");
+  assert.equal((await startKey(app, session, "batch-idem-cap-1b", "cap-1")).statusCode, 202, "cap-1 evicted -> reusable");
 });
 
 test("a late retry with the original idempotency key after a safe-stop is rejected without re-invoking the executor", async (t) => {
