@@ -1664,31 +1664,157 @@ test("completion API resolves a settled execution after a server restart", async
   assert.equal(after.json().batch.capture.status, "recorded");
 });
 
-test("the in-memory execution registry does not grow without bound across executions", async (t) => {
-  const { app, session } = await captureExecutionFixture(t, {
-    close: ({ root: r, recordHarPath }) => writeHar(r, recordHarPath)
+// --- Idempotency: bounded TTL/LRU receipt registry ---------------------------
+// A key that has been accepted is retained for its TTL (even after the execution
+// settles), so a near-term retry is rejected as DUPLICATE_IDEMPOTENCY_KEY (409)
+// instead of starting a second execution. This replaces the old release-on-settle
+// model that allowed immediate reuse — a double-spend risk.
+
+async function idemFixture(t, options = {}) {
+  const { app, root, session } = await fixture(createFakeExecutor(), {
+    executorFactory: ({ recordHarPath }) => {
+      const executor = createFakeExecutor();
+      executor.close = async () => {
+        await mkdir(path.dirname(path.join(root, recordHarPath)), { recursive: true });
+        await writeFile(path.join(root, recordHarPath), "{\"log\":{\"entries\":[]}}\n");
+      };
+      return executor;
+    },
+    ...options
   });
-  // Run several executions back-to-back on distinct batches. If the registry were
-  // unbounded (and keyed by the caller's idempotencyKey), reusing the same key
-  // after settle would be rejected as a duplicate. It must not be: once settled,
-  // the entry is released and the snapshot is the durable record.
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  return { app, root, session };
+}
+
+async function newCaptureBatch(app, session, batchId) {
+  await createBatch(app, session, batchId);
+  await importInto(app, session, batchId, "SKU-1.png", { capture_enabled: "true" });
+}
+
+function startKey(app, session, batchId, idempotencyKey) {
+  return app.inject({
+    method: "POST", url: "/api/executions", headers: headers(session),
+    payload: { batchId, idempotencyKey, confirm: true }
+  });
+}
+
+function awaitSettled(app, session, batchId, executionId) {
+  return app.inject({
+    method: "GET", url: `/api/executions/${batchId}/${executionId}/wait`, headers: headers(session)
+  });
+}
+
+test("unique idempotency keys run back-to-back without false duplicates", async (t) => {
+  const { app, session } = await idemFixture(t);
   for (let i = 1; i <= 3; i += 1) {
-    const batchId = `batch-capture-reg-${i}`;
-    await createBatch(app, session, batchId);
-    await importInto(app, session, batchId, "SKU-1.png", { capture_enabled: "true" });
-    const execution = await app.inject({
-      method: "POST", url: "/api/executions", headers: headers(session),
-      payload: { batchId, idempotencyKey: "reused-key", confirm: true }
-    });
-    assert.equal(execution.statusCode, 202, `execution ${i} must not be rejected as a duplicate key`);
-    const settled = await app.inject({
-      method: "GET",
-      url: `/api/executions/${batchId}/${execution.json().executionId}/wait`,
-      headers: headers(session)
-    });
+    const batchId = `batch-idem-uniq-${i}`;
+    await newCaptureBatch(app, session, batchId);
+    const exec = await startKey(app, session, batchId, `key-${i}`);
+    assert.equal(exec.statusCode, 202, `unique key ${i} must be accepted`);
+    const settled = await awaitSettled(app, session, batchId, exec.json().executionId);
     assert.equal(settled.statusCode, 200);
     assert.equal(settled.json().batch.capture.status, "recorded");
   }
+});
+
+test("a settled idempotency key is rejected as a duplicate within its TTL", async (t) => {
+  const { app, session } = await idemFixture(t);
+  await newCaptureBatch(app, session, "batch-idem-a");
+  const first = await startKey(app, session, "batch-idem-a", "shared-key");
+  assert.equal(first.statusCode, 202);
+  await awaitSettled(app, session, "batch-idem-a", first.json().executionId);
+  const retry = await startKey(app, session, "batch-idem-a", "shared-key");
+  assert.equal(retry.statusCode, 409);
+  assert.equal(retry.json().error, "DUPLICATE_IDEMPOTENCY_KEY");
+});
+
+test("a duplicate idempotency key is rejected even against a different batch within TTL", async (t) => {
+  const { app, session } = await idemFixture(t);
+  await newCaptureBatch(app, session, "batch-idem-x");
+  await newCaptureBatch(app, session, "batch-idem-y");
+  const first = await startKey(app, session, "batch-idem-x", "cross-key");
+  assert.equal(first.statusCode, 202);
+  await awaitSettled(app, session, "batch-idem-x", first.json().executionId);
+  const retry = await startKey(app, session, "batch-idem-y", "cross-key");
+  assert.equal(retry.statusCode, 409);
+  assert.equal(retry.json().error, "DUPLICATE_IDEMPOTENCY_KEY");
+});
+
+test("an idempotency key becomes reusable only after its TTL expires", async (t) => {
+  const clock = { t: 1000 };
+  const { app, session } = await idemFixture(t, { idempotencyTtlMs: 500, now: () => clock.t });
+  await newCaptureBatch(app, session, "batch-idem-ttl-1");
+  await newCaptureBatch(app, session, "batch-idem-ttl-2");
+  const first = await startKey(app, session, "batch-idem-ttl-1", "ttl-key");
+  assert.equal(first.statusCode, 202);
+  await awaitSettled(app, session, "batch-idem-ttl-1", first.json().executionId);
+
+  const within = await startKey(app, session, "batch-idem-ttl-2", "ttl-key");
+  assert.equal(within.statusCode, 409, "within TTL the key is still a duplicate");
+
+  clock.t = 1000 + 500 + 1; // advance the injected clock past the TTL
+  const after = await startKey(app, session, "batch-idem-ttl-2", "ttl-key");
+  assert.equal(after.statusCode, 202, "after TTL the key is reusable");
+});
+
+test("the registry evicts the oldest settled receipt at capacity but keeps the newest", async (t) => {
+  const { app, session } = await idemFixture(t, { idempotencyMaxEntries: 2 });
+  for (const [key, batchId] of [["cap-1", "batch-idem-cap-1"], ["cap-2", "batch-idem-cap-2"], ["cap-3", "batch-idem-cap-3"]]) {
+    await newCaptureBatch(app, session, batchId);
+    const exec = await startKey(app, session, batchId, key);
+    assert.equal(exec.statusCode, 202);
+    await awaitSettled(app, session, batchId, exec.json().executionId);
+  }
+  // cap-1 (oldest settled) was evicted when cap-3 was recorded -> reusable on a fresh batch.
+  await newCaptureBatch(app, session, "batch-idem-cap-1b");
+  const retry1 = await startKey(app, session, "batch-idem-cap-1b", "cap-1");
+  assert.equal(retry1.statusCode, 202, "oldest settled receipt evicted -> key reusable");
+  // cap-2 and cap-3 (the two newest) are retained -> still duplicates.
+  await newCaptureBatch(app, session, "batch-idem-cap-2b");
+  const retry2 = await startKey(app, session, "batch-idem-cap-2b", "cap-2");
+  assert.equal(retry2.statusCode, 409, "retained receipt still blocks reuse");
+});
+
+test("a late retry with the original idempotency key after a safe-stop is rejected without re-invoking the executor", async (t) => {
+  // Points-safety regression: after a safe-stop (item back to pending), a late
+  // retry with the SAME key must 409 (not start a second execution), so the
+  // executor is never called again and points cannot be double-spent.
+  let submitCalls = 0;
+  let releaseAsset;
+  let assetStarted = false;
+  const executor = createFakeExecutor();
+  executor.createAsset = async () => {
+    assetStarted = true;
+    await new Promise((resolve) => { releaseAsset = resolve; });
+    return { asset_id: "asset", preview_url: null };
+  };
+  executor.submitVideo = async () => {
+    submitCalls += 1;
+    return { status: "ready", remoteEvidence: { evidence_source: "direct_submission", remote_id: "work-1" } };
+  };
+  const { app, root, session } = await fixture(executor);
+  t.after(async () => {
+    releaseAsset?.();
+    await app.stopExecutions?.();
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await importOne(app, session, "batch-idem-stop");
+  const first = await startKey(app, session, "batch-idem-stop", "stop-key");
+  assert.equal(first.statusCode, 202);
+  while (!assetStarted) await new Promise((resolve) => setImmediate(resolve));
+  const stopPromise = app.stopExecutions(); // safe-stop: item -> pending, key settled (retained)
+  releaseAsset();
+  await stopPromise;
+  assert.equal(submitCalls, 0, "stopped before any submit");
+
+  const retry = await startKey(app, session, "batch-idem-stop", "stop-key");
+  assert.equal(retry.statusCode, 409, "late retry with the same key is rejected");
+  assert.equal(retry.json().error, "DUPLICATE_IDEMPOTENCY_KEY");
+  assert.equal(submitCalls, 0, "no second execution -> executor not called again (no double-spend)");
 });
 
 // --- CI-002: default JSON body parser semantics (global override reverted) ----

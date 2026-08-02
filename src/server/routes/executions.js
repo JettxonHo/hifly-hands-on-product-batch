@@ -5,6 +5,7 @@ import path from "node:path";
 import { runBatch } from "../../core/batch-runner.js";
 import { acquireExecutionLock } from "../../core/execution-lock.js";
 import { createExecutionSnapshot } from "../../core/execution-snapshot.js";
+import { createIdempotencyRegistry } from "../../core/idempotency-registry.js";
 import { resolvePersonStrategies } from "../../core/person-strategy.js";
 import { validateProducts } from "../../core/product-validation.js";
 import { resolveScriptStrategies } from "../../core/script-strategy.js";
@@ -158,18 +159,35 @@ export function createExecutionCoordinator({
   config = {},
   logger,
   lockOptions = {},
-  pointsEstimate = {}
+  pointsEstimate = {},
+  idempotencyMaxEntries,
+  idempotencyTtlMs,
+  now
 }) {
   let active = null;
   let stopping = false;
-  const idempotencyKeys = new Set();
+  const idempotencyOptions = {};
+  if (Number.isInteger(idempotencyMaxEntries)) idempotencyOptions.maxEntries = idempotencyMaxEntries;
+  if (typeof idempotencyTtlMs === "number" && Number.isFinite(idempotencyTtlMs)) idempotencyOptions.ttlMs = idempotencyTtlMs;
+  if (typeof now === "function") idempotencyOptions.now = now;
+  const idempotency = createIdempotencyRegistry(idempotencyOptions);
 
   async function start(body) {
+    const { batchId, idempotencyKey } = requestFields(body);
+    // Idempotency is checked BEFORE the stopping/executor guards: a key that was
+    // already accepted and is still within its TTL (including after a safe-stop)
+    // must be rejected as a duplicate rather than re-started — this is what
+    // prevents a late retry from double-spending points.
+    if (idempotency.check(idempotencyKey)) throw executionError("DUPLICATE_IDEMPOTENCY_KEY", 409);
     if (stopping) throw executionError("SERVER_STOPPING", 503);
     if (!executor) throw executionError("EXECUTOR_UNAVAILABLE", 503);
-    const { batchId, idempotencyKey } = requestFields(body);
-    if (idempotencyKeys.has(idempotencyKey)) throw executionError("DUPLICATE_IDEMPOTENCY_KEY", 409);
     if (active) throw executionError("EXECUTION_IN_PROGRESS", 409);
+    // Reserve the key SYNCHRONOUSLY before any await: this closes the window
+    // between the duplicate check and acceptance so two concurrent same-key
+    // requests cannot both pass (the second gets 409 DUPLICATE_IDEMPOTENCY_KEY,
+    // not EXECUTION_IN_PROGRESS). If lock/prep fails below, the key is released so
+    // a retry is not blocked.
+    idempotency.record(idempotencyKey, { batchId, executionId: null, active: true });
 
     const batchDirectory = path.join(batchRoot, batchId);
     const controller = new AbortController();
@@ -186,6 +204,7 @@ export function createExecutionCoordinator({
         });
         execution.lock = lock;
       } catch (error) {
+        idempotency.release(idempotencyKey);
         if (error?.code === "EXECUTION_LOCKED") throw executionError("EXECUTION_IN_PROGRESS", 409);
         throw error;
       }
@@ -195,10 +214,18 @@ export function createExecutionCoordinator({
         batch = await prepareExecution({ batchId, batchDirectory, store, config, logger, pointsEstimate });
       } catch (error) {
         await lock.release().catch(() => {});
+        idempotency.release(idempotencyKey);
         throw error;
       }
 
-      idempotencyKeys.add(idempotencyKey);
+      // Prep succeeded: the execution is accepted. Refresh the receipt with the
+      // persisted snapshot executionId (the opaque identity returned to clients,
+      // NOT the caller's idempotencyKey) and keep it marked active until settle.
+      idempotency.record(idempotencyKey, {
+        batchId,
+        executionId: batch.execution_snapshot?.executionKey ?? null,
+        active: true
+      });
       return { batch, lock, controller };
     })();
     execution.done = execution.ready.then(async ({ batch, lock, controller }) => {
@@ -310,10 +337,13 @@ export function createExecutionCoordinator({
       });
     }).finally(() => {
       if (active === execution) active = null;
-      // The in-memory registry entry is released once the execution settles; the
-      // persisted execution snapshot is the durable record used to resolve a wait
-      // after settle/restart, so neither the key set nor any map grows unbounded.
-      idempotencyKeys.delete(idempotencyKey);
+      // Settle (don't release): the key stays in the registry for its TTL so a
+      // retry within the window is rejected as a duplicate (409) instead of
+      // starting a second execution that could double-spend points. The persisted
+      // execution snapshot remains the durable record used by waitForCompletion
+      // after settle/restart. settle() is a no-op if the key was already released
+      // by a lock/prep failure.
+      idempotency.settle(idempotencyKey);
     });
     let ready;
     try {

@@ -90,7 +90,10 @@ export async function buildApp({
   generationConfig = {},
   captureLive = {},
   webRoot = path.join(getProjectRoot(), "web"),
-  storeOptions = {}
+  storeOptions = {},
+  idempotencyMaxEntries,
+  idempotencyTtlMs,
+  now
 } = {}) {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("root is required");
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
@@ -105,7 +108,10 @@ export async function buildApp({
     store,
     config: generationConfig,
     lockOptions: executionLock,
-    pointsEstimate
+    pointsEstimate,
+    idempotencyMaxEntries,
+    idempotencyTtlMs,
+    now
   });
 
   app.decorate("workbench", { batchRoot, executor, openBrowser, store });

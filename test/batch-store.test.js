@@ -268,3 +268,117 @@ test("concurrent readCommitted readers add no rename contention during a writer'
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// --- cold readCommitted vs concurrent commit (generation gate) ---------------
+// A cold back-fill must never overwrite a snapshot committed mid-read. The read
+// gate is INJECTED (pausedOnce readFile) so the race is deterministic with no
+// real-time sleep.
+
+test("cold readCommitted never overwrites a snapshot committed mid-read", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-coldrace-"));
+  const realReadFile = readFile;
+  try {
+    // Seed batch-a via a SEPARATE store so the test store's snapshot is cold for it.
+    await createBatchStore(root).create({ batch_id: "batch-a", name: "V1", items: [] });
+
+    let release;
+    let pausedOnce = false;
+    const readFileImpl = async (file, enc) => {
+      // Pause ONLY the first read of batch-a (the cold readCommitted). The
+      // concurrent update's internal read happens later and proceeds normally.
+      if (!pausedOnce && file.endsWith(path.join("batch-a", "batch.json"))) {
+        pausedOnce = true;
+        const captured = await realReadFile(file, enc); // V1, captured before the rename
+        await new Promise((resolve) => { release = resolve; }); // hold the cold read open
+        return captured; // stale V1
+      }
+      return realReadFile(file, enc);
+    };
+    const store = createBatchStore(root, { readFileImpl });
+
+    const cold = store.readCommitted("batch-a"); // miss -> read -> pauses
+    while (!release) await new Promise((resolve) => setImmediate(resolve));
+
+    // Concurrent update on the SAME store commits V2 + bumps the generation.
+    await store.update("batch-a", (batch) => ({ ...batch, name: "V2" }));
+
+    release(); // cold read resumes with the stale disk value V1
+    const observed = await cold;
+    assert.equal(observed.name, "V2", "returns the committed V2, not the stale disk V1");
+    assert.equal((await store.readCommitted("batch-a")).name, "V2", "subsequent reads still V2");
+    assert.equal((await store.read("batch-a")).name, "V2", "disk agrees");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("cold readCommitted completes (V1) then an update commits V2; final snapshot is V2", async () => {
+  // Reverse ordering (no overlap): the cold read finishes before the commit lands.
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-coldthen-"));
+  try {
+    await createBatchStore(root).create({ batch_id: "batch-a", name: "V1", items: [] });
+    const store = createBatchStore(root); // cold snapshot for batch-a
+    assert.equal((await store.readCommitted("batch-a")).name, "V1");
+    await store.update("batch-a", (batch) => ({ ...batch, name: "V2" }));
+    assert.equal((await store.readCommitted("batch-a")).name, "V2", "committed update wins");
+    assert.equal((await store.read("batch-a")).name, "V2");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// --- snapshot cache bounded LRU ----------------------------------------------
+
+test("snapshot cache evicts LRU; evicted batches cold-restore and the next LRU is evicted correctly", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-lru-"));
+  const realReadFile = readFile;
+  async function mutateDiskName(batchId, newName) {
+    const filePath = path.join(root, batchId, "batch.json");
+    const current = JSON.parse(await realReadFile(filePath, "utf8"));
+    await writeFile(filePath, `${JSON.stringify({ ...current, name: newName }, null, 2)}\n`, "utf8");
+  }
+  try {
+    const store = createBatchStore(root, { snapshotMaxEntries: 2 });
+    await store.create({ batch_id: "batch-a", name: "A", items: [] });
+    await store.create({ batch_id: "batch-b", name: "B", items: [] });
+    await store.readCommitted("batch-a"); // touch A -> B becomes LRU
+    await store.create({ batch_id: "batch-c", name: "C", items: [] }); // overflows -> evicts B
+    assert.equal(store.snapshotCacheSize(), 2, "cache at the limit (A and C retained; B evicted)");
+
+    // C is retained (cached): a disk mutation is NOT visible through readCommitted.
+    await mutateDiskName("batch-c", "C-from-disk");
+    assert.equal((await store.readCommitted("batch-c")).name, "C", "C served from cache; disk mutation invisible");
+
+    // B was evicted -> readCommitted(B) cold-reads disk (mutation visible) and back-fills,
+    // which evicts the now-LRU entry (A).
+    await mutateDiskName("batch-b", "B-from-disk");
+    assert.equal((await store.readCommitted("batch-b")).name, "B-from-disk", "B cold-restores from disk");
+
+    // A was evicted by B's restore -> readCommitted(A) cold-reads disk.
+    await mutateDiskName("batch-a", "A-from-disk");
+    assert.equal((await store.readCommitted("batch-a")).name, "A-from-disk", "A re-evicted after B restore -> cold read");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("snapshot cache size never exceeds snapshotMaxEntries", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-bound-"));
+  try {
+    const store = createBatchStore(root, { snapshotMaxEntries: 3 });
+    for (let i = 0; i < 8; i += 1) {
+      await store.create({ batch_id: `batch-${i}`, items: [] });
+      await store.readCommitted(`batch-${i}`);
+      assert.ok(store.snapshotCacheSize() <= 3, `iter ${i}: size ${store.snapshotCacheSize()} must be <= 3`);
+    }
+    assert.equal(store.snapshotCacheSize(), 3);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("snapshotMaxEntries must be a finite positive integer (Infinity rejected)", () => {
+  assert.throws(() => createBatchStore(path.join(os.tmpdir(), "nul"), { snapshotMaxEntries: Infinity }), /finite positive integer/);
+  assert.throws(() => createBatchStore(path.join(os.tmpdir(), "nul"), { snapshotMaxEntries: 0 }), /finite positive integer/);
+  assert.throws(() => createBatchStore(path.join(os.tmpdir(), "nul"), { snapshotMaxEntries: 2.5 }), /finite positive integer/);
+});
