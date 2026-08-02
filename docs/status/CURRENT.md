@@ -1,16 +1,16 @@
 # 项目当前状态
 
 > 最后更新：2026-08-03
-> 最后验证 commit：`7157d07` (fix(core): make capture execution completion deterministic (#38))
-> 稳定 main commit：`7157d0799d60ca7cbb5d3cc2939bf5924a23bf4e`
+> 最后验证 commit：`3e859e0` (fix(core): enforce safe portable-path API boundaries (#39))
+> 稳定 main commit：`3e859e0079c29ab2b0558d26ffdf6340e97ab261`
 
 ## Open PR
 
-- **CORE-004 / Issue #33**：portable-path API 边界加固（`fix/core-004-safe-portable-path-boundaries`），**待审查，未合并**。
+- 仅本文档记录 PR（分支 `docs/core-004-merge-record`，只改 `docs/status/CURRENT.md` 与 `docs/ROADMAP.md`，无代码改动，待审查）。
 
 ## 当前工作分支
 
-`fix/core-004-safe-portable-path-boundaries`（基于 `7157d07`，独立 worktree，等待审查）
+`docs/core-004-merge-record`（PR #39 合并后文档记录，无代码改动）
 
 ## 当前生产路径
 
@@ -38,7 +38,7 @@
 
 ## 已知技术债
 
-- **CORE-004（进行中，PR 待审查）**：portable-path API 边界加固（Issue #33）。
+- **CORE-004（已完成，由 PR #39 squash 合并；Issue #33 随 PR #39 合并自动关闭）**：portable-path API 边界加固。PR #39 squash commit `3e859e0079c29ab2b0558d26ffdf6340e97ab261`，mergedAt `2026-08-02T20:52:44Z`；合并后 main CI run `30766608512` Ubuntu/Windows 双绿（check：Checked 68 JavaScript file(s)；test：506 total / 490 passed / 0 failed / 16 skipped；validate：Validated 3 product row(s)；git diff --check success）。已合并的实现：
   - **统一安全语义**：模块只有一套私有验证核心（`normalizeAndValidatePortablePath`）与一个 segment 验证循环；`toPortableRelativePath`、`assertSafeRelative`、`relativePortablePath`、`fromPortablePath` 全部执行同一规则，fail-closed：必须 string（null/undefined/非 string 抛 TypeError）；先规范化 `\`→`/` 再验证；拒绝空串、裸 `"."`、内嵌 `"."` 段、`..` traversal、空段、绝对 POSIX/Windows drive/UNC/单反斜杠 rooted。纯分隔符转换隔离为模块私有 `normalizePortableSeparatorsUnsafe`（不导出）。**旧 `assertSafeRelative` 放行空串/`"."`/内嵌 `"."` 段的公开绕过入口已删除**，不得有任何公开 validator 允许空路径或 `"."`。
   - **参数边界**：`relativePortablePath(from, to)` 要求 from/to 均为当前平台 absolute path string；`fromPortablePath(root, portablePath)` 要求 root 为 absolute path string；相对或非 string 参数在边界拒绝（不再隐式依赖 `process.cwd()`）；错误为稳定边界错误，不来自 Node 内部偶然异常。
   - **person pool 契约**（`person-pool.js` 与 `person-strategy.js` 语义一致，共享窄范围 helper `src/core/person-pool-files.js`，不再重复实现）：配置 rootDir 先经 `resolveFromRoot` 解析为 absolute filesystem path；持久化路径始终从项目根（`config.__rootDir`）到 absolute file 重新计算（`relativePortablePath(projectRoot, absoluteFile)`），配置值本身不直接持久化。**relative rootDir 支持；absolute rootDir 位于项目根内支持，且与 relative 形式产生完全相同的 persisted POSIX 路径；absolute/traversal rootDir 越出项目根 fail-closed，在 `readdirSync` 前拒绝、不读取外部目录**；缺 absolute `__rootDir` 的配置抛稳定边界错误。**containment 双层**：lexical（`relativePortablePath`，在任何 FS 操作前拒绝 `../`、absolute 外部、跨盘）+ **canonical realpath**（`readdirSync` 前 canonicalize 项目根与 pool 目录，canonical pool 必须等于 canonical 项目根 + lexical 相对路径；**中间目录组件的 symlink/junction 重定向一律 fail-closed 拒绝**，项目根本身可经 symlink 启动）。枚举仅接受 `dirent.isFile()` 的常规文件 + 允许扩展名：**symlinked image entry 不进入候选列表**（不返回、不被策略选中、不成为 `__resolved_person_image_path`、不持久化）。
@@ -72,8 +72,8 @@
 
 ## 下一步（最多 5 项）
 
-1. 审查 CORE-004 PR（portable-path 边界加固，Issue #33）。
-2. CORE-004 合并后推进 CORE-001：batch schema version 与 migrations。
+1. 合并本文档记录 PR（CURRENT.md / ROADMAP.md，无代码）。
+2. 推进 CORE-001：batch schema version 与 migrations。
 3. 推进 CORE-002：crash-recovery fault-injection tests。
 4. 推进 CORE-003：stale execution-lock recovery。
 5. 继续观察 Issue #37 provenance（原始 `interrupted_unknown` 写入者）。
@@ -89,10 +89,10 @@
 ## 最近一次验证
 
 ```
-main commit: 7157d07 (PR #38 squash merge)
-GitHub Actions run ID: 30761463482 (event=push, branch=main, headSha=7157d07)
-npm run check: Checked 67 JavaScript file(s) ✓
-npm test: 477 tests / 461 passed / 0 failed / 16 skipped ✓
+main commit: 3e859e0 (PR #39 squash merge)
+GitHub Actions run ID: 30766608512 (event=push, branch=main, headSha=3e859e0)
+npm run check: Checked 68 JavaScript file(s) ✓
+npm test: 506 tests / 490 passed / 0 failed / 16 skipped ✓
 npm run validate: Validated 3 product row(s) ✓
 git diff --check: ✓
 Ubuntu CI: success ✓
