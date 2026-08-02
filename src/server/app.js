@@ -74,6 +74,12 @@ function apiError(error) {
   if (error?.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
     return { statusCode: error.statusCode, code: error.code ?? "BAD_REQUEST" };
   }
+  // Service-unavailable conditions that must surface as 503 (not the 400 that
+  // CLIENT_ERROR_CODES would otherwise assign): a stopping server, and idempotency
+  // registry backpressure (registry full → reject new keys until a receipt expires).
+  if (error?.code === "SERVER_STOPPING" || error?.code === "IDEMPOTENCY_REGISTRY_FULL") {
+    return { statusCode: 503, code: error.code };
+  }
   if (CLIENT_ERROR_CODES.has(error?.code)) return { statusCode: 400, code: error.code };
   return { statusCode: 500, code: "INTERNAL_ERROR" };
 }
@@ -89,13 +95,17 @@ export async function buildApp({
   pointsEstimate = {},
   generationConfig = {},
   captureLive = {},
-  webRoot = path.join(getProjectRoot(), "web")
+  webRoot = path.join(getProjectRoot(), "web"),
+  storeOptions = {},
+  idempotencyMaxEntries,
+  idempotencyTtlMs,
+  now
 } = {}) {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("root is required");
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
   const batchRoot = path.join(path.resolve(root), "batches");
   const staticRoot = path.resolve(webRoot);
-  const store = createBatchStore(batchRoot);
+  const store = createBatchStore(batchRoot, storeOptions);
   const security = createRequestSecurity({ allowedHost });
   const coordinator = createExecutionCoordinator({
     batchRoot,
@@ -104,7 +114,10 @@ export async function buildApp({
     store,
     config: generationConfig,
     lockOptions: executionLock,
-    pointsEstimate
+    pointsEstimate,
+    idempotencyMaxEntries,
+    idempotencyTtlMs,
+    now
   });
 
   app.decorate("workbench", { batchRoot, executor, openBrowser, store });

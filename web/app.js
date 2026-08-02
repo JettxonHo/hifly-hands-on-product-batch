@@ -178,6 +178,8 @@
       not_started: "未开始",
       recording: "录制中",
       recorded: "已录制",
+      recording_interrupted: "录制已中断",
+      recording_failed: "录制失败",
       extracted: "已抽取",
       redacted: "已脱敏",
       replay_passed: "离线回放通过",

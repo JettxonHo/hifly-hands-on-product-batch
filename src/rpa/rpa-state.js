@@ -19,15 +19,18 @@ async function atomicWriteJson(filePath, value) {
   try {
     await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
     // On Windows, rename can fail with EPERM/EBUSY if another handle has the
-    // target file open (e.g. a concurrent reader). Retry with short backoff.
-    const maxRetries = 5;
+    // target file open (e.g. a concurrent reader, or antivirus / Search-indexer
+    // scanning the just-written file). Retry with a capped exponential backoff.
+    // Matches the widened budget in src/core/batch-store.js (RENAME_MAX_RETRIES):
+    // a short fixed window does not survive a lock held for a few hundred ms.
+    const maxRetries = 8;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         await rename(tempPath, filePath);
         return;
       } catch (error) {
         if ((error.code === "EPERM" || error.code === "EBUSY") && attempt < maxRetries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+          await new Promise((resolve) => setTimeout(resolve, Math.min(250, 10 * 2 ** attempt)));
           continue;
         }
         throw error;

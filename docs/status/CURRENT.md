@@ -39,14 +39,39 @@
 ## 已知技术债
 
 - CORE-004：portable-path API 边界加固（`toPortableRelativePath` 不强制验证，依赖调用者纪律）
+- **CI-002（处理中，PR #38 待审查合并）**：Windows capture completion timing flake。
+  - **首次失败**：main commit `afdb32b`，run `30718340154`，Windows job 测试 #328 `capture-enabled executions use a per-run HAR executor and mark capture recorded`，expected `completed` / actual `interrupted_unknown`（420 total / 403 pass / 1 fail / 16 skipped）；同 commit Ubuntu 通过；failed-job rerun 通过（**这是一次 rerun，非首次成功**）；前一 main commit `6f8e84e` Ubuntu/Windows 均通过。
+  - **已证明并修复的 lifecycle 缺陷**（均经确定性测试固定）：
+    1. 缺供外部调用方等待完整 execution 生命周期的边界——此前只能轮询 `completed` 与 `capture.recorded` 两个独立持久化的合取。
+    2. item `completed` 与 capture `recorded` 是两个独立 store.update，中间隔着 HAR flush。
+    3. abort 时旧逻辑可能产生 `item=pending` 但 `capture=recorded` 的不一致。
+    4. executor close / HAR flush 错误旧逻辑可能被吞掉，capture 停留在 `recording`。
+    5. 已 settle 的 execution 可能让 capture 永久停留 `recording`（无终态）。
+    6. `batch-store.js` 此前缺 EPERM/EBUSY rename 重试（**Windows 文件系统加固，非 `interrupted_unknown` 根因**）。
+  - **尚未证明（Issue #37 保持 Open）**：首次 run `30718340154` 的 `actual interrupted_unknown` 不由上述解释——HAR flush 慢只能产生 `completed + recording`；状态机中 `completed`/`pending`/`confirmed`/`failed_pre_submit` 均无到 `interrupted_unknown` 的出边（仅 `generating_asset`/`asset_confirmed`/`submitted`/`download_pending` 可达）。**不把 NTFS/rename 延迟当作 `interrupted_unknown` 的确定根因**；具体写入者（哪个调用方/executionId/transition source、是否二次 runBatch、启动 recovery 或其他写入者）尚无 transition provenance 证据。
+  - **新增诊断与修复**：
+    - **transition provenance**：每次进入 `interrupted_unknown` 发出脱敏 `task.transition_provenance` 事件（batchId/taskId/executionKey/previousStatus/eventType/transitionSource/errorCode/timestamp），区分 executor_timeout/executor_interrupted_unknown/reconcile_ambiguous/recovery/explicit；新增测试证明正常完成路径零 INTERRUPT_UNKNOWN provenance。
+    - **completion API**：改为 `GET /api/executions/:batchId/:executionId/wait`（幂等、无 body、不改动全局 JSON parser——原全局 parser 覆盖已撤销）；executionId 绑定 batchId 并对**持久化 execution snapshot** 校验（重启后仍可解析）；返回值为持久化 snapshot executionKey 而非用户 idempotencyKey；未知/跨批 id 返回 404 EXECUTION_NOT_FOUND（不 fallback 成 batchId）；settle 后释放内存注册项（无无界 Map）。
+    - **capture 终态**：新增 `recording_interrupted`/`recording_failed`（含脱敏错误码 CAPTURE_RECORDING_INTERRUPTED/CAPTURE_HAR_FLUSH_FAILED 与中文标签「录制已中断/录制失败」）；settle 后不再停留 `recording`。
+    - **batch-store rename retry** 改为注入 backoff/rename 的可控测试（EPERM/EBUSY 前 N 次后成功、超次数抛原错、临时文件清理、非重试错误立即失败，零真实 sleep）。**Windows 实测加固**：本 PR 恢复的原始 GET polling 回归在 Windows CI（run `30741311736`，测试 #340）暴露 `batch.json` rename 连续 5 次 EPERM（214ms 窗口）仍失败——并发轮询 reader + AV/索引器持锁超出旧 5×/100ms 窗口；已将 `batch-store.js` 与 `rpa-state.js` 的 retry 统一加固为 **8 次 / 封顶指数 backoff（10ms→250ms，最坏 ~1.2s）**，新增「第 6 次后仍成功」回归测试固定，非重试错误仍立即失败、持久锁仍抛原 EPERM。
+    - **进程内 committed snapshot reader（机制级根治 Windows rename 竞态，commit `f9d2577`）**：诊断确认 Windows EPERM 的进程内根因——单 server 进程内 writer（每次状态迁移 rename `batch.json`）与高频 reader（GET 轮询每 0ms `readFile(batch.json)` 打开 handle）打同一文件。owner 决策：保留原子写、不扩大 5s 预算，改为消除进程内 reader/writer 竞争——`BatchStore` 维护进程内 committed snapshot（仅 rename 成功后 populate，恒为已提交值），GET `/api/batches/:id` 经新 `readCommitted()` 读快照（不打开文件、不与 rename 竞争）；强一致调用方（batch-runner/executions/imports/capture gates）仍读磁盘；冷启动/第二实例 snapshot 空→冷读磁盘并回填。retry+jitter 仅作外部 AV 锁容错（非主并发控制）。确定性测试（注入 rename fault、零真实 sleep）：readCommitted 命中不触文件+返回隔离 clone、与已提交写同步、冷启动回填、50 并发 reader 在 writer EPERM 重试窗口内**零 rename 调用**、原始 GET polling 路径在每次 rename 被 ~2/3 注入失败下仍 completed+recorded。`:2168` 500 测试改直接 seed 损坏文件（不经 store→snapshot 冷→冷读磁盘命中 parse 错），保留错误中间件脱敏语义。**仍非 `interrupted_unknown` 根因**。
+    - **第四轮：per-batch queue 读写协调 + idempotency 背压（commit `b1d9d26`，owner 第四轮 review 的 3 个合并阻塞项；取代第三轮 generation 方案）**：
+      (1) **snapshot cold read 与 commit 竞态**——第三轮的「generation + LRU」有缺陷：LRU 驱逐删 generation 后 cold read 仍可能用 stale V1 覆盖新提交 V2。**废除 generation**，改用 **per-batch operation queue**（`enqueueBatchOperation`）：同 batch 的 `update` 与 cold `readCommitted` 共用一条 queue 串行——cold 先进则先回填当时已提交值、随后 update 提交覆盖；update 先进则提交后 cold recheck 命中新值；并发 cold read 合并（仅 1 次磁盘读回填，其余命中 snapshot）。**无全局锁、跨 batch 并行**；hot GET 轮询仍无锁、无磁盘读；bounded LRU/atomic rename/rename retry 保留。确定性测试（注入 read/rename gate，零 sleep）：cold-first / update-first / 驱逐压力下仍取最新值 / 50 并发 cold read 合并。
+      (2) **idempotency 容量驱逐未过期 receipt（违反 TTL 内不得重复执行）**——改为**容量背压**：`reserve` 先清过期 settled receipt，满载（≥maxEntries，默认 512）则拒新 key 返回 **503 `IDEMPOTENCY_REGISTRY_FULL`**，**不驱逐任何未过期 receipt**（active 与未过期 settled 均不删）；仅清过期 settled 与显式 release 的未接受 receipt。`apiError` 将 `SERVER_STOPPING`/`IDEMPOTENCY_REGISTRY_FULL` 映射 503。PR 文档注明：超 512 个仍处保护窗口的 receipt 时新 execution 得 503 背压直到最早 receipt 过期（安全取舍，非缺陷）。
+      (3) **active receipt 按普通 TTL 过期（长任务失去重试保护）**——receipt 增 `settledAt`；`isExpired` 仅在 `active===false && expiresAt 有效 && now≥expiresAt` 为真，**active receipt 永不过期、永不被容量删除**；**settled TTL 从 settle 时刻起算**（非 accept）。`start()` 用 `reserve/accept/settle/release`（duplicate→stopping→executor→active→reserve→async lock/prep）。确定性测试：active 超 TTL 仍命中、TTL 从 settle 起、满载 503 背压（原 key 仍 409、executor 不增）、过期清理、safe-stop active 阶段超 TTL 后同 key 仍 409。**重启不保证幂等（已知限制，不新增持久化）**；executionId 仍=executionKey。
+    - **stale-writer 测试改为确定性**：真实驱动一次竞态 INTERRUPT_UNKNOWN 写入到 completed，断言被拒绝。
+    - **恢复原始用户路径回归**：POST /api/executions → 周期 GET /api/batches/:batchId → 严格断言 completed+recorded，不允许 interrupted_unknown、不扩大 5s 预算，失败时输出观察到的状态时间线+持久化 item/batch/capture/execution_error+provenance。
+  - **确定性验证**：全量 461 pass/0 fail ×3（含 per-batch queue / 背压 / TTL-from-settle 等新测试）；batch-store ×100（cold/update queue+驱逐+合并）、idempotency-registry ×100（active 不过期+背压+TTL-from-settle）、server-api ×100（polling+rename-fault+idempotency 集成+503 背压+safe-stop-over-TTL+capture lifecycle+completion）均 0 失败；`npm ci/check（67 文件）/test/validate` 与 `git diff --check` 全绿；全程注入 gate/clock/rename/read，零真实 sleep。
+  - **Windows 专项压力**：`.github/workflows/capture-stress.yml` 现对 lifecycle 相关路径在 `pull_request` 触发（另保留 `workflow_dispatch`），重复原始轮询+completion API+deterministic 测试 **≥20 次**，任一失败即失败并保留 TAP（状态时间线+provenance）。**最新 head `b1d9d26` 已达成 20/20**：stress run `30760463897` `reps=20 failed=0`、标准 CI run `30760463905` Ubuntu/Windows 双绿。历史：retry-only（`ea6ad08`）19/20 → snapshot reader（`f9d2577`）20/20 → 第三轮三修复（`75bc688`/`f2c2faf`）20/20 → 第四轮 per-batch queue + 背压（`b1d9d26`）20/20。门禁引用最新 head，不引用旧 commit。
+  - **待办**：Issue #37 保持 Open，直到原始 `interrupted_unknown` 有确定 provenance，或被压力充分证明不再出现；稳定 main commit 届时更新到真实通过压力验证的 commit。
 
 ## 下一步（最多 5 项）
 
-1. 推进 CORE-001：batch schema version 与 migrations。
-2. 推进 CORE-002：crash-recovery fault-injection tests。
-3. 推进 CORE-003：stale execution-lock recovery。
-4. 评审 EXP-001 人物策略实验方案。
-5. 评估 OBS-001 或 UX-001 的下一项工作。
+1. 审查并决定 CI-002 修复 PR #38（合并后触发 Windows 压力 workflow 完成验收）。
+2. 推进 CORE-001：batch schema version 与 migrations。
+3. 推进 CORE-002：crash-recovery fault-injection tests。
+4. 推进 CORE-003：stale execution-lock recovery。
+5. 评审 EXP-001 人物策略实验方案。
 
 ## 必须禁止的操作
 

@@ -91,3 +91,44 @@ test("invalid capture status is rejected", () => {
     /Invalid capture status/
   );
 });
+
+test("recording terminal states are accepted as valid capture statuses", () => {
+  for (const status of ["recording_interrupted", "recording_failed"]) {
+    const state = updateCaptureState(createInitialCaptureState({ enabled: true }), { status });
+    assert.equal(state.status, status);
+    assert.equal(publicCaptureState(state).status, status);
+  }
+});
+
+test("public recording error exposes only the safe code, never sensitive detail", () => {
+  const interrupted = publicCaptureState({
+    enabled: true,
+    status: "recording_interrupted",
+    recording_error: { code: "CAPTURE_RECORDING_INTERRUPTED", message: "cookie=secret /Users/ketchup/x.har" }
+  });
+  assert.deepEqual(interrupted.recording_error, {
+    code: "CAPTURE_RECORDING_INTERRUPTED",
+    message: "Capture recording was interrupted before the execution completed."
+  });
+
+  const failed = publicCaptureState({
+    enabled: true,
+    status: "recording_failed",
+    recording_error: { code: "CAPTURE_HAR_FLUSH_FAILED", message: "open /Users/ketchup/private.har: EPERM token=abc" }
+  });
+  assert.deepEqual(failed.recording_error, {
+    code: "CAPTURE_HAR_FLUSH_FAILED",
+    message: "Unable to complete the capture HAR flush."
+  });
+
+  // An unknown/unsafe code is normalised to the generic flush-failure code.
+  const unknown = publicCaptureState({
+    enabled: true,
+    status: "recording_failed",
+    recording_error: { code: "ENOENT", message: "/Users/ketchup/private.har" }
+  });
+  assert.equal(unknown.recording_error.code, "CAPTURE_HAR_FLUSH_FAILED");
+  assert.equal(JSON.stringify(unknown).includes("/Users/ketchup"), false);
+  assert.equal(JSON.stringify(unknown).includes("cookie"), false);
+  assert.equal(JSON.stringify(unknown).includes("token"), false);
+});

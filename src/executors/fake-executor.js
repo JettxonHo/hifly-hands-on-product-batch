@@ -4,6 +4,15 @@ function simulatedError(method, kind) {
   return error;
 }
 
+// A recoverable remote interruption (timeout / unknown remote state). When a
+// scenario sets interruptAt to a method name, that method throws this so the
+// runner deterministically drives the INTERRUPT_UNKNOWN transition.
+function simulatedInterruption(method) {
+  const error = new Error(`Fake executor remote interruption at ${method}`);
+  error.code = "YINGDAO_RPA_INTERRUPTED_UNKNOWN";
+  return error;
+}
+
 function candidateFor(remoteId) {
   return {
     remote_id: remoteId,
@@ -23,6 +32,19 @@ export function createFakeExecutor(scenario = {}) {
   ].map((method) => [method, 0]));
   const remoteId = scenario.remoteId ?? "fake-remote-1";
 
+  // Deterministic lifecycle gates (NOT sleeps): the test decides when a gated
+  // method may proceed, so completion/shutdown races can be reproduced exactly.
+  // scenario.gates = { createAsset: deferred, close: deferred, ... } where each
+  // deferred is { promise, resolve } (or a thenable). A gated method awaits the
+  // gate before doing its normal work.
+  const gates = scenario.gates ?? {};
+
+  async function awaitGate(method) {
+    const gate = gates[method];
+    if (gate && typeof gate.promise?.then === "function") await gate.promise;
+    else if (gate && typeof gate.then === "function") await gate;
+  }
+
   async function call(method, payload, context, { deferFailure = false } = {}) {
     calls.push({ method, ...payload });
     callCounts[method] = (callCounts[method] ?? 0) + 1;
@@ -36,6 +58,7 @@ export function createFakeExecutor(scenario = {}) {
     callCounts,
 
     async createAsset(task, context) {
+      await awaitGate("createAsset");
       await call("createAsset", { task }, context);
       const asset = { asset_id: `asset-${task.task_id}` };
       context?.emit?.({ type: "executor.fake_finished", phase: "createAsset", evidence: asset });
@@ -43,7 +66,9 @@ export function createFakeExecutor(scenario = {}) {
     },
 
     async submitVideo(task, asset, context) {
+      await awaitGate("submitVideo");
       await call("submitVideo", { task, asset }, context, { deferFailure: true });
+      if (scenario.interruptAt === "submitVideo") throw simulatedInterruption("submitVideo");
       const before = { work_ids: scenario.beforeWorkIds ?? [] };
       await context?.checkpoint?.({ phase: "remote_submit_pre", evidence: before });
       if (scenario.failAt === "submitVideo" || scenario.failAt === "submitVideoAfterCheckpoint") {
@@ -65,6 +90,7 @@ export function createFakeExecutor(scenario = {}) {
     },
 
     async querySubmission(remoteEvidence, context) {
+      await awaitGate("querySubmission");
       await call("querySubmission", { remoteEvidence }, context);
       const status = scenario.queryStatus ?? "ready";
       const result = { status, remoteEvidence };
@@ -73,6 +99,7 @@ export function createFakeExecutor(scenario = {}) {
     },
 
     async downloadArtifact(remoteEvidence, destination, context) {
+      await awaitGate("downloadArtifact");
       await call("downloadArtifact", { remoteEvidence, destination }, context);
       if (scenario.downloadFailure) throw simulatedError("downloadArtifact", "failure");
       const artifact = {
@@ -84,6 +111,7 @@ export function createFakeExecutor(scenario = {}) {
     },
 
     async reconcileSubmission(task, checkpoint, context) {
+      await awaitGate("reconcileSubmission");
       await call("reconcileSubmission", { task, checkpoint, remoteEvidence: checkpoint?.remote_evidence }, context);
       const allCandidates = scenario.remoteCandidates ?? (checkpoint?.remote_evidence?.remote_id
         ? [candidateFor(checkpoint.remote_evidence.remote_id)]
@@ -95,6 +123,17 @@ export function createFakeExecutor(scenario = {}) {
       const result = { candidates };
       context?.emit?.({ type: "executor.fake_finished", phase: "reconcileSubmission", evidence: result });
       return result;
-    }
+    },
+
+    // Optional controllable close(): when scenario.close is provided it is used
+    // as the close implementation (so tests can gate HAR flush deterministically,
+    // or make close throw to exercise the executor-close error path). The `close`
+    // gate (scenario.gates.close) is awaited first if present.
+    ...(typeof scenario.close === "function" ? {
+      close: async () => {
+        await awaitGate("close");
+        return scenario.close();
+      }
+    } : {})
   };
 }

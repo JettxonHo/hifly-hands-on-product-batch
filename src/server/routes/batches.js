@@ -168,7 +168,11 @@ export async function registerBatchRoutes(app, { store }) {
   app.get("/api/batches", async () => ({ batches: (await store.list()).map(publicBatch) }));
 
   app.get("/api/batches/:batchId", async (request) => ({
-    batch: publicBatch(await store.read(assertBatchId(request.params.batchId)))
+    // readCommitted serves the in-process committed snapshot without opening
+    // batch.json, so high-frequency polling cannot hold a handle that collides
+    // with the writer's atomic rename (the Windows EPERM race). On a cold
+    // snapshot it falls back to disk.
+    batch: publicBatch(await store.readCommitted(assertBatchId(request.params.batchId)))
   }));
 
   app.post("/api/batches", async (request, reply) => {

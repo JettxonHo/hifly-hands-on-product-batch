@@ -3,6 +3,8 @@ export const CAPTURE_STATUSES = new Set([
   "not_started",
   "recording",
   "recorded",
+  "recording_interrupted",
+  "recording_failed",
   "extracted",
   "redacted",
   "replay_passed",
@@ -64,6 +66,9 @@ export function publicCaptureState(capture) {
   }
   if (capture.live_error !== undefined && capture.live_error !== null) {
     value.live_error = publicLiveError(capture.live_error, capture.status);
+  }
+  if (capture.recording_error !== undefined && capture.recording_error !== null) {
+    value.recording_error = publicRecordingError(capture.recording_error);
   }
   if (capture.extract_summary && Number.isInteger(capture.extract_summary.step_count)) {
     value.extract_summary = { step_count: capture.extract_summary.step_count };
@@ -132,6 +137,16 @@ const SAFE_QUEUE_STATUSES = new Set([
   "interrupted"
 ]);
 
+// Safe, non-sensitive recording terminal error codes (CI-002). A settled capture
+// recording must reach an explicit terminal state instead of staying "recording":
+// "recorded" (normal), "recording_interrupted" (execution safe-stopped before
+// completion) or "recording_failed" (executor close / HAR flush failed). Only
+// these codes are published; any other detail is replaced with a generic message.
+const SAFE_RECORDING_ERROR_CODES = new Set([
+  "CAPTURE_RECORDING_INTERRUPTED",
+  "CAPTURE_HAR_FLUSH_FAILED"
+]);
+
 const SAFE_QUEUE_ERROR_CODES = new Set([
   "CAPTURE_HTTP_QUEUE_FAILED",
   "CAPTURE_HTTP_QUEUE_NOT_READY",
@@ -179,6 +194,18 @@ function publicReplayError() {
   return {
     code: "CAPTURE_REPLAY_FAILED",
     message: "Unable to complete the offline replay."
+  };
+}
+
+function publicRecordingError(error) {
+  const code = typeof error?.code === "string" && SAFE_RECORDING_ERROR_CODES.has(error.code)
+    ? error.code
+    : "CAPTURE_HAR_FLUSH_FAILED";
+  return {
+    code,
+    message: code === "CAPTURE_RECORDING_INTERRUPTED"
+      ? "Capture recording was interrupted before the execution completed."
+      : "Unable to complete the capture HAR flush."
   };
 }
 
