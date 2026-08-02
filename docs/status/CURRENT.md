@@ -1,16 +1,16 @@
 # 项目当前状态
 
-> 最后更新：2026-08-02
-> 最后验证 commit：`6f8e84e` (style(gui): refresh visual and interaction details (#15))
-> 稳定 main commit：`6f8e84e`
+> 最后更新：2026-08-03
+> 最后验证 commit：`7157d07` (fix(core): make capture execution completion deterministic (#38))
+> 稳定 main commit：`7157d0799d60ca7cbb5d3cc2939bf5924a23bf4e`
 
 ## Open PR
 
-无（PR #15 已由 owner 视觉确认后 squash 合并）。
+- **CORE-004 / Issue #33**：portable-path API 边界加固（`fix/core-004-safe-portable-path-boundaries`），**待审查，未合并**。
 
 ## 当前工作分支
 
-无
+`fix/core-004-safe-portable-path-boundaries`（基于 `7157d07`，独立 worktree，等待审查）
 
 ## 当前生产路径
 
@@ -38,8 +38,8 @@
 
 ## 已知技术债
 
-- CORE-004：portable-path API 边界加固（`toPortableRelativePath` 不强制验证，依赖调用者纪律）
-- **CI-002（处理中，PR #38 待审查合并）**：Windows capture completion timing flake。
+- **CORE-004（进行中，PR 待审查）**：portable-path API 边界加固（Issue #33）。`toPortableRelativePath` 升级为默认安全、fail-closed：必须为 string，先规范化 `\`→`/` 再做完整相对路径验证（拒绝空串、`"."`、绝对路径/Windows drive/UNC、`..`/`.`/空段）；纯分隔符转换隔离为模块私有 `normalizePortableSeparatorsUnsafe`；`relativePortablePath`/`fromPortablePath` 经同一安全边界（root===target 的空结果也被拒绝）。四处生产调用点已审计迁移：person-pool/person-strategy 保持安全默认 API；capture-http-executor/hifly-page 改用 `relativePortablePath`。持久化格式不变（POSIX `/`），无 batch 迁移。旧的 null/空值放行行为为有意移除的安全契约修正。
+- **CI-002（已完成，由 PR #38 squash 合并）**：Windows capture completion timing flake。PR #38 squash commit `7157d0799d60ca7cbb5d3cc2939bf5924a23bf4e`，mergedAt `2026-08-02T18:35:28Z`；合并后 main CI run `30761463482` Ubuntu/Windows 双绿（check：Checked 67 JavaScript file(s)；test：477 total / 461 passed / 0 failed / 16 skipped；validate：Validated 3 product row(s)；git diff --check success）。已合并其已证明的 lifecycle、Windows rename、snapshot 与 idempotency 修复：
   - **首次失败**：main commit `afdb32b`，run `30718340154`，Windows job 测试 #328 `capture-enabled executions use a per-run HAR executor and mark capture recorded`，expected `completed` / actual `interrupted_unknown`（420 total / 403 pass / 1 fail / 16 skipped）；同 commit Ubuntu 通过；failed-job rerun 通过（**这是一次 rerun，非首次成功**）；前一 main commit `6f8e84e` Ubuntu/Windows 均通过。
   - **已证明并修复的 lifecycle 缺陷**（均经确定性测试固定）：
     1. 缺供外部调用方等待完整 execution 生命周期的边界——此前只能轮询 `completed` 与 `capture.recorded` 两个独立持久化的合取。
@@ -63,15 +63,15 @@
     - **恢复原始用户路径回归**：POST /api/executions → 周期 GET /api/batches/:batchId → 严格断言 completed+recorded，不允许 interrupted_unknown、不扩大 5s 预算，失败时输出观察到的状态时间线+持久化 item/batch/capture/execution_error+provenance。
   - **确定性验证**：全量 461 pass/0 fail ×3（含 per-batch queue / 背压 / TTL-from-settle 等新测试）；batch-store ×100（cold/update queue+驱逐+合并）、idempotency-registry ×100（active 不过期+背压+TTL-from-settle）、server-api ×100（polling+rename-fault+idempotency 集成+503 背压+safe-stop-over-TTL+capture lifecycle+completion）均 0 失败；`npm ci/check（67 文件）/test/validate` 与 `git diff --check` 全绿；全程注入 gate/clock/rename/read，零真实 sleep。
   - **Windows 专项压力**：`.github/workflows/capture-stress.yml` 现对 lifecycle 相关路径在 `pull_request` 触发（另保留 `workflow_dispatch`），重复原始轮询+completion API+deterministic 测试 **≥20 次**，任一失败即失败并保留 TAP（状态时间线+provenance）。**最新 head `b1d9d26` 已达成 20/20**：stress run `30760463897` `reps=20 failed=0`、标准 CI run `30760463905` Ubuntu/Windows 双绿。历史：retry-only（`ea6ad08`）19/20 → snapshot reader（`f9d2577`）20/20 → 第三轮三修复（`75bc688`/`f2c2faf`）20/20 → 第四轮 per-batch queue + 背压（`b1d9d26`）20/20。门禁引用最新 head，不引用旧 commit。
-  - **待办**：Issue #37 保持 Open，直到原始 `interrupted_unknown` 有确定 provenance，或被压力充分证明不再出现；稳定 main commit 届时更新到真实通过压力验证的 commit。
+  - **待办**：Issue #37 保持 Open，直到原始 `interrupted_unknown` 有确定 provenance，或被压力充分证明不再出现。**最初 `interrupted_unknown` 的精确写入者仍未获得 provenance 证据，不得视为根因已完全解决。**
 
 ## 下一步（最多 5 项）
 
-1. 审查并决定 CI-002 修复 PR #38（合并后触发 Windows 压力 workflow 完成验收）。
-2. 推进 CORE-001：batch schema version 与 migrations。
+1. 审查 CORE-004 PR（portable-path 边界加固，Issue #33）。
+2. CORE-004 合并后推进 CORE-001：batch schema version 与 migrations。
 3. 推进 CORE-002：crash-recovery fault-injection tests。
 4. 推进 CORE-003：stale execution-lock recovery。
-5. 评审 EXP-001 人物策略实验方案。
+5. 继续观察 Issue #37 provenance（原始 `interrupted_unknown` 写入者）。
 
 ## 必须禁止的操作
 
@@ -84,14 +84,14 @@
 ## 最近一次验证
 
 ```
-main commit: 6f8e84e (PR #15 squash merge)
-npm run check: 66 JavaScript file(s) ✓
-npm test: 420 tests / 404 pass / 16 skipped / 0 fail ✓
+main commit: 7157d07 (PR #38 squash merge)
+GitHub Actions run ID: 30761463482 (event=push, branch=main, headSha=7157d07)
+npm run check: Checked 67 JavaScript file(s) ✓
+npm test: 477 tests / 461 passed / 0 failed / 16 skipped ✓
 npm run validate: Validated 3 product row(s) ✓
 git diff --check: ✓
 Ubuntu CI: success ✓
 Windows CI: success ✓
-GitHub Actions run ID: 30718127693
 ```
 
 ## 重要文档索引

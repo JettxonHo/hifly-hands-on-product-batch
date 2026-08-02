@@ -1,6 +1,6 @@
 import path from "node:path";
 import { resolveFromRoot } from "./config.js";
-import { toPortableRelativePath } from "./core/portable-path.js";
+import { relativePortablePath } from "./core/portable-path.js";
 import { timestampForFile } from "./logger.js";
 
 function normalizeScriptText(value) {
@@ -220,7 +220,7 @@ export class HiflyHandsOnProductPage {
 
     return {
       artifact_id: artifactId,
-      relative_path: toPortableRelativePath(path.relative(this.config.__rootDir ?? process.cwd(), outputPath))
+      relative_path: relativePortablePath(this.config.__rootDir ?? process.cwd(), outputPath)
     };
   }
 
