@@ -1,13 +1,23 @@
-// Bounded TTL/LRU receipt registry for execution idempotency keys.
+// Bounded TTL receipt registry for execution idempotency keys.
 //
-// A key that has been accepted is retained for its TTL (even after the execution
-// settles), so a retry within the window is rejected as DUPLICATE_IDEMPOTENCY_KEY
-// (409) instead of starting a second execution — this is what prevents a late
-// retry from double-spending points. Map insertion order is the LRU order; when
-// capacity is exceeded the oldest NON-ACTIVE receipt is evicted, so an in-flight
-// execution's receipt is never a victim. The registry is in-memory only: a server
-// restart empties it (idempotency across restart is a known, documented
-// limitation; no new persistence is introduced for it).
+// A key that has been accepted is protected against starting a second execution:
+//
+//   - active receipts (an execution in flight) NEVER expire and are never removed
+//     for capacity — a long-running execution keeps its retry protection for its
+//     whole lifetime, no matter how long it takes.
+//   - settled receipts are protected for a full TTL measured from the SETTLE
+//     moment (not acceptance), so a near-term retry after settle is rejected as
+//     DUPLICATE_IDEMPOTENCY_KEY (409) instead of double-spending points.
+//   - Only EXPIRED settled receipts are ever cleaned up. The registry is
+//     capacity-bounded by BACKPRESSURE, not eviction: when full, a new key is
+//     rejected with IDEMPOTENCY_REGISTRY_FULL (503) rather than evicting an
+//     unexpired receipt. With the defaults (512 receipts / 24h settled TTL) this
+//     means that beyond 512 executions still inside their protection window, new
+//     executions get 503 backpressure until the earliest receipt expires — a safe
+//     trade-off (never silently lose retry protection), not a defect.
+//
+// In-memory only: a server restart empties the registry (idempotency across
+// restart is a known, documented limitation; no persistence is introduced).
 
 export function createIdempotencyRegistry({
   maxEntries = 512,
@@ -21,43 +31,55 @@ export function createIdempotencyRegistry({
     throw new TypeError("idempotencyTtlMs must be a finite positive number");
   }
   if (typeof now !== "function") throw new TypeError("now must be a function");
-  // key -> { batchId, executionId, acceptedAt, expiresAt, active }
+  // key -> { batchId, executionId, acceptedAt, settledAt, expiresAt, active }
   const entries = new Map();
-  const isExpired = (entry) => now() >= entry.expiresAt;
-  function evict() {
-    for (const [key, entry] of entries) if (isExpired(entry)) entries.delete(key);
-    while (entries.size > maxEntries) {
-      let removed = false;
-      for (const [key, entry] of entries) {
-        if (!entry.active) { entries.delete(key); removed = true; break; }
-      }
-      if (!removed) break; // only active receipts remain; they are protected
-    }
+  // A receipt expires ONLY once it is settled (inactive) AND has a valid expiresAt
+  // in the past. Active receipts never expire (expiresAt is null while active).
+  const isExpired = (receipt) =>
+    receipt.active === false && Number.isFinite(receipt.expiresAt) && now() >= receipt.expiresAt;
+  function sweepExpired() {
+    for (const [key, receipt] of entries) if (isExpired(receipt)) entries.delete(key);
+  }
+  function checkReceipt(key) {
+    const receipt = entries.get(key);
+    if (!receipt) return null;
+    if (isExpired(receipt)) { entries.delete(key); return null; }
+    return receipt;
+  }
+  function registryError(code, statusCode) {
+    return Object.assign(new Error(code), { code, statusCode });
   }
   return {
     // Returns the live receipt if the key is present and unexpired, else null
-    // (and drops it if expired). Does not refresh LRU recency.
-    check(key) {
-      const entry = entries.get(key);
-      if (!entry) return null;
-      if (isExpired(entry)) { entries.delete(key); return null; }
-      return entry;
+    // (and drops it if expired). Active receipts are always live.
+    check: checkReceipt,
+    // Accept a NEW key as an active receipt. First cleans expired settled
+    // receipts, then applies backpressure: if the registry is at capacity the new
+    // key is rejected (503) instead of evicting an unexpired receipt.
+    reserve(key, { batchId }) {
+      sweepExpired();
+      if (checkReceipt(key)) throw registryError("DUPLICATE_IDEMPOTENCY_KEY", 409);
+      if (entries.size >= maxEntries) throw registryError("IDEMPOTENCY_REGISTRY_FULL", 503);
+      entries.set(key, { batchId, executionId: null, acceptedAt: now(), settledAt: null, expiresAt: null, active: true });
     },
-    // Accept/refresh a receipt (refreshes recency + recomputes the TTL window).
-    record(key, { batchId, executionId, active }) {
-      const t = now();
-      entries.delete(key);
-      entries.set(key, { batchId, executionId, acceptedAt: t, expiresAt: t + ttlMs, active: !!active });
-      evict();
+    // Back-fill the persisted executionId once prepareExecution succeeds.
+    accept(key, { executionId }) {
+      const receipt = entries.get(key);
+      if (receipt) receipt.executionId = executionId;
     },
-    // Mark a settled execution's receipt inactive but retain it for its TTL so a
-    // near-term retry is still rejected. No-op if the key was already released.
+    // Mark the execution settled and start the full TTL from the settle moment.
+    // The receipt is retained (not removed) so a near-term retry is rejected.
+    // No-op if the key was already released (lock/prep failure before acceptance).
     settle(key) {
-      const entry = entries.get(key);
-      if (entry) entry.active = false;
+      const receipt = entries.get(key);
+      if (!receipt) return;
+      const settledAt = now();
+      receipt.active = false;
+      receipt.settledAt = settledAt;
+      receipt.expiresAt = settledAt + ttlMs;
     },
-    // Drop the key entirely — used when lock/prep fails before the execution is
-    // accepted, so the client may retry with the same key.
+    // Drop the key entirely — lock/prep failed before the execution was accepted,
+    // so the client may retry with the same key.
     release(key) {
       entries.delete(key);
     },

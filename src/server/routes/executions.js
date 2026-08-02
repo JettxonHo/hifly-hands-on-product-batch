@@ -185,9 +185,11 @@ export function createExecutionCoordinator({
     // Reserve the key SYNCHRONOUSLY before any await: this closes the window
     // between the duplicate check and acceptance so two concurrent same-key
     // requests cannot both pass (the second gets 409 DUPLICATE_IDEMPOTENCY_KEY,
-    // not EXECUTION_IN_PROGRESS). If lock/prep fails below, the key is released so
-    // a retry is not blocked.
-    idempotency.record(idempotencyKey, { batchId, executionId: null, active: true });
+    // not EXECUTION_IN_PROGRESS). reserve() also applies capacity backpressure:
+    // if the registry is full it throws IDEMPOTENCY_REGISTRY_FULL (503) WITHOUT
+    // starting the executor or evicting any unexpired receipt. If lock/prep fails
+    // below, the key is released so a retry is not blocked.
+    idempotency.reserve(idempotencyKey, { batchId });
 
     const batchDirectory = path.join(batchRoot, batchId);
     const controller = new AbortController();
@@ -218,14 +220,11 @@ export function createExecutionCoordinator({
         throw error;
       }
 
-      // Prep succeeded: the execution is accepted. Refresh the receipt with the
+      // Prep succeeded: the execution is accepted. Back-fill the receipt with the
       // persisted snapshot executionId (the opaque identity returned to clients,
-      // NOT the caller's idempotencyKey) and keep it marked active until settle.
-      idempotency.record(idempotencyKey, {
-        batchId,
-        executionId: batch.execution_snapshot?.executionKey ?? null,
-        active: true
-      });
+      // NOT the caller's idempotencyKey). It stays active (and therefore never
+      // expires) until settle, when the full TTL starts from the settle moment.
+      idempotency.accept(idempotencyKey, { executionId: batch.execution_snapshot?.executionKey ?? null });
       return { batch, lock, controller };
     })();
     execution.done = execution.ready.then(async ({ batch, lock, controller }) => {

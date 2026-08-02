@@ -81,7 +81,7 @@ async function atomicWriteJson(filePath, value, { delay, renameImpl } = {}) {
 // snapshot — never disk — so an evicted batch cold-reads + back-fills on next
 // access. maxEntries must be a finite positive integer (Infinity is rejected) so
 // the cache cannot be configured to grow without bound.
-function createSnapshotCache(maxEntries, { onEvict } = {}) {
+function createSnapshotCache(maxEntries) {
   if (!Number.isInteger(maxEntries) || maxEntries <= 0 || !Number.isFinite(maxEntries)) {
     throw new TypeError("snapshotMaxEntries must be a finite positive integer");
   }
@@ -103,7 +103,6 @@ function createSnapshotCache(maxEntries, { onEvict } = {}) {
       while (entries.size > maxEntries) {
         const oldest = entries.keys().next().value;
         entries.delete(oldest);
-        if (typeof onEvict === "function") onEvict(oldest);
       }
     },
     size() {
@@ -114,13 +113,6 @@ function createSnapshotCache(maxEntries, { onEvict } = {}) {
 
 export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, readFileImpl } = {}) {
   const storeRoot = path.resolve(root);
-  const updateQueues = new Map();
-  // Monotonic commit generation per batch. Bumped on every successful atomic
-  // rename (create/update) and read by readCommitted() to detect a commit that
-  // landed during a cold disk read — so a cold back-fill can never overwrite a
-  // newer committed snapshot with a stale disk value. Deleted alongside the
-  // snapshot on LRU eviction to keep memory bounded.
-  const generations = new Map();
   // In-process committed snapshot (bounded LRU): the last value durably renamed
   // into batch.json. The high-frequency GET /api/batches/:id polling reader reads
   // this via readCommitted() instead of opening batch.json, so it can never hold a
@@ -128,13 +120,31 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
   // race between the in-process reader and writer. Strong-consistency callers
   // (batch-runner, executions, imports, capture gates) keep using read(), which
   // still hits disk. Populated only AFTER a successful rename, so it always holds
-  // an already-committed value; missed on cold start / a second process and falls
-  // back to disk + back-fills. Bounded to snapshotMaxEntries (default 256);
-  // evicted batches cold-read + back-fill on next access.
-  const snapshots = createSnapshotCache(snapshotMaxEntries ?? 256, {
-    onEvict: (batchId) => generations.delete(batchId)
-  });
+  // an already-committed value; missed on cold start / a second process / LRU
+  // eviction and falls back to disk + back-fills. Bounded to snapshotMaxEntries
+  // (default 256); evicted batches cold-read + back-fill on next access.
+  const snapshots = createSnapshotCache(snapshotMaxEntries ?? 256);
   const doReadFile = typeof readFileImpl === "function" ? readFileImpl : readFile;
+
+  // Per-batch operation queue. update() and a cold readCommitted() for the SAME
+  // batch both run through this queue, so a cold disk read can never race a
+  // concurrent commit on the same batch — they serialize. Cold-first: the cold
+  // read back-fills the then-current value, and the later update commits on top.
+  // Update-first: the update commits, and the later cold read re-checks the
+  // snapshot and returns the newer value. Concurrent cold reads coalesce (the
+  // first reads disk + back-fills; the rest hit the snapshot). Different batches
+  // use independent queues (parallel); there is NO global lock and NO generation
+  // counter — serialization alone makes a stale overwrite impossible.
+  const batchQueues = new Map();
+  function enqueueBatchOperation(batchId, operation) {
+    const previous = batchQueues.get(batchId) ?? Promise.resolve();
+    const run = previous.catch(() => {}).then(operation);
+    batchQueues.set(batchId, run);
+    run.finally(() => {
+      if (batchQueues.get(batchId) === run) batchQueues.delete(batchId);
+    }).catch(() => {});
+    return run;
+  }
 
   const batchDirectory = (batchId) => {
     assertBatchId(batchId);
@@ -148,26 +158,23 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
 
   async function readCommitted(batchId) {
     assertBatchId(batchId);
-    // Hot path: serve the in-process committed snapshot without opening
-    // batch.json — no file handle, so it cannot collide with the writer's atomic
-    // rename (the Windows EPERM race). get() refreshes LRU recency so an
-    // actively-polled batch stays warm.
+    // Hot path: serve the committed snapshot with no queue and no disk read — no
+    // file handle, so it cannot collide with the writer's atomic rename (the
+    // Windows EPERM race). get() refreshes LRU recency so an actively-polled batch
+    // stays warm.
     const cached = snapshots.get(batchId);
     if (cached !== undefined) return structuredClone(cached);
-    // Cold path (restart / second process / evicted entry). A concurrent
-    // create/update can commit during the disk read below: it bumps this batch's
-    // generation and installs the newer snapshot. Record the generation before the
-    // read, and only back-fill when NO commit landed (generation unchanged AND the
-    // snapshot is still absent) — otherwise return the newer committed value, so a
-    // cold read can never overwrite a snapshot committed mid-read with stale disk.
-    const observedGeneration = generations.get(batchId) ?? 0;
-    const value = await read(batchId);
-    if (observedGeneration === (generations.get(batchId) ?? 0) && !snapshots.has(batchId)) {
+    // Cold path (restart / second process / evicted entry): serialize with this
+    // batch's update queue so a concurrent commit cannot be clobbered. Once inside
+    // the queue, re-check the snapshot — a preceding update or cold read may have
+    // already populated it; only read disk + back-fill if it is still a miss.
+    return enqueueBatchOperation(batchId, async () => {
+      const filled = snapshots.get(batchId);
+      if (filled !== undefined) return structuredClone(filled);
+      const value = await read(batchId);
       snapshots.set(batchId, structuredClone(value));
       return structuredClone(value);
-    }
-    const newer = snapshots.get(batchId);
-    return structuredClone(newer ?? value);
+    });
   }
 
   async function create(batch) {
@@ -190,7 +197,6 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
     };
     try {
       await atomicWriteJson(batchFile(batch.batch_id), value, { delay, renameImpl });
-      generations.set(batch.batch_id, (generations.get(batch.batch_id) ?? 0) + 1);
       snapshots.set(batch.batch_id, structuredClone(value));
       return structuredClone(value);
     } catch (error) {
@@ -202,24 +208,16 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
   function update(batchId, updater) {
     assertBatchId(batchId);
     if (typeof updater !== "function") return Promise.reject(new TypeError("updater must be a function"));
-
-    const previous = updateQueues.get(batchId) ?? Promise.resolve();
-    const operation = previous.catch(() => {}).then(async () => {
+    return enqueueBatchOperation(batchId, async () => {
       const current = await read(batchId);
       const proposed = await updater(structuredClone(current));
       if (!proposed || typeof proposed !== "object") throw new Error("updater must return a batch object");
       if (proposed.batch_id !== batchId) throw new Error("batch_id cannot be changed");
       const next = { ...structuredClone(proposed), updated_at: new Date().toISOString() };
       await atomicWriteJson(batchFile(batchId), next, { delay, renameImpl });
-      generations.set(batchId, (generations.get(batchId) ?? 0) + 1);
       snapshots.set(batchId, structuredClone(next));
       return structuredClone(next);
     });
-    updateQueues.set(batchId, operation);
-    operation.finally(() => {
-      if (updateQueues.get(batchId) === operation) updateQueues.delete(batchId);
-    }).catch(() => {});
-    return operation;
   }
 
   async function list() {

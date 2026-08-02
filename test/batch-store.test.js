@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -269,13 +269,14 @@ test("concurrent readCommitted readers add no rename contention during a writer'
   }
 });
 
-// --- cold readCommitted vs concurrent commit (generation gate) ---------------
-// A cold back-fill must never overwrite a snapshot committed mid-read. The read
-// gate is INJECTED (pausedOnce readFile) so the race is deterministic with no
+// --- cold readCommitted vs concurrent commit (per-batch queue) ---------------
+// A cold read and an update for the SAME batch serialize through one per-batch
+// queue, so a cold back-fill can never overwrite a snapshot committed mid-read.
+// The read/rename gates are INJECTED so every race is deterministic with no
 // real-time sleep.
 
-test("cold readCommitted never overwrites a snapshot committed mid-read", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-coldrace-"));
+test("cold-first: a cold read returns V1 (last committed) then a queued update commits V2; final is V2", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-coldfirst-"));
   const realReadFile = readFile;
   try {
     // Seed batch-a via a SEPARATE store so the test store's snapshot is cold for it.
@@ -284,44 +285,145 @@ test("cold readCommitted never overwrites a snapshot committed mid-read", async 
     let release;
     let pausedOnce = false;
     const readFileImpl = async (file, enc) => {
-      // Pause ONLY the first read of batch-a (the cold readCommitted). The
-      // concurrent update's internal read happens later and proceeds normally.
       if (!pausedOnce && file.endsWith(path.join("batch-a", "batch.json"))) {
         pausedOnce = true;
-        const captured = await realReadFile(file, enc); // V1, captured before the rename
+        const captured = await realReadFile(file, enc); // V1
         await new Promise((resolve) => { release = resolve; }); // hold the cold read open
-        return captured; // stale V1
+        return captured;
       }
       return realReadFile(file, enc);
     };
     const store = createBatchStore(root, { readFileImpl });
 
-    const cold = store.readCommitted("batch-a"); // miss -> read -> pauses
+    const cold = store.readCommitted("batch-a"); // hot miss -> queued -> paused reading V1
     while (!release) await new Promise((resolve) => setImmediate(resolve));
 
-    // Concurrent update on the SAME store commits V2 + bumps the generation.
-    await store.update("batch-a", (batch) => ({ ...batch, name: "V2" }));
+    // The update is queued BEHIND the paused cold read, so it cannot commit yet.
+    let updateSettled = false;
+    const update = store.update("batch-a", (b) => ({ ...b, name: "V2" })).then((value) => {
+      updateSettled = true;
+      return value;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(updateSettled, false, "update cannot commit while the cold read holds the queue");
 
-    release(); // cold read resumes with the stale disk value V1
+    release(); // cold read resumes -> returns V1 (the last committed value), back-fills V1
     const observed = await cold;
-    assert.equal(observed.name, "V2", "returns the committed V2, not the stale disk V1");
-    assert.equal((await store.readCommitted("batch-a")).name, "V2", "subsequent reads still V2");
+    assert.equal(observed.name, "V1", "cold read returns the last committed value (V1)");
+
+    await update; // now the update commits V2
+    assert.equal(updateSettled, true);
+    assert.equal((await store.readCommitted("batch-a")).name, "V2", "final readCommitted returns V2");
     assert.equal((await store.read("batch-a")).name, "V2", "disk agrees");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("cold readCommitted completes (V1) then an update commits V2; final snapshot is V2", async () => {
-  // Reverse ordering (no overlap): the cold read finishes before the commit lands.
-  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-coldthen-"));
+test("update-first: an update commits V2 then a queued cold read returns V2", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-updatefirst-"));
+  const realRename = rename;
+  try {
+    // Seed via a separate store (real rename) so the test store's snapshot is cold.
+    await createBatchStore(root).create({ batch_id: "batch-a", name: "V1", items: [] });
+
+    let releaseRename;
+    let renamePaused = false;
+    const renameImpl = async (from, to) => {
+      if (!renamePaused && to.endsWith(path.join("batch-a", "batch.json"))) {
+        renamePaused = true;
+        await new Promise((resolve) => { releaseRename = resolve; }); // hold the commit open
+      }
+      return realRename(from, to);
+    };
+    const store = createBatchStore(root, { renameImpl });
+
+    // Start the update: it reads V1, computes V2, then pauses at the rename.
+    let updateSettled = false;
+    const update = store.update("batch-a", (b) => ({ ...b, name: "V2" })).then((value) => {
+      updateSettled = true;
+      return value;
+    });
+    while (!renamePaused) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(updateSettled, false, "update paused at rename, not yet committed");
+
+    // The cold read enters the queue BEHIND the update and waits for it to commit.
+    const cold = store.readCommitted("batch-a");
+
+    releaseRename(); // update renames V2 and installs the snapshot
+    await update;
+    assert.equal(updateSettled, true);
+
+    const observed = await cold;
+    assert.equal(observed.name, "V2", "cold read re-checks the snapshot and returns the committed V2");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("eviction pressure during a cold read still ends at the latest committed value", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-evictcold-"));
+  const realReadFile = readFile;
   try {
     await createBatchStore(root).create({ batch_id: "batch-a", name: "V1", items: [] });
-    const store = createBatchStore(root); // cold snapshot for batch-a
-    assert.equal((await store.readCommitted("batch-a")).name, "V1");
-    await store.update("batch-a", (batch) => ({ ...batch, name: "V2" }));
-    assert.equal((await store.readCommitted("batch-a")).name, "V2", "committed update wins");
-    assert.equal((await store.read("batch-a")).name, "V2");
+
+    let release;
+    let pausedOnce = false;
+    const readFileImpl = async (file, enc) => {
+      if (!pausedOnce && file.endsWith(path.join("batch-a", "batch.json"))) {
+        pausedOnce = true;
+        const captured = await realReadFile(file, enc);
+        await new Promise((resolve) => { release = resolve; });
+        return captured;
+      }
+      return realReadFile(file, enc);
+    };
+    // Small snapshot cache so other batches apply real LRU eviction pressure.
+    const store = createBatchStore(root, { snapshotMaxEntries: 2, readFileImpl });
+
+    const cold = store.readCommitted("batch-a"); // paused reading V1
+    while (!release) await new Promise((resolve) => setImmediate(resolve));
+
+    // Create other batches (independent queues) to apply LRU eviction pressure.
+    await store.create({ batch_id: "batch-b", name: "B", items: [] });
+    await store.create({ batch_id: "batch-c", name: "C", items: [] });
+
+    // Start update A (queued behind the cold read).
+    let updateSettled = false;
+    const update = store.update("batch-a", (b) => ({ ...b, name: "V2" })).then((value) => {
+      updateSettled = true;
+      return value;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(updateSettled, false, "update A waits behind the cold read");
+
+    release(); // cold read back-fills V1
+    assert.equal((await cold).name, "V1");
+
+    await update; // update A commits V2 (re-installs A regardless of eviction)
+    assert.equal(updateSettled, true);
+    assert.equal((await store.readCommitted("batch-a")).name, "V2", "final A is V2 despite eviction pressure");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("concurrent cold reads coalesce: exactly one disk read populates the snapshot", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-coalesce-"));
+  const realReadFile = readFile;
+  let diskReads = 0;
+  try {
+    await createBatchStore(root).create({ batch_id: "batch-a", name: "V1", items: [] });
+    const readFileImpl = async (file, enc) => {
+      if (file.endsWith(path.join("batch-a", "batch.json"))) diskReads += 1;
+      return realReadFile(file, enc);
+    };
+    const store = createBatchStore(root, { readFileImpl });
+
+    // 50 concurrent cold reads: the first reads disk + back-fills; the rest hit the snapshot.
+    const results = await Promise.all(Array.from({ length: 50 }, () => store.readCommitted("batch-a")));
+    assert.equal(diskReads, 1, "exactly one disk read; the rest coalesced on the snapshot");
+    assert.ok(results.every((r) => r.name === "V1"), "every read returns the committed value");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

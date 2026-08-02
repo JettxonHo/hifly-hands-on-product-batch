@@ -12,79 +12,109 @@ function registry({ maxEntries = 512, ttlMs = 1000 } = {}) {
   };
 }
 
-test("a recorded key is a live duplicate until its TTL expires, then reusable", () => {
+test("an active receipt never expires, even well past the TTL", () => {
   const { r, clock } = registry({ ttlMs: 100 });
-  assert.equal(r.check("k1"), null, "absent key is not a duplicate");
-  r.record("k1", { batchId: "b1", executionId: "e1", active: true });
-  assert.ok(r.check("k1"), "within TTL the key is a live duplicate");
-  clock.t = 100;
-  assert.equal(r.check("k1"), null, "at expiry the key becomes reusable");
-});
-
-test("settle marks a receipt inactive but retains it for the TTL", () => {
-  const { r } = registry({ ttlMs: 100 });
-  r.record("k1", { batchId: "b1", executionId: "e1", active: true });
+  r.reserve("k1", { batchId: "b1" });
   assert.equal(r.peek("k1").active, true);
-  r.settle("k1");
-  assert.equal(r.peek("k1").active, false, "settled -> inactive");
-  assert.ok(r.check("k1"), "still a live duplicate until TTL expires");
-  r.settle("absent-key"); // no-op; must not throw
+  // Advance far beyond the TTL: an active receipt must stay live (long-running
+  // executions keep their retry protection for their whole lifetime).
+  clock.t = 100000;
+  assert.ok(r.check("k1"), "active receipt still live after the TTL would have elapsed");
+  assert.equal(r.peek("k1").active, true);
+  assert.equal(r.size(), 1, "active receipt not removed");
 });
 
-test("release drops the key so it can be reused immediately (lock/prep failure)", () => {
-  const { r } = registry({ ttlMs: 100 });
-  r.record("k1", { batchId: "b1", executionId: null, active: true });
+test("a settled receipt's TTL starts at settle, not accept", () => {
+  const { r, clock } = registry({ ttlMs: 100 });
+  r.reserve("k1", { batchId: "b1" }); // accepted at t=0 (active, no expiry yet)
+  clock.t = 500; // long-running execution; still active, so not expired
+  assert.ok(r.check("k1"), "active across the would-be accept-TTL");
+  r.settle("k1"); // settled at t=500 -> expiresAt = 600
+  assert.equal(r.peek("k1").settledAt, 500);
+  assert.equal(r.peek("k1").expiresAt, 600);
+
+  clock.t = 599; // ttl-1 after settle
+  assert.ok(r.check("k1"), "still a duplicate just before the settle-TTL elapses");
+  clock.t = 600; // exactly at expiry
+  assert.equal(r.check("k1"), null, "reusable once the settle-TTL elapses");
+});
+
+test("settling a missing/released key is a no-op", () => {
+  const { r } = registry();
+  r.settle("never-existed"); // must not throw
+  r.reserve("k1", { batchId: "b1" });
   r.release("k1");
-  assert.equal(r.check("k1"), null, "released -> reusable immediately");
-  assert.equal(r.size(), 0);
+  r.settle("k1"); // released -> no-op
+  assert.equal(r.peek("k1"), null);
 });
 
-test("check drops an expired entry even when nothing else evicts it", () => {
-  const { r, clock } = registry({ ttlMs: 50 });
-  r.record("k1", { batchId: "b1", executionId: "e1", active: false });
-  assert.equal(r.size(), 1);
-  clock.t = 50;
-  assert.equal(r.check("k1"), null, "expired -> not a duplicate");
-  assert.equal(r.size(), 0, "expired entry removed lazily on check");
-});
-
-test("LRU eviction drops the oldest non-active receipt at capacity, keeping the newest", () => {
+test("capacity is enforced by backpressure (503), never by evicting unexpired receipts", () => {
   const { r } = registry({ maxEntries: 2, ttlMs: 1000 });
-  r.record("k1", { batchId: "b1", executionId: "e1", active: false });
-  r.record("k2", { batchId: "b2", executionId: "e2", active: false });
-  r.record("k3", { batchId: "b3", executionId: "e3", active: false }); // evicts k1 (oldest)
-  assert.equal(r.check("k1"), null, "oldest non-active evicted");
+  r.reserve("k1", { batchId: "b1" }); r.settle("k1");
+  r.reserve("k2", { batchId: "b2" }); r.settle("k2");
+  // Two unexpired settled receipts fill the registry. A third unique key is
+  // rejected rather than evicting either existing receipt.
+  assert.throws(
+    () => r.reserve("k3", { batchId: "b3" }),
+    (error) => error.code === "IDEMPOTENCY_REGISTRY_FULL" && error.statusCode === 503
+  );
+  assert.equal(r.size(), 2, "no receipt evicted");
+  assert.ok(r.check("k1"), "k1 retained");
   assert.ok(r.check("k2"), "k2 retained");
-  assert.ok(r.check("k3"), "newest retained");
+});
+
+test("reserve sweeps expired settled receipts to free capacity", () => {
+  const { r, clock } = registry({ maxEntries: 2, ttlMs: 100 });
+  r.reserve("k1", { batchId: "b1" }); r.settle("k1"); // expiresAt = 100
+  clock.t = 50;
+  r.reserve("k2", { batchId: "b2" }); r.settle("k2"); // expiresAt = 150
+  // At capacity (2). Expire k1 only.
+  clock.t = 120;
+  // Reserving k3 sweeps the expired k1 and succeeds; k2 (unexpired) is kept.
+  r.reserve("k3", { batchId: "b3" });
+  assert.equal(r.check("k1"), null, "expired k1 swept");
+  assert.ok(r.check("k2"), "unexpired k2 kept");
+  assert.ok(r.check("k3"), "k3 reserved after sweep");
   assert.equal(r.size(), 2);
 });
 
-test("an active receipt is never evicted; a settled one is evicted in its place", () => {
-  const { r } = registry({ maxEntries: 2, ttlMs: 1000 });
-  r.record("k1", { batchId: "b1", executionId: "e1", active: false });
-  r.record("k2", { batchId: "b2", executionId: "e2", active: true }); // active
-  // Adding a third at capacity must NOT evict the active k2; it evicts k1 instead.
-  r.record("k3", { batchId: "b3", executionId: "e3", active: false });
-  assert.ok(r.check("k2"), "active receipt protected from eviction");
-  assert.equal(r.check("k1"), null, "non-active evicted in its place");
-  assert.ok(r.check("k3"));
+test("an active receipt blocks eviction-free backpressure: full of active receipts rejects", () => {
+  const { r, clock } = registry({ maxEntries: 2, ttlMs: 100 });
+  r.reserve("k1", { batchId: "b1" }); // active (never expires)
+  r.reserve("k2", { batchId: "b2" }); // active
+  clock.t = 100000; // far past TTL; both still active
+  assert.throws(
+    () => r.reserve("k3", { batchId: "b3" }),
+    (error) => error.code === "IDEMPOTENCY_REGISTRY_FULL"
+  );
+  assert.ok(r.check("k1") && r.check("k2"), "active receipts never evicted");
 });
 
-test("record refreshes recency so a touched key survives LRU eviction", () => {
-  const { r } = registry({ maxEntries: 2, ttlMs: 1000 });
-  r.record("k1", { batchId: "b1", executionId: "e1", active: false });
-  r.record("k2", { batchId: "b2", executionId: "e2", active: false });
-  r.record("k1", { batchId: "b1", executionId: "e1", active: false }); // touch -> newest
-  r.record("k3", { batchId: "b3", executionId: "e3", active: false }); // evicts k2 (now oldest)
-  assert.ok(r.check("k1"), "touched key survives");
-  assert.equal(r.check("k2"), null, "untouched oldest evicted");
+test("reserve rejects a duplicate key", () => {
+  const { r } = registry();
+  r.reserve("k1", { batchId: "b1" });
+  assert.throws(
+    () => r.reserve("k1", { batchId: "b1" }),
+    (error) => error.code === "DUPLICATE_IDEMPOTENCY_KEY" && error.statusCode === 409
+  );
 });
 
-test("record stores the latest receipt fields (executionId backfill after prep)", () => {
-  const { r } = registry({ ttlMs: 1000 });
-  r.record("k1", { batchId: "b1", executionId: null, active: true });
-  r.record("k1", { batchId: "b1", executionId: "snap-key", active: true });
+test("release frees the key for immediate reuse (lock/prep failure)", () => {
+  const { r } = registry();
+  r.reserve("k1", { batchId: "b1" });
+  r.release("k1");
+  assert.equal(r.check("k1"), null, "released -> reusable");
+  r.reserve("k1", { batchId: "b1" }); // re-reserve succeeds
+  assert.ok(r.check("k1"));
+});
+
+test("accept back-fills the executionId on the reserved receipt", () => {
+  const { r } = registry();
+  r.reserve("k1", { batchId: "b1" });
+  assert.equal(r.peek("k1").executionId, null);
+  r.accept("k1", { executionId: "snap-key" });
   assert.equal(r.peek("k1").executionId, "snap-key");
+  r.accept("absent", { executionId: "x" }); // no-op, must not throw
 });
 
 test("constructor rejects invalid bounds (Infinity / zero / non-integer / bad types)", () => {

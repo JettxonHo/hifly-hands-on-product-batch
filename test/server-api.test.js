@@ -1664,11 +1664,15 @@ test("completion API resolves a settled execution after a server restart", async
   assert.equal(after.json().batch.capture.status, "recorded");
 });
 
-// --- Idempotency: bounded TTL/LRU receipt registry ---------------------------
-// A key that has been accepted is retained for its TTL (even after the execution
-// settles), so a near-term retry is rejected as DUPLICATE_IDEMPOTENCY_KEY (409)
-// instead of starting a second execution. This replaces the old release-on-settle
-// model that allowed immediate reuse — a double-spend risk.
+// --- Idempotency: bounded TTL receipt registry with capacity backpressure ----
+// A key that has been accepted is protected against a second execution: an ACTIVE
+// receipt never expires (long-running executions keep their protection for their
+// whole lifetime); a SETTLED receipt is protected for a full TTL measured from the
+// SETTLE moment (not acceptance). Capacity is enforced by BACKPRESSURE — when the
+// registry is full, a new key gets 503 IDEMPOTENCY_REGISTRY_FULL rather than
+// evicting an unexpired receipt (never silently lose retry protection). Restart
+// idempotency is a documented known limitation (in-memory only). These tests use
+// an injected clock (no real-time sleep).
 
 async function idemFixture(t, options = {}) {
   const { app, root, session } = await fixture(createFakeExecutor(), {
@@ -1743,42 +1747,64 @@ test("a duplicate idempotency key is rejected even against a different batch wit
   assert.equal(retry.json().error, "DUPLICATE_IDEMPOTENCY_KEY");
 });
 
-test("an idempotency key becomes reusable only after its TTL expires", async (t) => {
+test("a settled idempotency key's protection TTL is measured from the settle moment", async (t) => {
   const clock = { t: 1000 };
   const { app, session } = await idemFixture(t, { idempotencyTtlMs: 500, now: () => clock.t });
   await newCaptureBatch(app, session, "batch-idem-ttl-1");
   await newCaptureBatch(app, session, "batch-idem-ttl-2");
   const first = await startKey(app, session, "batch-idem-ttl-1", "ttl-key");
   assert.equal(first.statusCode, 202);
+  // Advance the clock during the (fast) execution — the ACTIVE receipt does not
+  // expire. The execution then settles at t=1400, so expiresAt = 1400 + 500 = 1900.
+  clock.t = 1400;
   await awaitSettled(app, session, "batch-idem-ttl-1", first.json().executionId);
 
+  // Just before the settle-TTL elapses: still a duplicate.
+  clock.t = 1900 - 1;
   const within = await startKey(app, session, "batch-idem-ttl-2", "ttl-key");
-  assert.equal(within.statusCode, 409, "within TTL the key is still a duplicate");
+  assert.equal(within.statusCode, 409, "within the settle-TTL the key is still a duplicate");
 
-  clock.t = 1000 + 500 + 1; // advance the injected clock past the TTL
+  // Once the settle-TTL elapses: reusable.
+  clock.t = 1900;
   const after = await startKey(app, session, "batch-idem-ttl-2", "ttl-key");
-  assert.equal(after.statusCode, 202, "after TTL the key is reusable");
+  assert.equal(after.statusCode, 202, "after the settle-TTL the key is reusable");
 });
 
-test("the registry evicts the oldest settled receipt at capacity but keeps the newest", async (t) => {
-  const { app, session } = await idemFixture(t, { idempotencyMaxEntries: 2 });
-  for (const [key, batchId] of [["cap-1", "batch-idem-cap-1"], ["cap-2", "batch-idem-cap-2"], ["cap-3", "batch-idem-cap-3"]]) {
-    await newCaptureBatch(app, session, batchId);
+test("a full registry rejects a new key with 503 backpressure (no eviction, no executor call)", async (t) => {
+  let submitCalls = 0;
+  const executor = createFakeExecutor();
+  executor.submitVideo = async () => {
+    submitCalls += 1;
+    return { status: "ready", remoteEvidence: { evidence_source: "direct_submission", remote_id: "work-1" } };
+  };
+  const { app, root, session } = await fixture(executor, { idempotencyMaxEntries: 2 });
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  // Two executions settle, filling the registry to capacity (maxEntries=2).
+  for (const [key, batchId] of [["cap-1", "batch-idem-cap-1"], ["cap-2", "batch-idem-cap-2"]]) {
+    await importOne(app, session, batchId);
     const exec = await startKey(app, session, batchId, key);
     assert.equal(exec.statusCode, 202);
     await awaitSettled(app, session, batchId, exec.json().executionId);
   }
-  // Check the RETAINED keys first: a rejected retry (409) never reaches the
-  // synchronous reserve, so it does not perturb the registry. cap-2 and cap-3
-  // (the two newest) must still be duplicates.
-  await newCaptureBatch(app, session, "batch-idem-cap-2b");
-  assert.equal((await startKey(app, session, "batch-idem-cap-2b", "cap-2")).statusCode, 409, "cap-2 retained");
-  await newCaptureBatch(app, session, "batch-idem-cap-3b");
-  assert.equal((await startKey(app, session, "batch-idem-cap-3b", "cap-3")).statusCode, 409, "cap-3 retained");
-  // cap-1 (oldest settled) was evicted when cap-3 was recorded -> reusable. This
-  // accepted retry is checked LAST so its reserve cannot evict a later assertion.
-  await newCaptureBatch(app, session, "batch-idem-cap-1b");
-  assert.equal((await startKey(app, session, "batch-idem-cap-1b", "cap-1")).statusCode, 202, "cap-1 evicted -> reusable");
+  const submitsAfterTwo = submitCalls;
+
+  // A third unique key is rejected with 503 backpressure — the registry is full.
+  await importOne(app, session, "batch-idem-cap-3");
+  const third = await startKey(app, session, "batch-idem-cap-3", "cap-3");
+  assert.equal(third.statusCode, 503, "registry full -> 503 backpressure");
+  assert.equal(third.json().error, "IDEMPOTENCY_REGISTRY_FULL");
+  assert.equal(submitCalls, submitsAfterTwo, "no executor started for the rejected key");
+
+  // The two settled receipts were NOT evicted: their keys are still protected.
+  await importOne(app, session, "batch-idem-cap-1b");
+  assert.equal((await startKey(app, session, "batch-idem-cap-1b", "cap-1")).statusCode, 409, "cap-1 still protected (not evicted)");
+  await importOne(app, session, "batch-idem-cap-2b");
+  assert.equal((await startKey(app, session, "batch-idem-cap-2b", "cap-2")).statusCode, 409, "cap-2 still protected (not evicted)");
+  assert.equal(submitCalls, submitsAfterTwo, "no executor started for the duplicate retries");
 });
 
 test("a late retry with the original idempotency key after a safe-stop is rejected without re-invoking the executor", async (t) => {
@@ -1816,6 +1842,51 @@ test("a late retry with the original idempotency key after a safe-stop is reject
 
   const retry = await startKey(app, session, "batch-idem-stop", "stop-key");
   assert.equal(retry.statusCode, 409, "late retry with the same key is rejected");
+  assert.equal(retry.json().error, "DUPLICATE_IDEMPOTENCY_KEY");
+  assert.equal(submitCalls, 0, "no second execution -> executor not called again (no double-spend)");
+});
+
+test("a safe-stopped execution whose ACTIVE phase exceeded the TTL still rejects a same-key retry", async (t) => {
+  // Active receipts never expire: even if the execution runs far longer than the
+  // TTL, a same-key retry after a safe-stop must still 409 (no double-spend). This
+  // covers the active-receipt-expiry hole in a TTL-from-accept design.
+  const clock = { t: 0 };
+  let submitCalls = 0;
+  let releaseAsset;
+  let assetStarted = false;
+  const executor = createFakeExecutor();
+  executor.createAsset = async () => {
+    assetStarted = true;
+    await new Promise((resolve) => { releaseAsset = resolve; });
+    return { asset_id: "asset", preview_url: null };
+  };
+  executor.submitVideo = async () => {
+    submitCalls += 1;
+    return { status: "ready", remoteEvidence: { evidence_source: "direct_submission", remote_id: "work-1" } };
+  };
+  const { app, root, session } = await fixture(executor, { idempotencyTtlMs: 100, now: () => clock.t });
+  t.after(async () => {
+    releaseAsset?.();
+    await app.stopExecutions?.();
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await importOne(app, session, "batch-idem-stop-ttl");
+  const first = await startKey(app, session, "batch-idem-stop-ttl", "stop-ttl-key");
+  assert.equal(first.statusCode, 202);
+  while (!assetStarted) await new Promise((resolve) => setImmediate(resolve));
+  // The execution stays ACTIVE far longer than the TTL (100ms) — it must not expire.
+  clock.t = 100000;
+  const stopPromise = app.stopExecutions();
+  releaseAsset();
+  await stopPromise; // settles at clock.t=100000 -> settled TTL expiresAt = 100100
+  assert.equal(submitCalls, 0, "stopped before any submit");
+
+  // Same-key retry at t=100000: the receipt was active (never expired) through the
+  // stop and is now settled with a TTL measured from the settle moment (100100),
+  // so it is still protected.
+  const retry = await startKey(app, session, "batch-idem-stop-ttl", "stop-ttl-key");
+  assert.equal(retry.statusCode, 409, "active-over-TTL receipt still protects after safe-stop");
   assert.equal(retry.json().error, "DUPLICATE_IDEMPOTENCY_KEY");
   assert.equal(submitCalls, 0, "no second execution -> executor not called again (no double-spend)");
 });

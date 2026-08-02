@@ -74,6 +74,12 @@ function apiError(error) {
   if (error?.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
     return { statusCode: error.statusCode, code: error.code ?? "BAD_REQUEST" };
   }
+  // Service-unavailable conditions that must surface as 503 (not the 400 that
+  // CLIENT_ERROR_CODES would otherwise assign): a stopping server, and idempotency
+  // registry backpressure (registry full → reject new keys until a receipt expires).
+  if (error?.code === "SERVER_STOPPING" || error?.code === "IDEMPOTENCY_REGISTRY_FULL") {
+    return { statusCode: 503, code: error.code };
+  }
   if (CLIENT_ERROR_CODES.has(error?.code)) return { statusCode: 400, code: error.code };
   return { statusCode: 500, code: "INTERNAL_ERROR" };
 }
