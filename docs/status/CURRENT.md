@@ -43,7 +43,8 @@
   - **首次失败**：main commit `afdb32b`，run `30718340154`，Windows job 测试 #328 `capture-enabled executions use a per-run HAR executor and mark capture recorded`，expected `completed` / actual `interrupted_unknown`（420 total / 403 pass / 1 fail / 16 skipped）；同 commit Ubuntu 通过；failed-job rerun 通过（**这是一次 rerun，非首次成功**）；前一 main commit `6f8e84e` Ubuntu/Windows 均通过。
   - **根因**：capture execution 缺单一 terminal-completion 边界——item `completed`（runBatch 内）与 capture `recorded`（coordinator `done.finally`，executor.close/HAR flush 之后）是两个独立 store.update，客户端只能轮询二者合取；Windows 事件循环/NTFS rename 停顿（且 `batch-store.js` 此前缺 rename 重试）拉长该窗口导致盲轮询超时。属**生产竞态**（`start.js` 生产 close() 同机制）。
   - **修复（方向 A）**：coordinator 暴露 `waitForCompletion` terminal 边界（runBatch + executor.close/HAR flush + terminal 持久化 + lock 释放全部完成后才 settle）+ terminal-transition guard（全 completed 才写 recorded）+ executor close 错误显式记录 + `batch-store.js` EPERM/EBUSY rename 重试 + 空 JSON body 容忍。
-  - **确定性验证**：新增 8 个 deferred-barrier 测试；本地目标测试 100/100、capture 组 30/30、全量 3/3（412 pass/16 skipped/0 fail）；PR #38 标准 CI Ubuntu/Windows 双绿。
+  - **确定性验证**：新增 8 个 deferred-barrier 测试；本地目标测试 100/100、capture 组 30/30、全量 3/3（412 pass/16 skipped/0 fail）、并发 8 压力 50/50；PR #38 标准 CI Ubuntu/Windows 双绿。
+  - **测试中发现的第二处时序缺陷（已修复）**：slow-HAR 测试初版仍用盲轮询等待 `completed/recording` 中间态，在 Windows 慢机器上超时并泄漏 pending promise 级联取消后续测试（PR #38 run `30738227509` Windows fail #331-346）。已改为 `closeStarted` 信号握手（close 被调 ⟺ runBatch 已返回 ⟺ item 已 completed，即确定的 completed-未 flush 窗口），删除盲轮询 helper；修复后 run `30738426981` Windows/Ubuntu 双绿。这再次印证「不得把首次失败当噪声」。
   - **待办**：Windows 专项压力（`.github/workflows/capture-stress.yml`，仅 `workflow_dispatch`）需**合并到 main 后**由 owner 触发跑 ≥20 次完成最终验收；稳定 main commit 届时更新到真实通过压力验证的 commit。
 
 ## 下一步（最多 5 项）
