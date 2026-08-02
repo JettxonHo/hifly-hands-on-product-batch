@@ -1,0 +1,51 @@
+name: Capture completion stress (Windows)
+
+# CI-002: deterministic stress harness for the Windows capture completion flake.
+# This workflow is manual-only (workflow_dispatch) so it never runs on ordinary
+# PRs/pushes and never touches Hifly or consumes points. Each repetition runs the
+# capture execution tests against a fresh fixture; any single failure fails the
+# job (no continue-on-error), because a single failure means the race is not fixed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repetitions:
+        description: "How many times to repeat the capture completion test on Windows"
+        required: true
+        default: "20"
+        type: string
+
+jobs:
+  capture-stress:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Repeat capture completion tests
+        shell: pwsh
+        env:
+          REPS: ${{ inputs.repetitions }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $reps = [int]$env:REPS
+          if ($reps -lt 1) { $reps = 20 }
+          $pattern = "capture-enabled executions use a per-run HAR executor|capture wait boundary|slow HAR flush|server close racing|completed item is never|interrupted execution does not mark|failing executor close|concurrent capture executions|closes deterministically"
+          $failed = 0
+          for ($i = 1; $i -le $reps; $i++) {
+            node --test --test-name-pattern "$pattern" test/server-api.test.js | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+              $failed++
+              Write-Host "iteration $i FAILED (exit $LASTEXITCODE)"
+            } else {
+              Write-Host "iteration $i ok"
+            }
+          }
+          Write-Host "capture stress: reps=$reps failed=$failed"
+          if ($failed -ne 0) { exit 1 }

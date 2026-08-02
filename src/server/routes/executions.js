@@ -163,6 +163,7 @@ export function createExecutionCoordinator({
   let active = null;
   let stopping = false;
   const idempotencyKeys = new Set();
+  const executionIdToBatchId = new Map();
 
   async function start(body) {
     if (stopping) throw executionError("SERVER_STOPPING", 503);
@@ -173,8 +174,9 @@ export function createExecutionCoordinator({
 
     const batchDirectory = path.join(batchRoot, batchId);
     const controller = new AbortController();
-    const execution = { batchId, controller, lock: null, done: null, ready: null };
+    const execution = { id: idempotencyKey, batchId, controller, lock: null, done: null, ready: null };
     active = execution;
+    executionIdToBatchId.set(idempotencyKey, batchId);
     execution.ready = (async () => {
       let lock;
       try {
@@ -250,15 +252,42 @@ export function createExecutionCoordinator({
       }).catch(async (error) => {
         await store.update(batchId, (current) => ({ ...current, execution_error: error.message }));
       }).finally(async () => {
-        if (shouldCloseRunExecutor) await runExecutor?.close?.();
-        if (captureEnabled && recordHarPath && await fileExists(path.join(workspaceRoot, recordHarPath))) {
+        // Executor close (HAR flush) is part of the terminal boundary. If it throws,
+        // record the error explicitly instead of silently swallowing it, and do NOT
+        // mark capture recorded (the HAR may be incomplete).
+        let closeError = null;
+        if (shouldCloseRunExecutor) {
+          try {
+            await runExecutor?.close?.();
+          } catch (error) {
+            closeError = error;
+          }
+        }
+        const harRecorded = !closeError && captureEnabled && recordHarPath &&
+          await fileExists(path.join(workspaceRoot, recordHarPath));
+        // Terminal-transition guard: only mark capture recorded when every item
+        // reached a real terminal "completed" state. This prevents the inconsistent
+        // "item reverted to pending (STOP_SAFE) but capture=recorded" intermediate
+        // state observed when shutdown aborts mid-execution.
+        if (harRecorded) {
+          await store.update(batchId, (current) => {
+            const allCompleted = Array.isArray(current.items) && current.items.length > 0 &&
+              current.items.every((item) => item.status === "completed");
+            if (!allCompleted) return current;
+            return {
+              ...current,
+              capture: updateCaptureState(current.capture, {
+                enabled: true,
+                status: "recorded"
+              })
+            };
+          });
+        }
+        if (closeError) {
           await store.update(batchId, (current) => ({
             ...current,
-            capture: updateCaptureState(current.capture, {
-              enabled: true,
-              status: "recorded"
-            })
-          }));
+            execution_error: current.execution_error ?? `capture executor close failed: ${closeError.message}`
+          })).catch(() => {});
         }
         await lock.release().catch(() => {});
       });
@@ -275,19 +304,47 @@ export function createExecutionCoordinator({
     return { batch: publicBatch(ready.batch), executionId: idempotencyKey };
   }
 
+  // Terminal-completion contract (CI-002 / direction A):
+  // resolves only after business execution finished AND capture/HAR flush finished
+  // AND the capture executor was closed AND the terminal state was persisted AND
+  // the execution lock was released. Callers must await this instead of polling
+  // for two independently-persisted states (completed && capture.recorded).
+  // Returns the batch snapshot read after the terminal state was persisted.
+  async function waitForCompletion(executionId) {
+    const execution = active;
+    if (!execution || execution.id !== executionId) {
+      // Nothing in flight for this id: the execution already settled (or never ran).
+      // Read the current persisted state as the terminal snapshot.
+      const batch = await store.read(assertBatchId(executionIdToBatchId.get(executionId) ?? executionId));
+      return { batch: publicBatch(batch), executionId };
+    }
+    await execution.done;
+    const batch = await store.read(execution.batchId);
+    return { batch: publicBatch(batch), executionId };
+  }
+
   async function stop() {
     stopping = true;
     active?.controller?.abort();
     await active?.done;
   }
 
-  return { start, stop };
+  return { start, stop, waitForCompletion };
 }
 
 export async function registerExecutionRoutes(app, { coordinator }) {
   app.post("/api/executions", async (request, reply) => {
     const result = await coordinator.start(request.body);
     reply.code(202);
+    return result;
+  });
+
+  // Terminal-completion boundary: awaits the execution's full terminal transition
+  // (business completion + capture/HAR flush + executor close + terminal persist),
+  // then returns the persisted batch snapshot. Clients/tests should await this
+  // instead of polling two independently-persisted states.
+  app.post("/api/executions/:executionId/wait", async (request) => {
+    const result = await coordinator.waitForCompletion(request.params.executionId);
     return result;
   });
 }

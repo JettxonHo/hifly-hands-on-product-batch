@@ -1131,18 +1131,18 @@ test("capture-enabled executions use a per-run HAR executor and mark capture rec
     payload: { batchId: "batch-capture-run", idempotencyKey: "execution-capture", confirm: true }
   });
   assert.equal(execution.statusCode, 202);
+  const executionId = execution.json().executionId;
 
-  let batch = null;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const response = await app.inject({
-      method: "GET",
-      url: "/api/batches/batch-capture-run",
-      headers: { host: HOST }
-    });
-    batch = response.json().batch;
-    if (batch.status === "completed" && batch.capture.status === "recorded") break;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
+  // Await the terminal-completion boundary instead of polling two independently
+  // persisted states. wait resolves only after runBatch finished AND the capture
+  // executor was closed (HAR flushed) AND the terminal state was persisted.
+  const settled = await app.inject({
+    method: "POST",
+    url: `/api/executions/${executionId}/wait`,
+    headers: headers(session)
+  });
+  assert.equal(settled.statusCode, 200);
+  const batch = settled.json().batch;
 
   assert.equal(factoryCalls.length, 1);
   assert.match(factoryCalls[0], /^rpa\/capture\/raw\/batch-capture-run-/);
@@ -1150,6 +1150,340 @@ test("capture-enabled executions use a per-run HAR executor and mark capture rec
   assert.equal(batch.capture.enabled, true);
   assert.equal(batch.capture.status, "recorded");
   assert.equal(batch.capture.har_path, "[local raw capture]");
+});
+
+// --- CI-002: deterministic capture/shutdown lifecycle tests -----------------
+// These tests reproduce completion/shutdown races with deferred barriers (NOT
+// real-time sleeps) so each scenario has exactly one correct observable outcome.
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+// Build a capture-enabled app whose per-run executor close() is gated on a
+// deferred barrier, then start an execution. Returns handles to drive the race.
+async function captureExecutionFixture(t, { close } = {}) {
+  const harFlushed = { value: false };
+  const { app, root, session } = await fixture(createFakeExecutor(), {
+    executorFactory: ({ recordHarPath }) => {
+      const executor = createFakeExecutor();
+      executor.close = async () => {
+        await close?.({ root, recordHarPath });
+        harFlushed.value = true;
+      };
+      return executor;
+    }
+  });
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/batches",
+    headers: headers(session),
+    payload: { batchId: "batch-capture-run", capture: { enabled: true } }
+  });
+  assert.equal(created.statusCode, 201);
+  await importInto(app, session, "batch-capture-run", "SKU-1.png", { capture_enabled: "true" });
+  return { app, root, session, harFlushed };
+}
+
+async function startCaptureExecution(app, session) {
+  const execution = await app.inject({
+    method: "POST",
+    url: "/api/executions",
+    headers: headers(session),
+    payload: { batchId: "batch-capture-run", idempotencyKey: "execution-capture", confirm: true }
+  });
+  assert.equal(execution.statusCode, 202);
+  return execution.json().executionId;
+}
+
+async function writeHar(root, recordHarPath) {
+  await mkdir(path.dirname(path.join(root, recordHarPath)), { recursive: true });
+  await writeFile(path.join(root, recordHarPath), "{\"log\":{\"entries\":[]}}\n");
+}
+
+async function waitForItemStatus(app, batchId, predicate) {
+  for (let attempt = 0; attempt < 2000; attempt += 1) {
+    const read = await app.inject({ method: "GET", url: `/api/batches/${batchId}`, headers: { host: HOST } });
+    const batch = read.json().batch;
+    if (predicate(batch)) return batch;
+    // Yield a macrotask so the in-flight execution can make progress between
+    // polls; a setImmediate spin would starve the event loop on some platforms.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("Timed out waiting for batch status");
+}
+
+test("capture execution completes then server closes deterministically", async (t) => {
+  const { app, root, session } = await captureExecutionFixture(t, {
+    close: ({ root: r, recordHarPath }) => writeHar(r, recordHarPath)
+  });
+  const executionId = await startCaptureExecution(app, session);
+
+  const settled = await app.inject({
+    method: "POST",
+    url: `/api/executions/${executionId}/wait`,
+    headers: headers(session)
+  });
+  assert.equal(settled.statusCode, 200);
+  assert.equal(settled.json().batch.status, "completed");
+  assert.equal(settled.json().batch.capture.status, "recorded");
+
+  // After the terminal boundary, closing the server must not disturb the
+  // persisted terminal state (no flip back to recording / pending).
+  await app.close();
+  const store = createBatchStore(path.join(root, "batches"));
+  const persisted = await store.read("batch-capture-run");
+  assert.equal(persisted.status, "completed");
+  assert.equal(persisted.capture.status, "recorded");
+  assert.equal(persisted.items.every((item) => item.status === "completed"), true);
+});
+
+test("capture wait boundary blocks across a slow executor close", async (t) => {
+  const closeGate = deferred();
+  const closeStarted = deferred();
+  const { app, session, harFlushed } = await captureExecutionFixture(t, {
+    close: async ({ root: r, recordHarPath }) => {
+      closeStarted.resolve();
+      await closeGate.promise;
+      await writeHar(r, recordHarPath);
+    }
+  });
+  const executionId = await startCaptureExecution(app, session);
+
+  // Issue wait first; it must block until the HAR flush completes. Wait until
+  // the executor close (HAR flush) has actually started, then confirm wait has
+  // not resolved early, then release the gate.
+  const waitReturned = { early: false };
+  const waitPromise = app.inject({
+    method: "POST",
+    url: `/api/executions/${executionId}/wait`,
+    headers: headers(session)
+  }).then((response) => {
+    waitReturned.early = true;
+    return response;
+  });
+  await closeStarted.promise;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(waitReturned.early, false, "wait must not resolve before the HAR flush completes");
+
+  closeGate.resolve();
+  const settled = await waitPromise;
+  assert.equal(settled.statusCode, 200);
+  assert.equal(settled.json().batch.capture.status, "recorded");
+  assert.equal(harFlushed.value, true);
+});
+
+test("capture wait boundary blocks across a slow HAR flush", async (t) => {
+  const flushGate = deferred();
+  const { app, session } = await captureExecutionFixture(t, {
+    close: async ({ root: r, recordHarPath }) => {
+      await flushGate.promise; // the HAR write itself is the slow step
+      await writeHar(r, recordHarPath);
+    }
+  });
+  const executionId = await startCaptureExecution(app, session);
+
+  // Item reaches completed while the HAR is still being flushed.
+  const mid = await waitForItemStatus(app, "batch-capture-run", (batch) =>
+    batch.status === "completed" && batch.capture.status === "recording");
+  assert.equal(mid.capture.status, "recording");
+
+  flushGate.resolve();
+  const settled = await app.inject({
+    method: "POST",
+    url: `/api/executions/${executionId}/wait`,
+    headers: headers(session)
+  });
+  assert.equal(settled.statusCode, 200);
+  assert.equal(settled.json().batch.status, "completed");
+  assert.equal(settled.json().batch.capture.status, "recorded");
+});
+
+test("server close racing completion still records capture", async (t) => {
+  const closeGate = deferred();
+  const closeStarted = deferred();
+  const { app, root, session } = await captureExecutionFixture(t, {
+    close: async ({ root: r, recordHarPath }) => {
+      closeStarted.resolve();
+      await closeGate.promise;
+      await writeHar(r, recordHarPath);
+    }
+  });
+  await startCaptureExecution(app, session);
+
+  // Wait until the executor close (HAR flush) has started, then close the
+  // server concurrently with the completion boundary. app.close() awaits the
+  // terminal boundary, so the capture is fully recorded once close returns.
+  await closeStarted.promise;
+  const closePromise = app.close();
+  closeGate.resolve();
+  await closePromise;
+
+  const store = createBatchStore(path.join(root, "batches"));
+  const persisted = await store.read("batch-capture-run");
+  assert.equal(persisted.status, "completed");
+  assert.equal(persisted.capture.status, "recorded");
+  assert.equal(persisted.items.every((item) => item.status === "completed"), true);
+});
+
+test("a completed item is never overwritten back to interrupted_unknown", async (t) => {
+  const { app, root, session } = await captureExecutionFixture(t, {
+    close: ({ root: r, recordHarPath }) => writeHar(r, recordHarPath)
+  });
+  const executionId = await startCaptureExecution(app, session);
+  await app.inject({
+    method: "POST",
+    url: `/api/executions/${executionId}/wait`,
+    headers: headers(session)
+  });
+
+  const store = createBatchStore(path.join(root, "batches"));
+  const persisted = await store.read("batch-capture-run");
+  assert.equal(persisted.items.every((item) => item.status === "completed"), true);
+  // The completed terminal state has no outgoing transition: it cannot be
+  // reverted to interrupted_unknown (or any non-terminal state) afterwards.
+  assert.equal(persisted.items.some((item) => item.status === "interrupted_unknown"), false);
+  assert.equal(persisted.status, "completed");
+});
+
+test("a genuinely interrupted execution does not mark capture recorded", async (t) => {
+  // Abort mid-execution (createAsset gated). The item safe-stops to pending
+  // (never interrupted_unknown), so the terminal guard must NOT write
+  // capture=recorded even though the executor close flushes a HAR.
+  const createAssetGate = deferred();
+  const createAssetStarted = deferred();
+  const harFlushed = { value: false };
+  const { app, root, session } = await fixture(createFakeExecutor(), {
+    executorFactory: ({ recordHarPath }) => {
+      const executor = createFakeExecutor();
+      const baseCreateAsset = executor.createAsset.bind(executor);
+      executor.createAsset = async (task, context) => {
+        createAssetStarted.resolve();
+        await createAssetGate.promise;
+        return baseCreateAsset(task, context);
+      };
+      executor.close = async () => {
+        await writeHar(root, recordHarPath);
+        harFlushed.value = true;
+      };
+      return executor;
+    }
+  });
+  t.after(async () => {
+    createAssetGate.resolve();
+    await app.close().catch(() => {});
+    await rm(root, { recursive: true, force: true });
+  });
+  await createBatch(app, session, "batch-capture-run");
+  await importInto(app, session, "batch-capture-run", "SKU-1.png", { capture_enabled: "true" });
+  await startCaptureExecution(app, session);
+
+  // Wait until the execution is in-flight and blocked at the createAsset gate,
+  // then close (abort) the server before releasing the gate.
+  await createAssetStarted.promise;
+  const closePromise = app.close();
+  createAssetGate.resolve();
+  await closePromise;
+
+  const store = createBatchStore(path.join(root, "batches"));
+  const persisted = await store.read("batch-capture-run");
+  assert.equal(persisted.items[0].status, "pending");
+  assert.notEqual(persisted.items[0].status, "interrupted_unknown");
+  assert.equal(persisted.capture.status, "recording", "aborted before completion must not mark capture recorded");
+  assert.equal(harFlushed.value, true, "close still flushed the HAR during shutdown");
+});
+
+test("a failing executor close records an explicit error and skips recorded", async (t) => {
+  const { app, root, session } = await captureExecutionFixture(t, {
+    close: async () => {
+      throw new Error("HAR flush exploded");
+    }
+  });
+  const executionId = await startCaptureExecution(app, session);
+
+  const settled = await app.inject({
+    method: "POST",
+    url: `/api/executions/${executionId}/wait`,
+    headers: headers(session)
+  });
+  assert.equal(settled.statusCode, 200);
+  const batch = settled.json().batch;
+  // The HAR never flushed, so capture must NOT be recorded; the close error is
+  // surfaced explicitly on the batch instead of being swallowed.
+  assert.equal(batch.capture.status, "recording");
+  assert.match(String(batch.execution_error), /capture executor close failed: HAR flush exploded/);
+
+  const store = createBatchStore(path.join(root, "batches"));
+  const persisted = await store.read("batch-capture-run");
+  assert.equal(persisted.capture.status, "recording");
+  assert.match(String(persisted.execution_error), /capture executor close failed/);
+});
+
+test("concurrent capture executions keep per-run executors isolated", async (t) => {
+  const factoryCalls = [];
+  const closeCounts = new Map();
+  const { app, root, session } = await fixture(createFakeExecutor(), {
+    executorFactory: ({ recordHarPath }) => {
+      factoryCalls.push(recordHarPath);
+      const executor = createFakeExecutor();
+      executor.close = async () => {
+        closeCounts.set(recordHarPath, (closeCounts.get(recordHarPath) ?? 0) + 1);
+        await writeHar(root, recordHarPath);
+      };
+      return executor;
+    }
+  });
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  // Run two capture executions back-to-back (the coordinator serializes active
+  // executions, but each must build + close its own per-run executor).
+  for (const [batchId, executionKey] of [["batch-capture-run", "execution-capture-1"], ["batch-capture-run-2", "execution-capture-2"]]) {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/batches",
+      headers: headers(session),
+      payload: { batchId, capture: { enabled: true } }
+    });
+    assert.equal(created.statusCode, 201);
+    await importInto(app, session, batchId, "SKU-1.png", { capture_enabled: "true" });
+    const execution = await app.inject({
+      method: "POST",
+      url: "/api/executions",
+      headers: headers(session),
+      payload: { batchId, idempotencyKey: executionKey, confirm: true }
+    });
+    assert.equal(execution.statusCode, 202);
+    const settled = await app.inject({
+      method: "POST",
+      url: `/api/executions/${execution.json().executionId}/wait`,
+      headers: headers(session)
+    });
+    assert.equal(settled.statusCode, 200);
+    assert.equal(settled.json().batch.capture.status, "recorded");
+  }
+
+  // Each execution built exactly one per-run executor with a distinct HAR path,
+  // and each per-run executor was closed exactly once (no cross-contamination).
+  assert.equal(factoryCalls.length, 2);
+  assert.match(factoryCalls[0], /^rpa\/capture\/raw\/batch-capture-run-/);
+  assert.match(factoryCalls[1], /^rpa\/capture\/raw\/batch-capture-run-2-/);
+  assert.notEqual(factoryCalls[0], factoryCalls[1]);
+  assert.equal(closeCounts.get(factoryCalls[0]), 1);
+  assert.equal(closeCounts.get(factoryCalls[1]), 1);
 });
 
 test("auto-pool execution resolves pool images from the generation configuration root", async (t) => {

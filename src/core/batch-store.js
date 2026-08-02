@@ -33,7 +33,22 @@ async function atomicWriteJson(filePath, value) {
   const tempPath = path.join(path.dirname(filePath), `.batch.json.${process.pid}.${randomUUID()}.tmp`);
   try {
     await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
-    await rename(tempPath, filePath);
+    // On Windows, rename can fail with EPERM/EBUSY if another handle has the target
+    // file open (e.g. a concurrent reader polling GET /api/batches/:id). Retry with
+    // short backoff, matching the contract already used in src/rpa/rpa-state.js.
+    const maxRetries = 5;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        await rename(tempPath, filePath);
+        return;
+      } catch (error) {
+        if ((error.code === "EPERM" || error.code === "EBUSY") && attempt < maxRetries - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+          continue;
+        }
+        throw error;
+      }
+    }
   } catch (error) {
     await rm(tempPath, { force: true }).catch(() => {});
     throw error;

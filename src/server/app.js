@@ -93,6 +93,19 @@ export async function buildApp({
 } = {}) {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("root is required");
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
+  // Tolerate empty JSON bodies: POST endpoints that take no payload (e.g.
+  // POST /api/executions/:id/wait) should not fail with FST_ERR_CTP_EMPTY_JSON_BODY
+  // when a client sends Content-Type: application/json with an empty body. Parse an
+  // empty body as an empty object; non-empty bodies are parsed normally.
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    if (body === "" || body === undefined || body === null) return done(null, {});
+    try {
+      return done(null, JSON.parse(body));
+    } catch (error) {
+      error.statusCode = 400;
+      return done(error);
+    }
+  });
   const batchRoot = path.join(path.resolve(root), "batches");
   const staticRoot = path.resolve(webRoot);
   const store = createBatchStore(batchRoot);
