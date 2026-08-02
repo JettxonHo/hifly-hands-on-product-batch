@@ -1211,18 +1211,6 @@ async function writeHar(root, recordHarPath) {
   await writeFile(path.join(root, recordHarPath), "{\"log\":{\"entries\":[]}}\n");
 }
 
-async function waitForItemStatus(app, batchId, predicate) {
-  for (let attempt = 0; attempt < 2000; attempt += 1) {
-    const read = await app.inject({ method: "GET", url: `/api/batches/${batchId}`, headers: { host: HOST } });
-    const batch = read.json().batch;
-    if (predicate(batch)) return batch;
-    // Yield a macrotask so the in-flight execution can make progress between
-    // polls; a setImmediate spin would starve the event loop on some platforms.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  throw new Error("Timed out waiting for batch status");
-}
-
 test("capture execution completes then server closes deterministically", async (t) => {
   const { app, root, session } = await captureExecutionFixture(t, {
     close: ({ root: r, recordHarPath }) => writeHar(r, recordHarPath)
@@ -1286,25 +1274,38 @@ test("capture wait boundary blocks across a slow executor close", async (t) => {
 
 test("capture wait boundary blocks across a slow HAR flush", async (t) => {
   const flushGate = deferred();
+  const closeStarted = deferred();
   const { app, session } = await captureExecutionFixture(t, {
     close: async ({ root: r, recordHarPath }) => {
+      // close() is only called after runBatch returned, i.e. after every item
+      // already reached "completed". So being inside close() with the flush
+      // gated IS the deterministic "item completed but HAR not yet flushed"
+      // window — no polling of that intermediate state is required.
+      closeStarted.resolve();
       await flushGate.promise; // the HAR write itself is the slow step
       await writeHar(r, recordHarPath);
     }
   });
   const executionId = await startCaptureExecution(app, session);
 
-  // Item reaches completed while the HAR is still being flushed.
-  const mid = await waitForItemStatus(app, "batch-capture-run", (batch) =>
-    batch.status === "completed" && batch.capture.status === "recording");
-  assert.equal(mid.capture.status, "recording");
-
-  flushGate.resolve();
-  const settled = await app.inject({
+  // Wait until the HAR flush has deterministically started (=> item completed,
+  // capture still recording), then confirm wait blocks across it.
+  await closeStarted.promise;
+  const waitReturned = { early: false };
+  const waitPromise = app.inject({
     method: "POST",
     url: `/api/executions/${executionId}/wait`,
     headers: headers(session)
+  }).then((response) => {
+    waitReturned.early = true;
+    return response;
   });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(waitReturned.early, false, "wait must not resolve before the HAR flush completes");
+
+  flushGate.resolve();
+  const settled = await waitPromise;
   assert.equal(settled.statusCode, 200);
   assert.equal(settled.json().batch.status, "completed");
   assert.equal(settled.json().batch.capture.status, "recorded");
