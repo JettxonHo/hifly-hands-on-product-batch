@@ -176,3 +176,95 @@ test("a non-retryable rename error fails immediately without retrying", async ()
     assert.deepEqual(await readdir(root), [], "failed create cleans the batch directory");
   });
 });
+
+// --- In-process committed snapshot (GET polling reader) ----------------------
+// The high-frequency GET /api/batches/:id reader reads the committed snapshot via
+// readCommitted() instead of opening batch.json, eliminating the Windows
+// file-handle race with the writer's atomic rename.
+
+test("readCommitted serves the committed snapshot without reading batch.json and returns an isolated clone", async () => {
+  await withStore(async (store, root) => {
+    await store.create({ batch_id: "batch-a", name: "Committed", items: [] });
+    // If readCommitted touched batch.json, this corruption would make JSON.parse throw.
+    await writeFile(path.join(root, "batch-a", "batch.json"), "{not-json", "utf8");
+
+    const observed = await store.readCommitted("batch-a");
+    assert.equal(observed.name, "Committed", "served from the in-memory snapshot, not the corrupted disk");
+    // Mutating the returned value must not affect the snapshot (immutable clone).
+    observed.name = "mutated";
+    assert.equal((await store.readCommitted("batch-a")).name, "Committed", "returns an isolated clone");
+  });
+});
+
+test("readCommitted stays in sync with committed writes and agrees with the on-disk value", async () => {
+  await withStore(async (store) => {
+    await store.create({ batch_id: "batch-a", name: "V1", items: [] });
+    assert.equal((await store.readCommitted("batch-a")).name, "V1");
+    await store.update("batch-a", (batch) => ({ ...batch, name: "V2" }));
+    assert.equal((await store.readCommitted("batch-a")).name, "V2", "snapshot reflects the latest committed update");
+    assert.equal((await store.read("batch-a")).name, "V2", "snapshot and disk agree within one process");
+  });
+});
+
+test("readCommitted falls back to disk on a cold snapshot (second instance / post-restart) and back-fills it", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-cold-"));
+  try {
+    const writer = createBatchStore(root);
+    await writer.create({ batch_id: "batch-a", name: "Persisted", items: [] });
+
+    // A second store instance (separate process / after restart) has an empty snapshot.
+    const reader = createBatchStore(root);
+    assert.equal((await reader.readCommitted("batch-a")).name, "Persisted", "cold read falls back to disk");
+    // After back-fill, a subsequent read stays off memory: corrupt the disk and
+    // confirm readCommitted no longer touches it.
+    await writeFile(path.join(root, "batch-a", "batch.json"), "{not-json", "utf8");
+    assert.equal((await reader.readCommitted("batch-a")).name, "Persisted", "back-filled snapshot now serves from memory");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("concurrent readCommitted readers add no rename contention during a writer's retry window", async () => {
+  // Owner scenario (1): the in-process GET reader must not open batch.json while
+  // the writer retries a contended rename. readCommitted serves the committed
+  // snapshot, so 50 concurrent reads issued during a writer's EPERM retry window
+  // add ZERO rename calls — reader and writer no longer contend on the same file.
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-race-"));
+  const realRename = (await import("node:fs/promises")).rename;
+  let armedCalls = 0;
+  let armed = false;
+  const failuresPerArm = 4;
+  const renameImpl = async (...args) => {
+    if (!armed) return realRename(...args);
+    armedCalls += 1;
+    if (armedCalls <= failuresPerArm) {
+      const error = new Error("simulated EPERM on rename");
+      error.code = "EPERM";
+      throw error;
+    }
+    return realRename(...args);
+  };
+  const store = createBatchStore(root, { delay: () => Promise.resolve(), renameImpl });
+  try {
+    // Seed without arming: create's rename goes straight through and populates the snapshot.
+    await store.create({ batch_id: "batch-a", name: "Seed", items: [] });
+
+    armed = true;
+    const writer = store.update("batch-a", (batch) => ({ ...batch, name: "Updated" }));
+
+    // Hammer the GET-polling reader path during the retry window.
+    const observed = await Promise.all(
+      Array.from({ length: 50 }, () => store.readCommitted("batch-a"))
+    );
+
+    await writer;
+    assert.equal(armedCalls, failuresPerArm + 1, "only the writer renamed (4 EPERM + 1 success); readers added zero");
+    assert.ok(
+      observed.every((batch) => batch && (batch.name === "Seed" || batch.name === "Updated")),
+      "every reader saw a committed value and none threw during the retry window"
+    );
+    assert.equal((await store.readCommitted("batch-a")).name, "Updated", "snapshot reflects the committed update");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -89,13 +89,14 @@ export async function buildApp({
   pointsEstimate = {},
   generationConfig = {},
   captureLive = {},
-  webRoot = path.join(getProjectRoot(), "web")
+  webRoot = path.join(getProjectRoot(), "web"),
+  storeOptions = {}
 } = {}) {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("root is required");
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
   const batchRoot = path.join(path.resolve(root), "batches");
   const staticRoot = path.resolve(webRoot);
-  const store = createBatchStore(batchRoot);
+  const store = createBatchStore(batchRoot, storeOptions);
   const security = createRequestSecurity({ allowedHost });
   const coordinator = createExecutionCoordinator({
     batchRoot,

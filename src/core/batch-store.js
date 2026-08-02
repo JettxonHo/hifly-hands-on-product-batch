@@ -78,6 +78,16 @@ async function atomicWriteJson(filePath, value, { delay, renameImpl } = {}) {
 export function createBatchStore(root, { delay, renameImpl } = {}) {
   const storeRoot = path.resolve(root);
   const updateQueues = new Map();
+  // In-process committed snapshot: the last value durably renamed into batch.json.
+  // The high-frequency GET /api/batches/:id polling reader reads this via
+  // readCommitted() instead of opening batch.json, so it can never hold a file
+  // handle that collides with the writer's atomic rename — the Windows EPERM race
+  // between the in-process reader and writer. Strong-consistency callers
+  // (batch-runner, executions, imports, capture gates) keep using read(), which
+  // still hits disk. Populated only AFTER a successful rename, so it always holds
+  // an already-committed value; missed on cold start / a second process and falls
+  // back to disk + back-fills.
+  const snapshots = new Map();
 
   const batchDirectory = (batchId) => {
     assertBatchId(batchId);
@@ -87,6 +97,20 @@ export function createBatchStore(root, { delay, renameImpl } = {}) {
 
   async function read(batchId) {
     return JSON.parse(await readFile(batchFile(batchId), "utf8"));
+  }
+
+  async function readCommitted(batchId) {
+    assertBatchId(batchId);
+    // Serve the in-process committed snapshot without opening batch.json. This is
+    // the read path for high-frequency GET polling: it takes no file handle, so it
+    // cannot collide with the writer's atomic rename (the Windows EPERM race). On
+    // a miss — cold start, or a batch seeded by a different process/instance — it
+    // falls back to read() and back-fills the snapshot so later reads also stay
+    // off disk. A parse failure on the fallback propagates without back-filling.
+    if (snapshots.has(batchId)) return structuredClone(snapshots.get(batchId));
+    const value = await read(batchId);
+    snapshots.set(batchId, structuredClone(value));
+    return structuredClone(value);
   }
 
   async function create(batch) {
@@ -109,6 +133,7 @@ export function createBatchStore(root, { delay, renameImpl } = {}) {
     };
     try {
       await atomicWriteJson(batchFile(batch.batch_id), value, { delay, renameImpl });
+      snapshots.set(batch.batch_id, structuredClone(value));
       return structuredClone(value);
     } catch (error) {
       await rm(directory, { recursive: true, force: true });
@@ -128,6 +153,7 @@ export function createBatchStore(root, { delay, renameImpl } = {}) {
       if (proposed.batch_id !== batchId) throw new Error("batch_id cannot be changed");
       const next = { ...structuredClone(proposed), updated_at: new Date().toISOString() };
       await atomicWriteJson(batchFile(batchId), next, { delay, renameImpl });
+      snapshots.set(batchId, structuredClone(next));
       return structuredClone(next);
     });
     updateQueues.set(batchId, operation);
@@ -171,5 +197,5 @@ export function createBatchStore(root, { delay, renameImpl } = {}) {
     });
   }
 
-  return { create, read, update, list, registerArtifact };
+  return { create, read, readCommitted, update, list, registerArtifact };
 }

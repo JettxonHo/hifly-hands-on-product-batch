@@ -1186,6 +1186,101 @@ test("capture execution observed via the original GET polling user path reaches 
   );
 });
 
+test("original GET polling path still reaches completed + recorded when the writer's rename is contended (snapshot reader avoids the file-handle race)", async (t) => {
+  // Owner scenario (5): the Windows flake came from polling readers opening
+  // batch.json while the writer retried a contended rename. With GET served by the
+  // committed snapshot (readCommitted), polling completes even when every writer
+  // rename is contended several times — no interrupted_unknown, completed + recorded.
+  // The rename fault is INJECTED (zero-time backoff), so this is deterministic and
+  // does not depend on a real file lock on the host.
+  const realRename = (await import("node:fs/promises")).rename;
+  let renameCalls = 0;
+  let failedRenames = 0;
+  const renameImpl = async (...args) => {
+    renameCalls += 1;
+    // Fail ~2 of every 3 renames to simulate AV / Search-indexer contention, then
+    // let the retry succeed within the RENAME_MAX_RETRIES budget (each individual
+    // rename retries on consecutive call numbers, so it clears within <=3 attempts).
+    if (renameCalls % 3 !== 0) {
+      failedRenames += 1;
+      const error = new Error("simulated EPERM on rename");
+      error.code = "EPERM";
+      throw error;
+    }
+    return realRename(...args);
+  };
+  const { app, root, session } = await fixture(createFakeExecutor(), {
+    executorFactory: ({ recordHarPath }) => {
+      const executor = createFakeExecutor();
+      executor.close = async () => {
+        await mkdir(path.dirname(path.join(root, recordHarPath)), { recursive: true });
+        await writeFile(path.join(root, recordHarPath), "{\"log\":{\"entries\":[]}}\n");
+      };
+      return executor;
+    },
+    storeOptions: { delay: () => Promise.resolve(), renameImpl }
+  });
+  t.after(async () => {
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const created = await app.inject({
+    method: "POST", url: "/api/batches", headers: headers(session),
+    payload: { batchId: "batch-capture-poll-fault", capture: { enabled: true } }
+  });
+  assert.equal(created.statusCode, 201);
+  await importInto(app, session, "batch-capture-poll-fault", "SKU-1.png", { capture_enabled: "true" });
+
+  const execution = await app.inject({
+    method: "POST", url: "/api/executions", headers: headers(session),
+    payload: { batchId: "batch-capture-poll-fault", idempotencyKey: "execution-poll-fault", confirm: true }
+  });
+  assert.equal(execution.statusCode, 202);
+
+  // Poll the REAL user path under rename contention. The reader takes the snapshot,
+  // so it never opens batch.json and never compounds the writer's retry window.
+  const timeline = [];
+  const startedAt = Date.now();
+  const deadline = startedAt + 5000; // the existing 5s budget — NOT widened
+  let observed = null;
+  for (;;) {
+    const response = await app.inject({
+      method: "GET", url: "/api/batches/batch-capture-poll-fault", headers: headers(session)
+    });
+    assert.equal(response.statusCode, 200);
+    observed = response.json().batch;
+    timeline.push({
+      elapsedMs: Date.now() - startedAt,
+      batch: observed.status,
+      capture: observed.capture?.status ?? null,
+      items: (observed.items ?? []).map((item) => item.status)
+    });
+    if (observed.status === "completed" && observed.capture?.status === "recorded") break;
+    if (Date.now() > deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  const diagnostics = () => JSON.stringify({
+    timeline,
+    renameCalls,
+    failedRenames,
+    finalObserved: observed && {
+      batch: observed.status,
+      capture: observed.capture?.status,
+      execution_error: observed.execution_error ?? null,
+      items: (observed.items ?? []).map((item) => item.status)
+    }
+  }, null, 2);
+
+  assert.ok(failedRenames > 0, `the rename fault was actually exercised.\n${diagnostics()}`);
+  assert.equal(observed.status, "completed", `polling under rename contention must still reach completed.\n${diagnostics()}`);
+  assert.equal(observed.capture?.status, "recorded", `polling under rename contention must still reach capture recorded.\n${diagnostics()}`);
+  assert.equal(
+    (observed.items ?? []).some((item) => item.status === "interrupted_unknown"), false,
+    `interrupted_unknown is never an acceptable outcome.\n${diagnostics()}`
+  );
+});
+
 test("capture-enabled executions use a per-run HAR executor and mark capture recorded", async (t) => {
   const factoryCalls = [];
   const { app, root, session } = await fixture(createFakeExecutor(), {
@@ -2159,12 +2254,19 @@ test("concurrent execution attempts leave the losing batch pending", async (t) =
 });
 
 test("unexpected server errors are reported as 500 without leaking details", async (t) => {
-  const { app, root, session } = await fixture();
+  const { app, root } = await fixture();
   t.after(async () => {
     await app.close();
     await rm(root, { recursive: true, force: true });
   });
-  await createBatch(app, session, "batch-corrupt");
+  // Seed a corrupted batch.json DIRECTLY (not through the store), so the
+  // in-process committed snapshot stays empty and GET /api/batches/:id cold-reads
+  // batch.json, hits the JSON parse error, and the error handler maps it to a
+  // redacted 500. A batch created through the store would be served from the
+  // snapshot and would NOT surface an on-disk parse error — that is by design
+  // (readCommitted prefers the committed snapshot); this test pins the error-
+  // middleware redaction via the cold-read path instead.
+  await mkdir(path.join(root, "batches", "batch-corrupt"), { recursive: true });
   await writeFile(path.join(root, "batches", "batch-corrupt", "batch.json"), "{not-json", "utf8");
 
   const response = await app.inject({ method: "GET", url: "/api/batches/batch-corrupt", headers: { host: HOST } });
