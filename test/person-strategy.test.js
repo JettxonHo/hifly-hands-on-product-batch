@@ -125,25 +125,45 @@ test("fixed_upload applies the fixed batch person unless item has explicit perso
   assert.equal(products[1].resolved_person_source, "explicit");
 });
 
-test("auto_pool fails closed when the pool root is not a safe relative path", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "person-strategy-unsafe-"));
+test("auto_pool accepts an absolute inside-root pool root identically to the relative form", async () => {
+  await withPool(async (root) => {
+    const [relativeProduct] = resolvePersonStrategies([{ sku: "A", category: "toy" }], {
+      __rootDir: root,
+      personPool: { enabled: true, rootDir: "assets/person_pool", defaultCategory: "default" }
+    }, { person_strategy: "auto_pool" });
+    const [absoluteProduct] = resolvePersonStrategies([{ sku: "A", category: "toy" }], {
+      __rootDir: root,
+      personPool: { enabled: true, rootDir: path.join(root, "assets", "person_pool"), defaultCategory: "default" }
+    }, { person_strategy: "auto_pool" });
+    assert.equal(relativeProduct.__resolved_person_image_path, "assets/person_pool/toy/toy-a.jpg");
+    // An absolute rootDir that resolves inside the project root persists the
+    // exact same project-root-relative POSIX path as the relative form.
+    assert.equal(absoluteProduct.__resolved_person_image_path, relativeProduct.__resolved_person_image_path);
+  });
+});
+
+test("auto_pool rejects a pool root outside the project before enumeration", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "person-strategy-outside-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "person-pool-outside-"));
   try {
-    // Absolute pool root: exists on disk, so enumeration reaches the boundary;
-    // the old API silently persisted absolute paths, the safe API rejects them.
-    await fs.mkdir(path.join(root, "toy"), { recursive: true });
-    await fs.writeFile(path.join(root, "toy", "toy-a.jpg"), "x");
-    assert.throws(
-      () => resolvePersonStrategies([{ sku: "A", category: "toy" }], {
-        personPool: { enabled: true, rootDir: root, defaultCategory: "default" }
-      }, { person_strategy: "auto_pool" }),
-      /relative/
-    );
-    // Traversal pool root: exists relative to the project root and must be
-    // rejected at the portable-path boundary before anything is persisted.
     const projectRoot = path.join(root, "project");
     await fs.mkdir(projectRoot, { recursive: true });
+    // Populate the external directories: if enumeration ran before
+    // validation, these files would leak into the resolved products.
+    await fs.mkdir(path.join(outside, "toy"), { recursive: true });
+    await fs.writeFile(path.join(outside, "toy", "stolen.jpg"), "x");
     await fs.mkdir(path.join(root, "evil", "toy"), { recursive: true });
-    await fs.writeFile(path.join(root, "evil", "toy", "toy-a.jpg"), "x");
+    await fs.writeFile(path.join(root, "evil", "toy", "stolen.jpg"), "x");
+
+    // Absolute pool root outside the project: rejected, nothing enumerated.
+    assert.throws(
+      () => resolvePersonStrategies([{ sku: "A", category: "toy" }], {
+        __rootDir: projectRoot,
+        personPool: { enabled: true, rootDir: outside, defaultCategory: "default" }
+      }, { person_strategy: "auto_pool" }),
+      /traversal/
+    );
+    // Traversal relative pool root: rejected, nothing enumerated.
     assert.throws(
       () => resolvePersonStrategies([{ sku: "A", category: "toy" }], {
         __rootDir: projectRoot,
@@ -153,5 +173,6 @@ test("auto_pool fails closed when the pool root is not a safe relative path", as
     );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
   }
 });

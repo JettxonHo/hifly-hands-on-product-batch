@@ -216,11 +216,14 @@ export class HiflyHandsOnProductPage {
     const artifactId = candidates[0].remote_id ?? candidates[0].work_key;
     const outputName = `${timestampForFile()}-${sanitizeFileName(artifactId)}-${sanitizeFileName(suggested)}`;
     const outputPath = path.join(destination ?? this.config.downloadDir, outputName);
+    // Validate BEFORE the filesystem side effect: an output path outside the
+    // project root fails closed here, and saveAs never creates the file.
+    const relativePath = relativePortablePath(this.config.__rootDir ?? process.cwd(), outputPath);
     await download.saveAs(outputPath);
 
     return {
       artifact_id: artifactId,
-      relative_path: relativePortablePath(this.config.__rootDir ?? process.cwd(), outputPath)
+      relative_path: relativePath
     };
   }
 

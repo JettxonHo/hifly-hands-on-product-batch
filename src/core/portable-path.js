@@ -17,7 +17,10 @@ function normalizePortableSeparatorsUnsafe(value) {
 }
 
 /**
- * Convert an OS-native relative path to a validated portable POSIX relative path.
+ * The single private validation core shared by every public safe API in this
+ * module. There is exactly one set of safety rules and one segment loop:
+ * toPortableRelativePath, relativePortablePath, fromPortablePath, and
+ * assertSafeRelative all enforce this exact contract.
  *
  * Safe by default (fail-closed):
  * - The value MUST be a string; null, undefined, numbers, booleans, and
@@ -35,87 +38,100 @@ function normalizePortableSeparatorsUnsafe(value) {
  * Validation is OS-independent (it runs on the normalized POSIX form), so
  * Ubuntu and Windows enforce identical rules.
  *
+ * @param {string} value - A relative path using OS-native separators.
+ * @returns {string} The validated path with POSIX "/" separators.
+ * @throws {TypeError} If the value is not a string.
+ * @throws {Error} If the path is not a safe relative path.
+ */
+function normalizeAndValidatePortablePath(value) {
+  if (typeof value !== "string") {
+    throw new TypeError(`Portable path must be a string, received ${describeValue(value)}`);
+  }
+  const normalized = normalizePortableSeparatorsUnsafe(value);
+  assertSafePortableNormalized(normalized);
+  return normalized;
+}
+
+/**
+ * Convert an OS-native relative path to a validated portable POSIX relative path.
+ * See normalizeAndValidatePortablePath for the enforced contract.
+ *
  * @param {string} relativePath - A relative path using OS-native separators.
  * @returns {string} The validated path with POSIX "/" separators.
  * @throws {TypeError} If the value is not a string.
  * @throws {Error} If the path is not a safe relative path.
  */
 export function toPortableRelativePath(relativePath) {
-  if (typeof relativePath !== "string") {
-    throw new TypeError(`Portable path must be a string, received ${describeValue(relativePath)}`);
-  }
-  const normalized = normalizePortableSeparatorsUnsafe(relativePath);
-  assertSafePortableNormalized(normalized);
-  return normalized;
+  return normalizeAndValidatePortablePath(relativePath);
 }
 
 /**
  * Compute a portable relative path from `from` to `to`, both absolute.
- * Performs security validation: rejects `..` traversal, absolute results,
- * Windows drive crossings, and a same-directory result (""): the portable
- * format has no representation for "the root itself".
+ *
+ * Both arguments MUST be absolute path strings on the current platform;
+ * relative or non-string arguments are rejected at the boundary instead of
+ * being silently resolved against process.cwd(). The result is validated by
+ * the shared safe core: traversal, absolute results, Windows drive
+ * crossings, and a same-directory result ("") are all rejected — the
+ * portable format has no representation for "the root itself".
  *
  * @param {string} from - Absolute base directory.
  * @param {string} to - Absolute target path.
  * @returns {string} POSIX-separated relative path.
- * @throws {Error} If the result escapes the base directory or is empty.
+ * @throws {TypeError} If either argument is not a string.
+ * @throws {Error} If either argument is not absolute, or the result escapes
+ *   the base directory or is empty.
  */
 export function relativePortablePath(from, to) {
+  assertAbsoluteArgument("relativePortablePath", "from", from);
+  assertAbsoluteArgument("relativePortablePath", "to", to);
   // path.relative emits traversal ("..") or absolute (drive-crossing) results
-  // when `to` is not inside `from`; toPortableRelativePath rejects all of
-  // those, plus the empty same-directory result.
-  return toPortableRelativePath(path.relative(from, to));
+  // when `to` is not inside `from`; the shared core rejects all of those,
+  // plus the empty same-directory result.
+  return normalizeAndValidatePortablePath(path.relative(from, to));
 }
 
 /**
  * Resolve a portable relative path against an absolute root, returning an OS-native absolute path.
- * Performs security validation: the portable path must pass the same safe
- * boundary as toPortableRelativePath, so "..", absolute inputs, UNC, and
- * Windows drive escapes are rejected and the result cannot leave the root.
+ *
+ * `root` MUST be an absolute path string on the current platform; a relative
+ * or non-string root is rejected at the boundary instead of being silently
+ * resolved against process.cwd(). `portableRelative` is enforced by the
+ * shared safe core, so "..", absolute inputs, UNC, and Windows drive escapes
+ * are rejected and the result cannot leave the root.
  *
  * @param {string} root - Absolute root directory.
  * @param {string} portableRelative - POSIX-separated relative path.
  * @returns {string} OS-native absolute path.
- * @throws {Error} If the relative path is unsafe.
+ * @throws {TypeError} If root is not a string, or the relative path is not a string.
+ * @throws {Error} If root is not absolute, or the relative path is unsafe.
  */
 export function fromPortablePath(root, portableRelative) {
-  const portable = toPortableRelativePath(portableRelative);
+  assertAbsoluteArgument("fromPortablePath", "root", root);
+  const portable = normalizeAndValidatePortablePath(portableRelative);
   return path.join(root, portable.split("/").join(path.sep));
 }
 
 /**
- * Validate that a relative path is safe (no traversal, not absolute, no empty segments).
+ * Assert that a relative path is safe (the same contract as
+ * toPortableRelativePath): non-empty string, no traversal, not absolute, no
+ * "." or empty segments. Returns undefined; throws on unsafe input.
  *
  * @param {string} relativePath
- * @throws {Error} If the path is unsafe.
+ * @returns {undefined}
+ * @throws {TypeError} If the value is not a string.
+ * @throws {Error} If the path is not a safe relative path.
  */
 export function assertSafeRelative(relativePath) {
-  if (!relativePath || relativePath === ".") return;
-  // Reject absolute paths (POSIX and Windows)
-  if (path.isAbsolute(relativePath)) {
-    throw new Error(`Path must be relative: ${relativePath}`);
+  normalizeAndValidatePortablePath(relativePath);
+}
+
+function assertAbsoluteArgument(api, paramName, value) {
+  if (typeof value !== "string") {
+    throw new TypeError(`${api}: ${paramName} must be an absolute path string, received ${describeValue(value)}`);
   }
-  // Reject Windows drive-letter paths
-  if (/^[a-zA-Z]:/.test(relativePath)) {
-    throw new Error(`Path must be relative: ${relativePath}`);
-  }
-  // Reject UNC paths
-  if (relativePath.startsWith("\\\\")) {
-    throw new Error(`Path must be relative: ${relativePath}`);
-  }
-  // Reject consecutive separators (empty segments)
-  if (/[\\/]{2}/.test(relativePath)) {
-    throw new Error(`Path must not contain empty segments: ${relativePath}`);
-  }
-  // Reject path traversal
-  const segments = relativePath.split(/[\\/]+/);
-  for (const segment of segments) {
-    if (segment === "..") {
-      throw new Error(`Path must not contain traversal: ${relativePath}`);
-    }
-    if (segment === "") {
-      throw new Error(`Path must not contain empty segments: ${relativePath}`);
-    }
+  if (!path.isAbsolute(value)) {
+    throw new Error(`${api}: ${paramName} must be an absolute path: ${value}`);
   }
 }
 

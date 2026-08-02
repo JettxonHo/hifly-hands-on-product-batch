@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -1032,6 +1032,46 @@ test("downloadArtifact prefixes repeated suggested filenames with the remote id"
     assert.match(artifact.relative_path, /^downloads\//);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("downloadArtifact rejects an output outside project root before saveAs", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-download-"));
+  const outside = await mkdtemp(path.join(os.tmpdir(), "hifly-outside-"));
+  try {
+    let saveAsCalls = 0;
+    const page = {
+      waitForEvent() {
+        return Promise.resolve({
+          suggestedFilename() {
+            return "未命名.mp4";
+          },
+          async saveAs(outputPath) {
+            saveAsCalls += 1;
+            await writeFile(outputPath, "video");
+          }
+        });
+      }
+    };
+    const adapter = new HiflyHandsOnProductPage(page, {
+      __rootDir: root,
+      downloadDir: path.join(root, "downloads"),
+      batch: { generationTimeoutMs: 10 }
+    }, { info() {} });
+    adapter.matchLatestWorks = async () => [{ remote_id: "remote-1", work_key: "remote-1" }];
+    adapter.clickWorkDownload = async () => {};
+
+    // The out-of-root destination must fail closed BEFORE the filesystem
+    // side effect: validation runs before saveAs, so no file is created.
+    await assert.rejects(
+      adapter.downloadArtifact({ remote_id: "remote-1" }, outside),
+      /traversal/
+    );
+    assert.equal(saveAsCalls, 0, "saveAs must not run for an out-of-root output path");
+    assert.deepEqual(await readdir(outside), [], "no file may be created outside the project root");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   }
 });
 

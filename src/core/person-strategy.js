@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveFromRoot } from "../config.js";
-import { toPortableRelativePath } from "./portable-path.js";
+import { relativePortablePath } from "./portable-path.js";
 
 const DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 const PERSON_STRATEGIES = new Set(["auto_pool", "fixed_upload", "hifly_recommended"]);
@@ -73,14 +73,20 @@ function nextImage(images, key, counters) {
 
 function listPoolImages(config, category) {
   const rootDir = config.personPool?.rootDir || "assets/person_pool";
+  const projectRoot = assertProjectRoot(config);
   const absoluteDir = path.join(resolveFromRoot(config, rootDir), category);
-  const returnedDir = path.join(rootDir, category);
+  // Fail closed before touching the filesystem: identical contract to
+  // person-pool.js — the pool must resolve inside the project root before any
+  // existsSync/readdirSync reads a directory.
+  relativePortablePath(projectRoot, absoluteDir);
   if (!fs.existsSync(absoluteDir)) return [];
   const allowed = new Set((config.personPool?.allowedExtensions || DEFAULT_EXTENSIONS).map((ext) => ext.toLowerCase()));
   return fs.readdirSync(absoluteDir)
     .filter((file) => allowed.has(path.extname(file).toLowerCase()))
     .sort((left, right) => left.localeCompare(right, "zh-Hans-CN"))
-    .map((file) => toPortableRelativePath(path.join(returnedDir, file)));
+    // Persisted paths are always recomputed relative to the project root:
+    // the configured rootDir is a filesystem locator, not a persistable path.
+    .map((file) => relativePortablePath(projectRoot, path.join(absoluteDir, file)));
 }
 
 function normalizePathSegment(value) {
@@ -89,4 +95,12 @@ function normalizePathSegment(value) {
     .replace(/[\\/:*?"<>|]/g, "_")
     .replace(/\s+/g, "_")
     .toLowerCase();
+}
+
+function assertProjectRoot(config) {
+  const projectRoot = config?.__rootDir;
+  if (typeof projectRoot !== "string" || !path.isAbsolute(projectRoot)) {
+    throw new Error("person pool requires config.__rootDir to be an absolute project root");
+  }
+  return projectRoot;
 }

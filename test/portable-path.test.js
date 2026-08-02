@@ -114,6 +114,24 @@ test("relativePortablePath rejects a same-directory result (root === target)", (
   assert.throws(() => relativePortablePath(root, root), /must not be empty/);
 });
 
+test("relativePortablePath rejects relative and non-string arguments at the boundary", () => {
+  const root = path.resolve("/project/root");
+  // Relative arguments must not be silently resolved against process.cwd().
+  assert.throws(() => relativePortablePath("relative/root", "relative/root/file"), /from must be an absolute path/);
+  assert.throws(() => relativePortablePath(root, "relative/file"), /to must be an absolute path/);
+  assert.throws(() => relativePortablePath(null, root), TypeError);
+  assert.throws(() => relativePortablePath(root, undefined), TypeError);
+  assert.throws(() => relativePortablePath(0, root), TypeError);
+  assert.throws(() => relativePortablePath(root, {}), TypeError);
+});
+
+test("fromPortablePath rejects a relative or non-string root at the boundary", () => {
+  assert.throws(() => fromPortablePath("relative/root", "file.txt"), /root must be an absolute path/);
+  assert.throws(() => fromPortablePath(null, "file.txt"), TypeError);
+  assert.throws(() => fromPortablePath(undefined, "file.txt"), TypeError);
+  assert.throws(() => fromPortablePath(0, "file.txt"), TypeError);
+});
+
 test("assertSafeRelative rejects absolute POSIX paths", () => {
   assert.throws(() => assertSafeRelative("/absolute/path"), /relative/);
 });
@@ -141,6 +159,24 @@ test("assertSafeRelative accepts valid relative paths", () => {
   assert.doesNotThrow(() => assertSafeRelative("artifacts/video.mp4"));
   assert.doesNotThrow(() => assertSafeRelative("downloads/sub/file.mp4"));
   assert.doesNotThrow(() => assertSafeRelative("rpa/inputs/person.jpg"));
+});
+
+test("assertSafeRelative enforces the same strict contract as the safe API", () => {
+  // One set of rules for every public validator: no public entry point may
+  // accept empty paths, ".", or embedded dot segments (the old early return
+  // was a bypass of the safe boundary).
+  assert.throws(() => assertSafeRelative(""), /must not be empty/);
+  assert.throws(() => assertSafeRelative("."), /bare "\." segment/);
+  assert.throws(() => assertSafeRelative("a/./b"), /"\." segments/);
+  assert.throws(() => assertSafeRelative("a\\./b"), /"\." segments/);
+  assert.throws(() => assertSafeRelative("artifacts/"), /empty segments/);
+  assert.throws(() => assertSafeRelative("../secret"), /traversal/);
+  assert.throws(() => assertSafeRelative("/absolute/path"), /relative/);
+  assert.throws(() => assertSafeRelative(null), TypeError);
+  assert.throws(() => assertSafeRelative(undefined), TypeError);
+  assert.throws(() => assertSafeRelative(0), TypeError);
+  // Assert style: returns undefined on safe input.
+  assert.equal(assertSafeRelative("artifacts/video.mp4"), undefined);
 });
 
 test("fromPortablePath resolves POSIX relative to OS-native absolute", () => {
