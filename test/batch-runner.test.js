@@ -1075,6 +1075,114 @@ test("downloadArtifact rejects an output outside project root before saveAs", as
   }
 });
 
+function createRecordingDownloadPage(record) {
+  return {
+    waitForEvent() {
+      return Promise.resolve({
+        suggestedFilename() {
+          return "未命名.mp4";
+        },
+        async saveAs(outputPath) {
+          record.saveAsCalls += 1;
+          record.savedAs = outputPath;
+          await writeFile(outputPath, "video");
+        }
+      });
+    }
+  };
+}
+
+function createDownloadAdapter(record, root) {
+  const adapter = new HiflyHandsOnProductPage(createRecordingDownloadPage(record), {
+    __rootDir: root,
+    downloadDir: "downloads",
+    batch: { generationTimeoutMs: 10 }
+  }, { info() {} });
+  adapter.matchLatestWorks = async () => [{ remote_id: "remote-1", work_key: "remote-1" }];
+  adapter.clickWorkDownload = async () => {};
+  return adapter;
+}
+
+test("downloadArtifact resolves the default relative downloadDir under the project root", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-download-"));
+  try {
+    await mkdir(path.join(root, "downloads"));
+    const record = { saveAsCalls: 0, savedAs: null };
+    const adapter = createDownloadAdapter(record, root);
+
+    // No explicit destination: falls back to the configured RELATIVE
+    // downloadDir ("downloads"), resolved under the project root.
+    const artifact = await adapter.downloadArtifact({ remote_id: "remote-1" });
+
+    assert.equal(record.saveAsCalls, 1);
+    assert.equal(path.dirname(record.savedAs), path.join(root, "downloads"));
+    assert.match(artifact.relative_path, /^downloads\//);
+    // The saved file exists inside the project root.
+    assert.equal(await readFile(record.savedAs, "utf8"), "video");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("submitAndDownload completes through the relative configured downloadDir", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-download-"));
+  try {
+    await mkdir(path.join(root, "downloads"));
+    const record = { saveAsCalls: 0, savedAs: null };
+    const adapter = createDownloadAdapter(record, root);
+    adapter.submitVideo = async () => ({ status: "submitted", remoteEvidence: { remote_id: "remote-1" } });
+
+    // The production chain: submitAndDownload passes this.config.downloadDir
+    // (the relative "downloads") as the destination.
+    const absolutePath = await adapter.submitAndDownload({ sku: "A" });
+
+    assert.equal(record.saveAsCalls, 1);
+    assert.equal(absolutePath, record.savedAs);
+    assert.equal(path.dirname(absolutePath), path.join(root, "downloads"));
+    assert.equal(path.relative(root, absolutePath).startsWith(".."), false);
+    assert.equal(await readFile(absolutePath, "utf8"), "video");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("downloadArtifact resolves an explicit relative destination under the project root", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-download-"));
+  try {
+    await mkdir(path.join(root, "custom-downloads"));
+    const record = { saveAsCalls: 0, savedAs: null };
+    const adapter = createDownloadAdapter(record, root);
+
+    const artifact = await adapter.downloadArtifact({ remote_id: "remote-1" }, "custom-downloads");
+
+    assert.equal(record.saveAsCalls, 1);
+    assert.equal(path.dirname(record.savedAs), path.join(root, "custom-downloads"));
+    assert.match(artifact.relative_path, /^custom-downloads\//);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("downloadArtifact rejects a relative traversal destination before saveAs", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-download-"));
+  // A controlled sibling directory: "../<name>" resolves to it deterministically.
+  const outside = await mkdtemp(path.join(path.dirname(root), "hifly-outside-"));
+  try {
+    const record = { saveAsCalls: 0, savedAs: null };
+    const adapter = createDownloadAdapter(record, root);
+
+    await assert.rejects(
+      adapter.downloadArtifact({ remote_id: "remote-1" }, path.join("..", path.basename(outside))),
+      /traversal/
+    );
+    assert.equal(record.saveAsCalls, 0, "saveAs must not run for a traversal destination");
+    assert.deepEqual(await readdir(outside), [], "no file may be created outside the project root");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
 test("submitVideo waits for a sole stable new latest work and returns direct evidence", async () => {
   const actions = [];
   const adapter = new HiflyHandsOnProductPage({

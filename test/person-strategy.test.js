@@ -142,6 +142,55 @@ test("auto_pool accepts an absolute inside-root pool root identically to the rel
   });
 });
 
+test("auto_pool rejects a category directory symlinked or junctioned outside the project", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "person-strategy-symlink-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "person-pool-outside-"));
+  try {
+    const outsideToy = path.join(outside, "toy");
+    await fs.mkdir(outsideToy);
+    await fs.writeFile(path.join(outsideToy, "stolen.jpg"), "x");
+    const poolRoot = path.join(projectRoot, "assets", "person_pool");
+    await fs.mkdir(poolRoot, { recursive: true });
+    await fs.symlink(outsideToy, path.join(poolRoot, "toy"), process.platform === "win32" ? "junction" : "dir");
+
+    // Lexically inside the project, canonically outside: fail closed before
+    // enumeration; stolen.jpg can never become a resolved person path.
+    assert.throws(
+      () => resolvePersonStrategies([{ sku: "A", category: "toy" }], {
+        __rootDir: projectRoot,
+        personPool: { enabled: true, rootDir: "assets/person_pool", defaultCategory: "default" }
+      }, { person_strategy: "auto_pool" }),
+      /symlinks or junctions/
+    );
+  } finally {
+    await fs.rm(projectRoot, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("auto_pool never selects a symlinked image entry", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "person-strategy-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "person-pool-outside-"));
+  try {
+    const toy = path.join(root, "assets", "person_pool", "toy");
+    await fs.mkdir(toy, { recursive: true });
+    await fs.writeFile(path.join(toy, "toy-b.jpg"), "x");
+    const externalImage = path.join(outside, "stolen.jpg");
+    await fs.writeFile(externalImage, "x");
+    await fs.symlink(externalImage, path.join(toy, "linked.jpg"));
+
+    const [product] = resolvePersonStrategies([{ sku: "A", category: "toy" }], {
+      __rootDir: root,
+      personPool: { enabled: true, rootDir: "assets/person_pool", defaultCategory: "default" }
+    }, { person_strategy: "auto_pool" });
+    // The regular file is selected; the symlinked image is not a candidate.
+    assert.equal(product.__resolved_person_image_path, "assets/person_pool/toy/toy-b.jpg");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  }
+});
+
 test("auto_pool rejects a pool root outside the project before enumeration", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "person-strategy-outside-"));
   const outside = await fs.mkdtemp(path.join(os.tmpdir(), "person-pool-outside-"));
