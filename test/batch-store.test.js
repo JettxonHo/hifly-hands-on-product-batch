@@ -4,7 +4,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createBatchStore } from "../src/core/batch-store.js";
+import { createBatchStore, RENAME_MAX_RETRIES } from "../src/core/batch-store.js";
 
 async function withStore(run) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-"));
@@ -140,15 +140,27 @@ test("a rename that fails EBUSY for the first N attempts then succeeds", async (
   });
 });
 
+test("a rename that keeps failing past the old 5-attempt window still succeeds within the widened budget", async () => {
+  // Regression for CI run 30741311736: a Windows transient lock held batch.json
+  // for ~214ms, exhausting the old 5x/100ms window. Fail 6 times (past 5) so the
+  // store only survives because the budget is wider.
+  await withFailingRenameStore("EPERM", 6, async (store, root, calls) => {
+    await store.create({ batch_id: "batch-a", name: "WideWindow", items: [] });
+    assert.equal(calls(), 7, "6 injected EPERM failures + 1 real rename");
+    assert.equal((await store.read("batch-a")).name, "WideWindow");
+    assert.deepEqual(await leftoverTempFiles(root), []);
+  });
+});
+
 test("a rename that exceeds the max retries throws the original error and cleans the temp file", async () => {
-  // Fail every attempt (more than maxRetries=5): the store must surface the
+  // Fail every attempt (more than RENAME_MAX_RETRIES): the store must surface the
   // original EPERM, not swallow it, and must not leave the temp file behind.
   await withFailingRenameStore("EPERM", 99, async (store, root, calls) => {
     await assert.rejects(store.create({ batch_id: "batch-a", items: [] }), (error) => {
       assert.equal(error.code, "EPERM", "the original rename error is rethrown");
       return true;
     });
-    assert.equal(calls(), 5, "exactly maxRetries attempts were made");
+    assert.equal(calls(), RENAME_MAX_RETRIES, "exactly maxRetries attempts were made");
     // The failed create removes the whole batch directory, so no temp file survives.
     assert.deepEqual(await readdir(root), [], "failed create cleans the batch directory");
   });

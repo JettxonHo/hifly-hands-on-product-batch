@@ -29,20 +29,34 @@ function assertRelativePath(relativePath) {
   }
 }
 
+// Retry budget for the Windows EPERM/EBUSY rename hardening. Exported so tests
+// assert the exact attempt count from a single source of truth instead of
+// hard-coding a number that drifts from the implementation.
+export const RENAME_MAX_RETRIES = 8;
+
 async function atomicWriteJson(filePath, value, { delay, renameImpl } = {}) {
   // Backoff and the rename implementation are injectable so tests can drive the
   // Windows EPERM/EBUSY retry deterministically (no real-time sleep in the test).
+  //
+  // Default backoff: capped exponential (10ms, doubling, capped at 250ms). A
+  // transient Windows lock on the target — a concurrent reader polling
+  // GET /api/batches/:id, or antivirus / Search-indexer scanning the just-written
+  // file — routinely holds batch.json for several hundred milliseconds, which a
+  // short fixed 5x/100ms window does not survive (observed: CI run 30741311736,
+  // 5 consecutive EPERM in ~214ms). The wider window below (~1.2s worst case)
+  // covers that without an unbounded hang: a genuinely non-retryable error still
+  // fails fast, and a persistent lock still throws the original EPERM.
   const backoff = typeof delay === "function" ? delay : (attempt) =>
-    new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+    new Promise((resolve) => setTimeout(resolve, Math.min(250, 10 * 2 ** attempt)));
   const doRename = typeof renameImpl === "function" ? renameImpl : rename;
   const tempPath = path.join(path.dirname(filePath), `.batch.json.${process.pid}.${randomUUID()}.tmp`);
   try {
     await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
     // On Windows, rename can fail with EPERM/EBUSY if another handle has the target
     // file open (e.g. a concurrent reader polling GET /api/batches/:id). Retry with
-    // short backoff, matching the contract already used in src/rpa/rpa-state.js.
+    // backoff, matching the contract already used in src/rpa/rpa-state.js.
     // This is Windows filesystem hardening, NOT the root cause of interrupted_unknown.
-    const maxRetries = 5;
+    const maxRetries = RENAME_MAX_RETRIES;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         await doRename(tempPath, filePath);
