@@ -4,6 +4,15 @@ function simulatedError(method, kind) {
   return error;
 }
 
+// A recoverable remote interruption (timeout / unknown remote state). When a
+// scenario sets interruptAt to a method name, that method throws this so the
+// runner deterministically drives the INTERRUPT_UNKNOWN transition.
+function simulatedInterruption(method) {
+  const error = new Error(`Fake executor remote interruption at ${method}`);
+  error.code = "YINGDAO_RPA_INTERRUPTED_UNKNOWN";
+  return error;
+}
+
 function candidateFor(remoteId) {
   return {
     remote_id: remoteId,
@@ -59,6 +68,7 @@ export function createFakeExecutor(scenario = {}) {
     async submitVideo(task, asset, context) {
       await awaitGate("submitVideo");
       await call("submitVideo", { task, asset }, context, { deferFailure: true });
+      if (scenario.interruptAt === "submitVideo") throw simulatedInterruption("submitVideo");
       const before = { work_ids: scenario.beforeWorkIds ?? [] };
       await context?.checkpoint?.({ phase: "remote_submit_pre", evidence: before });
       if (scenario.failAt === "submitVideo" || scenario.failAt === "submitVideoAfterCheckpoint") {

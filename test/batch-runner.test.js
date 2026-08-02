@@ -8,6 +8,7 @@ import { createBatchStore } from "../src/core/batch-store.js";
 import { acquireExecutionLock } from "../src/core/execution-lock.js";
 import { createExecutionSnapshot } from "../src/core/execution-snapshot.js";
 import { runBatch } from "../src/core/batch-runner.js";
+import { transitionTask } from "../src/core/state-machine.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
 import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
@@ -215,6 +216,159 @@ test("persists checkpoints around submit and download", async () => {
   } finally {
     await fixture.cleanup();
   }
+});
+
+// --- CI-002: INTERRUPT_UNKNOWN transition provenance -------------------------
+// These tests prove the normal completion path NEVER writes interrupted_unknown
+// and that, when interrupted_unknown IS written, a non-sensitive provenance event
+// attributes it to a concrete source (executor timeout / reconcile / recovery /
+// explicit) with the previous status, event type and error code.
+
+test("a normal completion path emits no INTERRUPT_UNKNOWN provenance", async () => {
+  const events = [];
+  const fixture = await fixtureRun({ executor: createFakeExecutor({ remoteId: "remote-1" }) });
+  try {
+    const result = await runBatch({ ...fixture, onEvent: (event) => events.push(event) });
+
+    assert.equal(result.items[0].status, "completed");
+    const provenance = events.filter((event) => event.type === "task.transition_provenance");
+    assert.equal(provenance.length, 0, "normal completion must not produce INTERRUPT_UNKNOWN provenance");
+    assert.equal(
+      events.some((event) => event.evidence?.eventType === "INTERRUPT_UNKNOWN"), false,
+      "no INTERRUPT_UNKNOWN transition may occur on the happy path"
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("an executor timeout interrupt is recorded with full provenance", async () => {
+  const events = [];
+  const fixture = await fixtureRun({
+    executor: {
+      async createAsset() {
+        const error = new Error("Yingdao RPA timed out at asset_generation");
+        error.code = "YINGDAO_RPA_TIMEOUT";
+        throw error;
+      },
+      async submitVideo() {},
+      async querySubmission() {},
+      async downloadArtifact() {},
+      async reconcileSubmission() { return { candidates: [] }; }
+    }
+  });
+  try {
+    const result = await runBatch({ ...fixture, onEvent: (event) => events.push(event) });
+
+    assert.equal(result.items[0].status, "interrupted_unknown");
+    const provenance = events.filter((event) => event.type === "task.transition_provenance");
+    assert.equal(provenance.length, 1);
+    const record = provenance[0];
+    assert.equal(record.batchId, "batch-1");
+    assert.equal(record.taskId, "task-1");
+    assert.ok(record.timestamp, "provenance must carry a timestamp");
+    assert.deepEqual(record.evidence, {
+      status: "interrupted_unknown",
+      previousStatus: "generating_asset",
+      eventType: "INTERRUPT_UNKNOWN",
+      transitionSource: "executor_timeout",
+      errorCode: "YINGDAO_RPA_TIMEOUT"
+    });
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a reconcile-ambiguous interrupt is recorded with reconcile provenance", async () => {
+  const events = [];
+  const fixture = await fixtureRun({
+    executor: {
+      async createAsset() { return { asset_id: "asset-1" }; },
+      async submitVideo() {
+        // No direct submission evidence -> interruptUnknown("remote_submit").
+        return { status: "ambiguous", candidates: [] };
+      },
+      async querySubmission() {},
+      async downloadArtifact() {},
+      async reconcileSubmission() { return { candidates: [] }; }
+    }
+  });
+  try {
+    const result = await runBatch({ ...fixture, onEvent: (event) => events.push(event) });
+
+    assert.equal(result.items[0].status, "interrupted_unknown");
+    const provenance = events.filter((event) => event.type === "task.transition_provenance");
+    assert.ok(provenance.length >= 1, "expected at least one INTERRUPT_UNKNOWN provenance record");
+    const first = provenance[0];
+    assert.equal(first.evidence.eventType, "INTERRUPT_UNKNOWN");
+    assert.equal(first.evidence.previousStatus, "asset_confirmed");
+    assert.equal(first.evidence.errorCode, null, "explicit interrupt has no executor error code");
+    assert.equal(first.evidence.transitionSource, "explicit");
+    // No sensitive fields are ever recorded.
+    assert.equal(JSON.stringify(events).includes("cookie"), false);
+    assert.equal(JSON.stringify(events).includes("token"), false);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("launch-path recovery interrupt is recorded with recovery provenance", async () => {
+  const events = [];
+  // Start with an item already in generating_asset: runBatch's startup recovery
+  // must interrupt it and attribute the write to "recovery".
+  const fixture = await fixtureRun({ initialStatus: "generating_asset" });
+  try {
+    const result = await runBatch({ ...fixture, onEvent: (event) => events.push(event) });
+
+    assert.equal(result.items[0].status, "interrupted_unknown");
+    const provenance = events.filter((event) => event.type === "task.transition_provenance");
+    assert.equal(provenance.length, 1);
+    assert.equal(provenance[0].evidence.previousStatus, "generating_asset");
+    assert.equal(provenance[0].evidence.transitionSource, "recovery");
+    assert.equal(provenance[0].evidence.eventType, "INTERRUPT_UNKNOWN");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+// --- CI-002: stale writer terminal guard (deterministic) ----------------------
+// A stale writer holds an outdated snapshot of a task that was active (e.g.
+// submitted). After the real execution advances the task to a terminal
+// "completed" state, the stale writer must NOT be able to overwrite it back to
+// interrupted_unknown. This actually drives a racing INTERRUPT_UNKNOWN write
+// (the old test merely read a final completed state without ever attempting an
+// overwrite). The state machine has no completed->interrupted_unknown edge, so
+// the overwrite is rejected.
+
+test("a stale writer cannot overwrite a completed task back to interrupted_unknown", async () => {
+  // Walk a task through the real execution transitions to terminal completed.
+  let task = { task_id: "task-1", status: "pending" };
+  task = transitionTask(task, { type: "CONFIRM", executionKey: "key-1", confirmedAt: "2026-08-02T00:00:00.000Z" });
+  for (const type of ["START_ASSET", "CONFIRM_ASSET", "MARK_SUBMITTED", "MARK_DOWNLOAD_PENDING", "COMPLETE"]) {
+    task = transitionTask(task, { type });
+  }
+  assert.equal(task.status, "completed");
+
+  // The stale writer still holds the OLD active-phase intent and now tries to
+  // write INTERRUPT_UNKNOWN onto the completed task. It must be rejected.
+  assert.throws(
+    () => transitionTask(task, { type: "INTERRUPT_UNKNOWN" }),
+    /not allowed from status completed/
+  );
+  assert.equal(task.status, "completed", "stale INTERRUPT_UNKNOWN write must not clobber completed");
+});
+
+test("a stale writer cannot move a completed task to any non-terminal status", () => {
+  let task = { task_id: "task-1", status: "pending" };
+  task = transitionTask(task, { type: "CONFIRM", executionKey: "key-1", confirmedAt: "2026-08-02T00:00:00.000Z" });
+  for (const type of ["START_ASSET", "CONFIRM_ASSET", "MARK_SUBMITTED", "MARK_DOWNLOAD_PENDING", "COMPLETE"]) {
+    task = transitionTask(task, { type });
+  }
+  // completed has NO outgoing edges at all: every stale write is rejected.
+  for (const type of ["INTERRUPT_UNKNOWN", "START_ASSET", "MARK_SUBMITTED", "STOP_SAFE", "EDIT", "FAIL_REMOTE"]) {
+    assert.throws(() => transitionTask(task, { type }), /not allowed from status completed/, type);
+  }
+  assert.equal(task.status, "completed");
 });
 
 test("rpa timeout becomes interrupted_unknown instead of hanging active forever", async () => {

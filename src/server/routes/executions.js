@@ -163,7 +163,6 @@ export function createExecutionCoordinator({
   let active = null;
   let stopping = false;
   const idempotencyKeys = new Set();
-  const executionIdToBatchId = new Map();
 
   async function start(body) {
     if (stopping) throw executionError("SERVER_STOPPING", 503);
@@ -176,7 +175,6 @@ export function createExecutionCoordinator({
     const controller = new AbortController();
     const execution = { id: idempotencyKey, batchId, controller, lock: null, done: null, ready: null };
     active = execution;
-    executionIdToBatchId.set(idempotencyKey, batchId);
     execution.ready = (async () => {
       let lock;
       try {
@@ -263,22 +261,41 @@ export function createExecutionCoordinator({
             closeError = error;
           }
         }
-        const harRecorded = !closeError && captureEnabled && recordHarPath &&
-          await fileExists(path.join(workspaceRoot, recordHarPath));
-        // Terminal-transition guard: only mark capture recorded when every item
-        // reached a real terminal "completed" state. This prevents the inconsistent
-        // "item reverted to pending (STOP_SAFE) but capture=recorded" intermediate
-        // state observed when shutdown aborts mid-execution.
-        if (harRecorded) {
+        if (captureEnabled) {
+          const harRecorded = !closeError && recordHarPath &&
+            await fileExists(path.join(workspaceRoot, recordHarPath));
+          // Terminal capture states (CI-002): a settled execution must not leave
+          // capture stuck at "recording". Normal completion + intact HAR -> recorded;
+          // a safe-stopped execution -> recording_interrupted; a close/HAR-flush
+          // failure -> recording_failed. Terminal-transition guard: only mark
+          // recorded when every item reached a real terminal "completed" state.
           await store.update(batchId, (current) => {
             const allCompleted = Array.isArray(current.items) && current.items.length > 0 &&
               current.items.every((item) => item.status === "completed");
-            if (!allCompleted) return current;
+            if (harRecorded && allCompleted) {
+              return {
+                ...current,
+                capture: updateCaptureState(current.capture, { enabled: true, status: "recorded", recording_error: null })
+              };
+            }
+            if (closeError) {
+              return {
+                ...current,
+                capture: updateCaptureState(current.capture, {
+                  enabled: true,
+                  status: "recording_failed",
+                  recording_error: { code: "CAPTURE_HAR_FLUSH_FAILED" }
+                })
+              };
+            }
+            // No close error, but not every item completed: the execution was
+            // safely interrupted before finishing.
             return {
               ...current,
               capture: updateCaptureState(current.capture, {
                 enabled: true,
-                status: "recorded"
+                status: "recording_interrupted",
+                recording_error: { code: "CAPTURE_RECORDING_INTERRUPTED" }
               })
             };
           });
@@ -293,6 +310,10 @@ export function createExecutionCoordinator({
       });
     }).finally(() => {
       if (active === execution) active = null;
+      // The in-memory registry entry is released once the execution settles; the
+      // persisted execution snapshot is the durable record used to resolve a wait
+      // after settle/restart, so neither the key set nor any map grows unbounded.
+      idempotencyKeys.delete(idempotencyKey);
     });
     let ready;
     try {
@@ -301,7 +322,12 @@ export function createExecutionCoordinator({
       await execution.done.catch(() => {});
       throw error;
     }
-    return { batch: publicBatch(ready.batch), executionId: idempotencyKey };
+    // Bind the execution to its persisted snapshot key so waitForCompletion can
+    // verify the executionId<->batchId binding even after the in-memory handle is
+    // gone (settled / server restart). The executionId returned to clients is the
+    // opaque snapshot executionKey, not the caller-supplied idempotencyKey.
+    execution.id = ready.batch.execution_snapshot?.executionKey ?? idempotencyKey;
+    return { batch: publicBatch(ready.batch), executionId: execution.id };
   }
 
   // Terminal-completion contract (CI-002 / direction A):
@@ -309,17 +335,33 @@ export function createExecutionCoordinator({
   // AND the capture executor was closed AND the terminal state was persisted AND
   // the execution lock was released. Callers must await this instead of polling
   // for two independently-persisted states (completed && capture.recorded).
-  // Returns the batch snapshot read after the terminal state was persisted.
-  async function waitForCompletion(executionId) {
+  //
+  // Identity contract (direction B): executionId is bound to a specific batchId.
+  // The route carries both; this function verifies the binding against the live
+  // execution first, then against the persisted execution snapshot so a settled
+  // execution still resolves after restart. An unknown executionId (or one that
+  // does not belong to batchId) returns 404 EXECUTION_NOT_FOUND — it NEVER falls
+  // back to treating the id as a batchId.
+  async function waitForCompletion(batchId, executionId) {
+    assertBatchId(batchId);
     const execution = active;
-    if (!execution || execution.id !== executionId) {
-      // Nothing in flight for this id: the execution already settled (or never ran).
-      // Read the current persisted state as the terminal snapshot.
-      const batch = await store.read(assertBatchId(executionIdToBatchId.get(executionId) ?? executionId));
+    if (execution && execution.batchId === batchId) {
+      if (execution.id !== executionId) {
+        // This batch has a different in-flight execution: the id does not match.
+        throw executionError("EXECUTION_NOT_FOUND", 404);
+      }
+      await execution.done;
+      const batch = await store.read(batchId);
       return { batch: publicBatch(batch), executionId };
     }
-    await execution.done;
-    const batch = await store.read(execution.batchId);
+    // Nothing in flight for this batch: verify against the persisted snapshot so a
+    // settled execution still resolves (including after a server restart, where the
+    // in-memory active handle is gone). The snapshot binds the execution to the batch.
+    const batch = await store.read(batchId);
+    const snapshotKey = batch.execution_snapshot?.executionKey;
+    if (typeof snapshotKey !== "string" || snapshotKey !== executionId) {
+      throw executionError("EXECUTION_NOT_FOUND", 404);
+    }
     return { batch: publicBatch(batch), executionId };
   }
 
@@ -343,8 +385,12 @@ export async function registerExecutionRoutes(app, { coordinator }) {
   // (business completion + capture/HAR flush + executor close + terminal persist),
   // then returns the persisted batch snapshot. Clients/tests should await this
   // instead of polling two independently-persisted states.
-  app.post("/api/executions/:executionId/wait", async (request) => {
-    const result = await coordinator.waitForCompletion(request.params.executionId);
+  //
+  // Idempotent, body-less GET (no JSON body, so no global parser change). The
+  // executionId is bound to batchId and verified against the persisted execution
+  // snapshot; an unknown or mismatched id returns 404 EXECUTION_NOT_FOUND.
+  app.get("/api/executions/:batchId/:executionId/wait", async (request) => {
+    const result = await coordinator.waitForCompletion(request.params.batchId, request.params.executionId);
     return result;
   });
 }

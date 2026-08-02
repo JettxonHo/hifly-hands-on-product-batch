@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { assertExecutorAdapter, emitExecutionEvent } from "./executor-adapter.js";
 import { assertExecutionLockOwnership } from "./execution-lock.js";
 import { createExecutionSnapshot } from "./execution-snapshot.js";
-import { summarizeBatch, transitionTask } from "./state-machine.js";
+import { summarizeBatch, TASK_TRANSITIONS, transitionTask } from "./state-machine.js";
 
 function now() {
   return new Date().toISOString();
@@ -192,9 +192,7 @@ export async function runBatch({
     const next = await updateTask(task.task_id, (current) => transitionTask(current, event));
     emit(next, "task.phase_changed", phase, { status: next.status });
     return next;
-  }
-
-  async function annotate(task, changes, phase) {
+  }  async function annotate(task, changes, phase) {
     const next = await updateTask(task.task_id, (current) => ({ ...current, ...changes }));
     emit(next, "task.checkpoint_persisted", phase, changes);
     return next;
@@ -256,13 +254,52 @@ export async function runBatch({
     }, phase);
   }
 
+  // INTERRUPT_UNKNOWN provenance (CI-002): classify how the interrupt arose so a
+  // test/CI collector can attribute an interrupted_unknown to a concrete source
+  // without recording any sensitive evidence (no cookies/tokens/paths/evidence).
+  function classifyInterruptSource(error, phase) {
+    if (phase === "recovery") return "recovery";
+    if (error?.code === "YINGDAO_RPA_TIMEOUT") return "executor_timeout";
+    if (error?.code === "YINGDAO_RPA_INTERRUPTED_UNKNOWN") return "executor_interrupted_unknown";
+    if (phase === "remote_query" || phase === "remote_reconcile") return "reconcile_ambiguous";
+    return "explicit";
+  }
+
   async function interruptUnknown(task, error, phase, changes = {}) {
-    if (task.status === "interrupted_unknown") return annotate(task, {
-      ...changes,
-      error_message: error?.message ?? task.error_message,
-      error_phase: phase
-    }, phase);
-    return transition(task, {
+    const provenance = {
+      // executionId is not threaded into runBatch; the executionKey is the
+      // persisted, non-sensitive identity of the execution that wrote this state.
+      transitionSource: classifyInterruptSource(error, phase),
+      errorCode: error?.code ?? null
+    };
+    if (task.status === "interrupted_unknown") {
+      emit(task, "task.transition_provenance", phase, {
+        status: "interrupted_unknown",
+        previousStatus: task.status,
+        eventType: "INTERRUPT_UNKNOWN",
+        ...provenance
+      });
+      return annotate(task, {
+        ...changes,
+        error_message: error?.message ?? task.error_message,
+        error_phase: phase
+      }, phase);
+    }
+    // Terminal guard: INTERRUPT_UNKNOWN has no valid out-edge from a terminal or
+    // pre-execution status. Refuse to overwrite such a task so a stale writer
+    // (one holding an outdated active snapshot) cannot clobber a terminal state.
+    if (!TASK_TRANSITIONS[task.status]?.INTERRUPT_UNKNOWN) {
+      emit(task, "task.transition_rejected", phase, {
+        status: task.status,
+        previousStatus: task.status,
+        eventType: "INTERRUPT_UNKNOWN",
+        reason: "no_out_edge",
+        ...provenance
+      });
+      return task;
+    }
+    const previousStatus = task.status;
+    const next = await transition(task, {
       type: "INTERRUPT_UNKNOWN",
       changes: {
         ...changes,
@@ -270,6 +307,13 @@ export async function runBatch({
         error_phase: phase
       }
     }, phase);
+    emit(next, "task.transition_provenance", phase, {
+      status: "interrupted_unknown",
+      previousStatus,
+      eventType: "INTERRUPT_UNKNOWN",
+      ...provenance
+    });
+    return next;
   }
 
   async function download(task) {

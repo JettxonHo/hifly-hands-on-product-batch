@@ -29,21 +29,27 @@ function assertRelativePath(relativePath) {
   }
 }
 
-async function atomicWriteJson(filePath, value) {
+async function atomicWriteJson(filePath, value, { delay, renameImpl } = {}) {
+  // Backoff and the rename implementation are injectable so tests can drive the
+  // Windows EPERM/EBUSY retry deterministically (no real-time sleep in the test).
+  const backoff = typeof delay === "function" ? delay : (attempt) =>
+    new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+  const doRename = typeof renameImpl === "function" ? renameImpl : rename;
   const tempPath = path.join(path.dirname(filePath), `.batch.json.${process.pid}.${randomUUID()}.tmp`);
   try {
     await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
     // On Windows, rename can fail with EPERM/EBUSY if another handle has the target
     // file open (e.g. a concurrent reader polling GET /api/batches/:id). Retry with
     // short backoff, matching the contract already used in src/rpa/rpa-state.js.
+    // This is Windows filesystem hardening, NOT the root cause of interrupted_unknown.
     const maxRetries = 5;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        await rename(tempPath, filePath);
+        await doRename(tempPath, filePath);
         return;
       } catch (error) {
         if ((error.code === "EPERM" || error.code === "EBUSY") && attempt < maxRetries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+          await backoff(attempt);
           continue;
         }
         throw error;
@@ -55,7 +61,7 @@ async function atomicWriteJson(filePath, value) {
   }
 }
 
-export function createBatchStore(root) {
+export function createBatchStore(root, { delay, renameImpl } = {}) {
   const storeRoot = path.resolve(root);
   const updateQueues = new Map();
 
@@ -88,7 +94,7 @@ export function createBatchStore(root) {
       artifacts: Array.isArray(batch.artifacts) ? structuredClone(batch.artifacts) : []
     };
     try {
-      await atomicWriteJson(batchFile(batch.batch_id), value);
+      await atomicWriteJson(batchFile(batch.batch_id), value, { delay, renameImpl });
       return structuredClone(value);
     } catch (error) {
       await rm(directory, { recursive: true, force: true });
@@ -107,7 +113,7 @@ export function createBatchStore(root) {
       if (!proposed || typeof proposed !== "object") throw new Error("updater must return a batch object");
       if (proposed.batch_id !== batchId) throw new Error("batch_id cannot be changed");
       const next = { ...structuredClone(proposed), updated_at: new Date().toISOString() };
-      await atomicWriteJson(batchFile(batchId), next);
+      await atomicWriteJson(batchFile(batchId), next, { delay, renameImpl });
       return structuredClone(next);
     });
     updateQueues.set(batchId, operation);

@@ -1,16 +1,33 @@
 name: Capture completion stress (Windows)
 
 # CI-002: deterministic stress harness for the Windows capture completion flake.
-# This workflow is manual-only (workflow_dispatch) so it never runs on ordinary
-# PRs/pushes and never touches Hifly or consumes points. Each repetition runs the
-# capture execution tests against a fresh fixture; any single failure fails the
-# job (no continue-on-error), because a single failure means the race is not fixed.
+# It runs on pull requests that touch the capture-execution lifecycle (so the
+# stress gate executes BEFORE merge, not after), and can also be triggered
+# manually via workflow_dispatch. Unrelated PRs never run it. It never touches
+# Hifly and never consumes points. Any single repetition failure fails the job
+# (no continue-on-error): one failure means the race is not fixed. On failure the
+# full TAP output (including the observed status timeline and transition
+# provenance the tests emit) is preserved — it is NOT discarded to Out-Null.
 
 on:
+  pull_request:
+    paths:
+      - "src/server/routes/executions.js"
+      - "src/core/batch-store.js"
+      - "src/core/batch-runner.js"
+      - "src/core/state-machine.js"
+      - "src/rpa/capture/workflow-state.js"
+      - "src/executors/fake-executor.js"
+      - "web/app.js"
+      - "test/server-api.test.js"
+      - "test/batch-runner.test.js"
+      - "test/batch-store.test.js"
+      - "test/capture-workflow-state.test.js"
+      - ".github/workflows/capture-stress.yml"
   workflow_dispatch:
     inputs:
       repetitions:
-        description: "How many times to repeat the capture completion test on Windows"
+        description: "How many times to repeat the capture stress suite on Windows"
         required: true
         default: "20"
         type: string
@@ -31,18 +48,27 @@ jobs:
       - name: Repeat capture completion tests
         shell: pwsh
         env:
-          REPS: ${{ inputs.repetitions }}
+          REPS: ${{ github.event.inputs.repetitions }}
         run: |
           $ErrorActionPreference = "Stop"
-          $reps = [int]$env:REPS
-          if ($reps -lt 1) { $reps = 20 }
-          $pattern = "capture-enabled executions use a per-run HAR executor|capture wait boundary|slow HAR flush|server close racing|completed item is never|interrupted execution does not mark|failing executor close|concurrent capture executions|closes deterministically"
+          $reps = 20
+          if ($env:REPS -match '^\d+$' -and [int]$env:REPS -ge 1) { $reps = [int]$env:REPS }
+          # The original GET polling user-path regression, the new completion-API
+          # tests, and the deterministic capture lifecycle tests (slow close / slow
+          # HAR flush / close-completion race / terminal-overwrite guard / true
+          # interruption / close error / concurrent per-run executor isolation).
+          $pattern = "original GET polling user path|completion API|registry does not grow|stock JSON parser|body-less completion wait|capture-enabled executions use a per-run HAR executor|capture wait boundary|slow HAR flush|server close racing|completed item is never|interrupted execution does not mark|failing executor close|concurrent capture executions|closes deterministically"
           $failed = 0
           for ($i = 1; $i -le $reps; $i++) {
-            node --test --test-name-pattern "$pattern" test/server-api.test.js | Out-Null
-            if ($LASTEXITCODE -ne 0) {
+            $log = Join-Path $env:TEMP "capture-stress-iter-$i.tap"
+            node --test --test-name-pattern "$pattern" test/server-api.test.js *> $log
+            $code = $LASTEXITCODE
+            if ($code -ne 0) {
               $failed++
-              Write-Host "iteration $i FAILED (exit $LASTEXITCODE)"
+              Write-Host "iteration $i FAILED (exit $code)"
+              Write-Host "----- TAP output (includes observed status timeline + transition provenance) -----"
+              Get-Content $log | ForEach-Object { Write-Host $_ }
+              Write-Host "----- end TAP output for iteration $i -----"
             } else {
               Write-Host "iteration $i ok"
             }

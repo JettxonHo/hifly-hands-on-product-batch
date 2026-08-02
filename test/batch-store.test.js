@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -85,5 +85,82 @@ test("duplicate batch and artifact identifiers are rejected", async () => {
       store.registerArtifact("batch-a", { artifact_id: "log-1", relative_path: "logs/two.txt" }),
       /already exists/i
     );
+  });
+});
+
+// --- Windows filesystem hardening: EPERM/EBUSY rename retry -------------------
+// These tests drive the retry with an INJECTED rename implementation and an
+// injected (zero-time) backoff — no real-time sleep, and no reliance on a file
+// actually being locked on the host. The retry is filesystem hardening, not the
+// interrupted_unknown root cause.
+
+// Build a store whose rename fails with `code` for the first `failCount` calls
+// (within this store instance), then delegates to the real rename.
+async function withFailingRenameStore(code, failCount, run) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-retry-"));
+  const realRename = (await import("node:fs/promises")).rename;
+  let calls = 0;
+  const renameImpl = async (...args) => {
+    calls += 1;
+    if (calls <= failCount) {
+      const error = new Error(`simulated ${code} on rename`);
+      error.code = code;
+      throw error;
+    }
+    return realRename(...args);
+  };
+  const store = createBatchStore(root, { delay: () => Promise.resolve(), renameImpl });
+  try {
+    return await run(store, root, () => calls);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function leftoverTempFiles(root) {
+  const files = await readdir(path.join(root, "batch-a")).catch(() => []);
+  return files.filter((name) => name.startsWith(".batch.json.") && name.endsWith(".tmp"));
+}
+
+test("a rename that fails EPERM for the first N attempts then succeeds", async () => {
+  await withFailingRenameStore("EPERM", 3, async (store, root, calls) => {
+    await store.create({ batch_id: "batch-a", name: "Retried", items: [] });
+    assert.equal(calls(), 4, "3 injected EPERM failures + 1 real rename");
+    assert.equal((await store.read("batch-a")).name, "Retried");
+    assert.deepEqual(await leftoverTempFiles(root), [], "temp file must be moved into place");
+  });
+});
+
+test("a rename that fails EBUSY for the first N attempts then succeeds", async () => {
+  await withFailingRenameStore("EBUSY", 2, async (store, root, calls) => {
+    await store.create({ batch_id: "batch-a", name: "BusyRetried", items: [] });
+    assert.equal(calls(), 3, "2 injected EBUSY failures + 1 real rename");
+    assert.equal((await store.read("batch-a")).name, "BusyRetried");
+    assert.deepEqual(await leftoverTempFiles(root), []);
+  });
+});
+
+test("a rename that exceeds the max retries throws the original error and cleans the temp file", async () => {
+  // Fail every attempt (more than maxRetries=5): the store must surface the
+  // original EPERM, not swallow it, and must not leave the temp file behind.
+  await withFailingRenameStore("EPERM", 99, async (store, root, calls) => {
+    await assert.rejects(store.create({ batch_id: "batch-a", items: [] }), (error) => {
+      assert.equal(error.code, "EPERM", "the original rename error is rethrown");
+      return true;
+    });
+    assert.equal(calls(), 5, "exactly maxRetries attempts were made");
+    // The failed create removes the whole batch directory, so no temp file survives.
+    assert.deepEqual(await readdir(root), [], "failed create cleans the batch directory");
+  });
+});
+
+test("a non-retryable rename error fails immediately without retrying", async () => {
+  await withFailingRenameStore("EACCES", 99, async (store, root, calls) => {
+    await assert.rejects(store.create({ batch_id: "batch-a", items: [] }), (error) => {
+      assert.equal(error.code, "EACCES");
+      return true;
+    });
+    assert.equal(calls(), 1, "EACCES is not retried");
+    assert.deepEqual(await readdir(root), [], "failed create cleans the batch directory");
   });
 });
