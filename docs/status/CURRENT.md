@@ -1,16 +1,16 @@
 # 项目当前状态
 
-> 最后更新：2026-08-03
-> 最后验证 commit：`3e859e0` (fix(core): enforce safe portable-path API boundaries (#39))
-> 稳定 main commit：`3e859e0079c29ab2b0558d26ffdf6340e97ab261`
+> 最后更新：2026-08-04
+> 最后验证代码 commit：`3e859e0` (fix(core): enforce safe portable-path API boundaries (#39))
+> 稳定代码基线 commit：`3e859e0079c29ab2b0558d26ffdf6340e97ab261`
 
 ## Open PR
 
-- 仅本文档记录 PR（分支 `docs/core-004-merge-record`，只改 `docs/status/CURRENT.md` 与 `docs/ROADMAP.md`，无代码改动，待审查）。
+无（PR #39 已合并，CORE-004 已完成）。
 
 ## 当前工作分支
 
-`docs/core-004-merge-record`（PR #39 合并后文档记录，无代码改动）
+无
 
 ## 当前生产路径
 
@@ -72,10 +72,10 @@
 
 ## 下一步（最多 5 项）
 
-1. 合并本文档记录 PR（CURRENT.md / ROADMAP.md，无代码）。
-2. 推进 CORE-001：batch schema version 与 migrations。
-3. 推进 CORE-002：crash-recovery fault-injection tests。
-4. 推进 CORE-003：stale execution-lock recovery。
+1. 推进 CORE-001：batch schema version 与 migrations。
+2. 推进 CORE-002：crash-recovery fault-injection tests。
+3. 推进 CORE-003：stale execution-lock recovery。
+4. 推进 OBS-001：structured redacted diagnostics。
 5. 继续观察 Issue #37 provenance（原始 `interrupted_unknown` 写入者）。
 
 ## 必须禁止的操作
@@ -87,6 +87,8 @@
 - 执行 git reset --hard / git clean -fd / 修改 stash。
 
 ## 最近一次验证
+
+以下为**稳定代码基线**（validated code baseline）的完整运行时 CI 验证记录——即通过全部运行时检查的最新代码 commit；main HEAD 可能在其之上另有纯文档 commit，不代表新的代码基线：
 
 ```
 main commit: 3e859e0 (PR #39 squash merge)
