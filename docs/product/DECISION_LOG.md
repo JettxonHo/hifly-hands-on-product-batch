@@ -189,13 +189,16 @@
 
 - **日期**：2026-08-04
 - **决策**：产品的人物步骤统一表达为「**创建新人物或选择现有人物**」。产品入口至少规划：公共数字人、企业已有数字人、创建新人物。但第一条端到端黄金路径和图片数字人创建**必须拆开实施**。
-  - **Phase 1A 黄金路径**：云端登录 → 创建项目 → 上传商品 → 生成和质检文案 → 选择公共或已有数字人 → 创建并审核 VideoPlan → 编译为现有 batch → 当前手里有货执行 → 作品库交付。
-  - **Phase 1B 独立人物创建子切片**：上传人物图片 → 检查有效授权 → 创建飞影图片数字人异步任务 → 查询或接收任务状态 → 获取 Provider avatar 标识 → 登记 AvatarAsset → 回到统一人物选择流程 → 用于 VideoPlan。
-  要求：Phase 1A 不依赖 Phase 1B 完成；不得把图片数字人创建、授权、上传、异步任务和完整主链路塞进一个大 PR；创建人物必须继续遵守 D-011；未记录有效授权不得上传 Provider 或创建数字人；新人物创建可能产生 Provider 消耗，开发前必须获得 owner 对真实调用的单独授权。
+  - **Vertical Slice A（已有/公共人物黄金路径）**：云端登录 → 创建项目 → 上传商品 → 生成和质检文案 → 选择公共或已有数字人 → 创建并审核 VideoPlan → 编译为现有 batch → 当前手里有货执行 → 作品库交付。
+  - **Vertical Slice B（图片数字人创建）**：上传人物图片 → 检查有效授权 → 创建飞影图片数字人异步任务 → 查询或接收任务状态 → 获取 Provider avatar 标识 → 登记 AvatarAsset → 回到统一人物选择流程 → 用于 VideoPlan。
+
+  Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROADMAP 的 Phase 1 / Phase 2 编号。
+
+  要求：Vertical Slice A 不依赖 Vertical Slice B 完成；不得把图片数字人创建、授权、上传、异步任务和完整主链路塞进一个大 PR；创建人物必须继续遵守 D-011；未记录有效授权不得上传 Provider 或创建数字人；新人物创建可能产生 Provider 消耗，开发前必须获得 owner 对真实调用的单独授权。
 - **原因**：黄金路径先用已有/公共人物打通端到端，风险最低；图片数字人创建涉及授权、异步任务与 Provider 消耗，独立切片实施可控。
-- **影响**：**关闭 Q-016**，并将上述两层切片作为正式结论记录；USER_FLOWS 增加 Flow A（选择已有/公共人物黄金路径）与 Flow B（创建图片数字人）；DOMAIN_MODEL 规划 AvatarCreationTask；DELIVERY_ROADMAP Phase 1A/1B 拆分。
+- **影响**：**关闭 Q-016**，并将上述两层切片作为正式结论记录；USER_FLOWS 增加 Flow A（选择已有/公共人物黄金路径）与 Flow B（创建图片数字人）；DOMAIN_MODEL 规划 AvatarCreationTask；DELIVERY_ROADMAP Vertical Slice A/B 拆分。
 - **被否决方案**：把图片数字人创建与黄金路径合并为一个大切片；人物步骤只支持选择或只支持创建。
-- **可重新评估条件**：Phase 1A 交付后可启动 Phase 1B；D-011 授权底线与「真实调用需 owner 单独授权」不重新开放。
+- **可重新评估条件**：Vertical Slice A 交付后可启动 Vertical Slice B；D-011 授权底线与「真实调用需 owner 单独授权」不重新开放。
 
 ## D-018 飞影多能力是正式产品路线
 

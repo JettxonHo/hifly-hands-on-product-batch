@@ -15,7 +15,6 @@
 ```text
 Organization
 User
-Membership
 OrganizationMember
 Role
 
@@ -79,7 +78,8 @@ AuditEvent
 ### 关系骨架
 
 ```text
-Organization ──< User（经 Membership / OrganizationMember + Role）
+Organization ──< OrganizationMember >── User
+OrganizationMember ── Role
 Organization ──< Project
 Project ──< ProjectMember
 Project ── BrandGuideline
@@ -177,6 +177,11 @@ cancelled
 
 ## 二之一、组织与成员模型（字段规划，本轮不决定完整 RBAC）
 
+成员关系只使用两个实体，**不得新增第二套成员关系实体**：
+
+- **OrganizationMember**：企业级成员关系（组织-成员-角色）；
+- **ProjectMember**：项目级参与关系。
+
 Organization（字段规划）：
 
 ```text
@@ -187,7 +192,7 @@ Organization
 - createdAt
 ```
 
-OrganizationMember（字段规划，承载组织-成员-角色关系）：
+OrganizationMember（字段规划，承载企业级成员-角色关系）：
 
 ```text
 OrganizationMember
@@ -197,7 +202,7 @@ OrganizationMember
 - status
 ```
 
-第一版单企业/单组织 MVP（D-014 / D-015）保留 Organization 边界，但不要求本轮实现完整 RBAC；角色与权限细化属于 ENTERPRISE-001（Phase 4）。
+第一版单企业/单组织 MVP（D-014 / D-015）保留 Organization 边界，但第一版不实现完整 RBAC；角色与权限细化属于 ENTERPRISE-001（Phase 4）。
 
 ## 二之二、LLM 凭证配置模型（D-019 / D-020，字段规划）
 
@@ -225,7 +230,7 @@ LlmProviderConfig
 - 任务只记录 credential configuration/version ID，不记录 Key；
 - 真实 Key 遵守 D-020 安全底线（见 [DECISION_LOG.md](DECISION_LOG.md)）。
 
-## 二之三、数字人创建任务模型（D-017 Phase 1B，字段规划）
+## 二之三、数字人创建任务模型（D-017 Vertical Slice B，字段规划）
 
 AvatarCreationTask（字段规划）：
 

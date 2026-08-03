@@ -240,7 +240,7 @@ CopyGenerationService
 - 真实 Key 遵守 D-020 安全底线（不进入前端/仓库/Markdown/日志/错误信息/证据截图，页面只显示掩码）；
 - 腾讯云部署不代表领域层绑定腾讯云：LLM Provider 同样是可替换 Adapter。
 
-### 图片数字人创建的异步任务边界（Phase 1B，D-017）
+### 图片数字人创建的异步任务边界（Vertical Slice B，D-017）
 
 ```text
 Authorization Preflight

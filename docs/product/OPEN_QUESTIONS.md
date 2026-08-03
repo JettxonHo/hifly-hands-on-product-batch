@@ -47,7 +47,7 @@
 
 ## Q-005 第一批真正接入的飞影能力 —— 收窄，保持开放
 
-第一批真正接入的飞影能力是哪几项（对照 Phase 2 优先级清单）？
+第一批真正接入的飞影能力是哪几项（对照 D-018 的 HIFLY-001 推荐调研/接入顺序，即 DELIVERY_ROADMAP Phase 3）？
 
 影响：HIFLY-001 调研排期与 Phase 1 可执行的视频类型。
 
@@ -134,8 +134,10 @@ Local Agent 的版本分发与更新机制（手动下载/内置更新/渠道包
 
 **结论（owner 决定，2026-08-04）**：正式采用「创建新人物或选择现有人物」；实施拆为两层切片。对应 [DECISION_LOG.md](DECISION_LOG.md) D-017：
 
-- **Phase 1A 黄金路径（选择已有/公共人物）**：云端登录 → 创建项目 → 上传商品 → 生成和质检文案 → 选择公共或已有数字人 → 创建并审核 VideoPlan → 编译为现有 batch → 当前手里有货执行 → 作品库交付；
-- **Phase 1B 独立人物创建子切片**：上传人物图片 → 检查有效授权 → 创建飞影图片数字人异步任务 → 查询或接收任务状态 → 获取 Provider avatar 标识 → 登记 AvatarAsset → 回到统一人物选择流程 → 用于 VideoPlan。
+- **Vertical Slice A（已有/公共人物黄金路径）**：云端登录 → 创建项目 → 上传商品 → 生成和质检文案 → 选择公共或已有数字人 → 创建并审核 VideoPlan → 编译为现有 batch → 当前手里有货执行 → 作品库交付；
+- **Vertical Slice B（图片数字人创建）**：上传人物图片 → 检查有效授权 → 创建飞影图片数字人异步任务 → 查询或接收任务状态 → 获取 Provider avatar 标识 → 登记 AvatarAsset → 回到统一人物选择流程 → 用于 VideoPlan。
+
+Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROADMAP 的 Phase 1 / Phase 2 编号。
 
 背景相关说明（与 Q-017 保持一致）：
 
