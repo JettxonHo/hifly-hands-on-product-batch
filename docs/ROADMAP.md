@@ -11,7 +11,7 @@
 - [ ] Batch schema version 与 migrations (CORE-001)
 - [ ] Crash-recovery fault-injection tests (CORE-002)
 - [ ] Stale execution-lock recovery 改进 (CORE-003)
-- [ ] Portable-path API 边界加固 (CORE-004 / Issue #33，PR 待审查)
+- [x] Portable-path API 边界加固 (CORE-004 / Issue #33，PR #39 已 squash 合并)
 - [ ] Structured redacted diagnostics (OBS-001)
 - [ ] GUI 稳定性与错误状态优化 (UX-001)
 - [x] PR #15 视觉确认合并
