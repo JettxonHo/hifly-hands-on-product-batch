@@ -8,6 +8,12 @@ import {
   rm,
   writeFile
 } from "node:fs/promises";
+import {
+  CURRENT_BATCH_SCHEMA_VERSION,
+  batchSchemaError,
+  describeDetectedVersion,
+  migrateBatchDocument
+} from "./batch-schema.js";
 
 const BATCH_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -152,8 +158,30 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
   };
   const batchFile = (batchId) => path.join(batchDirectory(batchId), "batch.json");
 
-  async function read(batchId) {
-    return JSON.parse(await doReadFile(batchFile(batchId), "utf8"));
+  // Core read: parse + schema migration (+ atomic persist of the migration).
+  // Callers already inside a per-batch queue (update, readCommitted cold,
+  // initialize) call this directly; the public read() wraps it in the queue so
+  // a migration write can never race a concurrent commit on the same batch.
+  async function readAndMigrate(batchId) {
+    const parsed = JSON.parse(await doReadFile(batchFile(batchId), "utf8"));
+    // Schema boundary: every document leaving the store is at the current
+    // schema. Legacy (unversioned) batches are migrated here — read-time
+    // migration covers second store instances, batches copied in after
+    // startup, cold snapshots, and tests that seed legacy batch.json files.
+    const { batch, migrated } = migrateBatchDocument(parsed, { batchId });
+    if (migrated) {
+      // Persist the migration atomically before anyone observes the migrated
+      // document. The committed snapshot is updated only AFTER the rename
+      // succeeds; on rename failure the original file stays untouched, the
+      // snapshot is not populated, and the original error propagates.
+      await atomicWriteJson(batchFile(batchId), batch, { delay, renameImpl });
+      snapshots.set(batchId, structuredClone(batch));
+    }
+    return batch;
+  }
+
+  function read(batchId) {
+    return enqueueBatchOperation(batchId, () => readAndMigrate(batchId));
   }
 
   async function readCommitted(batchId) {
@@ -171,7 +199,7 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
     return enqueueBatchOperation(batchId, async () => {
       const filled = snapshots.get(batchId);
       if (filled !== undefined) return structuredClone(filled);
-      const value = await read(batchId);
+      const value = await readAndMigrate(batchId);
       snapshots.set(batchId, structuredClone(value));
       return structuredClone(value);
     });
@@ -179,6 +207,16 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
 
   async function create(batch) {
     assertBatchId(batch?.batch_id);
+    // Callers cannot control the persisted schema version: only the current
+    // version is accepted (or absence, which the store fills in); anything
+    // else is rejected at the boundary.
+    if (batch.schemaVersion !== undefined && batch.schemaVersion !== CURRENT_BATCH_SCHEMA_VERSION) {
+      throw batchSchemaError("BATCH_SCHEMA_INVALID", {
+        batchId: batch.batch_id,
+        detectedVersion: describeDetectedVersion(batch.schemaVersion),
+        message: "create() persists only the current batch schema version"
+      });
+    }
     await mkdir(storeRoot, { recursive: true });
     const directory = batchDirectory(batch.batch_id);
     try {
@@ -193,7 +231,8 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
       ...structuredClone(batch),
       created_at: batch.created_at ?? now,
       updated_at: batch.updated_at ?? now,
-      artifacts: Array.isArray(batch.artifacts) ? structuredClone(batch.artifacts) : []
+      artifacts: Array.isArray(batch.artifacts) ? structuredClone(batch.artifacts) : [],
+      schemaVersion: CURRENT_BATCH_SCHEMA_VERSION
     };
     try {
       await atomicWriteJson(batchFile(batch.batch_id), value, { delay, renameImpl });
@@ -209,15 +248,56 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
     assertBatchId(batchId);
     if (typeof updater !== "function") return Promise.reject(new TypeError("updater must be a function"));
     return enqueueBatchOperation(batchId, async () => {
-      const current = await read(batchId);
+      // readAndMigrate migrates legacy batches first, so the updater always
+      // sees — and must preserve — a current-schema document.
+      const current = await readAndMigrate(batchId);
       const proposed = await updater(structuredClone(current));
       if (!proposed || typeof proposed !== "object") throw new Error("updater must return a batch object");
       if (proposed.batch_id !== batchId) throw new Error("batch_id cannot be changed");
+      // Updaters may not delete, downgrade, upgrade, or retype the schema
+      // version; only the store layer controls versioning.
+      if (proposed.schemaVersion !== CURRENT_BATCH_SCHEMA_VERSION) {
+        throw batchSchemaError("BATCH_SCHEMA_MUTATION_NOT_ALLOWED", {
+          batchId,
+          detectedVersion: describeDetectedVersion(proposed.schemaVersion),
+          message: "updaters cannot add, remove, or change batch schemaVersion"
+        });
+      }
       const next = { ...structuredClone(proposed), updated_at: new Date().toISOString() };
       await atomicWriteJson(batchFile(batchId), next, { delay, renameImpl });
       snapshots.set(batchId, structuredClone(next));
       return structuredClone(next);
     });
+  }
+
+  // Startup migration: bring every existing batch to the current schema BEFORE
+  // the app starts serving requests. Each valid batch directory gets its own
+  // per-batch migration promise: DIFFERENT batches migrate concurrently (no
+  // global lock), while operations on the SAME batch stay serialized through
+  // its queue. Promise.allSettled waits for EVERY task — no fire-and-forget:
+  // initialize (and therefore buildApp) cannot settle while a migration is
+  // still running. Each batch migrates independently and atomically (no
+  // global transaction): a failing batch fails startup with the first failure
+  // in stable sorted order, and already-migrated batches are not rolled back.
+  // Idempotent — a second run over current-schema batches performs no
+  // rewrites. Read-time migration in read() remains the safety net for
+  // batches appearing later.
+  async function initialize() {
+    await mkdir(storeRoot, { recursive: true });
+    const entries = await readdir(storeRoot, { withFileTypes: true });
+    const candidates = entries
+      .filter((candidate) => candidate.isDirectory())
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .filter((entry) => BATCH_ID_PATTERN.test(entry.name));
+    const results = await Promise.allSettled(candidates.map((entry) =>
+      enqueueBatchOperation(entry.name, () => readAndMigrate(entry.name))
+        .catch((error) => {
+          if (error?.code === "ENOENT") return; // tolerate a directory vanishing mid-startup
+          throw error;
+        })
+    ));
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
   }
 
   async function list() {
@@ -258,5 +338,5 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
     return snapshots.size();
   }
 
-  return { create, read, readCommitted, update, list, registerArtifact, snapshotCacheSize };
+  return { create, read, readCommitted, update, list, initialize, registerArtifact, snapshotCacheSize };
 }
