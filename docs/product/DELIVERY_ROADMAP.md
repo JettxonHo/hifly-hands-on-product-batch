@@ -64,10 +64,10 @@ PUBLISH-001：发布管理与数据复盘
 - Provider Evidence 台账按五层状态记录，不夸大、不编造；
 - Issue 拆分建议经 owner 确认后进入 Phase 1。
 
-**重要：本 PR（Phase 0 owner decisions）只完成决策和 Evidence 文档，不得把 Phase 0 标记全部完成。** Phase 0 在进入代码开发前仍需完成以下门禁：
+**重要：PR #43（Phase 0 owner decisions）完成了决策和 Evidence 文档，但不代表 Phase 0 已全部完成。** Phase 0 在进入代码开发前仍需完成以下门禁：
 
 - 产品蓝图：已完成并通过 PR #42 合并
-- Phase 0 owner decisions PR：PR #43，待审查与合并
+- Phase 0 owner decisions：已完成并通过 PR #43 squash merge（squash commit：b767b902c4ebecd290efe1767a3e9ae1134cc24b）
 - 低保真页面结构（未完成）
 - 第一条垂直切片落地为开发范围（Vertical Slice A 已由 D-017 定型，具体 Issue 拆分未完成）
 - Issue 拆分（未完成）
