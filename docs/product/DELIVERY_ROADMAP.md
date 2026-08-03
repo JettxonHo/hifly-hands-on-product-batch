@@ -68,6 +68,7 @@ PUBLISH-001：发布管理与数据复盘
 
 - 产品蓝图：已完成并通过 PR #42 合并
 - Phase 0 owner decisions：已完成并通过 PR #43 squash merge（squash commit：b767b902c4ebecd290efe1767a3e9ae1134cc24b）
+- MVP 商品事实与 AI 文案生成门禁：决策已由 D-021 固化（商品事实最低输入、文案可为空、AI 文案生成前置门禁、质检与人工确认要求）；ContentBrief 具体必填字段仍待 owner 决定；Q-004 与 Q-019 仍保持开放
 - 低保真页面结构（未完成）
 - 第一条垂直切片落地为开发范围（Vertical Slice A 已由 D-017 定型，具体 Issue 拆分未完成）
 - Issue 拆分（未完成）
@@ -89,7 +90,8 @@ PUBLISH-001：发布管理与数据复盘
 - 单企业/单组织
 - Project 模型
 - 五阶段导航
-- 商品和文案
+- 商品和文案（规划含商品草稿、商品名称/图片/卖点录入、可选商品描述、可选已有文案；文案可以为空，D-021）
+- 文案生成入口与 CopyVariant 草稿、质检与人工确认状态（规划，D-021；AI 文案必须经质检和人工确认才能进入 VideoPlan）
 - 平台默认 LLM 凭证（MVP 零配置，D-020）
 - 基础素材引用
 - VideoPlan

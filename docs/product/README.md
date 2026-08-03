@@ -60,7 +60,7 @@
 | [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md) | 导航结构、页面职责、运营与技术页面隔离、设置区、首页/新手引导/模板中心/作品库 |
 | [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md) | 云端 Control Plane、Local Agent、Provider Adapter、LLM Adapter、capability 模型、登录态与安全边界、跨平台约束 |
 | [DELIVERY_ROADMAP.md](DELIVERY_ROADMAP.md) | 产品 Epic（SAAS-001 及子项）、Phase 0～4、优先级、依赖与验收标准 |
-| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-020） |
+| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-021）；最新：D-021 MVP 商品事实与 AI 文案生成门禁 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 
