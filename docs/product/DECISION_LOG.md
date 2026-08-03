@@ -116,3 +116,12 @@
 - **影响**：领域模型新增 AuthorizationRecord / ConsentEvidence / AuthorizationRevocation / DeletionRequest / AuditEvent 规划（见 [DOMAIN_MODEL.md](DOMAIN_MODEL.md) 第七节）；Preflight 增加授权校验项；Provider Adapter 上传前强制重校验；蓝图新增原则 6。
 - **被否决方案**：仅在运营文档中提示授权重要性而不做系统强制；把授权材料与业务数据混合存储、事后补录。
 - **可重新评估条件**：授权材料形式与法律文本（Q-007/Q-008）确定后可细化实现；「fail-closed + 审计留痕 + 最小数据」底线本身不重新开放。
+
+## D-012 Provider Task Router：API Worker + Local Agent 双执行路径
+
+- **日期**：2026-08-04
+- **决策**：长期执行架构不要求所有任务都经过 Local Agent。引入 Provider Task Router：已确认 API 能力由 Hifly API Worker 处理；仅网页支持、登录态、本地文件和人工接管能力由 Local Agent / Playwright 处理。API 创作任务必须异步执行，不放在普通 HTTP 请求生命周期内。
+- **原因**：飞影数字人 API V2 文档已确认 14 项能力在文档层面存在（账号权限与真实调用仍待确认）；API 能力在权限与验证具备后无需依赖浏览器自动化，而登录态、本地文件与人工接管能力仍必须留在 Local Agent。这是对 D-004 的细化而非推翻：长任务不进请求生命周期的约束保持不变。
+- **影响**：`PROVIDER_AND_AGENT_ARCHITECTURE.md` 第四节（任务路由）与第六节（API 调研五层确认）更新；回调不能作为唯一完成机制，必须配合轮询对账（provider task id / request id / callback received time / last poll time / 主动对账）；Token 保管位置由 Q-018 决策，决策前不得默认上传云端。
+- **被否决方案**：所有任务一律经过 Local Agent；API 创作任务同步放入请求生命周期。
+- **可重新评估条件**：飞影 API 账号权限与真实调用验证结果决定 API Worker 承接能力的范围；「长任务不进请求生命周期」「Local Agent 保留仅网页/登录态/人工接管能力」原则不重新开放。

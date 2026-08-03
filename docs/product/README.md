@@ -31,7 +31,7 @@
 | [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md) | 导航结构、页面职责、运营与技术页面隔离、首页/新手引导/模板中心/作品库 |
 | [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md) | 云端 Control Plane、Local Agent、Provider Adapter、capability 模型、登录态与安全边界、跨平台约束 |
 | [DELIVERY_ROADMAP.md](DELIVERY_ROADMAP.md) | 产品 Epic（SAAS-001 及子项）、Phase 0～4、优先级、依赖与验收标准 |
-| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-011） |
+| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-012） |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 尚未决定的开放问题（任何角色不得擅自代替 owner 决定） |
 
 ---

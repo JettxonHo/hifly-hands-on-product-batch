@@ -98,7 +98,7 @@ artifact.upload
 
 ---
 
-## 四、Provider Adapter
+## 四、Provider Adapter 与任务路由
 
 产品上层必须避免和飞影页面结构永久绑定：
 
@@ -114,6 +114,22 @@ Provider Adapter
 ```
 
 **不得在上层产品模型中直接使用飞影按钮文案、页面 selector 或具体网页步骤作为领域概念。** 这些属于 Adapter 内部实现细节。
+
+### Provider Task Router（长期执行架构）
+
+长期架构**不要求所有任务都经过 Local Agent**：
+
+```text
+标准化视频方案与生产任务
+        ↓
+Provider Task Router
+├── Hifly API Worker：处理已确认 API 能力
+└── Local Agent / Playwright：处理仅网页支持、登录态、本地文件和人工接管能力
+```
+
+- **API 创作任务必须异步执行**，不放在普通 HTTP 请求生命周期内（与长 Playwright 任务的约束一致）；
+- 路由依据 Provider capability 确认状态与任务需求决定：需要登录态、本地文件、人工接管或仅网页支持的能力走 Local Agent；已确认 API 能力走 API Worker；
+- Provider Adapter 仍是统一的能力抽象，底层执行路径（API Worker 或 Local Agent）对上层透明。
 
 ### 统一能力边界（名称可调整）
 
@@ -150,14 +166,16 @@ avatar.video_clone
 avatar.ai_generate
 voice.public
 voice.clone
-video.lip_sync
+video.avatar_audio_driven
+video.generic_lip_sync
 video.background_replace
 video.product_holding
 video.talking
 video.podcast
 ```
 
-无正式 API 的能力可以由 Playwright Adapter 实现；capability 声明决定上层功能可见性与 Preflight 检查项。
+- 对口型必须拆分为两个 capability，不得使用一个模糊的 lip-sync 表达所有场景：`video.avatar_audio_driven`（使用飞影 avatar + audio）与 `video.generic_lip_sync`(任意用户图片或视频 + audio)；
+- capability 声明决定上层功能可见性、Preflight 检查项与 VideoPlan 字段可用性：某能力未声明支持的输入参数（例如手里有货的背景），对应 VideoPlan 字段不得表达为可用。
 
 ---
 
@@ -168,11 +186,96 @@ video.podcast
 - 页面结构、按钮文案、selector 全部封装在 Adapter 内部，不进入上层领域模型；
 - 自动化范围必须按能力逐项调研与验证（见第六节），不假设全部能力可自动化。
 
-## 六、Hifly API Adapter（条件性）
+## 六、Hifly API Adapter 与 API 能力调研
 
-- 仅当飞影正式开放 API 且我们获得相应权限时启用；
-- **不得把公开营销页面当作已经获得的 API 契约**；
-- 启用前必须完成：能力清单核对、账号权限确认、配额与成本确认。
+### 调研首要来源
+
+HIFLY-001 API 能力调研的首要来源：**飞影数字人 API V2 文档** `https://api.lingverse.co/hifly.html`。
+
+注意区分两个地址，不得混淆：
+
+- **文档托管域名**：`api.lingverse.co`（文档页面所在地址）；
+- **文档中的实际 API 请求主机**：`hfw-api.hifly.cc`（API base URL）。
+
+**不得把文档托管地址误写成 API base URL。**
+
+### API 文档层面已确认存在的能力
+
+根据当前飞影数字人 API V2 文档，以下能力可确认为「API 文档层面存在」（共 14 项）：
+
+1. 视频数字人创建
+2. 图片数字人创建
+3. 数字人任务状态查询
+4. 公共数字人列表
+5. 声音克隆
+6. 声音参数编辑
+7. 公共/自有声音列表
+8. 声音任务查询
+9. 文本驱动数字人视频
+10. 音频驱动数字人视频
+11. 网感模板视频
+12. 文本转语音
+13. 创作任务状态查询
+14. 任务完成回调
+
+### 五层确认状态分离（必须严格区分）
+
+```text
+API 文档已确认
+当前账号权限已确认
+真实调用已验证
+本项目 Adapter 已实现
+SaaS 产品能力已完成
+```
+
+**文档存在不代表当前账号已经拥有 Token、配额或调用权限。** 每个能力必须按这五层分别记录，不得跨层合并表达、不得把低层状态表述为高层状态。本轮禁止进行任何真实 API 调用和积分消耗；公开营销页面同样不得当作 API 合约证据。
+
+### 能力分层状态（基于当前文档）
+
+一、普通数字人口播（文本驱动/音频驱动数字人视频）：
+
+- API 文档：已确认
+- 账号权限：待确认
+- 真实调用：未验证
+- Adapter：未实现
+
+公开数字人列表、公共/自有声音列表也采用相同分层状态。
+
+二、图片/视频数字人创建：
+
+- API 文档：已确认
+- 授权与敏感资产约束：适用 D-011（见 [DECISION_LOG.md](DECISION_LOG.md)）
+- 当前账号权限：待确认
+- 真实调用：未验证
+- Adapter：未实现
+
+三、对口型能力拆分（不得使用一个模糊的 lip-sync 表达所有场景）：
+
+- `video.avatar_audio_driven`：使用飞影 avatar + audio，API 文档已确认（音频驱动数字人视频）；账号权限待确认，真实调用未验证，Adapter 未实现；
+- `video.generic_lip_sync`：任意用户图片或视频 + 音频，当前 API 文档未确认，待网页和 API 调研。
+
+四、仍未从该 API 文档确认（保持待调研，**不得因为飞影网页营销功能而标记 API 已支持**）：
+
+- `video.product_holding`
+- `video.background_replace`
+- `avatar.ai_generate`
+- `video.podcast`
+- generic lip sync（`video.generic_lip_sync`）
+- 手里有货的背景控制
+
+### 回调与状态查询
+
+API 文档提供任务完成回调，但**回调不能作为唯一完成机制**。设计必须同时包含：
+
+- callback notification（回调通知）
+- polling reconciliation（主动轮询对账）
+- provider task id
+- request id
+- callback received time
+- last poll time
+- provider status
+- result/error
+- 丢失回调后的主动对账
 
 ## 七、影刀 RPA Adapter（可选）
 
@@ -195,6 +298,11 @@ video.podcast
 - **Provider Adapter 在真实上传前必须重新校验授权状态**（不以控制面缓存或前端字段为准）；授权失效、撤销或资产 disabled 后，新任务 Preflight fail-closed，不得创建新的 Provider 任务；
 - 云端和 Local Agent 只处理任务需要的最小数据；敏感源素材的留存与删除遵循授权记录与开放问题（Q-007/Q-008）的后续决策。
 
+### API Token 保管
+
+- 飞影 API Token 的保管位置与调用执行位置待 owner 决策（见 [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) Q-018）；
+- **在决策前不得默认把 Token 上传云端**。
+
 ---
 
 ## 九、飞影能力确认表（按证据记录）
@@ -206,34 +314,43 @@ video.podcast
 - 表格更新必须伴随调研记录，不允许凭空改状态；
 - 未验证能力一律保持未验证，除非仓库已有明确证据。
 
-| 能力 | 当前确认状态 | 已验证范围 | 证据来源 | 剩余技术调研 | 账号或权限依赖 |
-|------|--------------|------------|----------|--------------|----------------|
-| 手里有货 | **部分已验证** | 当前仓库的本地 Playwright 主链路：商品和人物素材上传、弹窗素材生成、素材确认、外层视频生成、下载、batch/task 状态、证据与失败处理 | `README.md`（主链路与工作台能力描述）、`AGENTS.md`（GUI 跑通最低标准）、`docs/status/CURRENT.md`（当前生产路径与关键批次 MULTI-001 单条真实执行记录）、`docs/SOP.md`（手里有货标准生产 SOP）、`test/` 现有确定性测试 | 封装为 `video.product_holding` capability；与 VideoPlan 的参数映射；人物、声音、背景组合范围；Provider 可用性与 Preflight；SaaS 资产引用和状态同步 | 当前未验证的扩展能力继续标记待确认 |
-| 公共数字人选择 | 未验证 | — | — | 完整调研 | 待确认 |
-| 照片数字人 | 未验证 | — | — | 完整调研 | 待确认 |
-| 视频数字人复刻 | 未验证 | — | — | 完整调研 | 待确认 |
-| AI 生成人物 | 未验证 | — | — | 完整调研 | 待确认 |
-| 声音克隆 | 未验证 | — | — | 完整调研 | 待确认 |
-| 文本转语音 | 未验证 | — | — | 完整调研 | 待确认 |
-| 对口型 | 未验证 | — | — | 完整调研 | 待确认 |
-| 视频换背景 | 未验证 | — | — | 完整调研 | 待确认 |
-| 实景口播 | 未验证 | — | — | 完整调研 | 待确认 |
-| 双人播客 | 未验证 | — | — | 完整调研 | 待确认 |
+| 能力 | 当前确认状态 | 已验证范围 / 已确认输入 | 证据来源 | 剩余技术调研 | 账号或权限依赖 |
+|------|--------------|--------------------------|----------|--------------|----------------|
+| 手里有货 | **部分已验证**（本地 Playwright 主链路） | 已验证范围：现有上传、确认、生成、下载流程。**已确认输入：product image、avatar/person image；尚未确认：independent background、scene、voice、pose、framing** | `README.md`（主链路与工作台能力描述）、`AGENTS.md`（GUI 跑通最低标准）、`docs/status/CURRENT.md`（当前生产路径与关键批次 MULTI-001 单条真实执行记录）、`docs/SOP.md`（手里有货标准生产 SOP）、`test/` 现有确定性测试 | 封装为 `video.product_holding` capability；与 VideoPlan 的参数映射；背景与场景来源调研（Q-017）；Provider 可用性与 Preflight；SaaS 资产引用和状态同步 | 未确认输入继续标记待确认 |
+| 普通数字人口播（video.talking） | API 文档已确认 | 真实调用未验证 | 飞影数字人 API V2 文档（第六节） | 账号权限确认、真实调用验证、Adapter 实现 | 账号权限待确认 |
+| 公共数字人选择 | API 文档已确认（公共数字人列表） | 真实调用未验证 | 同上 | Q-006 同步机制（权限/分页/更新频率/预览/下架/ID 稳定性） | 账号权限待确认 |
+| 照片数字人（avatar.photo） | API 文档已确认（图片数字人创建）；适用 D-011 | 真实调用未验证 | 同上 | 授权流程、真实调用、Adapter 实现 | 账号权限待确认 |
+| 视频数字人复刻（avatar.video_clone） | API 文档已确认（视频数字人创建）；适用 D-011 | 真实调用未验证 | 同上 | 授权流程、真实调用、Adapter 实现 | 账号权限待确认 |
+| AI 生成人物（avatar.ai_generate） | API 文档未确认 | — | — | 待网页与 API 调研 | 待确认 |
+| 声音克隆（voice.clone） | API 文档已确认；适用 D-011 | 真实调用未验证 | 飞影数字人 API V2 文档 | 授权流程、真实调用、Adapter 实现 | 账号权限待确认 |
+| 文本转语音 / 公共声音 | API 文档已确认（文本转语音、公共/自有声音列表） | 真实调用未验证 | 同上 | 真实调用、Adapter 实现 | 账号权限待确认 |
+| 对口型（video.avatar_audio_driven） | API 文档已确认（音频驱动数字人视频，飞影 avatar + audio） | 真实调用未验证 | 同上 | 真实调用、Adapter 实现 | 账号权限待确认 |
+| 通用对口型（video.generic_lip_sync） | API 文档未确认 | — | — | 待网页和 API 调研 | 待确认 |
+| 视频换背景（video.background_replace） | API 文档未确认 | — | — | 待网页和 API 调研 | 待确认 |
+| 实景口播 | 未从 API 文档确认 | — | — | 待网页和 API 调研 | 待确认 |
+| 双人播客（video.podcast） | API 文档未确认 | — | — | 待网页和 API 调研 | 待确认 |
 
 重要边界说明：
 
 - 「手里有货」的已验证范围**仅限当前仓库的单机本地 Playwright 主链路**（现有上传、确认、生成和下载流程），不代表完整 SaaS Provider capability（capability 封装、VideoPlan 参数映射、资产引用与状态同步、多账号权限）已经完成；
+- **背景与场景规则（Q-017 调研完成前）**：不声明手里有货支持独立背景选择；不把背景资产作为该 capability 的已支持参数；不在产品设计中承诺用户可以自由更换背景；可暂时表达为「场景跟随人物素材或由 Provider 决定」；通用 VideoPlan 仍可保留背景字段，但 Provider capability 必须决定该字段是否可用；具体行为必须通过后续 HIFLY-001 实际页面调研确认，不得推测；
+- 「API 文档已确认」仅为五层确认状态的第一层（见第六节），不得表述为账号已具备权限或能力已可用；
 - 现有单机自动化链路向 capability 模型的封装属于 HIFLY-001 范围，封装完成并验证前，上层功能不得以该 capability 可用为前提排期。
 
 ---
 
-## 十、未确认的 API 假设
+## 十、已确认事实与未确认 API 假设
 
-以下均为**未确认假设**，不得在设计与排期中当作事实：
+已确认事实（文档层面）：
 
-- 飞影存在正式开放 API；
-- 飞影 API 覆盖上表全部能力；
-- 我们账号具备相应 API/功能权限；
-- Provider 配额与成本可程序化查询。
+- 飞影数字人 API V2 文档存在，并覆盖第六节所列 14 项能力（API 文档层面）；
+- 文档托管地址（`api.lingverse.co`）与 API 请求主机（`hfw-api.hifly.cc`）是两个不同概念。
 
-所有假设在确认前停留在 [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) 与上表的「待调研/待确认」列。
+以下仍为**未确认假设**，不得在设计与排期中当作事实：
+
+- 我们账号是否拥有 API Token、配额与调用权限；
+- 文档能力与实际调用行为是否一致；
+- API Token 的保管位置与调用执行位置（见 Q-018）；
+- Provider 配额与成本是否可程序化查询。
+
+**在 Q-018 决策前，不得默认把 Token 上传云端。**
