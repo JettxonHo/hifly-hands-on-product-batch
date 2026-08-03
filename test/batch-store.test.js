@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { createBatchStore, RENAME_MAX_RETRIES } from "../src/core/batch-store.js";
+import { CURRENT_BATCH_SCHEMA_VERSION } from "../src/core/batch-schema.js";
 
 async function withStore(run) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-"));
@@ -483,4 +484,307 @@ test("snapshotMaxEntries must be a finite positive integer (Infinity rejected)",
   assert.throws(() => createBatchStore(path.join(os.tmpdir(), "nul"), { snapshotMaxEntries: Infinity }), /finite positive integer/);
   assert.throws(() => createBatchStore(path.join(os.tmpdir(), "nul"), { snapshotMaxEntries: 0 }), /finite positive integer/);
   assert.throws(() => createBatchStore(path.join(os.tmpdir(), "nul"), { snapshotMaxEntries: 2.5 }), /finite positive integer/);
+});
+
+// --- Batch schema versioning and migrations (CORE-001 / Issue #20) -----------
+// Legacy (unversioned) batches are internal schema v0. The store migrates them
+// to the current schema at create/initialize/read/readCommitted/update/list
+// boundaries; invalid and future versions fail closed. All concurrency tests
+// use injected read/rename gates — no real-time sleep.
+
+function legacyBatchDoc(overrides = {}) {
+  return {
+    batch_id: "batch-a",
+    status: "needs_input",
+    items: [],
+    uploads: [],
+    artifacts: [],
+    created_at: "2026-07-01T10:00:00.000Z",
+    updated_at: "2026-07-01T10:00:00.000Z",
+    historical_unknown_field: { keep: true },
+    ...overrides
+  };
+}
+
+async function seedLegacyBatch(root, doc = legacyBatchDoc()) {
+  const directory = path.join(root, doc.batch_id);
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, "batch.json"), JSON.stringify(doc, null, 2), "utf8");
+}
+
+async function readDiskBatch(root, batchId) {
+  return JSON.parse(await readFile(path.join(root, batchId, "batch.json"), "utf8"));
+}
+
+test("create persists schemaVersion at the current version", async () => {
+  await withStore(async (store, root) => {
+    await store.create({ batch_id: "batch-a", items: [] });
+    assert.equal((await readDiskBatch(root, "batch-a")).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+  });
+});
+
+test("create rejects caller-controlled schema versions", async () => {
+  await withStore(async (store, root) => {
+    for (const schemaVersion of [0, 2, "1"]) {
+      await assert.rejects(
+        store.create({ batch_id: "batch-x", items: [], schemaVersion }),
+        (error) => error.code === "BATCH_SCHEMA_INVALID" && error.batchId === "batch-x"
+      );
+    }
+    assert.deepEqual(await readdir(root).catch(() => []), [], "rejected creates persist nothing");
+    const created = await store.create({ batch_id: "batch-ok", items: [], schemaVersion: CURRENT_BATCH_SCHEMA_VERSION });
+    assert.equal(created.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION, "explicit current version accepted");
+  });
+});
+
+test("initialize migrates existing legacy batches to the current schema", async () => {
+  await withStore(async (store, root) => {
+    await seedLegacyBatch(root);
+    await store.initialize();
+    const onDisk = await readDiskBatch(root, "batch-a");
+    assert.equal(onDisk.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal(onDisk.status, "needs_input");
+    assert.deepEqual(onDisk.historical_unknown_field, { keep: true }, "unknown historical fields preserved");
+    assert.equal(onDisk.created_at, "2026-07-01T10:00:00.000Z", "created_at unchanged by migration");
+    assert.equal(onDisk.updated_at, "2026-07-01T10:00:00.000Z", "updated_at unchanged by migration");
+    assert.equal((await store.readCommitted("batch-a")).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+  });
+});
+
+test("initialize is idempotent and never rewrites current-schema batches", async () => {
+  await withStore(async (store, root) => {
+    await seedLegacyBatch(root);
+    await store.initialize();
+    let renames = 0;
+    const counting = createBatchStore(root, {
+      renameImpl: async (...args) => {
+        renames += 1;
+        return rename(...args);
+      }
+    });
+    await counting.initialize();
+    await counting.initialize();
+    assert.equal(renames, 0, "current-schema batches must not be rewritten");
+  });
+});
+
+test("read migrates a legacy batch before returning it", async () => {
+  await withStore(async (store, root) => {
+    await seedLegacyBatch(root);
+    const batch = await store.read("batch-a");
+    assert.equal(batch.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal((await readDiskBatch(root, "batch-a")).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+  });
+});
+
+test("readCommitted cold read migrates before back-filling the snapshot", async () => {
+  await withStore(async (store, root) => {
+    await seedLegacyBatch(root);
+    const cold = await store.readCommitted("batch-a");
+    assert.equal(cold.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION, "cold read returns migrated v1, never legacy");
+    assert.equal((await store.readCommitted("batch-a")).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION, "hot snapshot is v1");
+    assert.equal((await readDiskBatch(root, "batch-a")).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+  });
+});
+
+test("list migrates legacy batches and returns only current-schema documents", async () => {
+  await withStore(async (store, root) => {
+    await seedLegacyBatch(root, legacyBatchDoc({ batch_id: "batch-legacy-1" }));
+    await seedLegacyBatch(root, legacyBatchDoc({ batch_id: "batch-legacy-2" }));
+    await store.create({ batch_id: "batch-new", items: [] });
+    const batches = await store.list();
+    assert.equal(batches.length, 3);
+    for (const batch of batches) {
+      assert.equal(batch.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    }
+    for (const batchId of ["batch-legacy-1", "batch-legacy-2"]) {
+      assert.equal((await readDiskBatch(root, batchId)).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    }
+  });
+});
+
+test("list fails closed on an unsupported future schema instead of skipping it", async () => {
+  await withStore(async (store, root) => {
+    await seedLegacyBatch(root, legacyBatchDoc({ batch_id: "batch-future", schemaVersion: 2 }));
+    await assert.rejects(store.list(), (error) => error.code === "BATCH_SCHEMA_UNSUPPORTED");
+  });
+});
+
+test("update migrates a legacy batch before applying the updater", async () => {
+  await withStore(async (store, root) => {
+    await seedLegacyBatch(root);
+    const updated = await store.update("batch-a", (batch) => ({ ...batch, status: "ready" }));
+    assert.equal(updated.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal(updated.status, "ready");
+    assert.deepEqual(updated.historical_unknown_field, { keep: true });
+    const onDisk = await readDiskBatch(root, "batch-a");
+    assert.equal(onDisk.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal(onDisk.status, "ready");
+    assert.equal(onDisk.created_at, "2026-07-01T10:00:00.000Z", "created_at preserved across migration + update");
+  });
+});
+
+test("updaters cannot remove, downgrade, upgrade, or retype schemaVersion", async () => {
+  await withStore(async (store, root) => {
+    await store.create({ batch_id: "batch-a", name: "Guarded", items: [] });
+    const mutations = [
+      (batch) => {
+        const next = { ...batch };
+        delete next.schemaVersion;
+        return next;
+      },
+      (batch) => ({ ...batch, schemaVersion: 0 }),
+      (batch) => ({ ...batch, schemaVersion: 2 }),
+      (batch) => ({ ...batch, schemaVersion: "1" })
+    ];
+    for (const updater of mutations) {
+      await assert.rejects(
+        store.update("batch-a", updater),
+        (error) => error.code === "BATCH_SCHEMA_MUTATION_NOT_ALLOWED" && error.batchId === "batch-a"
+      );
+    }
+    const onDisk = await readDiskBatch(root, "batch-a");
+    assert.equal(onDisk.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION, "disk keeps the current version");
+    assert.equal(onDisk.name, "Guarded", "rejected updater changes are not persisted");
+  });
+});
+
+test("unsupported and invalid schema files are rejected without touching the file", async () => {
+  await withStore(async (store, root) => {
+    const futureDoc = legacyBatchDoc({ batch_id: "batch-a", schemaVersion: 2 });
+    await seedLegacyBatch(root, futureDoc);
+    await assert.rejects(store.read("batch-a"), (error) => error.code === "BATCH_SCHEMA_UNSUPPORTED" && error.detectedVersion === 2);
+    assert.equal(await readFile(path.join(root, "batch-a", "batch.json"), "utf8"), JSON.stringify(futureDoc, null, 2));
+
+    const invalidDoc = legacyBatchDoc({ batch_id: "batch-b", schemaVersion: "1" });
+    await seedLegacyBatch(root, invalidDoc);
+    await assert.rejects(store.read("batch-b"), (error) => error.code === "BATCH_SCHEMA_INVALID" && error.detectedVersion === "string");
+    assert.equal(await readFile(path.join(root, "batch-b", "batch.json"), "utf8"), JSON.stringify(invalidDoc, null, 2));
+  });
+});
+
+test("a migration whose rename fails keeps the original file, leaves the snapshot empty, and cleans up", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-schema-fail-"));
+  try {
+    await seedLegacyBatch(root);
+    const renameImpl = async () => {
+      const error = new Error("simulated EACCES on rename");
+      error.code = "EACCES";
+      throw error;
+    };
+    const store = createBatchStore(root, { delay: () => Promise.resolve(), renameImpl });
+    await assert.rejects(store.read("batch-a"), (error) => error.code === "EACCES");
+    const onDisk = await readDiskBatch(root, "batch-a");
+    assert.equal("schemaVersion" in onDisk, false, "original file keeps the legacy shape");
+    assert.equal(store.snapshotCacheSize(), 0, "failed migration never populates the snapshot");
+    assert.deepEqual(await leftoverTempFiles(root), [], "temp file cleaned up");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("concurrent initialize and read produce exactly one migration commit", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-schema-conc-"));
+  try {
+    await seedLegacyBatch(root);
+    const realReadFile = (await import("node:fs/promises")).readFile;
+    let release;
+    let pausedOnce = false;
+    const readFileImpl = async (file, enc) => {
+      if (!pausedOnce && file.endsWith(path.join("batch-a", "batch.json"))) {
+        pausedOnce = true;
+        const captured = await realReadFile(file, enc);
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+        return captured;
+      }
+      return realReadFile(file, enc);
+    };
+    let renames = 0;
+    const renameImpl = async (...args) => {
+      renames += 1;
+      return rename(...args);
+    };
+    const store = createBatchStore(root, { readFileImpl, renameImpl, delay: () => Promise.resolve() });
+
+    const initialize = store.initialize(); // queues the migration read (paused)
+    while (!release) await new Promise((resolve) => setImmediate(resolve));
+    const cold = store.readCommitted("batch-a"); // queues behind the migration
+    release();
+    await initialize;
+    const value = await cold;
+
+    assert.equal(value.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal(renames, 1, "exactly one migration commit for concurrent initialize + read");
+    assert.equal((await readDiskBatch(root, "batch-a")).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("concurrent migration and update keep both the migration and the updater change", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-schema-upd-"));
+  try {
+    await seedLegacyBatch(root);
+    const realReadFile = (await import("node:fs/promises")).readFile;
+    let release;
+    let pausedOnce = false;
+    const readFileImpl = async (file, enc) => {
+      if (!pausedOnce && file.endsWith(path.join("batch-a", "batch.json"))) {
+        pausedOnce = true;
+        const captured = await realReadFile(file, enc);
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+        return captured;
+      }
+      return realReadFile(file, enc);
+    };
+    const store = createBatchStore(root, { readFileImpl, delay: () => Promise.resolve() });
+
+    const readPromise = store.read("batch-a"); // queued migration, paused on disk read
+    while (!release) await new Promise((resolve) => setImmediate(resolve));
+    const updatePromise = store.update("batch-a", (batch) => ({ ...batch, status: "ready" })); // queued behind
+    release();
+
+    const [readValue, updated] = await Promise.all([readPromise, updatePromise]);
+    assert.equal(readValue.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal(updated.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal(updated.status, "ready", "updater change not lost");
+    const onDisk = await readDiskBatch(root, "batch-a");
+    assert.equal(onDisk.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal(onDisk.status, "ready");
+    assert.deepEqual(onDisk.historical_unknown_field, { keep: true });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("migrations of different batches hold no global lock", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-schema-parallel-"));
+  try {
+    await seedLegacyBatch(root, legacyBatchDoc({ batch_id: "batch-a" }));
+    await seedLegacyBatch(root, legacyBatchDoc({ batch_id: "batch-b" }));
+    const realReadFile = (await import("node:fs/promises")).readFile;
+    let releaseA;
+    const readFileImpl = async (file, enc) => {
+      if (file.endsWith(path.join("batch-a", "batch.json"))) {
+        await new Promise((resolve) => {
+          releaseA = resolve;
+        });
+      }
+      return realReadFile(file, enc);
+    };
+    const store = createBatchStore(root, { readFileImpl, delay: () => Promise.resolve() });
+
+    const migrationA = store.read("batch-a"); // held open
+    const b = await store.read("batch-b"); // completes while batch-a is held
+    assert.equal(b.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION, "batch-b migrated without waiting on batch-a");
+    releaseA();
+    const a = await migrationA;
+    assert.equal(a.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

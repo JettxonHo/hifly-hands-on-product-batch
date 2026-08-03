@@ -106,6 +106,10 @@ export async function buildApp({
   const batchRoot = path.join(path.resolve(root), "batches");
   const staticRoot = path.resolve(webRoot);
   const store = createBatchStore(batchRoot, storeOptions);
+  // Startup schema migration: every legacy batch is brought to the current
+  // schema BEFORE the coordinator and routes exist — buildApp does not resolve
+  // until migration is complete (no fire-and-forget background migration).
+  await store.initialize();
   const security = createRequestSecurity({ allowedHost });
   const coordinator = createExecutionCoordinator({
     batchRoot,

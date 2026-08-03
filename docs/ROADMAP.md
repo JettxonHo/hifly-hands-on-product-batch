@@ -8,7 +8,7 @@
 
 - [x] CI quality gates (GitHub Actions, cross-platform)
 - [x] PR 治理（独立分支、无搭车合并）
-- [ ] Batch schema version 与 migrations (CORE-001)
+- [ ] Batch schema version 与 migrations (CORE-001，PR 待审查)
 - [ ] Crash-recovery fault-injection tests (CORE-002)
 - [ ] Stale execution-lock recovery 改进 (CORE-003)
 - [x] Portable-path API 边界加固 (CORE-004 / Issue #33，PR #39 已 squash 合并)

@@ -6,11 +6,11 @@
 
 ## Open PR
 
-无（PR #39 已合并，CORE-004 已完成）。
+- **CORE-001 / Issue #20**：batch schema version 与 migrations（分支 `feat/core-001-batch-schema-migrations`），**待审查，未合并**。
 
 ## 当前工作分支
 
-无
+`feat/core-001-batch-schema-migrations`（基于 `3752755`，独立 worktree，等待审查）
 
 ## 当前生产路径
 
@@ -38,6 +38,12 @@
 
 ## 已知技术债
 
+- **CORE-001（进行中，PR 待审查）**：batch schema version 与 migrations（Issue #20）。
+  - **schema 契约**：`batch.json` 新增 `schemaVersion` 字段，当前版本 `1`。`schemaVersion` **完全缺失** = internal legacy v0，迁移 v0→v1 **仅新增** `schemaVersion: 1`（业务字段、`created_at`/`updated_at`、未知历史字段全部深度保留，不补默认值、不清理、不添加 migrated_at/migration_history）；**显式** `schemaVersion: 0`/`"1"`/`1.5`/负数/`null`/布尔/对象/数组 拒绝 `BATCH_SCHEMA_INVALID`；future（`>1`）拒绝 `BATCH_SCHEMA_UNSUPPORTED`（旧代码不静默降级未来版本）；updater 删除/修改版本拒绝 `BATCH_SCHEMA_MUTATION_NOT_ALLOWED`。错误仅含 code/batchId/detectedVersion/currentVersion（脱敏，不含 batch 内容与路径），API 层映射 500 INTERNAL_ERROR（不加入 CLIENT_ERROR_CODES）。
+  - **纯迁移模块**：`src/core/batch-schema.js` `migrateBatchDocument()`——不读写文件、不修改输入对象、幂等、按版本逐步迁移、未知版本绝不直接覆盖成当前版本；全模块只有一套版本检测与迁移语义。
+  - **BatchStore 统一边界**：`create()` 强制持久化 `schemaVersion: 1`（调用方传入其他值拒绝）；`read()`/`readCommitted()` 冷读/`update()`/`list()` 读取时自动迁移 legacy 并原子落盘（rename 成功后才更新 committed snapshot；rename 失败原文件不变、snapshot 不回填、temp 清理、抛原错）；任何读取边界都不向调用方返回 legacy batch。
+  - **启动迁移**：`store.initialize()` 在 `buildApp()` resolve 前逐 batch 完成迁移（coordinator 与 routes 注册之前，非 fire-and-forget）；每 batch 独立原子迁移、幂等不重写 v1；某个 batch 非法/失败则启动失败，已成功迁移不回滚；read-time 迁移继续覆盖第二 store 实例、启动后复制进入的 legacy batch 与冷 snapshot。
+  - **并发与原子性**：复用 per-batch operation queue、`atomicWriteJson`、Windows EPERM/EBUSY rename retry 与 temp 清理；同 batch 的 initialize/read/readCommitted/update 经同一 queue 协调（并发只产生一次有效迁移提交、migration+update 不丢更新），不同 batch 并行、无全局锁。
 - **CORE-004（已完成，由 PR #39 squash 合并；Issue #33 随 PR #39 合并自动关闭）**：portable-path API 边界加固。PR #39 squash commit `3e859e0079c29ab2b0558d26ffdf6340e97ab261`，mergedAt `2026-08-02T20:52:44Z`；合并后 main CI run `30766608512` Ubuntu/Windows 双绿（check：Checked 68 JavaScript file(s)；test：506 total / 490 passed / 0 failed / 16 skipped；validate：Validated 3 product row(s)；git diff --check success）。已合并的实现：
   - **统一安全语义**：模块只有一套私有验证核心（`normalizeAndValidatePortablePath`）与一个 segment 验证循环；`toPortableRelativePath`、`assertSafeRelative`、`relativePortablePath`、`fromPortablePath` 全部执行同一规则，fail-closed：必须 string（null/undefined/非 string 抛 TypeError）；先规范化 `\`→`/` 再验证；拒绝空串、裸 `"."`、内嵌 `"."` 段、`..` traversal、空段、绝对 POSIX/Windows drive/UNC/单反斜杠 rooted。纯分隔符转换隔离为模块私有 `normalizePortableSeparatorsUnsafe`（不导出）。**旧 `assertSafeRelative` 放行空串/`"."`/内嵌 `"."` 段的公开绕过入口已删除**，不得有任何公开 validator 允许空路径或 `"."`。
   - **参数边界**：`relativePortablePath(from, to)` 要求 from/to 均为当前平台 absolute path string；`fromPortablePath(root, portablePath)` 要求 root 为 absolute path string；相对或非 string 参数在边界拒绝（不再隐式依赖 `process.cwd()`）；错误为稳定边界错误，不来自 Node 内部偶然异常。
@@ -72,7 +78,7 @@
 
 ## 下一步（最多 5 项）
 
-1. 推进 CORE-001：batch schema version 与 migrations。
+1. 审查 CORE-001 PR（batch schema version 与 migrations，Issue #20）。
 2. 推进 CORE-002：crash-recovery fault-injection tests。
 3. 推进 CORE-003：stale execution-lock recovery。
 4. 推进 OBS-001：structured redacted diagnostics。

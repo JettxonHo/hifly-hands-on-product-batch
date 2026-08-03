@@ -44,6 +44,8 @@ export async function main() {
   const batchId = `cli-${timestampForFile()}`;
   const batchRoot = path.join(config.__rootDir, "batches");
   const store = createBatchStore(batchRoot);
+  // Migrate any legacy batches before the CLI reads or writes batch state.
+  await store.initialize();
   await store.create({
     batch_id: batchId,
     items: confirmedTasks,

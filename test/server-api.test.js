@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -2473,4 +2473,72 @@ test("unexpected server errors are reported as 500 without leaking details", asy
 
   assert.equal(response.statusCode, 500);
   assert.deepEqual(response.json(), { error: "INTERNAL_ERROR" });
+});
+
+// --- Batch schema startup migration (CORE-001 / Issue #20) -------------------
+
+test("buildApp migrates legacy batches before it resolves and the API serves schemaVersion 1", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-server-api-schema-"));
+  try {
+    const legacy = {
+      batch_id: "batch-legacy",
+      status: "needs_input",
+      items: [],
+      uploads: [],
+      artifacts: [],
+      created_at: "2026-07-01T10:00:00.000Z",
+      updated_at: "2026-07-01T10:00:00.000Z",
+      historical_unknown_field: { keep: true }
+    };
+    await mkdir(path.join(root, "batches", "batch-legacy"), { recursive: true });
+    await writeFile(
+      path.join(root, "batches", "batch-legacy", "batch.json"),
+      JSON.stringify(legacy, null, 2),
+      "utf8"
+    );
+
+    // buildApp must not resolve until the startup migration has completed.
+    const app = await buildApp({ root, executor: createFakeExecutor() });
+    const onDisk = JSON.parse(await readFile(path.join(root, "batches", "batch-legacy", "batch.json"), "utf8"));
+    assert.equal(onDisk.schemaVersion, 1, "legacy batch migrated before buildApp resolved");
+    assert.equal(onDisk.created_at, legacy.created_at, "timestamps unchanged");
+    assert.deepEqual(onDisk.historical_unknown_field, { keep: true });
+
+    const sessionResponse = await app.inject({ method: "GET", url: "/api/session", headers: { host: HOST } });
+    const session = {
+      cookie: sessionResponse.headers["set-cookie"].split(";")[0],
+      token: sessionResponse.json().token
+    };
+    const response = await app.inject({
+      method: "GET", url: "/api/batches/batch-legacy", headers: headers(session)
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().batch.schemaVersion, 1, "API serves the current schema");
+    assert.deepEqual(response.json().batch.historical_unknown_field, { keep: true });
+    const listed = await app.inject({ method: "GET", url: "/api/batches", headers: headers(session) });
+    assert.equal(listed.json().batches[0].schemaVersion, 1, "list serves the current schema");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("buildApp fails closed when an existing batch has an unsupported schema", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-server-api-schema-bad-"));
+  try {
+    await mkdir(path.join(root, "batches", "batch-future"), { recursive: true });
+    await writeFile(
+      path.join(root, "batches", "batch-future", "batch.json"),
+      JSON.stringify({ batch_id: "batch-future", schemaVersion: 2 }, null, 2),
+      "utf8"
+    );
+    await assert.rejects(
+      buildApp({ root, executor: createFakeExecutor() }),
+      (error) => error.code === "BATCH_SCHEMA_UNSUPPORTED" && error.batchId === "batch-future"
+    );
+    // The unsupported file stays untouched.
+    const onDisk = JSON.parse(await readFile(path.join(root, "batches", "batch-future", "batch.json"), "utf8"));
+    assert.equal(onDisk.schemaVersion, 2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
