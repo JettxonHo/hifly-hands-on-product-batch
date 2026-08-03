@@ -10,6 +10,33 @@
 
 ## 一、总体分层
 
+第一版是 Cloud-first 的云端 Web Control Plane，默认部署目标为腾讯云（Tencent Cloud first，不是 Tencent Cloud only，D-015）；腾讯云部署**不代表领域层绑定腾讯云**，Database、ObjectStorage、Queue、SecretStore 使用基础设施抽象（具体服务待 Q-021）。
+
+```text
+腾讯云部署目标
+└── Cloud Web Control Plane
+    ├── 登录与单组织
+    ├── 项目与业务数据
+    ├── CopyGenerationService
+    ├── VideoPlan
+    ├── Task Router
+    ├── 作品库
+    └── 内部用量与审计
+
+Local Agent / 常驻执行节点
+├── 飞影网页登录态
+├── Playwright
+├── 本地文件
+├── 手里有货执行
+├── 下载与证据
+└── 人工接管
+
+Provider API asynchronous worker
+├── 可部署在云端
+├── 可部署在 Local Agent
+└── 由 Q-018 决定
+```
+
 ```text
 云端 SaaS Control Plane
 ├── 用户、组织、权限
@@ -18,7 +45,7 @@
 ├── 数字人/声音/背景资产
 ├── 视频方案
 ├── 生产任务编排
-├── 用量与商业信息
+├── 内部用量与治理信息
 └── 状态同步
 
 本地或 VPS Local Agent
@@ -31,7 +58,7 @@
 └── Provider Adapter
 ```
 
-**不得把长时间 Playwright 任务直接塞入不适合长任务的 Serverless/Workers 请求生命周期。** 长时执行只发生在 Local Agent（本地或 VPS）；云端控制面负责编排、状态与商业信息，不承担浏览器执行。
+**不得把长时间 Playwright 任务直接塞入不适合长任务的 Serverless/Workers 请求生命周期。** 长时执行只发生在 Local Agent（本地或 VPS）或异步 worker；云端控制面负责编排、状态与内部用量/治理信息，不承担浏览器执行。
 
 ---
 
@@ -42,7 +69,7 @@
 - 组织、用户与权限（第一版不要求完整 RBAC，但模型预留）；
 - 项目、商品、文案与审核、资产、视频方案等领域数据；
 - 生产任务编排：下发、排队、状态同步；
-- 用量与商业信息：任务数、预计用量、套餐余量、成本提示（内部 pointBudget 不作为用户术语）；
+- 内部用量与治理信息：任务数、预计用量、内部额度、成本提示（内部 pointBudget 不作为用户术语；不建设面向客户的套餐/账单，D-016）；
 - 状态同步：聚合 Agent 回传与 Provider 状态，投影为业务状态（多状态域分离见 [DOMAIN_MODEL.md](DOMAIN_MODEL.md)）。
 
 约束：
@@ -193,6 +220,40 @@ video.podcast
 
 - 对口型必须拆分为两个 capability，不得使用一个模糊的 lip-sync 表达所有场景：`video.avatar_audio_driven`（使用飞影 avatar + audio）与 `video.generic_lip_sync`(任意用户图片或视频 + audio)；
 - capability 声明决定上层功能可见性、Preflight 检查项与 VideoPlan 字段可用性：某能力未声明支持的输入参数（例如手里有货的背景），对应 VideoPlan 字段不得表达为可用。
+
+### LLM Provider Adapter（文案生成能力，D-019 / D-020）
+
+文案生成与质检是 SaaS 自有业务能力，经独立于视频 Provider 的 LLM Provider Adapter 完成：
+
+```text
+CopyGenerationService
+└── LLM Provider Adapter
+    ├── Platform Default Credential（平台默认凭证，MVP）
+    └── Organization BYOK Credential（企业自有 API Key，后续）
+```
+
+凭证边界（必须明确）：
+
+- **LLM Key 和 Hifly Token 是两类不同凭证**；Q-018 只解决 Hifly Token；LLM BYOK 由 D-020 / Q-019 / Q-020 管理；
+- **Secret 值不进入领域模型**；领域模型只保存 encryptedSecretRef 或 credential config ID（见 [DOMAIN_MODEL.md](DOMAIN_MODEL.md) 的 LlmProviderConfig）；
+- 具体 SecretStore 由 Q-021 决定；
+- 真实 Key 遵守 D-020 安全底线（不进入前端/仓库/Markdown/日志/错误信息/证据截图，页面只显示掩码）；
+- 腾讯云部署不代表领域层绑定腾讯云：LLM Provider 同样是可替换 Adapter。
+
+### 图片数字人创建的异步任务边界（Vertical Slice B，D-017）
+
+```text
+Authorization Preflight
+→ Provider upload
+→ create avatar task
+→ task status/callback
+→ AvatarAsset registration
+```
+
+- 必须先 Authorization Preflight（D-011：未记录有效授权不得上传 Provider 或创建数字人）；
+- 创建为异步 task，经 task status/callback + 轮询对账跟踪（回调不能作为唯一完成机制）；
+- 完成后登记 AvatarAsset，回到统一人物选择流程；
+- 可能产生 Provider 消耗，开发前必须获得 owner 对真实调用的单独授权。
 
 ---
 

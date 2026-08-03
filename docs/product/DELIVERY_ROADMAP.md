@@ -31,9 +31,11 @@ SAAS-001E：生产看板、成片质检与作品交付
 ```text
 AGENT-001：云端控制台与 Local Agent 协议
 HIFLY-001：飞影多能力 Provider Adapter
-COMMERCIAL-001：组织、权限、用量与商业化基础
+ENTERPRISE-001：企业权限、治理、内部用量与审计
 PUBLISH-001：发布管理与数据复盘
 ```
+
+说明（D-016）：原 COMMERCIAL-001 统一调整为 **ENTERPRISE-001**；产品不建设面向客户的支付/套餐/账单，ENTERPRISE-001 聚焦企业权限、治理、内部用量与审计。
 
 **明确不允许一次性开发所有功能**：Epic 与 Issue 拆分必须逐阶段推进，每个 PR 独立可审查。
 
@@ -41,119 +43,173 @@ PUBLISH-001：发布管理与数据复盘
 
 ## 二、开发阶段（Phase 0 ～ 4）
 
-### Phase 0：文档和产品原型
+**命名约定**：Vertical Slice A / Vertical Slice B 是垂直切片标签（D-017），不是本节 Phase 1 / Phase 2 的编号。
+
+### Phase 0：DSE、低保真原型与证据
 
 内容：
 
-- 产品蓝图
-- 领域模型
-- 五阶段用户流程
-- 页面信息架构
+- Owner decisions 固化（DSE 的 Decision 部分）
+- DSE 文档体系（Decision / Specification / Evidence 三类，见 [README.md](README.md)）
 - 低保真页面结构
-- Epic 与 Issue 拆分
-- Provider 能力调研表
+- Provider Evidence（飞影能力证据台账 [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md)）
+- 第一条垂直切片
+- Issue 拆分
+- 腾讯云选型问题清单（Q-021）
+- 默认 LLM 问题清单（Q-019）
 
 验收标准：
 
-- `docs/product/` 文档经 owner 审查接受；
-- Provider 能力调研表区分「已确认/待调研/待权限」；
+- `docs/product/` DSE 文档经 owner 审查接受；
+- Provider Evidence 台账按五层状态记录，不夸大、不编造；
 - Issue 拆分建议经 owner 确认后进入 Phase 1。
 
-**重要：PR #42（产品蓝图文档）只固化产品方向，不代表 Phase 0 全部完成。** Phase 0 在进入代码开发前仍需完成以下门禁：
+**重要：本 PR（Phase 0 owner decisions）只完成决策和 Evidence 文档，不得把 Phase 0 标记全部完成。** Phase 0 在进入代码开发前仍需完成以下门禁：
 
-- owner 审查并合并产品蓝图
-- 第一批目标客户决策（Q-001）
-- 第一版本地/云端范围决策（Q-002）
-- 第一版 LLM 与文案质检方案（Q-003 / Q-004）
-- 第一批飞影 capability 选择（Q-005）
-- macOS/Windows 首发范围（Q-012）
-- 低保真页面结构
-- 首个垂直切片（Q-016，由 owner 决定）
-- Epic/Issue 拆分
-- Provider 能力调研证据表
+- 产品蓝图：已完成并通过 PR #42 合并
+- Phase 0 owner decisions PR：PR #43，待审查与合并
+- 低保真页面结构（未完成）
+- 第一条垂直切片落地为开发范围（Vertical Slice A 已由 D-017 定型，具体 Issue 拆分未完成）
+- Issue 拆分（未完成）
+- 腾讯云具体基础设施选型（Q-021，未决定）
+- 默认 LLM Provider 和模型（Q-019，未决定）
+- 第一版企业登录方式（Q-022，未决定）
+- Hifly 账号权限与真实调用调研（HIFLY-001，未完成）
 
-### Phase 1：完整 SaaS 流程骨架
+已在本轮关闭的 Phase 0 决策门禁：第一批目标用户（Q-001，D-014）、云端 Web 登录形态（Q-002，D-015）、单企业/单组织 MVP（Q-013，D-014/D-015）、垂直切片两层拆分（Q-016，D-017）。
 
-目标：**即使部分步骤仍需人工，也能完整走完产品链路。**
+### Phase 1：Cloud Web MVP 骨架
+
+目标：**第一版是 Cloud-first 的云端 Web 产品（默认部署腾讯云，单企业/单组织）。Phase 1 搭好云端 MVP 骨架：用户在云端完成项目、商品、文案、人物选择、VideoPlan 审核与云端持久化，并产出待执行的生产工单或明确的人工交接包；不要求云端自动完成真实视频生产（真实执行闭环属于 Phase 2）。**
 
 内容：
 
+- 云端 Web 应用壳
+- 第一版登录（登录方式见 Q-022）
+- 单企业/单组织
 - Project 模型
 - 五阶段导航
-- 商品管理
-- 内容方案
-- 文案生成与质检
-- 基础素材中心
-- 视频方案
-- 方案转 batch（编译边界）
-- 生产看板重包装
-- 作品库和交付页
+- 商品和文案
+- 平台默认 LLM 凭证（MVP 零配置，D-020）
+- 基础素材引用
+- VideoPlan
+- 云端数据持久化
+- 待执行的生产工单或明确的人工交接包
+- 内部作品记录
+
+Phase 1 不要求：
+
+- 完整商业多租户
+- 支付套餐
+- 完整 RBAC
+- 企业 BYOK
+- 所有飞影能力
+- 云端自动完成真实视频生产
 
 验收标准：
 
-- 一个新用户能按五阶段完成一次真实（本地）生产并交付作品；
-- VideoPlan → batch 编译边界可追踪（双向 ID）；
+- 用户登录云端 Web；
+- 创建项目和商品；
+- 生成、编辑、质检并确认文案；
+- 选择公共或企业已有人物；
+- 创建并审核 VideoPlan；
+- 云端持久化；
+- 创建待执行的生产工单或明确的人工交接包；
+- VideoPlan → batch 编译契约可以建立和测试（编译边界双向 ID 可追踪）；
+- 不要求云端自动完成真实视频生产；
 - 看板使用运营语言，技术状态收敛到任务详情；
 - 现有安全、幂等、原子写、路径与 CI 标准不降低。
 
-### Phase 2：飞影多能力接入
+### Phase 2：执行闭环
 
-优先级：
-
-1. 公共数字人
-2. 照片数字人
-3. 对口型
-4. 背景替换
-5. 视频数字人复刻
-6. 声音克隆
-7. AI 生成人物
-8. 双人播客
-
-要求：**每项必须先做能力调研和 Provider capability 设计，再开发自动化**（见 [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md) 的能力确认状态表）。
-
-验收标准：
-
-- 每项能力接入前有调研记录与 capability 声明；
-- 接入后有确定性测试与证据；
-- 不引入对飞影页面结构的上层耦合。
-
-### Phase 3：云端 SaaS 与 Local Agent
+目标：**打通真实执行闭环，使 Vertical Slice A 端到端黄金路径（选择已有/公共人物）真实成立。真实端到端黄金路径只在 Phase 2 完成后成立。**
 
 内容：
 
-- 登录
-- 组织
-- 云端项目存储
-- Local Agent 配对
-- 心跳与任务领取
-- 状态同步
+- Local Agent 最小协议
+- 云端任务下发
+- 当前手里有货 Playwright
+- 状态回传
 - 人工接管
-- 多租户隔离
+- VideoPlan → batch
+- 作品登记
+- Vertical Slice A 端到端黄金路径
+
+验收标准（执行闭环链路）：
+
+```text
+云端生产工单
+→ Local Agent 领取
+→ VideoPlan/batch 执行
+→ 手里有货 Playwright
+→ 状态和证据回传
+→ 作品登记
+→ 云端作品库交付
+```
+
+- 上述链路完整闭环；
+- 长 Playwright 任务不出现在 Serverless/Workers 请求生命周期；
+- 云端不保存不必要的飞影 Cookie。
+
+Vertical Slice B（图片数字人创建子切片）独立排期，不与 Phase 2 黄金路径塞进同一个大 PR（D-017）；真实调用前须 owner 单独授权。
+
+### Phase 3：Hifly API 多能力
+
+按 D-018 顺序逐项推进：
+
+0. 保留当前手里有货 Playwright 能力
+1. 公共数字人
+2. 公共/自有声音
+3. 普通文本口播
+4. 音频驱动口播
+5. 图片数字人
+6. 声音克隆
+7. 视频数字人复刻
+8. 通用对口型
+9. 背景替换
+10. 手里有货背景和场景来源
+
+要求：**每项先 Evidence，再 Issue，再实现**（见 [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) 与 [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md) 的五层确认状态）。这个顺序是当前规划优先级，不代表账号权限和真实调用已验证。
 
 验收标准：
 
-- Agent 协议（规划见架构文档）落地最小闭环：注册/心跳/领取/回传；
-- 云端不保存不必要的飞影 Cookie；
-- 长 Playwright 任务不出现在 Serverless/Workers 请求生命周期；
-- 多租户数据隔离可验证。
+- 每项能力接入前有 Evidence 记录与 capability 声明；
+- 接入后有确定性测试与证据；
+- 不引入对飞影页面结构的上层耦合；
+- 未经五层确认不得宣布能力已支持。
 
-### Phase 4：商业化
+### Phase 4：企业治理与规模化
+
+由 ENTERPRISE-001 承担（原 COMMERCIAL-001 调整，D-016）。
 
 内容：
 
-- 角色权限
-- 用量
+- 企业成员
+- 角色与权限
+- 授权治理
+- 审计
+- 企业 BYOK（组织级配置，D-020）
+- 内部用量
+- 内部成本
+- 配额和预算
+- 部署加固
+- 多组织能力（只有实际需要时）
+
+明确非目标（D-016）：
+
+- 支付
 - 套餐
 - 账单
-- 模板市场
-- 发布管理
-- 数据复盘
+- 充值
+- 续费
 
 验收标准：
 
-- 用户可见术语为任务数/预计用量/套餐余量/成本提示（不暴露内部 pointBudget）；
-- 计费与 Provider 成本关系明确（见 [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md)）；
-- 发布与表现数据闭环（PUBLISH-001）。
+- 用户可见术语为任务数/预计用量/内部额度/成本提示（不暴露内部 pointBudget）；
+- 内部成本与 Provider 成本口径明确（见 [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) Q-009）；
+- 审计留痕完整。
+
+PUBLISH-001 保留为后续发布管理和效果复盘方向。
 
 ---
 
@@ -162,26 +218,26 @@ PUBLISH-001：发布管理与数据复盘
 1. Phase 顺序不跳级：未完成 Phase 0 审查不开始 Phase 1 开发；
 2. 产品化与底层稳定性工作可以并行（见 [DECISION_LOG.md](DECISION_LOG.md) D-010），但互不搭车：稳定性 PR 与产品 PR 独立；
 3. 每个能力接入先调研后开发；
-4. 商业化与支付系统最后做，不提前。
+4. 企业治理（ENTERPRISE-001）与发布复盘（PUBLISH-001）最后做，不提前；支付/套餐/账单不建设（D-016）。
 
 ## 四、依赖关系
 
 ```text
-Phase 0（文档/原型）
+Phase 0（DSE/低保真原型/证据）
    ├──→ SAAS-001A（项目模型/五阶段）
    │       ├──→ SAAS-001B（文案）
    │       ├──→ SAAS-001C（素材中心）
    │       └──→ SAAS-001D（视频方案）──→ SAAS-001E（生产/交付）
-   ├──→ HIFLY-001（能力调研先行，逐项接入，Phase 2）
-   └──→ AGENT-001（依赖 Phase 1 的任务模型，Phase 3）
-              └──→ COMMERCIAL-001（Phase 4）
+   ├──→ HIFLY-001（能力调研先行，逐项接入，Phase 3）
+   └──→ AGENT-001（依赖 Phase 1/2 的任务模型）
+              └──→ ENTERPRISE-001（Phase 4）
                      └──→ PUBLISH-001（Phase 4）
 ```
 
 - SAAS-001D 依赖 B/C（文案与资产就绪才能组方案）；
 - SAAS-001E 依赖 D（方案批准后排产）与现有执行内核；
 - HIFLY-001 各能力相互独立，可并行调研，但共享 capability 模型；
-- AGENT-001 依赖 Phase 1 的任务/状态模型定型。
+- AGENT-001 依赖 Phase 1/2 的任务/状态模型定型。
 
 ## 五、与既有技术债的关系
 
