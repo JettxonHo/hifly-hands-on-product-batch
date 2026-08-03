@@ -240,13 +240,14 @@ CopyGenerationService
 - 真实 Key 遵守 D-020 安全底线（不进入前端/仓库/Markdown/日志/错误信息/证据截图，页面只显示掩码）；
 - 腾讯云部署不代表领域层绑定腾讯云：LLM Provider 同样是可替换 Adapter。
 
-### 文案生成业务调用边界与生成前门禁（D-021）
+### 文案生成业务调用边界与生成前门禁（D-021 / D-022）
 
 业务调用边界（架构规格，本轮不实现服务或代码）：
 
 ```text
-Product confirmed facts
-+ ContentBrief
+D-021 Confirmed Product Facts
++ Optional ContentBrief（D-022，可缺失/为空/部分填写）
+→ ContentBrief Normalization
 → CopyGenerationService
 → LLM Provider Adapter
 → CopyVariant draft
@@ -262,7 +263,29 @@ Product confirmed facts
 - 确认至少一条经用户确认的卖点；
 - 只组装已确认事实；
 - 阻止未经确认的图片识别候选进入模型；
-- 不满足最低条件时不调用 Provider。
+- 不满足最低条件时不调用 Provider；
+- **不检查 ContentBrief**：ContentBrief 无 MVP 必填字段，缺失或为空不影响生成资格（D-022）。
+
+**ContentBrief Normalization** 概念职责（D-022）：
+
+- ContentBrief 缺失或为空时继续执行（应用默认表达行为）；
+- 未指定表达风格时，应用默认表达风格「自然口语化种草」；
+- 未指定种草角度时，由 AI 根据已确认卖点选择；
+- 未指定收尾方式时，使用自然收尾；
+- 未填写期望口播长度时，不添加明确长度约束；
+- 将补充要求作为表达说明；
+- 不把补充要求中的未经确认事实当作商品事实；
+- 不绕过 D-021 CopyGenerationPreflight；
+- 不创建新的商品事实；不推断价格或优惠；不承诺成片时长；不选择具体 LLM Provider。
+
+执行顺序：
+
+```text
+确认商品事实（D-021 Preflight）
+→ 过滤未经确认事实
+→ 规范化可选 ContentBrief（应用默认值）
+→ 构造 LLM 请求
+```
 
 模型只能基于已确认商品事实进行营销表达，不得自行编造事实性信息（功效、参数、成分、认证、销量、排名、价格、优惠、库存、活动期限、竞品结论、医疗或健康承诺等，完整清单见 [DECISION_LOG.md](DECISION_LOG.md) D-021）。AI 输出均为草稿，必须经质检与人工确认后才能被 VideoPlan 引用。本轮不选择具体 LLM Provider 或模型（Q-019 保持开放）。
 

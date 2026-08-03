@@ -273,9 +273,23 @@ Product
 - 「文案为空」与「商品资料不满足生成条件」是两个不同状态；
 - 图片识别候选不是正式 Product fact；未经确认的候选信息不得进入 LLM 输入。
 
-ContentBrief（当前内容生产目标）：
+ContentBrief（可选内容偏好，D-022，字段规划）：
 
-- 具体字段和必填规则待后续 owner 决定；本轮不确定必填字段和默认值。
+- ContentBrief is **optional**：可以完全不存在（may be absent），可以存在但包含零个或多个用户偏好（may contain zero or more user preferences）；**不拥有 MVP 必填字段**，不是 Product 的必需关联。
+- 概念级字段（本轮不固化字段类型、长度限制、枚举代码或默认秒数）：
+  - 表达风格偏好（默认：自然口语化种草）；
+  - 种草角度偏好（默认：由 AI 根据已确认卖点选择）；
+  - 期望口播长度提示（仅文案篇幅提示，不代表 VideoPlan 或 Provider 的精确视频时长）；
+  - 收尾方式偏好（默认：自然收尾）；
+  - 补充要求（自由文本，不作为结构化平台或人群字段）。
+
+语义约束：
+
+- Product 满足 D-021 最低商品事实后，即可申请生成 CopyVariant；**ContentBrief 缺失或为空不影响生成资格**；
+- 目标平台和目标人群**不是 MVP 独立领域字段**；特殊平台或人群要求可以作为补充要求表达；
+- 补充要求中的事实性声明**不得自动升级为 Product confirmed fact**，也不得绕过 D-021 事实安全门禁；
+- 不得将补充要求直接并入 Product facts；
+- CopyVariant 仍必须通过质检和人工确认（approved 后才能被 VideoPlan 引用）。
 
 CopyVariant 来源与门禁：
 
