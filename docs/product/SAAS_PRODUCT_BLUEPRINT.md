@@ -151,7 +151,7 @@ AI 数字人内容生产 SaaS
         ↓
 Provider Adapter
 ├── Hifly Playwright Adapter
-├── Hifly API Adapter（如未来正式开放并获得权限）
+├── Hifly API Adapter（API 文档已确认；启用需账号权限、真实调用和 Adapter 验证）
 ├── 影刀 RPA Adapter（可选）
 ├── 其他数字人平台 Adapter
 └── 其他视频模型 API Adapter
@@ -236,6 +236,33 @@ Provider Adapter
 6. Provider Adapter 在真实上传前必须重新校验授权状态。
 
 具体授权材料形式、保留期限、删除时限和法律文本仍为开放问题（见 [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) 的 Q-007 / Q-008），不得擅自决定。本原则的正式决策记录为 [DECISION_LOG.md](DECISION_LOG.md) 的 D-011。
+
+### 原则 7：Hifly-first，不是 Hifly-only
+
+在飞影满足以下条件时，优先使用飞影完成数字人、声音、普通数字人口播、音频驱动、对口型、背景处理和相关视频能力：
+
+- 功能覆盖满足产品需求
+- 真实效果质量达标
+- 自动化路径稳定
+- 成本和生成时延可接受
+- 能取得稳定 task ID、状态、结果和失败信息
+- 可安全重试、对账和恢复
+- 满足授权与敏感资产要求（原则 6 / D-011）
+
+目的：减少运营配置、减少数字人和声音资产迁移、减少多供应商 Token 与账号管理、保持人物、声音和作品链路一致。
+
+执行路径偏好：
+
+```text
+1. 飞影正式 API
+2. 飞影 Playwright
+3. 飞影人工接管的半自动流程
+4. 其他 Provider
+```
+
+但这不是无条件强制：当其他 Provider 在关键功能、质量、稳定性、成本或合规上明显更优时，可以经相同 Provider Adapter 接入。**未经 capability 实际调研与验证，不得宣布飞影支持该能力。**
+
+第一版普通运营界面**不要求用户选择 Provider**：用户选择的是生产结果类型，Provider Task Router 根据已验证能力路由；Provider 选择只进入高级设置、管理员配置或技术诊断区域。正式决策记录为 [DECISION_LOG.md](DECISION_LOG.md) 的 D-013。
 
 ---
 

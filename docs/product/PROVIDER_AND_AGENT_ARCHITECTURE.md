@@ -107,7 +107,7 @@ artifact.upload
         ↓
 Provider Adapter
 ├── Hifly Playwright Adapter
-├── Hifly API Adapter（如未来正式开放并获得权限）
+├── Hifly API Adapter（API 文档已确认；启用需账号权限、真实调用和 Adapter 验证）
 ├── 影刀 RPA Adapter（可选）
 ├── 其他数字人平台 Adapter
 └── 其他视频模型 API Adapter
@@ -120,16 +120,33 @@ Provider Adapter
 长期架构**不要求所有任务都经过 Local Agent**：
 
 ```text
-标准化视频方案与生产任务
-        ↓
 Provider Task Router
-├── Hifly API Worker：处理已确认 API 能力
-└── Local Agent / Playwright：处理仅网页支持、登录态、本地文件和人工接管能力
+├── Hifly API asynchronous worker
+└── Local Agent / Playwright
 ```
 
+- **Hifly API Worker 是逻辑上的异步执行角色，不默认代表云端部署。** 它可以部署在：云端后台 Worker、Local Agent 内部 Worker、或两种方式并存；具体部署位置由 Q-018 的 Token 保管决策决定。
+- **在 Q-018 决定前**：不默认把 Token 上传云端；不默认 API 必须从云端调用；不默认 API 必须经过 Local Agent。
 - **API 创作任务必须异步执行**，不放在普通 HTTP 请求生命周期内（与长 Playwright 任务的约束一致）；
-- 路由依据 Provider capability 确认状态与任务需求决定：需要登录态、本地文件、人工接管或仅网页支持的能力走 Local Agent；已确认 API 能力走 API Worker；
-- Provider Adapter 仍是统一的能力抽象，底层执行路径（API Worker 或 Local Agent）对上层透明。
+- 路由依据 Provider capability 确认状态与任务需求决定：需要登录态、本地文件、人工接管或仅网页支持的能力走 Local Agent / Playwright；已确认 API 能力走 Hifly API asynchronous worker；
+- Provider Adapter 仍是统一的能力抽象，底层执行路径对上层透明。
+
+### Hifly-first，不是 Hifly-only（D-013）
+
+在飞影满足以下条件时，优先使用飞影完成数字人、声音、普通数字人口播、音频驱动、对口型、背景处理和相关视频能力：功能覆盖满足产品需求、真实效果质量达标、自动化路径稳定、成本和生成时延可接受、能取得稳定 task ID/状态/结果/失败信息、可安全重试对账和恢复、满足授权与敏感资产要求（D-011）。
+
+执行路径偏好：
+
+```text
+1. 飞影正式 API
+2. 飞影 Playwright
+3. 飞影人工接管的半自动流程
+4. 其他 Provider
+```
+
+但这不是无条件强制：当其他 Provider 在关键功能、质量、稳定性、成本或合规上明显更优时，可以经相同 Provider Adapter 接入。**未经 capability 实际调研与验证，不得宣布飞影支持该能力。**
+
+第一版普通运营界面**不要求用户选择 Provider**：用户选择的是生产结果类型，Provider Task Router 根据已验证能力路由；Provider 选择只进入高级设置、管理员配置或技术诊断区域。完整决策记录见 [DECISION_LOG.md](DECISION_LOG.md) D-013。
 
 ### 统一能力边界（名称可调整）
 

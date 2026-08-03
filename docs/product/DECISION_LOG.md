@@ -125,3 +125,30 @@
 - **影响**：`PROVIDER_AND_AGENT_ARCHITECTURE.md` 第四节（任务路由）与第六节（API 调研五层确认）更新；回调不能作为唯一完成机制，必须配合轮询对账（provider task id / request id / callback received time / last poll time / 主动对账）；Token 保管位置由 Q-018 决策，决策前不得默认上传云端。
 - **被否决方案**：所有任务一律经过 Local Agent；API 创作任务同步放入请求生命周期。
 - **可重新评估条件**：飞影 API 账号权限与真实调用验证结果决定 API Worker 承接能力的范围；「长任务不进请求生命周期」「Local Agent 保留仅网页/登录态/人工接管能力」原则不重新开放。
+
+## D-013 Hifly-first Provider 策略（Hifly-first，不是 Hifly-only）
+
+- **日期**：2026-08-04
+- **决策**：正式表述为 **Hifly-first，不是 Hifly-only**。在飞影满足以下条件时，优先使用飞影完成数字人、声音、普通数字人口播、音频驱动、对口型、背景处理和相关视频能力：
+  1. 功能覆盖满足产品需求；
+  2. 真实效果质量达标；
+  3. 自动化路径稳定；
+  4. 成本和生成时延可接受；
+  5. 能取得稳定 task ID、状态、结果和失败信息；
+  6. 可安全重试、对账和恢复；
+  7. 满足授权与敏感资产要求（D-011）。
+
+  执行路径偏好顺序：
+
+  ```text
+  1. 飞影正式 API
+  2. 飞影 Playwright
+  3. 飞影人工接管的半自动流程
+  4. 其他 Provider
+  ```
+
+  但这不是无条件强制：当其他 Provider 在关键功能、质量、稳定性、成本或合规上明显更优时，可以经相同 Provider Adapter 接入。**未经 capability 实际调研与验证，不得宣布飞影支持该能力。**
+- **原因**：优先单一主 Provider 可以减少运营配置、减少数字人和声音资产迁移、减少多供应商 Token 与账号管理、保持人物、声音和作品链路一致；同时保留 Adapter 抽象避免 Hifly-only 锁定。
+- **影响**：第一版普通运营界面**不要求用户选择 Provider**——用户选择的是生产结果类型，Provider Task Router 根据已验证能力路由；Provider 选择只进入高级设置、管理员配置或技术诊断区域。capability 确认表（`PROVIDER_AND_AGENT_ARCHITECTURE.md` 第九节）是路由与排期的依据。
+- **被否决方案**：Hifly-only（禁止其他 Provider 接入）；多 Provider 完全对等、由运营在首版界面自由选择。
+- **可重新评估条件**：飞影某能力不满足上述七项条件时，该能力可经 Adapter 接入其他 Provider；「Hifly-first 偏好 + Adapter 抽象不绑定」的框架本身不重新开放。
