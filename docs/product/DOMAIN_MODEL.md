@@ -60,6 +60,12 @@ UsageRecord
 CostEstimate
 PublishingRecord
 PerformanceMetric
+
+AuthorizationRecord
+ConsentEvidence
+AuthorizationRevocation
+DeletionRequest
+AuditEvent
 ```
 
 ### 关系骨架
@@ -226,3 +232,38 @@ compileApprovedVideoPlansToBatch()
 - CostEstimate：生产前的预计 Provider 消耗与成本提示；
 - 面向 SaaS 用户的表达是**任务数、预计用量、套餐余量、Provider 成本提示**；
 - **内部 pointBudget 不作为用户术语**（技术实现细节留在执行层与诊断页面）。
+
+---
+
+## 七、授权、同意与审计模型（Accepted 底线，见 DECISION_LOG D-011）
+
+敏感资产（用户照片、视频、声音、数字人复刻源素材）的授权与保护规划以下实体（具体字段和存储方式待实现阶段决定）：
+
+- **AuthorizationRecord**：一项授权记录（授权对象、授权范围、生效/失效状态、时间）；
+- **ConsentEvidence**：授权证据（材料引用与核验信息；材料形式见 Q-007/Q-008，不预先决定）；
+- **AuthorizationRevocation**：授权撤销事件（撤销人、时间、原因）；
+- **DeletionRequest**：敏感资产删除请求（发起、审批、执行与结果）；
+- **AuditEvent**：审计事件（创建、使用、撤销、删除等动作的留痕）。
+
+关系骨架：
+
+```text
+Asset ──< AuthorizationRecord ── ConsentEvidence
+AuthorizationRecord ──< AuthorizationRevocation
+Asset ──< DeletionRequest
+以上全部动作 ──> AuditEvent
+```
+
+### 资产可用状态与授权状态必须分离
+
+```text
+asset.status = ready
+不等于
+authorization.status = valid
+```
+
+- `asset.status`（uploading/processing/ready/failed/disabled）描述资产**可用性**；
+- `authorization.status` 描述授权**有效性**；
+- **只有两者同时满足（资产 ready 且授权 valid），才能通过生产 Preflight**；
+- 授权失效、撤销或资产 disabled 后，新任务 Preflight fail-closed，不得创建新的 Provider 任务；
+- 普通运营不能通过修改前端字段绕过授权状态；Provider Adapter 在真实上传前必须重新校验授权状态（见 [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md)）。

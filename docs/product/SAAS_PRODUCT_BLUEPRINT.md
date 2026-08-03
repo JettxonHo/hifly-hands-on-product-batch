@@ -224,6 +224,19 @@ Provider Adapter
 
 **不得在文档中假设所有飞影能力都已经存在正式 API。** 需要把「已确认可自动化」「待技术调研」「待账号权限确认」分开记录（见 [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md)）。
 
+### 原则 6：敏感资产授权与保护底线
+
+用户照片、视频、声音和数字人复刻源素材属于**敏感资产**：
+
+1. 未记录有效授权，不得：创建数字人、克隆声音、上传 Provider、创建对口型任务、创建生产任务；
+2. 授权失效、撤销或资产 disabled 后：新任务 Preflight 必须 fail-closed，不得继续创建新的 Provider 任务；
+3. 资产的创建、使用、撤销、删除需要审计留痕；
+4. 云端和 Local Agent 只处理任务需要的最小数据；
+5. 普通运营不能通过修改前端字段绕过授权状态；
+6. Provider Adapter 在真实上传前必须重新校验授权状态。
+
+具体授权材料形式、保留期限、删除时限和法律文本仍为开放问题（见 [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) 的 Q-007 / Q-008），不得擅自决定。本原则的正式决策记录为 [DECISION_LOG.md](DECISION_LOG.md) 的 D-011。
+
 ---
 
 ## 五、五阶段核心生产流程
