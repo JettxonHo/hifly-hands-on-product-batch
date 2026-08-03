@@ -240,6 +240,32 @@ CopyGenerationService
 - 真实 Key 遵守 D-020 安全底线（不进入前端/仓库/Markdown/日志/错误信息/证据截图，页面只显示掩码）；
 - 腾讯云部署不代表领域层绑定腾讯云：LLM Provider 同样是可替换 Adapter。
 
+### 文案生成业务调用边界与生成前门禁（D-021）
+
+业务调用边界（架构规格，本轮不实现服务或代码）：
+
+```text
+Product confirmed facts
++ ContentBrief
+→ CopyGenerationService
+→ LLM Provider Adapter
+→ CopyVariant draft
+→ Quality Gate
+→ Human Approval
+→ VideoPlan
+```
+
+生成前门禁 **CopyGenerationPreflight** 职责：
+
+- 确认商品名称存在；
+- 确认至少一张商品图片；
+- 确认至少一条经用户确认的卖点；
+- 只组装已确认事实；
+- 阻止未经确认的图片识别候选进入模型；
+- 不满足最低条件时不调用 Provider。
+
+模型只能基于已确认商品事实进行营销表达，不得自行编造事实性信息（功效、参数、成分、认证、销量、排名、价格、优惠、库存、活动期限、竞品结论、医疗或健康承诺等，完整清单见 [DECISION_LOG.md](DECISION_LOG.md) D-021）。AI 输出均为草稿，必须经质检与人工确认后才能被 VideoPlan 引用。本轮不选择具体 LLM Provider 或模型（Q-019 保持开放）。
+
 ### 图片数字人创建的异步任务边界（Vertical Slice B，D-017）
 
 ```text

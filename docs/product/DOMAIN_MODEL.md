@@ -251,6 +251,45 @@ AvatarCreationTask
 
 要求：创建前必须有有效授权（authorizationRecordId，D-011）；创建为异步 task，经 task status/callback + 轮询对账跟踪；完成后登记 AvatarAsset；可能产生 Provider 消耗，开发前须 owner 单独授权。
 
+## 二之四、商品事实与文案模型（D-021，字段规划）
+
+概念级建模。本轮不定义数据库类型、ORM、API payload、migration、字段长度或具体枚举实现。
+
+Product（相对稳定的商品事实，字段规划）：
+
+```text
+Product
+- name（最低输入，必填）
+- productImages（最低一张）
+- sellingPoints（最低一条，经用户确认）
+- description（可选）
+- 商品事实的确认状态或确认语义
+```
+
+语义约束：
+
+- **Product 可以在没有 CopyVariant 时创建、保存和存在**，不得强制 Product 自身必须拥有已批准文案；
+- Product 满足最低商品事实后，可以申请生成 CopyVariant；
+- 「文案为空」与「商品资料不满足生成条件」是两个不同状态；
+- 图片识别候选不是正式 Product fact；未经确认的候选信息不得进入 LLM 输入。
+
+ContentBrief（当前内容生产目标）：
+
+- 具体字段和必填规则待后续 owner 决定；本轮不确定必填字段和默认值。
+
+CopyVariant 来源与门禁：
+
+```text
+CopyVariant source
+- ai_generated
+- user_provided
+- ai_rewritten
+```
+
+- AI 生成（ai_generated）和 AI 改写（ai_rewritten）结果初始均为草稿；已有文案（user_provided）可直接作为草稿；
+- 全部来源的文案均需经过质检与人工确认；
+- **只有 approved 状态的 CopyVariant 才能被 VideoPlan 引用**。
+
 ---
 
 ## 三、VideoPlan 到 batch/task 的映射
