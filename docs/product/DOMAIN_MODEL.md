@@ -16,6 +16,7 @@
 Organization
 User
 Membership
+OrganizationMember
 Role
 
 Project
@@ -38,6 +39,7 @@ AudioAsset
 VideoSourceAsset
 SubtitleTemplate
 CoverTemplate
+AvatarCreationTask
 
 VideoPlan
 VideoPlanVersion
@@ -58,8 +60,12 @@ DeliveryPackage
 
 UsageRecord
 CostEstimate
+Quota
+Budget
 PublishingRecord
 PerformanceMetric
+
+LlmProviderConfig
 
 AuthorizationRecord
 ConsentEvidence
@@ -68,10 +74,12 @@ DeletionRequest
 AuditEvent
 ```
 
+**商业化收费实体为非目标**（D-016）：Plan、Subscription、Billing、Payment、Package、Balance 等仅服务面向客户收费的实体不纳入领域模型（产品不建设支付/套餐/账单）；UsageRecord、CostEstimate、Quota、Budget 保留，用于企业内部治理，不用于向企业收费。
+
 ### 关系骨架
 
 ```text
-Organization ──< User（经 Membership + Role）
+Organization ──< User（经 Membership / OrganizationMember + Role）
 Organization ──< Project
 Project ──< ProjectMember
 Project ── BrandGuideline
@@ -82,6 +90,8 @@ CopyVariant ──< CopyApproval
 Organization ──< Asset（AvatarAsset / VoiceAsset / BackgroundAsset /
                      AudioAsset / VideoSourceAsset /
                      SubtitleTemplate / CoverTemplate）
+AvatarCreationTask ──> AvatarAsset（创建完成后登记）
+AvatarCreationTask ── AuthorizationRecord（创建前授权校验）
 Project ──< VideoPlan ──< VideoPlanVersion
 VideoPlan ──< VideoPlanApproval
 VideoPlan ── ProductionPreflight
@@ -94,6 +104,9 @@ GenerationTask ──< Artifact ── VideoArtifact
 Artifact ──< QualityCheck
 Project ──< DeliveryPackage
 GenerationTask ──< UsageRecord / CostEstimate
+Organization ──< Quota / Budget
+Organization ──< LlmProviderConfig
+CopyGenerationService ──> LlmProviderConfig（凭证配置引用，不含明文 Key）
 Artifact ──< PublishingRecord ──< PerformanceMetric
 ```
 
@@ -162,6 +175,79 @@ cancelled
 
 ---
 
+## 二之一、组织与成员模型（字段规划，本轮不决定完整 RBAC）
+
+Organization（字段规划）：
+
+```text
+Organization
+- id
+- name
+- status
+- createdAt
+```
+
+OrganizationMember（字段规划，承载组织-成员-角色关系）：
+
+```text
+OrganizationMember
+- organizationId
+- userId
+- role
+- status
+```
+
+第一版单企业/单组织 MVP（D-014 / D-015）保留 Organization 边界，但不要求本轮实现完整 RBAC；角色与权限细化属于 ENTERPRISE-001（Phase 4）。
+
+## 二之二、LLM 凭证配置模型（D-019 / D-020，字段规划）
+
+LlmProviderConfig（字段规划）：
+
+```text
+LlmProviderConfig
+- organizationId
+- provider
+- baseUrl
+- model
+- credentialSource: platform | organization
+- encryptedSecretRef
+- status
+- createdBy
+- updatedBy
+- lastConnectionTestAt
+```
+
+要求：
+
+- `credentialSource` 为 `platform`（平台默认凭证）或 `organization`（企业自有 API Key，BYOK）；
+- **不保存明文 API Key**；**不返回明文 API Key**；
+- SecretStore 是基础设施实现，不是领域实体（具体 SecretStore 由 Q-021 决定）；
+- 任务只记录 credential configuration/version ID，不记录 Key；
+- 真实 Key 遵守 D-020 安全底线（见 [DECISION_LOG.md](DECISION_LOG.md)）。
+
+## 二之三、数字人创建任务模型（D-017 Phase 1B，字段规划）
+
+AvatarCreationTask（字段规划）：
+
+```text
+AvatarCreationTask
+- organizationId
+- avatarAssetId
+- provider
+- providerTaskId
+- sourceAssetId
+- authorizationRecordId
+- status
+- resultProviderAvatarId
+- error
+- createdAt
+- updatedAt
+```
+
+要求：创建前必须有有效授权（authorizationRecordId，D-011）；创建为异步 task，经 task status/callback + 轮询对账跟踪；完成后登记 AvatarAsset；可能产生 Provider 消耗，开发前须 owner 单独授权。
+
+---
+
 ## 三、VideoPlan 到 batch/task 的映射
 
 不得删除现有 batch、task、artifact 和 execution 能力。映射关系：
@@ -226,12 +312,15 @@ compileApprovedVideoPlansToBatch()
 
 ---
 
-## 六、用量模型
+## 六、用量模型（企业内部治理，D-016）
 
 - UsageRecord：每次生产动作的用量登记（任务数、Provider、能力类型）；
 - CostEstimate：生产前的预计 Provider 消耗与成本提示；
-- 面向 SaaS 用户的表达是**任务数、预计用量、套餐余量、Provider 成本提示**；
+- Quota / Budget：企业内部配额与预算限额；
+- 面向 SaaS 用户的表达是**任务数、预计用量、内部额度、Provider 成本提示**；
 - **内部 pointBudget 不作为用户术语**（技术实现细节留在执行层与诊断页面）。
+
+UsageRecord / CostEstimate / Quota / Budget 用于**企业内部治理**（用量、成本、限额、审计、异常消耗告警），**不用于向企业收费**；产品不建设支付/套餐/账单（D-016）。
 
 ---
 
