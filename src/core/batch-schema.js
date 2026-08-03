@@ -73,16 +73,77 @@ function detectVersion(batch, batchId) {
   });
 }
 
-// Step-wise migrations: each step receives a document AT version N and returns
-// the document at version N+1. The v0 → v1 step adds exactly one field —
-// schemaVersion — and changes nothing else: no business defaults, no cleanup,
-// no timestamp changes, unknown historical fields are preserved untouched.
-const MIGRATION_STEPS = {
-  [LEGACY_VERSION]: (document) => {
-    document.schemaVersion = CURRENT_BATCH_SCHEMA_VERSION;
-    return document;
+// Step-wise migration chain. Every step declares an explicit fromVersion →
+// toVersion, and each step's target version is HARD-CODED in the step itself:
+// the v0 → v1 step writes schemaVersion 1 forever, regardless of any future
+// CURRENT_BATCH_SCHEMA_VERSION change (later versions ADD steps; they never
+// rewrite the meaning of historical ones). Steps are pure: they do not mutate
+// their input and never return the input object. The chain is private to this
+// module — the only production entry point is migrateBatchDocument, and no
+// caller (including BatchStore) can inject or mutate migrations.
+const MIGRATION_STEPS = new Map([
+  [0, {
+    fromVersion: 0,
+    toVersion: 1,
+    migrate(document) {
+      // v0 → v1 adds exactly one field and nothing else: no business
+      // defaults, no cleanup, no timestamp changes.
+      return { ...document, schemaVersion: 1 };
+    }
+  }]
+]);
+
+/**
+ * Pure migration runner over a READ-ONLY step chain.
+ *
+ * Internal entry point: production code must use migrateBatchDocument (which
+ * binds the private chain); tests exercise the runner invariants through this
+ * function with synthetic read-only steps. BatchStore callers can never
+ * inject migrations.
+ *
+ * Fail-closed invariants — violations throw BATCH_SCHEMA_MIGRATION_INVALID
+ * (redacted: code/batchId/detectedVersion/currentVersion only):
+ * - for each version N from fromVersion to toVersion, a step must exist with
+ *   step.fromVersion === N and step.toVersion === N + 1 (no missing steps,
+ *   no version skipping);
+ * - step.migrate must return a plain object, distinct from its input, whose
+ *   schemaVersion equals step.toVersion;
+ * - after the loop, the result's schemaVersion must equal toVersion.
+ *
+ * @param {object} document - Deep copy owned by the caller (not mutated).
+ * @param {Map<number, {fromVersion, toVersion, migrate}>} steps - Read-only.
+ * @param {{ batchId?: string, fromVersion: number, toVersion: number }} context
+ * @returns {object} The migrated document at `toVersion`.
+ */
+export function applyMigrationChain(document, steps, { batchId, fromVersion, toVersion }) {
+  const invalid = (detectedVersion, message) =>
+    batchSchemaError("BATCH_SCHEMA_MIGRATION_INVALID", { batchId, detectedVersion, message });
+  let version = fromVersion;
+  let current = document;
+  while (version < toVersion) {
+    const step = steps instanceof Map ? steps.get(version) : steps[version];
+    if (!step || step.fromVersion !== version || step.toVersion !== version + 1 || typeof step.migrate !== "function") {
+      throw invalid(version, `No valid migration step from batch schema version ${version} to ${version + 1}`);
+    }
+    const input = current;
+    const result = step.migrate(input);
+    if (result === input) {
+      throw invalid(version, `Migration step from batch schema version ${version} must not return its input object`);
+    }
+    if (result === null || typeof result !== "object" || Array.isArray(result)) {
+      throw invalid(version, `Migration step from batch schema version ${version} must return a plain object`);
+    }
+    if (result.schemaVersion !== step.toVersion) {
+      throw invalid(version, `Migration step from batch schema version ${version} produced the wrong schema version`);
+    }
+    current = result;
+    version = step.toVersion;
   }
-};
+  if (current.schemaVersion !== toVersion) {
+    throw invalid(version, "Migration chain did not reach the target batch schema version");
+  }
+  return current;
+}
 
 /**
  * Detect the schema version of a parsed batch document and migrate it to the
@@ -92,9 +153,9 @@ const MIGRATION_STEPS = {
  * - Pure: performs no file I/O and never mutates the input object.
  * - Idempotent: a current-version document is returned unchanged
  *   (migrated=false) and is never rewritten by callers that honor the flag.
- * - Step-wise: versions are migrated one step at a time; a version with no
- *   migration path is rejected, never blindly overwritten with the current
- *   version.
+ * - Step-wise: versions are migrated one step at a time through
+ *   applyMigrationChain; missing or skipping steps fail closed, never blindly
+ *   overwritten with the current version.
  * - Fail-closed: invalid or future versions throw instead of degrading.
  *
  * @param {object} batch - Parsed batch.json document.
@@ -108,19 +169,10 @@ export function migrateBatchDocument(batch, { batchId } = {}) {
   if (fromVersion === CURRENT_BATCH_SCHEMA_VERSION) {
     return { batch, migrated: false, fromVersion, toVersion: CURRENT_BATCH_SCHEMA_VERSION };
   }
-  let document = structuredClone(batch);
-  let version = fromVersion;
-  while (version < CURRENT_BATCH_SCHEMA_VERSION) {
-    const step = MIGRATION_STEPS[version];
-    if (typeof step !== "function") {
-      throw batchSchemaError("BATCH_SCHEMA_UNSUPPORTED", {
-        batchId,
-        detectedVersion: version,
-        message: `No migration path from batch schema version ${version}`
-      });
-    }
-    document = step(document);
-    version += 1;
-  }
-  return { batch: document, migrated: true, fromVersion, toVersion: CURRENT_BATCH_SCHEMA_VERSION };
+  const migrated = applyMigrationChain(structuredClone(batch), MIGRATION_STEPS, {
+    batchId,
+    fromVersion,
+    toVersion: CURRENT_BATCH_SCHEMA_VERSION
+  });
+  return { batch: migrated, migrated: true, fromVersion, toVersion: CURRENT_BATCH_SCHEMA_VERSION };
 }

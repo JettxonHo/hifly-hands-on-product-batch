@@ -271,22 +271,33 @@ export function createBatchStore(root, { delay, renameImpl, snapshotMaxEntries, 
   }
 
   // Startup migration: bring every existing batch to the current schema BEFORE
-  // the app starts serving requests. Each batch migrates independently and
-  // atomically (per-batch, no global transaction): a failing batch fails
-  // startup, already-migrated batches are not rolled back. Idempotent — a
-  // second run over current-schema batches performs no rewrites. Read-time
-  // migration in read() remains the safety net for batches appearing later.
+  // the app starts serving requests. Each valid batch directory gets its own
+  // per-batch migration promise: DIFFERENT batches migrate concurrently (no
+  // global lock), while operations on the SAME batch stay serialized through
+  // its queue. Promise.allSettled waits for EVERY task — no fire-and-forget:
+  // initialize (and therefore buildApp) cannot settle while a migration is
+  // still running. Each batch migrates independently and atomically (no
+  // global transaction): a failing batch fails startup with the first failure
+  // in stable sorted order, and already-migrated batches are not rolled back.
+  // Idempotent — a second run over current-schema batches performs no
+  // rewrites. Read-time migration in read() remains the safety net for
+  // batches appearing later.
   async function initialize() {
     await mkdir(storeRoot, { recursive: true });
     const entries = await readdir(storeRoot, { withFileTypes: true });
-    for (const entry of entries.filter((candidate) => candidate.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (!BATCH_ID_PATTERN.test(entry.name)) continue;
-      try {
-        await enqueueBatchOperation(entry.name, () => readAndMigrate(entry.name));
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
-    }
+    const candidates = entries
+      .filter((candidate) => candidate.isDirectory())
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .filter((entry) => BATCH_ID_PATTERN.test(entry.name));
+    const results = await Promise.allSettled(candidates.map((entry) =>
+      enqueueBatchOperation(entry.name, () => readAndMigrate(entry.name))
+        .catch((error) => {
+          if (error?.code === "ENOENT") return; // tolerate a directory vanishing mid-startup
+          throw error;
+        })
+    ));
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
   }
 
   async function list() {

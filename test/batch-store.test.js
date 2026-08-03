@@ -761,29 +761,105 @@ test("concurrent migration and update keep both the migration and the updater ch
   }
 });
 
-test("migrations of different batches hold no global lock", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-schema-parallel-"));
+test("initialize migrates different batches concurrently without a global lock", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-schema-init-parallel-"));
   try {
     await seedLegacyBatch(root, legacyBatchDoc({ batch_id: "batch-a" }));
     await seedLegacyBatch(root, legacyBatchDoc({ batch_id: "batch-b" }));
     const realReadFile = (await import("node:fs/promises")).readFile;
+    const entered = { "batch-a": false, "batch-b": false };
+    const gates = {};
+    const readFileImpl = async (file, enc) => {
+      for (const batchId of ["batch-a", "batch-b"]) {
+        if (file.endsWith(path.join(batchId, "batch.json"))) {
+          entered[batchId] = true;
+          await new Promise((resolve) => {
+            gates[batchId] = resolve;
+          });
+        }
+      }
+      return realReadFile(file, enc);
+    };
+    let renames = 0;
+    const renameImpl = async (...args) => {
+      renames += 1;
+      return rename(...args);
+    };
+    const store = createBatchStore(root, { readFileImpl, renameImpl, delay: () => Promise.resolve() });
+
+    const initializing = store.initialize();
+    // BOTH batches must enter their migration flow while neither gate is
+    // released — a serial per-batch startup loop would reach batch-a only.
+    while (!(entered["batch-a"] && entered["batch-b"])) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    let settled = false;
+    initializing.then(() => {
+      settled = true;
+    }, () => {
+      settled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, "initialize must not settle while migrations are gated");
+
+    gates["batch-a"]();
+    gates["batch-b"]();
+    await initializing;
+    assert.equal(settled, true);
+    assert.equal((await readDiskBatch(root, "batch-a")).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal((await readDiskBatch(root, "batch-b")).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal(renames, 2, "exactly one migration rename per batch — no duplicate commits");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("initialize waits for every batch to settle before rejecting and keeps successful migrations", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-store-schema-init-fail-"));
+  try {
+    await seedLegacyBatch(root, legacyBatchDoc({ batch_id: "batch-a" }));
+    // batch-b carries an unsupported future schema → stable schema error.
+    await seedLegacyBatch(root, legacyBatchDoc({ batch_id: "batch-b", schemaVersion: 2 }));
+    const realReadFile = (await import("node:fs/promises")).readFile;
+    let enteredA = false;
     let releaseA;
     const readFileImpl = async (file, enc) => {
       if (file.endsWith(path.join("batch-a", "batch.json"))) {
+        enteredA = true;
         await new Promise((resolve) => {
           releaseA = resolve;
         });
       }
       return realReadFile(file, enc);
     };
-    const store = createBatchStore(root, { readFileImpl, delay: () => Promise.resolve() });
+    let renames = 0;
+    const renameImpl = async (...args) => {
+      renames += 1;
+      return rename(...args);
+    };
+    const store = createBatchStore(root, { readFileImpl, renameImpl, delay: () => Promise.resolve() });
 
-    const migrationA = store.read("batch-a"); // held open
-    const b = await store.read("batch-b"); // completes while batch-a is held
-    assert.equal(b.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION, "batch-b migrated without waiting on batch-a");
+    const initializing = store.initialize();
+    while (!enteredA) await new Promise((resolve) => setImmediate(resolve));
+    // batch-b has already failed its schema check, but initialize must NOT
+    // reject while batch-a's migration is still running (no abandoned tasks).
+    let failure = null;
+    const outcome = initializing.then(() => null, (error) => {
+      failure = error;
+      return error;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(failure, null, "initialize must wait for the held batch before rejecting");
+
     releaseA();
-    const a = await migrationA;
-    assert.equal(a.schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    const error = await outcome;
+    assert.equal(error.code, "BATCH_SCHEMA_UNSUPPORTED", "stable failure surfaced from batch-b");
+    assert.equal(error.batchId, "batch-b");
+    // batch-a finished its migration (nothing abandoned in the background)
+    // and its successful migration was not rolled back.
+    assert.equal((await readDiskBatch(root, "batch-a")).schemaVersion, CURRENT_BATCH_SCHEMA_VERSION);
+    assert.equal(renames, 1, "batch-a migration committed; batch-b never wrote");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
