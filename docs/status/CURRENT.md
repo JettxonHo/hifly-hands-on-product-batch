@@ -6,11 +6,11 @@
 
 ## Open PR
 
-- **CORE-001 / Issue #20**：batch schema version 与 migrations（分支 `feat/core-001-batch-schema-migrations`），**待审查，未合并**。
+- **PR #41 / CORE-001 / Issue #20**：batch schema version 与 migrations（分支 `feat/core-001-batch-schema-migrations`），**待审查，未合并**。
 
 ## 当前工作分支
 
-`feat/core-001-batch-schema-migrations`（基于 `3752755`，独立 worktree，等待审查）
+`feat/core-001-batch-schema-migrations`（PR #41，基于 `3752755`，独立 worktree，等待审查）
 
 ## 当前生产路径
 
@@ -38,7 +38,7 @@
 
 ## 已知技术债
 
-- **CORE-001（进行中，PR 待审查）**：batch schema version 与 migrations（Issue #20）。
+- **CORE-001（进行中，PR #41 待审查）**：batch schema version 与 migrations（Issue #20）。
   - **schema 契约**：`batch.json` 新增 `schemaVersion` 字段，当前版本 `1`。`schemaVersion` **完全缺失** = internal legacy v0，迁移 v0→v1 **仅新增** `schemaVersion: 1`（业务字段、`created_at`/`updated_at`、未知历史字段全部深度保留，不补默认值、不清理、不添加 migrated_at/migration_history）；**显式** `schemaVersion: 0`/`"1"`/`1.5`/负数/`null`/布尔/对象/数组 拒绝 `BATCH_SCHEMA_INVALID`；future（`>1`）拒绝 `BATCH_SCHEMA_UNSUPPORTED`（旧代码不静默降级未来版本）；updater 删除/修改版本拒绝 `BATCH_SCHEMA_MUTATION_NOT_ALLOWED`。错误仅含 code/batchId/detectedVersion/currentVersion（脱敏，不含 batch 内容与路径），API 层映射 500 INTERNAL_ERROR（不加入 CLIENT_ERROR_CODES）。
   - **纯迁移模块**：`src/core/batch-schema.js` `migrateBatchDocument()`——不读写文件、不修改输入对象、幂等、按版本逐步迁移、未知版本绝不直接覆盖成当前版本；全模块只有一套版本检测与迁移语义。
   - **BatchStore 统一边界**：`create()` 强制持久化 `schemaVersion: 1`（调用方传入其他值拒绝）；`read()`/`readCommitted()` 冷读/`update()`/`list()` 读取时自动迁移 legacy 并原子落盘（rename 成功后才更新 committed snapshot；rename 失败原文件不变、snapshot 不回填、temp 清理、抛原错）；任何读取边界都不向调用方返回 legacy batch。
