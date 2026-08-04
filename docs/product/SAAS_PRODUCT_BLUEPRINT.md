@@ -452,18 +452,35 @@ D-021 Confirmed Product Facts
 文案工作流：
 
 ```text
-草稿
+CopyVariant 草稿
 → 确定性规则质检 + LLM 语义质检
 → invalid / blocked / needs_review / passed
-→ 修复、补充事实或 AI 改写（创建新版本并完整重检）
-→ passed 提交人工审核
-→ approved / changes_requested
-→ VideoPlan（仅当前有效 approved 才可进入）
+
+invalid / blocked
+→ 不可提交批准
+→ 修复文案、补充并确认商品事实或修正规则输入
+→ 创建新版本或产生新质检记录
+→ 完整重新质检
+
+needs_review
+→ 提交人工审核
+→ 审核人逐项查看 finding
+→ 接受允许人工判断的提醒 / 要求修改 / 退回补充事实
+→ approved 或 changes_requested
+
+passed
+→ 直接提交人工批准
+→ approved 或 changes_requested
+
+只有当前有效 approved
+→ 才允许进入 VideoPlan
 ```
+
+其中：`needs_review` 可以进入人工审核，审核人只能逐项处理 finding，不能「忽略全部」；一旦修改文案，必须创建新版本并完整重新质检；实际属于未确认事实的问题不能通过人工接受来放行；`passed ≠ approved`。
 
 功能规划：生成多个版本、重新生成全文、只重写开头、只修改某一句、缩短或扩写、改成更口语化、改成指定平台风格、版本对比、固定当前版本、批量发起质检、批量提交 `passed` 文案审核、安全批量批准。
 
-**MVP 文案质检与批准门禁（D-025）**：质检采用分层规则体系而非可抵消的百分比权重，权威顺序为 `已确认商品事实 → 平台强制规则 → 企业/品牌规则 → LLM 语义质检 → 人工业务确认`；平台强制规则不可被企业、品牌、LLM、人工或管理员覆盖。确定性规则引擎与 LLM 语义审查是两个不同职责：确定性规则决定最终状态，LLM 只提出 finding 与 severity suggestion，不放行、不写入商品事实。自动质检结果为四类：
+**MVP 文案质检与批准门禁（D-025）**：质检采用分层规则体系而非可抵消的百分比权重，权威顺序为 `已确认商品事实 → 平台强制规则 → 企业/品牌规则 → LLM 语义质检 → 人工业务确认`；平台强制规则不可被企业、品牌、LLM、人工或管理员覆盖。确定性规则引擎和 LLM 语义审查分别产生 finding；**Quality Result Aggregator 根据正式平台规则、企业/品牌规则、商品事实证据和品类规则映射 severity，并聚合决定最终质检状态**；LLM 只提出语义 finding 与 severity suggestion，不拥有直接放行权，不写入商品事实，也不能覆盖正式规则。自动质检结果为四类：
 
 ```text
 invalid        质检过程或输入版本无效，未得到可信正式结果

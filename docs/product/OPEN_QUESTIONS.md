@@ -60,7 +60,7 @@
 
 - 采用分层规则体系而非可抵消的百分比权重，权威顺序为：`已确认商品事实 → 平台强制规则 → 企业/品牌规则 → LLM 语义质检 → 人工业务确认`；平台强制规则不可被企业、品牌、LLM、人工或管理员覆盖。
 - 自动质检结果为四类：`invalid` / `blocked` / `needs_review` / `passed`；硬阻断不可被其他维度得分抵消。
-- 确定性规则引擎与 LLM 语义审查是两个不同职责：确定性规则决定最终状态，LLM 只提出 finding 与 severity suggestion，不放行、不写入商品事实。
+- 确定性规则引擎和 LLM 语义审查分别产生 finding；Quality Result Aggregator 根据正式平台规则、企业/品牌规则、商品事实证据和品类规则映射 severity，并聚合决定最终质检状态；LLM 只提出语义 finding 与 severity suggestion，不拥有直接放行权，不写入商品事实，也不能覆盖正式规则。
 - 人工审核状态独立于自动质检状态（`not_submitted` / `pending` / `approved` / `changes_requested` / `revoked`），`passed ≠ approved`，`invalid` 和 `blocked` 不能被人工直接覆盖。
 - MVP 区分文案编辑、文案审核、商品事实管理、品牌规则管理四类业务能力；允许本人审核但必须记录 `self_review`；强制双人审核为后续组织策略，不是 MVP 门禁。
 - 支持版本化品类规则档案，但不建设庞大固定的电商类目树，品类不是文案生成的新必填条件。

@@ -289,29 +289,30 @@ D-021 Confirmed Product Facts
 → 构造 LLM 请求
 ```
 
-模型只能基于已确认商品事实进行营销表达，不得自行编造事实性信息（功效、参数、成分、认证、销量、排名、价格、优惠、库存、活动期限、竞品结论或医疗或健康承诺等，完整清单见 [DECISION_LOG.md](DECISION_LOG.md) D-021）。AI 输出均为草稿，必须经质检与人工确认后才能被 VideoPlan 引用。MVP 默认 LLM Provider 与模型已由 D-023 决定：DeepSeek 官方开放平台，默认模型 `deepseek-v4-flash`，显式非思考模式；Q-019 已由 D-023 解决并关闭。
+模型只能基于已确认商品事实进行营销表达，不得自行编造事实性信息（功效、参数、成分、认证、销量、排名、价格、优惠、库存、活动期限、竞品结论、医疗或健康承诺等，完整清单见 [DECISION_LOG.md](DECISION_LOG.md) D-021）。AI 输出均为草稿，必须经质检与人工确认后才能被 VideoPlan 引用。MVP 默认 LLM Provider 与模型已由 D-023 决定：DeepSeek 官方开放平台，默认模型 `deepseek-v4-flash`，显式非思考模式；Q-019 已由 D-023 解决并关闭。
 
 ### 文案质检架构（D-025，本轮不实现服务或 API 调用）
 
-文案质检属于云端 SaaS 业务能力，与视频 Provider、Hifly Token 和 Local Agent 分离。`CopyQualityService` 由两个不同职责的子组件构成：
+文案质检属于云端 SaaS 业务能力，与视频 Provider、Hifly Token 和 Local Agent 分离。`CopyQualityService` 由三个不同职责的子组件构成：
 
 ```text
 CopyQualityService
-├── Deterministic Rule Engine（确定性规则，决定最终状态）
-└── LLM Semantic Reviewer（语义审查，只提 finding 与 severity suggestion）
+├── Deterministic Rule Engine（确定性规则，产生确定性 finding）
+├── LLM Semantic Reviewer（语义审查，只提 finding 与 severity suggestion）
+└── Quality Result Aggregator（根据正式规则映射 severity 并聚合决定最终质检状态）
         ↓
-   LLM Provider Adapter（复用 D-023 的文案 LLM Provider 通道）
+   LLM Provider Adapter（复用 D-023 的文案 LLM Provider 通道，仅服务于 LLM Semantic Reviewer）
 ```
 
-整体链路：
+确定性规则引擎和 LLM 语义审查分别产生 finding 后交给 Quality Result Aggregator；两个检查器不要求必须串行执行。整体链路：
 
 ```text
-CopyVariant Draft
-+ Confirmed Product Facts（D-021）
-+ ContentBrief（D-022，可选）
+Confirmed Product Facts
++ CopyVariant
++ ContentBrief
 + Platform Rules
-+ Brand / Enterprise Rules
-+ Category Profile（版本化品类档案，可选，未配置用通用规则）
++ Brand Rules
++ Category Profile
 → Deterministic Rule Engine
 → LLM Semantic Reviewer
 → Quality Result Aggregator
@@ -322,8 +323,8 @@ CopyVariant Draft
 
 架构边界（D-025）：
 
-- **Quality Result Aggregator 根据正式规则决定最终状态**：`必要质检步骤未完成 → invalid`；`存在任一 hard block → blocked`；`存在任一未处理 review finding → needs_review`；`否则 → passed`；
-- **LLM 只提出 finding 与 severity suggestion，不放行**；服务端正式规则决定最终 severity；明确矛盾或无证据高风险事实进入 `blocked`，无法确定的语义风险进入 `needs_review`；
+- **Quality Result Aggregator 根据正式平台规则、企业/品牌规则、商品事实证据和品类规则映射 severity，并聚合决定最终质检状态**：`必要质检步骤未完成 → invalid`；`存在任一 hard block → blocked`；`存在任一未处理 review finding → needs_review`；`否则 → passed`；
+- **LLM 只提出语义 finding 与 severity suggestion，不拥有直接放行权**；不写入商品事实，也不能覆盖正式规则；明确矛盾或无证据高风险事实进入 `blocked`，无法确定的语义风险进入 `needs_review`；
 - **LLM 不写入商品事实**；`confidence` 只用于排序/排查，不能用于忽略事实风险；
 - LLM 质检技术失败（空内容、非法 JSON、截断、Schema 不符、必要维度缺失、Provider 超时/不可用）**最多受控重试一次**；重试只处理技术或输出结构失败，不因首次发现内容问题而寻求更宽松结果；重试后仍失败则 `quality result = invalid`；
 - **不保存 chain-of-thought**（与 D-023 一致），只保留简洁、可审计的理由和证据；
