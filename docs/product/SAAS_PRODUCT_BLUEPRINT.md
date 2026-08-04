@@ -291,7 +291,7 @@ Provider Adapter
 
 ### 原则 10：文案是 SaaS 自有能力，LLM 凭证两级模型
 
-文案生成、版本管理、品牌规则、质检和审核属于 SaaS 自有业务能力，不得永久依赖飞影网页内置文案功能；架构采用 CopyGenerationService → LLM Provider Adapter（预留平台默认模型、企业自有 API Key、可替换 Provider、可配置 base URL 与 model）。普通运营用户只看到「生成文案」和业务配置。MVP 使用平台默认 LLM 凭证，普通用户零配置；后续企业 BYOK 是组织级配置，进入管理员高级设置；真实 Key 遵守 D-020 安全底线（不进入前端/仓库/Markdown/日志/错误信息/证据截图，页面只显示掩码，使用加密 Secret 引用）。正式决策记录为 [DECISION_LOG.md](DECISION_LOG.md) 的 D-019 / D-020。
+文案生成、版本管理、品牌规则、质检和审核属于 SaaS 自有业务能力，不得永久依赖飞影网页内置文案功能；架构采用 CopyGenerationService → LLM Provider Adapter（预留平台默认模型、企业自有 API Key、可替换 Provider、可配置 base URL 与 model）。普通运营用户只看到「生成文案」和业务配置。MVP 使用平台默认 LLM 凭证，普通用户零配置；MVP 平台默认 Provider 与默认模型已由 D-023 确定（DeepSeek 官方开放平台 / `deepseek-v4-flash`，显式非思考模式，JSON Output 与服务端校验）；后续企业 BYOK 是组织级配置，进入管理员高级设置；真实 Key 遵守 D-020 安全底线（不进入前端/仓库/Markdown/日志/错误信息/证据截图，页面只显示掩码，使用加密 Secret 引用）。正式决策记录为 [DECISION_LOG.md](DECISION_LOG.md) 的 D-019 / D-020 / D-023。
 
 ---
 
@@ -397,6 +397,37 @@ CopyVariant → 质检 → 人工审核 → Approved CopyVariant → VideoPlan
 - 补充要求与自定义收尾中的事实性内容（价格、优惠、库存、活动期限、试用装、赠品、销量、排名、功效、参数、认证、医疗或健康结论等）仍必须来自用户确认的商品事实，不能绕过 D-021 事实安全门禁；
 - ContentBrief 为空或完全缺失时仍可生成文案，系统使用默认表达行为；
 - 全部生成内容继续遵守 D-021（AI 文案为草稿，经质检与人工确认后才能进入 VideoPlan）。
+
+**MVP 平台默认 LLM Provider（D-023）**：MVP 使用 DeepSeek 官方开放平台作为平台默认 LLM Provider，官方 API Key 由平台服务端管理，企业用户零配置。文案生成能力链路：
+
+```text
+D-021 Confirmed Product Facts
++ D-022 Optional ContentBrief
+→ Platform CopyGenerationService
+→ DeepSeek Official Provider Adapter
+→ deepseek-v4-flash / non-thinking
+→ JSON Output
+→ Server Validation
+→ CopyVariant Draft
+→ Quality Gate
+→ Human Approval
+→ VideoPlan
+```
+
+明确边界（D-023）：
+
+- 企业用户无需输入 LLM API Key；
+- 不提供 Provider 选择器；
+- 不提供模型选择器；
+- 不提供 MVP BYOK（企业 BYOK 为后续版本能力，见 Q-020）；
+- 不使用第三方中转或聚合平台；
+- DeepSeek 输出不是最终文案（只是 CopyVariant 草稿）；
+- 空内容、非法 JSON、截断或 Schema 不符的输出不保存；最多一次同模型受控重试，仍失败则任务失败、由用户手动重试；
+- 不自动切换模型或 Provider；
+- 商品图片不发送给 DeepSeek（生成请求只包含已确认文字事实、规范化 ContentBrief、系统指令与输出结构说明）；
+- D-021 和 D-022 继续有效。
+
+本 Decision 不代表 DeepSeek 已经接入、页面已经实现、服务已经部署、API 已经测试、V4-Pro 已启用或多 Provider fallback 已实现；也未获得 DeepSeek SLA 或合规保证。
 
 每件商品不能只有一个 selling_points 和单条脚本，应建模为：
 

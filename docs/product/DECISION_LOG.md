@@ -260,6 +260,7 @@
 - **影响**：DOMAIN_MODEL 规划 LlmProviderConfig；INFORMATION_ARCHITECTURE 设置区规划「AI 模型」（平台默认模型/企业自有 API Key）；PROVIDER_AND_AGENT_ARCHITECTURE 区分 LLM Key 与 Hifly Token 两类凭证；OPEN_QUESTIONS 新增 Q-019～Q-022。
 - **被否决方案**：MVP 即要求每个用户配置自己的 API Key；把领域模型绑定到 owner 私人 Key；本轮实现 Key 存储。
 - **可重新评估条件**：Q-019/Q-020 决定后细化 Provider 与 BYOK 实现；「真实 Key 安全底线 + 平台默认凭证/企业 BYOK 两级模型」不重新开放。
+- **后续决策**：具体默认 Provider、模型和运行契约已由 D-023 确定。
 
 ## D-021 MVP 商品事实与 AI 文案生成门禁
 
@@ -308,6 +309,7 @@
   - 法务和业务确认了特定类目的自动事实抽取规则；
   - ContentBrief 和企业品牌规则已经形成独立正式决策。
 - **后续决策**：ContentBrief 的 MVP 必填规则与默认行为已由 D-022 确定。
+- **后续决策**：文案生成使用的 MVP 默认 Provider 已由 D-023 确定；D-021 商品事实和审核门禁继续有效。
 
 ## D-022 MVP ContentBrief 可选输入与默认生成行为
 
@@ -362,3 +364,91 @@
   - 企业品牌模板需要固定表达风格和收尾策略；
   - 法务确认特定事实可以从企业商品主数据自动同步；
   - MVP 进入多平台运营和投放分析阶段。
+- **后续决策**：ContentBrief 的默认行为由 D-022 管理；其 LLM 执行 Provider 由 D-023 确定。
+
+## D-023 MVP DeepSeek 官方 LLM Provider 与生成运行契约
+
+- **日期**：2026-08-04
+- **背景（Context）**：D-020 已决定 MVP 使用平台默认 LLM 凭证、企业零配置，但尚未选择具体 Provider 和模型（Q-019 保持开放）。D-021 已确定商品事实与文案安全门禁；D-022 已确定 ContentBrief 的可选输入和默认行为。MVP 需要一个无需企业配置、成本和延迟可控、支持结构化 JSON 输出的默认文案生成模型。需要明确官方 API 与第三方中转之间的数据边界；需要避免业务领域直接绑定某个 Provider；需要处理 JSON Output 偶发空内容和非法结构。Q-019 因此需要由本 Decision 正式解决。
+
+  DeepSeek 官方文档只读核验（2026-08-04，未执行任何真实 API 调用）：官方 OpenAI 兼容 Base URL 为 `https://api.deepseek.com`；当前官方模型为 `deepseek-v4-flash` 与 `deepseek-v4-pro`，均支持非思考与思考模式（思考模式默认开启）并支持 JSON Output；旧模型名 `deepseek-chat` / `deepseek-reasoner` 已于 2026-07-24 停止使用；显式关闭思考模式为 `thinking.type = disabled`；JSON Output 要求 `response_format = {"type": "json_object"}`、prompt 中出现 json 字样、提供期望 JSON 结构示例并合理设置 `max_tokens`，且官方提示 JSON Output 偶尔可能返回空 content；官方错误文档列出 429 / 500 / 503。本轮不固化具体价格。
+- **决策**：
+  1. **MVP 使用 DeepSeek 官方开放平台作为默认 LLM Provider。**
+  2. **API Key 必须由 DeepSeek 官方开放平台直接签发**；不使用第三方 API 中转平台、第三方模型聚合平台、第三方兼容网关，或冒充 DeepSeek 官方模型的代理服务。
+  3. **平台使用平台管理的服务端凭证**；MVP 不要求企业用户自行配置 API Key；企业 BYOK 不进入 MVP，保留为后续版本能力（D-020 / Q-020）。
+  4. **使用 DeepSeek 官方 OpenAI 兼容接口。**
+  5. **Base URL 为 `https://api.deepseek.com`**；不使用第三方 Base URL、临时实验地址、已过期版本地址；本轮不以 Anthropic 兼容接口作为默认方案。本 Decision 不实现真实请求。
+  6. **MVP 默认模型为 `deepseek-v4-flash`。**
+  7. **不使用已停止的旧别名 `deepseek-chat` / `deepseek-reasoner`。**
+  8. **`deepseek-v4-pro` 不作为 MVP 默认模型**，不自动 fallback、不自动升级；仅保留为未来质量评测候选、复杂改写候选、人工评估候选与后续可配置升级方案；MVP 不提供 V4-Flash / V4-Pro 用户界面切换器。
+  9. **MVP 的批量商品口播文案生成显式使用非思考模式**，逻辑配置表达为 `thinking.type = disabled`；不得依赖 Provider 当前或未来的默认值。原因：当前任务是约束明确的商品文案生成；降低不必要的延迟；降低不必要的输出消耗；避免处理 reasoning_content；提高批量生成行为的一致性。不得声称思考模式永远没有价值；复杂任务是否采用思考模式留待后续质量评测。
+  10. **架构隔离**：业务领域不得直接依赖 DeepSeek SDK、DeepSeek HTTP 请求结构、`deepseek-v4-flash` 字符串、reasoning_content 或 DeepSeek 专属错误格式；CopyGenerationService 只能通过 LLM Provider Adapter 调用 DeepSeek。调用链保持为：
+
+      ```text
+      D-021 Confirmed Product Facts
+      + D-022 Optional ContentBrief
+      → CopyGenerationPreflight
+      → ContentBrief Normalization
+      → CopyGenerationService
+      → LLM Provider Adapter
+      → DeepSeek Official API
+      → CopyVariant Draft
+      → Quality Gate
+      → Human Approval
+      → VideoPlan
+      ```
+
+      只有 LLM Provider Adapter 可以了解 DeepSeek Base URL、DeepSeek 模型名、thinking 参数、response_format、Provider 响应结构和 Provider 错误映射。Provider、Base URL、模型名和思考模式必须通过服务端配置管理；本 Decision 不固定具体环境变量名称。
+  11. **Provider 配置和 Secret 只存在于服务端**：DeepSeek API Key 只能存在于服务端环境变量，或后续云基础设施决定（Q-021）采用的 Secret 管理服务。API Key 不得提交到 Git、写入 Markdown、写入示例真实值、发送到浏览器、存入 Product / Project / CopyVariant 等业务表、返回给客户端、出现在错误信息、日志、分析事件、截图、PR body、测试 fixture 或生成文案结果中。不得要求 owner 在聊天、Issue、PR 或终端输出中粘贴真实 Key。
+  12. **文案生成使用 DeepSeek JSON Output 返回结构化结果**：设置 `response_format = {"type": "json_object"}`；在 prompt 中明确出现 json 字样；提供目标 JSON 结构示例；合理设置 `max_tokens` 以降低输出截断风险。
+  13. **Provider 负责输出 JSON 对象，服务端负责业务校验**：DeepSeek 不原生执行业务 JSON Schema 校验；SaaS 服务端必须负责 JSON 解析、必需字段检查、字段类型检查、业务 Schema 校验、文案内容完整性检查、D-021 商品事实安全检查与 D-022 ContentBrief 约束检查；只有通过服务端校验的内容才能保存为 CopyVariant 草稿。
+  14. **受控重试**：content 为空、JSON 无法解析、JSON 明显被截断或返回结构不满足服务端业务 Schema 时，MVP 允许使用同一个官方 Provider、同一个默认模型执行**最多一次**受控重试（首次请求 → 输出校验失败 → 最多一次同模型受控重试 → 再次失败则任务失败）。不得无限重试、静默循环、自动切换到 V4-Pro、自动切换其他 Provider、将不完整 JSON 保存为 CopyVariant、将部分文案当作成功结果，或因重试绕过事实安全检查。本 Decision 不固定完整 HTTP 错误重试矩阵、429/500/503 的具体退避时长、timeout 秒数、queue 参数或 circuit breaker 参数；这些属于后续实现规格。
+  15. **重试仍失败时生成任务标记失败**：不创建有效 CopyVariant；向用户显示可理解的失败状态；由用户手动重新发起生成。
+  16. **MVP 不自动切换模型或 Provider**：Flash → Pro、DeepSeek → 其他 Provider、非思考 → 思考、官方 API → 第三方中转，都不允许自动发生。原因：避免不可预测的成本变化；避免文案风格和质量突然变化；避免数据边界发生隐式变化；保持生成结果可追踪。未来如需多 Provider 容灾，必须形成新的 Owner Decision。
+  17. **数据边界**：文案生成请求只能包含 D-021 已确认的文字商品事实、D-022 规范化后的可选 ContentBrief、生成任务需要的系统指令和业务输出结构说明。不得向 DeepSeek 发送 API Key 之外的其他 Secret、用户本地绝对路径、飞影 Cookie、Hifly Token、浏览器 Session、未确认的图片识别候选或未经确认的商品事实。商品图片虽然是 D-021 的最低商品输入之一，但本 Decision **不授权**将商品图片二进制、图片 URL 或图片识别猜测发送给 DeepSeek；商品图片仍主要用于后续数字人手持商品视频生产；未来如需视觉模型读取商品图片，必须形成新的能力与数据边界决定。本 Decision 只确认直接调用 DeepSeek 官方 API，不声称已确认数据驻留地区、数据保留期限、合规认证、SLA、企业专属隔离或任何官方文档未明确支持的隐私保证。
+  18. **DeepSeek 输出只能成为 CopyVariant 草稿**，不得直接成为 approved 文案。
+  19. **D-021 和 D-022 的所有事实、安全、质检和人工确认规则继续适用**：所有 DeepSeek 输出仍必须只基于已确认事实、作为 CopyVariant 草稿、经过质检、经过人工确认；只有 approved CopyVariant 才能进入 VideoPlan。D-023 不得削弱或覆盖 D-020、D-021、D-022。
+  20. **Q-019 由 D-023 正式解决并关闭。**
+- **影响（Consequences）**：
+  - MVP 的文案生成 Provider、默认模型和运行模式已经确定；
+  - 企业用户无需配置 LLM Key；
+  - SaaS 平台承担 DeepSeek 凭证和调用成本管理；
+  - Provider 依赖被限制在 LLM Provider Adapter；业务领域保持 Provider-neutral；
+  - 前端不显示 API Key；前端不提供 Provider 或模型选择器；
+  - DeepSeek 返回结果不能直接成为 approved 文案；JSON Output 后仍必须执行服务端校验；
+  - 输出形态失败最多一次同模型受控重试；重试仍失败则任务失败、不保存不完整 CopyVariant、由用户手动重试；
+  - 不存在自动 V4-Pro fallback；不存在自动 Provider fallback；不存在第三方中转数据边界；
+  - API Key 只存在于服务端，不进入 Git、Markdown、浏览器、业务表、日志、错误信息、分析事件、截图、PR body、测试 fixture 或生成文案结果；
+  - Q-019 从 Phase 0 剩余门禁中移除并关闭；Q-004 继续保持 OPEN；
+  - 本 Decision 不代表 DeepSeek 已经完成代码接入；
+  - 本 Decision 不定义 timeout、并发、限流和完整错误重试策略；
+  - 本 Decision 不确定腾讯云的具体 Secret 产品；Q-021 仍负责云基础设施选择；
+  - Phase 0 仍未全部完成。
+- **被否决方案**：
+  - 使用第三方 DeepSeek API 中转 Key；
+  - 使用模型聚合平台作为默认 Provider；
+  - 使用 `deepseek-chat` 或 `deepseek-reasoner` 旧别名；
+  - 默认使用 `deepseek-v4-pro`；
+  - 依赖思考模式默认值而不显式关闭；
+  - 默认启用思考模式生成批量文案；
+  - 业务代码直接调用 DeepSeek SDK；
+  - 将 API Key 放入浏览器；
+  - 让企业用户在 MVP 自带 Key；
+  - 非法 JSON 仍保存为文案；
+  - 无限自动重试；
+  - 自动从 Flash 切换到 Pro；
+  - 自动从 DeepSeek 切换到其他 Provider；
+  - 把商品图片自动发送给 DeepSeek；
+  - 将未经确认的商品信息放入生成请求。
+- **可重新评估条件**：只有在以下情况发生时重新评估：
+  - DeepSeek 官方停止提供 `deepseek-v4-flash`；
+  - 官方模型名、接口或思考模式合同发生不兼容变化；
+  - 质量评测证明 Flash 无法满足核心文案要求；
+  - 延迟、成本或可用性发生重大变化；
+  - 企业提出强制 BYOK；
+  - 企业合规要求不允许当前数据边界；
+  - 产品需要多 Provider 容灾；
+  - 需要支持视觉输入；
+  - 需要平台专属复杂推理；
+  - V4-Pro 或其他模型经过正式质量和成本评测；
+  - Q-021 基础设施决定提出新的 Secret 或网络边界要求。

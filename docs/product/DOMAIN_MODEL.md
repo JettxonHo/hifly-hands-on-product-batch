@@ -304,6 +304,8 @@ CopyVariant source
 - 全部来源的文案均需经过质检与人工确认；
 - **只有 approved 状态的 CopyVariant 才能被 VideoPlan 引用**。
 
+文案生成追踪语义（D-023，概念级，保持 Provider-neutral）：CopyGenerationAttempt 或现有等价概念可拥有非敏感追踪语义——provider identifier、model identifier、mode（如思考/非思考）、outcome、attempt count、created CopyVariant reference、stable failure category（如输出为空、JSON 无法解析、输出截断、Schema 不符）。不得固化数据库字段类型、表名、ORM、API payload、Migration、Provider 原始响应、reasoning_content、API Key、完整 prompt 或未脱敏 Provider 错误。
+
 ---
 
 ## 三、VideoPlan 到 batch/task 的映射
