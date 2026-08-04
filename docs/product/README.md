@@ -2,7 +2,7 @@
 
 > 状态：Accepted
 > Owner：owner（JettxonHo）
-> 最后更新：2026-08-04
+> 最后更新：2026-08-05
 > 适用范围：本项目全部产品设计、Issue 拆分、PR 审查与技术架构决策
 > 非目标：本目录不包含任何代码、测试、配置或运行时行为变更
 
@@ -60,8 +60,8 @@
 | [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md) | 导航结构、页面职责、运营与技术页面隔离、设置区、首页/新手引导/模板中心/作品库 |
 | [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md) | 云端 Control Plane、Local Agent、Provider Adapter、LLM Adapter、capability 模型、登录态与安全边界、跨平台约束 |
 | [DELIVERY_ROADMAP.md](DELIVERY_ROADMAP.md) | 产品 Epic（SAAS-001 及子项）、Phase 0～4、优先级、依赖与验收标准 |
-| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-024）；最新：D-024 MVP 管理员预创建账号、邮箱密码登录与单组织进入 |
-| [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
+| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-025）；最新：D-025 MVP 文案质检、人工审核与批准门禁 |
+| [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 
 ---
