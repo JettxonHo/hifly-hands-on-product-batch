@@ -2,7 +2,7 @@
 
 > 状态：Accepted（实体清单与多状态域分离原则已固化；具体字段命名可在实现阶段调整）
 > Owner：owner（JettxonHo）
-> 最后更新：2026-08-04
+> 最后更新：2026-08-05
 > 适用范围：所有涉及领域模型的设计、Issue 拆分与代码评审
 > 非目标：本文档不定义数据库表结构、ORM 选型或 API 字段细节
 
@@ -132,6 +132,30 @@ review_pending
 approved
 archived
 ```
+
+### 文案质检与审核状态分离（D-025）
+
+CopyVariant 自身生命周期**不能承担所有质量和审核语义**。自动质检状态与人工审核状态是两个独立状态域，分别归属 `CopyQualityCheck` 与 `CopyApproval`（概念级，复用现有实体，不新建第二套文案实体，不固定数据库表/字段/ORM/API/Migration）：
+
+```text
+自动质检状态（CopyQualityCheck.quality_result）
+invalid / blocked / needs_review / passed
+
+人工审核状态（CopyApproval.review_state）
+not_submitted / pending / approved / changes_requested / revoked
+```
+
+关键约束（D-025）：
+
+- `passed ≠ approved`：`passed` 是自动质检结果，`approved` 是人工批准结果；
+- `invalid` 与 `blocked` 不能被人工或管理员直接覆盖；硬阻断不可被其他维度得分抵消；
+- `CopyQualityCheck` 与 `CopyApproval` 必须绑定所引用的 copy、已确认商品事实、ContentBrief、主要品类与各规则**版本**；任一版本变化使旧质检与旧批准失效；
+- 失效语义：旧 `CopyQualityCheck → superseded`（保留为历史记录），旧 `CopyApproval → revoked`；需要重新完整质检与重新人工审核；正式质检记录与正式审核记录不可原地篡改；
+- finding 作为 `CopyQualityCheck` 内的结构化概念（确定性 finding 与 LLM finding 各自的概念级字段），不擅自新增正式顶级实体；
+- `CopyApproval` 必须支持 `author_user_id`、`reviewer_user_id`、`self_review`（本人审核）审计语义；`needs_review` finding 逐项记录 `finding_id`、`reviewer_user_id`、`accepted_at`、`acceptance_reason`；
+- **VideoPlan 只能引用当前有效 `approved` 的 CopyVariant**，且进入/执行 VideoPlan 时必须再次确认 copy、事实、ContentBrief、品类与规则版本仍有效、最新正式质检有效、不存在 `invalid`/`blocked`、`needs_review` finding 已逐项处理。
+
+MVP 在产品概念层区分四类业务能力：文案编辑能力、文案审核能力、商品事实管理能力、品牌规则管理能力；本轮不固定完整 RBAC、数据库权限表或 API permission enum。详见 [DECISION_LOG.md](DECISION_LOG.md) D-025。
 
 ### VideoPlan 生命周期
 
@@ -399,7 +423,7 @@ compileApprovedVideoPlansToBatch()
 
 审核贯穿两个边界：
 
-1. **文案审核**（CopyApproval + CopyQualityCheck）：质检结果包含结构化分数、问题位置和修复建议；只有 approved 的文案进入视频方案；
+1. **文案审核**（CopyApproval + CopyQualityCheck，D-025）：自动质检状态（`invalid`/`blocked`/`needs_review`/`passed`）与人工审核状态（`not_submitted`/`pending`/`approved`/`changes_requested`/`revoked`）分离；`passed ≠ approved`；`invalid` 与 `blocked` 不可被人工或管理员覆盖；质检结果为结构化 finding（命中片段、原因、证据、规则来源、修复建议），不得只是一个总分；QualityCheck 与 Approval 绑定 copy、事实、ContentBrief、品类与规则版本，任一版本变化使旧结果失效（superseded / revoked）并需完整重检；只有当前有效 `approved` 的文案才能进入视频方案；
 2. **方案审核**（VideoPlanApproval）：草稿 → 待审核 → 需修改 → 已批准 → 已排入生产；未批准方案不得编译为 batch；
 3. **成片审核**（QualityCheck + 作品库人工通过/退回）：基础质检 + 后续 AI 质检，结果登记并可退回。
 
