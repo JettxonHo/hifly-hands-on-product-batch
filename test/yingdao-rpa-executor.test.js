@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
-import { readRpaState, writeRpaState } from "../src/rpa/rpa-state.js";
+import { readRpaState, rpaWorstCaseRenameBackoffMs, writeRpaState } from "../src/rpa/rpa-state.js";
 
 async function waitForRpaState(batchDirectory, taskId, timeoutMs = 2000) {
   const deadline = Date.now() + timeoutMs;
@@ -246,6 +246,97 @@ test("createAsset times out using the configured short timeout", async () => {
       () => f.executor.createAsset(f.task, { batchId: "batch-1" }),
       (error) => error.code === "YINGDAO_RPA_TIMEOUT" && /asset_generation/.test(error.message)
     );
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+// --- CI-003 / Issue #49 deterministic regressions ----------------------------
+// The Windows CI flake (run 30892244289 attempt 1) came from two contract
+// defects:
+//   1. createAsset published the generating_asset state (carrying
+//      package_path) BEFORE the package file existed, leaving observers no
+//      happens-before boundary (they had to guess-poll with ENOENT retries);
+//   2. the flaky test gave the executor a 500ms asset budget, smaller than
+//      the implementation's own legal rename retry window
+//      (rpaWorstCaseRenameBackoffMs() = 810ms).
+// These tests pin both boundaries deterministically via the injected clock —
+// no real sleeps, no dependency on real Windows file locks.
+
+function createFakeClock(startMs = 0) {
+  let now = startMs;
+  return {
+    now: () => now,
+    advance: (ms) => {
+      now += ms;
+    }
+  };
+}
+
+test("createAsset publishes the package file before the generating_asset state (CI-003)", async () => {
+  const f = await fixture({ assetTimeoutMs: 50, pollIntervalMs: 5 });
+  try {
+    const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
+    const state = await waitForRpaState(f.batchDirectory, "task-1");
+    // Happens-before invariant: the moment package_path becomes visible in
+    // the state, the package file must already exist in full. Pre-fix the
+    // state was written first and this observation could hit ENOENT
+    // (empirically 10/300 iterations on the unfixed code); any read error
+    // here is now a real defect, not a race.
+    const packageData = JSON.parse(await readFile(state.package_path, "utf8"));
+    assert.equal(packageData.task_id, f.task.task_id);
+    await assert.rejects(
+      pending,
+      (error) => error.code === "YINGDAO_RPA_TIMEOUT" && /asset_generation/.test(error.message)
+    );
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("createAsset survives a legitimate rename-contention window inside the derived asset budget (CI-003)", async () => {
+  const clock = createFakeClock();
+  const derivedBudgetMs = rpaWorstCaseRenameBackoffMs() + 1000;
+  const f = await fixture({ assetTimeoutMs: derivedBudgetMs, pollIntervalMs: 1, clockMs: clock.now });
+  try {
+    const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
+    await waitForRpaState(f.batchDirectory, "task-1");
+    // Simulate the elapsed time a legitimate Windows EPERM/EBUSY rename retry
+    // sequence can consume while the asset_confirmed state is published:
+    // 600ms sits inside the implementation's own 810ms retry window.
+    clock.advance(600);
+    const state = await readRpaState(f.batchDirectory, "task-1");
+    await writeRpaState(f.batchDirectory, "task-1", {
+      callback_token: state.callback_token,
+      status: "asset_confirmed",
+      asset: { asset_id: "rpa-asset-contention" }
+    });
+    const asset = await pending;
+    assert.equal(asset.asset_id, "rpa-asset-contention");
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("the pre-CI-003 500ms asset budget false-fails under the same legitimate contention (CI-003 reproduction)", async () => {
+  const clock = createFakeClock();
+  const f = await fixture({ assetTimeoutMs: 500, pollIntervalMs: 1, clockMs: clock.now });
+  try {
+    const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
+    const observed = pending.then(
+      () => null,
+      (error) => error
+    );
+    await waitForRpaState(f.batchDirectory, "task-1");
+    // The identical 600ms contention that fits inside the legal rename retry
+    // window already exceeds the old hard-coded 500ms test budget: the
+    // executor rejects before asset_confirmed can ever be observed — exactly
+    // the spurious YINGDAO_RPA_TIMEOUT at asset_generation seen on Windows CI
+    // run 30892244289 attempt 1 (test duration 567ms there).
+    clock.advance(600);
+    const error = await observed;
+    assert.equal(error?.code, "YINGDAO_RPA_TIMEOUT");
+    assert.match(error.message, /asset_generation/);
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }

@@ -12,7 +12,7 @@ import { transitionTask } from "../src/core/state-machine.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
 import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
-import { readRpaState, writeRpaState } from "../src/rpa/rpa-state.js";
+import { readRpaState, rpaWorstCaseRenameBackoffMs, writeRpaState } from "../src/rpa/rpa-state.js";
 
 async function fixtureRun({ executor, initialStatus = "confirmed", itemOverrides = {} } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-runner-"));
@@ -470,30 +470,49 @@ test("runBatch passes execution batch options into Yingdao RPA packages", async 
       person_strategy: "fixed_upload",
       script_strategy: "provided_script"
     };
+    // CI-003 / #49: the asset handshake budget is derived from the RPA state
+    // write contract instead of hard-coded below it. writeRpaState may legally
+    // spend its full Windows EPERM/EBUSY rename retry window
+    // (rpaWorstCaseRenameBackoffMs(), 810ms with the default schedule) while
+    // publishing asset_confirmed; the previous fixed 500ms budget was smaller
+    // than that window and produced spurious YINGDAO_RPA_TIMEOUT failures on
+    // Windows CI. The production timeout semantics are untouched: this only
+    // sizes the local test budget around the real retry contract.
+    const renameWindowMs = rpaWorstCaseRenameBackoffMs();
+    const assetTimeoutMs = renameWindowMs + 2000;
     const rpaExecutor = createYingdaoRpaExecutor({
       root: fixture.paths.projectRoot,
-      config: { rpa: { pollIntervalMs: 1, assetTimeoutMs: 500 } }
+      config: { rpa: { pollIntervalMs: 1, assetTimeoutMs } }
     });
     fixture.executor = {
       async createAsset(task, context) {
         const pending = rpaExecutor.createAsset(task, context);
-        let state;
-        for (let attempt = 0; attempt < 50; attempt += 1) {
-          state = await readRpaState(path.join(fixture.paths.projectRoot, "batches", "batch-1"), task.task_id);
+        // Mark the rejection handled in case this helper fails before
+        // runBatch awaits `pending` (previously this surfaced as a confusing
+        // unhandledRejection); runBatch still observes the outcome through
+        // the returned promise on the success path.
+        pending.catch(() => {});
+        const batchDirectory = path.join(fixture.paths.projectRoot, "batches", "batch-1");
+        // Deadline-based discovery instead of a fixed iteration cap: cover the
+        // executor's initial writes (up to one rename retry window before its
+        // own countdown starts) plus the derived asset budget.
+        const deadline = Date.now() + assetTimeoutMs + 2 * renameWindowMs;
+        while (Date.now() <= deadline) {
+          const state = await readRpaState(batchDirectory, task.task_id);
           if (state?.package_path) {
-            try {
-              const packageData = JSON.parse(await readFile(state.package_path, "utf8"));
-              assert.equal(packageData.person_strategy, "fixed_upload");
-              assert.equal(packageData.script_strategy, "provided_script");
-              await writeRpaState(path.join(fixture.paths.projectRoot, "batches", "batch-1"), task.task_id, {
-                callback_token: state.callback_token,
-                status: "asset_confirmed",
-                asset: { asset_id: "rpa-asset-1" }
-              });
-              return pending;
-            } catch (error) {
-              if (error?.code !== "ENOENT") throw error;
-            }
+            // The executor publishes the package file before the
+            // generating_asset state (CI-003), so the package must already
+            // exist here; any read error is a real defect, not a race to
+            // swallow.
+            const packageData = JSON.parse(await readFile(state.package_path, "utf8"));
+            assert.equal(packageData.person_strategy, "fixed_upload");
+            assert.equal(packageData.script_strategy, "provided_script");
+            await writeRpaState(batchDirectory, task.task_id, {
+              callback_token: state.callback_token,
+              status: "asset_confirmed",
+              asset: { asset_id: "rpa-asset-1" }
+            });
+            return pending;
           }
           await new Promise((resolve) => setTimeout(resolve, 1));
         }

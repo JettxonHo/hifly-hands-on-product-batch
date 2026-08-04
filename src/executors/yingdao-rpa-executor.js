@@ -58,6 +58,10 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
 
   const rpa = config.rpa || {};
   const pollIntervalMs = rpa.pollIntervalMs ?? 1000;
+  // Injectable clock (default Date.now) so tests can deterministically
+  // simulate elapsed time across the wait deadline without real sleeps
+  // (CI-003 / #49). Production behavior is unchanged when not configured.
+  const clockMs = typeof rpa.clockMs === "function" ? rpa.clockMs : () => Date.now();
   let callbackBaseUrl = rpa.callbackBaseUrl ?? "http://127.0.0.1:4317";
 
   function batchDirectory(batchId) {
@@ -68,8 +72,8 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
   }
 
   async function waitFor(batchDir, taskId, predicate, timeoutMs, phase) {
-    const started = Date.now();
-    while (Date.now() - started <= timeoutMs) {
+    const started = clockMs();
+    while (clockMs() - started <= timeoutMs) {
       const state = await readRpaState(batchDir, taskId);
       if (state && predicate(state)) return state;
       await sleep(pollIntervalMs);
@@ -114,12 +118,20 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
       };
       registerRpaCallbackToken(tokenScope);
       try {
+        // CI-003 / #49: publish the task package BEFORE the generating_asset
+        // state. The state carries package_path; writing it last gives
+        // observers (callback handlers, the local RPA runner, tests) a real
+        // happens-before boundary: once package_path is visible in the state,
+        // the package file already exists in full. Previously the state was
+        // written first, so observers could see package_path while the
+        // package file did not exist yet and had to guess-poll with ENOENT
+        // retries.
+        await writeRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
         await writeRpaState(dir, task.task_id, {
           status: "generating_asset",
           callback_token: packageData.callback_token,
           package_path: packagePath
         });
-        await writeRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
       } catch (error) {
         revokeRpaCallbackToken(tokenScope);
         throw error;
