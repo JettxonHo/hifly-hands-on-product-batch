@@ -1,6 +1,6 @@
 import path from "node:path";
 import { assertExecutorAdapter } from "../core/executor-adapter.js";
-import { createRpaTaskPackage, writeRpaTaskPackage } from "../rpa/task-package.js";
+import { createRpaTaskPackage, prepareRpaTaskPackage, publishRpaTaskPackage, removePreparedRpaTaskPackage } from "../rpa/task-package.js";
 import {
   registerRpaCallbackToken,
   revokeRpaCallbackToken
@@ -117,23 +117,57 @@ export function createYingdaoRpaExecutor({ root, config = {} } = {}) {
         token: packageData.callback_token
       };
       registerRpaCallbackToken(tokenScope);
+      // CI-003 / #49 — two-phase, callback-safe package publication:
+      //
+      //   prepare      full package JSON goes to a watcher-invisible temp file
+      //                (dot-prefixed .tmp; never matches <taskId>.json);
+      //   state-ready  the generating_asset state (status, callback_token,
+      //                package_path) is persisted through the atomic state
+      //                writer;
+      //   publish      the temp file is atomically renamed onto the final
+      //                rpa/tasks/<task>.json path.
+      //
+      // The atomic appearance of the FINAL path is the publication signal for
+      // the RPA watcher (not state.package_path, which is only the
+      // state-ready marker that precedes publication). Once the final path
+      // is visible: the package JSON is complete, the state and token are
+      // already persisted, and a callback fired immediately on publication
+      // is accepted instead of failing with INVALID_RPA_CALLBACK.
+      let prepared;
       try {
-        // CI-003 / #49: publish the task package BEFORE the generating_asset
-        // state. The state carries package_path; writing it last gives
-        // observers (callback handlers, the local RPA runner, tests) a real
-        // happens-before boundary: once package_path is visible in the state,
-        // the package file already exists in full. Previously the state was
-        // written first, so observers could see package_path while the
-        // package file did not exist yet and had to guess-poll with ENOENT
-        // retries.
-        await writeRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
+        prepared = await prepareRpaTaskPackage({ batchDirectory: dir, taskId: task.task_id, packageData });
+      } catch (error) {
+        revokeRpaCallbackToken(tokenScope);
+        throw error;
+      }
+      try {
         await writeRpaState(dir, task.task_id, {
           status: "generating_asset",
           callback_token: packageData.callback_token,
           package_path: packagePath
         });
+        // Deterministic-test seam (no production default): awaited right
+        // before the final rename so tests can hold publication at the
+        // state-ready boundary without real-time races or arbitrary sleeps.
+        if (typeof rpa.beforePackagePublish === "function") {
+          await rpa.beforePackagePublish({ taskId: task.task_id });
+        }
+        await publishRpaTaskPackage({
+          tempPath: prepared.tempPath,
+          finalPath: prepared.finalPath,
+          delay: rpa.packagePublish?.delay,
+          renameImpl: rpa.packagePublish?.renameImpl
+        });
       } catch (error) {
+        // Failure cleanup semantics: the token is revoked and the temp
+        // package removed, and the final path never appeared, so no runnable
+        // task exists and no token/state/package mismatch survives. A
+        // generating_asset state already persisted in the state-ready phase
+        // is left inert (no active token, no package file); a future
+        // createAsset for the same task overwrites it through the existing
+        // writeRpaState merge semantics. No new state values or schema.
         revokeRpaCallbackToken(tokenScope);
+        await removePreparedRpaTaskPackage(prepared);
         throw error;
       }
       const state = await waitForTask(

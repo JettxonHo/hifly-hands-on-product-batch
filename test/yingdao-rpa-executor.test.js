@@ -1,10 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
-import { readRpaState, rpaWorstCaseRenameBackoffMs, writeRpaState } from "../src/rpa/rpa-state.js";
+import { applyRpaCallback } from "../src/rpa/callbacks.js";
+import { isRpaCallbackTokenActive } from "../src/rpa/callback-token-registry.js";
+import {
+  RPA_RENAME_MAX_ATTEMPTS,
+  readRpaState,
+  rpaWorstCaseRenameBackoffMs,
+  writeRpaState
+} from "../src/rpa/rpa-state.js";
 
 async function waitForRpaState(batchDirectory, taskId, timeoutMs = 2000) {
   const deadline = Date.now() + timeoutMs;
@@ -252,16 +259,20 @@ test("createAsset times out using the configured short timeout", async () => {
 });
 
 // --- CI-003 / Issue #49 deterministic regressions ----------------------------
-// The Windows CI flake (run 30892244289 attempt 1) came from two contract
-// defects:
-//   1. createAsset published the generating_asset state (carrying
-//      package_path) BEFORE the package file existed, leaving observers no
-//      happens-before boundary (they had to guess-poll with ENOENT retries);
-//   2. the flaky test gave the executor a 500ms asset budget, smaller than
-//      the implementation's own legal rename retry window
-//      (rpaWorstCaseRenameBackoffMs() = 810ms).
-// These tests pin both boundaries deterministically via the injected clock —
-// no real sleeps, no dependency on real Windows file locks.
+// Round 1 pinned the budget contract: the flaky test's 500ms asset budget was
+// smaller than the implementation's own legal rename retry window
+// (rpaWorstCaseRenameBackoffMs() = 810ms); the fake-clock budget tests below
+// keep that proof.
+// Round 2 pins the two-phase, callback-safe publication:
+//   prepare      full package JSON in a watcher-invisible temp file;
+//   state-ready  generating_asset state (status, callback_token,
+//                package_path) persisted through the atomic state writer;
+//   publish      atomic rename onto the final rpa/tasks/<task>.json path.
+// The final path's atomic appearance is the publication signal: once visible,
+// the package is complete and the state/token are ready, so an immediate
+// callback is accepted. state.package_path is only the state-ready marker,
+// NOT the publication signal. All tests are deterministic: injected barriers,
+// clocks and rename seams — no real-time races, no Windows file locks.
 
 function createFakeClock(startMs = 0) {
   let now = startMs;
@@ -273,21 +284,224 @@ function createFakeClock(startMs = 0) {
   };
 }
 
-test("createAsset publishes the package file before the generating_asset state (CI-003)", async () => {
-  const f = await fixture({ assetTimeoutMs: 50, pollIntervalMs: 5 });
+async function waitForFile(filePath, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const info = await stat(filePath);
+      if (info.isFile()) return;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error(`Timed out waiting for file: ${filePath}`);
+}
+
+async function fileExists(filePath) {
+  try {
+    await stat(filePath);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function finalPackagePath(batchDirectory, taskId = "task-1") {
+  return path.join(batchDirectory, "rpa", "tasks", `${taskId}.json`);
+}
+
+function tempPackageNames(entries) {
+  return entries.filter((name) => name.startsWith(".rpa-package.") && name.endsWith(".tmp"));
+}
+
+test("state is ready before the final package is atomically published (CI-003)", async () => {
+  let releaseGate = () => {};
+  const gate = new Promise((resolve) => {
+    releaseGate = resolve;
+  });
+  const f = await fixture({ assetTimeoutMs: 2000, pollIntervalMs: 5, beforePackagePublish: () => gate });
+  const finalPath = finalPackagePath(f.batchDirectory);
   try {
     const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
+    pending.catch(() => {});
+
+    // State-ready phase: the generating_asset state is persisted...
     const state = await waitForRpaState(f.batchDirectory, "task-1");
-    // Happens-before invariant: the moment package_path becomes visible in
-    // the state, the package file must already exist in full. Pre-fix the
-    // state was written first and this observation could hit ENOENT
-    // (empirically 10/300 iterations on the unfixed code); any read error
-    // here is now a real defect, not a race.
-    const packageData = JSON.parse(await readFile(state.package_path, "utf8"));
+    assert.equal(state.status, "generating_asset");
+    assert.equal(state.package_path, finalPath);
+    // ...but the final package path is NOT visible yet: publication is held
+    // at the barrier, so a watcher can never observe a package whose
+    // callback state is not ready.
+    assert.equal(await fileExists(finalPath), false, "final package must stay invisible while publication is held");
+
+    // The prepared temp package holds the complete JSON and its name cannot
+    // match the watcher's <taskId>.json pattern.
+    const tasksDir = path.dirname(finalPath);
+    const temps = tempPackageNames(await readdir(tasksDir));
+    assert.equal(temps.length, 1, "exactly one prepared temp package");
+    const tempPackage = JSON.parse(await readFile(path.join(tasksDir, temps[0]), "utf8"));
+    assert.equal(tempPackage.task_id, f.task.task_id);
+    assert.equal(tempPackage.callback_token, state.callback_token);
+
+    // Release the barrier: the final path appears through the atomic publish.
+    releaseGate();
+    await waitForFile(finalPath);
+    assert.deepEqual(JSON.parse(await readFile(finalPath, "utf8")), tempPackage);
+
+    // Unblock the executor handshake.
+    await writeRpaState(f.batchDirectory, "task-1", {
+      callback_token: state.callback_token,
+      status: "asset_confirmed",
+      asset: { asset_id: "rpa-asset-gate" }
+    });
+    const asset = await pending;
+    assert.equal(asset.asset_id, "rpa-asset-gate");
+  } finally {
+    releaseGate();
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("final package visibility implies complete package and ready matching state (CI-003)", async () => {
+  const f = await fixture({ assetTimeoutMs: 200, pollIntervalMs: 5 });
+  const finalPath = finalPackagePath(f.batchDirectory);
+  try {
+    const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
+    pending.catch(() => {});
+    await waitForFile(finalPath);
+    // The instant the final path appears: the JSON parses in one shot, the
+    // state is already persisted, the tokens match, identity is intact.
+    const packageData = JSON.parse(await readFile(finalPath, "utf8"));
+    const state = await readRpaState(f.batchDirectory, "task-1");
+    assert.ok(state, "state must be persisted before publication");
+    assert.equal(state.status, "generating_asset");
+    assert.equal(state.package_path, finalPath);
+    assert.equal(state.callback_token, packageData.callback_token);
     assert.equal(packageData.task_id, f.task.task_id);
+    assert.equal(packageData.execution_key, f.task.execution_key);
     await assert.rejects(
       pending,
       (error) => error.code === "YINGDAO_RPA_TIMEOUT" && /asset_generation/.test(error.message)
+    );
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("an immediate callback right after publication is accepted (CI-003)", async () => {
+  const f = await fixture({ assetTimeoutMs: 2000, pollIntervalMs: 5 });
+  const finalPath = finalPackagePath(f.batchDirectory);
+  try {
+    const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
+    pending.catch(() => {});
+    await waitForFile(finalPath);
+    // A watcher reading the package the instant it appears fires its
+    // callback immediately. State and token were persisted in the
+    // state-ready phase, so the existing in-process callback path accepts
+    // it: no INVALID_RPA_CALLBACK, no external network.
+    const packageData = JSON.parse(await readFile(finalPath, "utf8"));
+    const result = await applyRpaCallback({
+      batchDirectory: f.batchDirectory,
+      currentTask: f.task,
+      token: packageData.callback_token,
+      requestIp: "127.0.0.1",
+      callback: {
+        schema_version: 1,
+        batch_id: "batch-1",
+        task_id: f.task.task_id,
+        execution_key: f.task.execution_key,
+        status: "asset_confirmed",
+        phase: "asset_generation"
+      }
+    });
+    assert.equal(result.accepted, true);
+    assert.equal(result.duplicate, false);
+    const asset = await pending;
+    assert.ok(asset, "createAsset completes from the callback-driven state");
+    assert.equal((await readRpaState(f.batchDirectory, "task-1")).status, "asset_confirmed");
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("the final package path is never partially written (CI-003)", async () => {
+  let releaseGate = () => {};
+  const gate = new Promise((resolve) => {
+    releaseGate = resolve;
+  });
+  const f = await fixture({ assetTimeoutMs: 2000, pollIntervalMs: 5, beforePackagePublish: () => gate });
+  const finalPath = finalPackagePath(f.batchDirectory);
+  try {
+    const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
+    pending.catch(() => {});
+    await waitForRpaState(f.batchDirectory, "task-1");
+    // While publication is held at the state-ready boundary, keep probing
+    // the final path: it must never appear partially (or at all) until the
+    // atomic rename. The barrier holds indefinitely, so these absence
+    // assertions are timing-independent.
+    for (let probe = 0; probe < 25; probe += 1) {
+      assert.equal(await fileExists(finalPath), false, "final path must not exist before the atomic publish");
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    releaseGate();
+    await waitForFile(finalPath);
+    // The first read of the published file returns the complete JSON in one
+    // shot: rename never exposes a partial write.
+    const packageData = JSON.parse(await readFile(finalPath, "utf8"));
+    assert.equal(packageData.task_id, f.task.task_id);
+    const state = await readRpaState(f.batchDirectory, "task-1");
+    await writeRpaState(f.batchDirectory, "task-1", {
+      callback_token: state.callback_token,
+      status: "asset_confirmed",
+      asset: { asset_id: "rpa-atomic" }
+    });
+    const asset = await pending;
+    assert.equal(asset.asset_id, "rpa-atomic");
+  } finally {
+    releaseGate();
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("publication failure cleans the temp package, revokes the token, and surfaces the original error (CI-003)", async () => {
+  let renameCalls = 0;
+  const renameImpl = async () => {
+    renameCalls += 1;
+    const error = new Error("simulated EPERM on final package rename");
+    error.code = "EPERM";
+    throw error;
+  };
+  const f = await fixture({
+    assetTimeoutMs: 500,
+    pollIntervalMs: 5,
+    packagePublish: { delay: () => Promise.resolve(), renameImpl }
+  });
+  const finalPath = finalPackagePath(f.batchDirectory);
+  try {
+    await assert.rejects(
+      f.executor.createAsset(f.task, { batchId: "batch-1" }),
+      (error) => error.code === "EPERM" && /simulated EPERM on final package rename/.test(error.message)
+    );
+    assert.equal(renameCalls, RPA_RENAME_MAX_ATTEMPTS, "rename retry budget is bounded — no infinite retry");
+    assert.equal(await fileExists(finalPath), false, "final package never appears as a runnable task");
+    assert.deepEqual(tempPackageNames(await readdir(path.dirname(finalPath))), [], "temp package cleaned");
+    // State-ready residue stays inert: status remains generating_asset, but
+    // the token is revoked and no package exists. A future createAsset for
+    // the same task overwrites it through the existing merge semantics; no
+    // new state values or schema are introduced.
+    const state = await readRpaState(f.batchDirectory, "task-1");
+    assert.equal(state.status, "generating_asset");
+    assert.equal(
+      isRpaCallbackTokenActive({
+        batchDirectory: f.batchDirectory,
+        taskId: "task-1",
+        executionKey: f.task.execution_key,
+        token: state.callback_token
+      }),
+      false,
+      "callback token revoked on publication failure"
     );
   } finally {
     await rm(f.root, { recursive: true, force: true });
@@ -300,7 +514,11 @@ test("createAsset survives a legitimate rename-contention window inside the deri
   const f = await fixture({ assetTimeoutMs: derivedBudgetMs, pollIntervalMs: 1, clockMs: clock.now });
   try {
     const pending = f.executor.createAsset(f.task, { batchId: "batch-1" });
-    await waitForRpaState(f.batchDirectory, "task-1");
+    // Wait for the atomic publication: this also guarantees the executor has
+    // already captured its wait deadline (the wait loop starts synchronously
+    // after the publish rename resolves), keeping the fake-clock scenario
+    // deterministic under the two-phase order.
+    await waitForFile(finalPackagePath(f.batchDirectory));
     // Simulate the elapsed time a legitimate Windows EPERM/EBUSY rename retry
     // sequence can consume while the asset_confirmed state is published:
     // 600ms sits inside the implementation's own 810ms retry window.
@@ -327,7 +545,7 @@ test("the pre-CI-003 500ms asset budget false-fails under the same legitimate co
       () => null,
       (error) => error
     );
-    await waitForRpaState(f.batchDirectory, "task-1");
+    await waitForFile(finalPackagePath(f.batchDirectory));
     // The identical 600ms contention that fits inside the legal rename retry
     // window already exceeds the old hard-coded 500ms test budget: the
     // executor rejects before asset_confirmed can ever be observed — exactly

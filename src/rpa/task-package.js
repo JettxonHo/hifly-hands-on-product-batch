@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { constants, copyFileSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { assertTaskId } from "./rpa-state.js";
+import { assertTaskId, RPA_RENAME_MAX_ATTEMPTS, rpaRenameBackoffMs } from "./rpa-state.js";
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png"]);
 
@@ -110,14 +110,78 @@ export function createRpaTaskPackage({ batch, task, batchDirectory, callbackBase
   };
 }
 
-export async function writeRpaTaskPackage({ batchDirectory, taskId, packageData }) {
+function tasksDirectory(batchDirectory) {
+  return path.join(batchDirectory, "rpa", "tasks");
+}
+
+// Phase 1 of the two-phase publication (CI-003 / #49): write the COMPLETE
+// package JSON to a unique temp file inside the final directory. The temp
+// name is dot-prefixed and .tmp-suffixed, so it can never match the RPA
+// watcher's <taskId>.json pattern (task ids must start with an alphanumeric
+// character): the watcher can never pick up a not-yet-published package.
+export async function prepareRpaTaskPackage({ batchDirectory, taskId, packageData }) {
   assertTaskId(taskId);
   if (!packageData || packageData.task_id !== taskId) {
     throw new Error("packageData.task_id must match taskId");
   }
-  const dir = path.join(batchDirectory, "rpa", "tasks");
+  const dir = tasksDirectory(batchDirectory);
   await mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, `${taskId}.json`);
-  await writeFile(filePath, `${JSON.stringify(packageData, null, 2)}\n`, "utf8");
-  return filePath;
+  const tempPath = path.join(dir, `.rpa-package.${process.pid}.${randomUUID()}.tmp`);
+  const finalPath = path.join(dir, `${taskId}.json`);
+  try {
+    await writeFile(tempPath, `${JSON.stringify(packageData, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => {});
+    throw error;
+  }
+  return { tempPath, finalPath };
+}
+
+// Failure cleanup for a prepared-but-never-published package. Idempotent and
+// best-effort: a missing temp file is not an error.
+export async function removePreparedRpaTaskPackage(prepared) {
+  if (!prepared?.tempPath) return;
+  await rm(prepared.tempPath, { force: true }).catch(() => {});
+}
+
+// Phase 2b of the two-phase publication: atomically rename the prepared temp
+// file onto the final <taskId>.json path. The atomic appearance of the final
+// path IS the publication signal for the RPA watcher. Same-directory rename
+// keeps it atomic on one filesystem; the capped EPERM/EBUSY retry contract is
+// shared with the rpa-state atomic writer (single source of truth). On
+// failure the temp file is removed and the original error propagates: the
+// final package never appears as a runnable task.
+export async function publishRpaTaskPackage({ tempPath, finalPath, delay, renameImpl } = {}) {
+  if (!tempPath || !finalPath) {
+    throw new Error("publishRpaTaskPackage requires tempPath and finalPath");
+  }
+  const backoff = typeof delay === "function" ? delay : (attempt) =>
+    new Promise((resolve) => setTimeout(resolve, rpaRenameBackoffMs(attempt)));
+  const doRename = typeof renameImpl === "function" ? renameImpl : rename;
+  for (let attempt = 0; attempt < RPA_RENAME_MAX_ATTEMPTS; attempt++) {
+    try {
+      await doRename(tempPath, finalPath);
+      return finalPath;
+    } catch (error) {
+      if ((error.code === "EPERM" || error.code === "EBUSY") && attempt < RPA_RENAME_MAX_ATTEMPTS - 1) {
+        await backoff(attempt);
+        continue;
+      }
+      await rm(tempPath, { force: true }).catch(() => {});
+      throw error;
+    }
+  }
+}
+
+// One-shot publication for callers that do not need the prepare/state-ready/
+// publish split: prepare + atomic publish. The final file only ever appears
+// complete (never partially written).
+export async function writeRpaTaskPackage({ batchDirectory, taskId, packageData, delay, renameImpl } = {}) {
+  const prepared = await prepareRpaTaskPackage({ batchDirectory, taskId, packageData });
+  try {
+    return await publishRpaTaskPackage({ tempPath: prepared.tempPath, finalPath: prepared.finalPath, delay, renameImpl });
+  } catch (error) {
+    await removePreparedRpaTaskPackage(prepared);
+    throw error;
+  }
 }

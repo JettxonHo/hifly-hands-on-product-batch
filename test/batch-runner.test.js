@@ -494,29 +494,40 @@ test("runBatch passes execution batch options into Yingdao RPA packages", async 
         pending.catch(() => {});
         const batchDirectory = path.join(fixture.paths.projectRoot, "batches", "batch-1");
         // Deadline-based discovery instead of a fixed iteration cap: cover the
-        // executor's initial writes (up to one rename retry window before its
-        // own countdown starts) plus the derived asset budget.
+        // executor's two-phase publication (state-ready, then the final
+        // package rename with its own retry window) plus the derived asset
+        // budget.
         const deadline = Date.now() + assetTimeoutMs + 2 * renameWindowMs;
+        let state = null;
+        let packageData = null;
         while (Date.now() <= deadline) {
-          const state = await readRpaState(batchDirectory, task.task_id);
+          state = await readRpaState(batchDirectory, task.task_id);
           if (state?.package_path) {
-            // The executor publishes the package file before the
-            // generating_asset state (CI-003), so the package must already
-            // exist here; any read error is a real defect, not a race to
-            // swallow.
-            const packageData = JSON.parse(await readFile(state.package_path, "utf8"));
-            assert.equal(packageData.person_strategy, "fixed_upload");
-            assert.equal(packageData.script_strategy, "provided_script");
-            await writeRpaState(batchDirectory, task.task_id, {
-              callback_token: state.callback_token,
-              status: "asset_confirmed",
-              asset: { asset_id: "rpa-asset-1" }
-            });
-            return pending;
+            // Two-phase publication (CI-003): the state becomes ready BEFORE
+            // the final package's atomic rename, and the final path — not
+            // state.package_path — is the publication signal. ENOENT here is
+            // the legitimate state-ready window, tolerated only until the
+            // deadline; once the final path is visible, the package is
+            // complete and the callback state is ready.
+            try {
+              packageData = JSON.parse(await readFile(state.package_path, "utf8"));
+              break;
+            } catch (error) {
+              if (error?.code !== "ENOENT") throw error;
+            }
           }
           await new Promise((resolve) => setTimeout(resolve, 1));
         }
-        throw new Error("Yingdao RPA package was not published");
+        if (!packageData) throw new Error("Yingdao RPA package was not published");
+        assert.equal(packageData.person_strategy, "fixed_upload");
+        assert.equal(packageData.script_strategy, "provided_script");
+        assert.equal(state.callback_token, packageData.callback_token);
+        await writeRpaState(batchDirectory, task.task_id, {
+          callback_token: state.callback_token,
+          status: "asset_confirmed",
+          asset: { asset_id: "rpa-asset-1" }
+        });
+        return pending;
       },
       async submitVideo() {
         return { status: "submitted", remoteEvidence: { remote_id: "remote-1", evidence_source: "direct_submission" } };
