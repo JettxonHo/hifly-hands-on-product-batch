@@ -259,7 +259,7 @@ Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROAD
 
 影响：Phase 1 云端部署的基础设施实现（见 D-015；领域层不绑定具体云产品）。
 
-## Q-022 第一版企业登录方式
+## Q-022 第一版企业登录方式 —— 已关闭（2026-08-04，D-024）
 
 候选：
 
@@ -269,6 +269,27 @@ Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROAD
 - 手机号
 - 企业微信登录
 
-**本轮不得擅自选择。**
-
 影响：Phase 1 云端 Web 登录实现（见 D-015）。
+
+**结论（owner 决定，2026-08-04，D-024）**：
+
+- Account provisioning：管理员预创建；
+- Login identifier：管理员录入的工作邮箱；
+- Authentication：邮箱和密码；
+- Initial admin：部署初始化；
+- First login：临时密码；
+- Forced password change：是（完成首次密码修改前不得访问组织业务数据）；
+- Organization entry：登录后自动进入唯一 Organization；
+- Public registration：无；
+- Organization creation：无；
+- Organization picker：无；
+- Multi-organization switch：无；
+- Password recovery：管理员重置新临时密码；
+- Self-service email reset：不进入 MVP；
+- Invitation link：不作为 MVP 开户方式；
+- Phone/SMS：不进入 MVP；
+- WeCom login：不进入 MVP；
+- Enterprise SSO：不进入 MVP；
+- Identity boundary：User 与 OrganizationMember 分离；
+- Member lifecycle：pending_activation / active / disabled；
+- resolved by：D-024；resolved date：2026-08-04。

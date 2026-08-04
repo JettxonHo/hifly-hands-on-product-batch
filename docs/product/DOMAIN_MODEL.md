@@ -204,6 +204,41 @@ OrganizationMember
 
 第一版单企业/单组织 MVP（D-014 / D-015）保留 Organization 边界，但第一版不实现完整 RBAC；角色与权限细化属于 ENTERPRISE-001（Phase 4）。
 
+### 身份与成员关系分离语义（D-024，概念级）
+
+已有关系保持不变：
+
+```text
+Organization ──< OrganizationMember >── User
+OrganizationMember ── Role
+```
+
+语义约束：
+
+- **User 表达登录身份；OrganizationMember 表达用户对 Organization 的成员关系和访问资格；Role 表达成员权限**；
+- **登录成功不等于具有组织访问权限**：请求访问组织数据时必须有有效 OrganizationMember；
+- MVP 每个可用成员只能有一个有效 OrganizationMember；
+- OrganizationMember 缺失时拒绝访问，不得进入业务系统；
+- 多个有效 OrganizationMember 在 MVP 中属于配置错误，不得静默选择组织，应拒绝进入并要求管理员处理；
+- disabled 成员不得访问 Organization 数据；
+- 管理员预创建 User 时同时建立 OrganizationMember；
+- 组织业务数据不得只依赖 User ID 做隔离；
+- 未来多组织扩展不得要求重构 User 身份模型。
+
+成员生命周期语义（D-024）：
+
+```text
+pending_activation
+active
+disabled
+```
+
+- `pending_activation`：管理员已预创建账号，成员尚未完成首次密码修改；
+- `active`：成员已完成激活，可以正常登录和访问组织；
+- `disabled`：成员已被管理员停用，不得继续访问组织数据。
+
+本轮不固化：表名、字段类型、唯一索引、ORM、API payload、Migration、密码哈希字段、Session 表、Token 格式或 Cookie 格式。**不得将密码、临时密码或 Session Secret 作为领域业务数据。**
+
 ## 二之二、LLM 凭证配置模型（D-019 / D-020，字段规划）
 
 LlmProviderConfig（字段规划）：
