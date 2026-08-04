@@ -37,7 +37,7 @@
 
 影响：成本、内容质量、合规与供应商依赖。
 
-**收窄说明（2026-08-04，D-019）**：LLM Adapter 架构已决定（CopyGenerationService → LLM Provider Adapter，预留平台默认模型/企业自有 API Key/可替换 Provider/可配置 base URL 与 model）；默认 Provider 和默认模型仍待 Q-019 决定。
+**收窄说明（2026-08-04，D-019）**：LLM Adapter 架构已决定（CopyGenerationService → LLM Provider Adapter，预留平台默认模型/企业自有 API Key/可替换 Provider/可配置 base URL 与 model）；默认 Provider 和默认模型原待 Q-019 决定；Q-019 已由 D-023（2026-08-04）解决并关闭：MVP 默认 Provider 为 DeepSeek 官方开放平台，默认模型为 `deepseek-v4-flash`。
 
 ## Q-004 文案质检规则来源 —— 收窄，保持开放
 
@@ -53,6 +53,8 @@
 - 经过质检和人工确认后才能进入 VideoPlan。
 
 **补充说明（2026-08-04，D-022）**：补充要求、自定义表达风格、自定义种草角度和自定义收尾，均需经过相同的事实安全与文案质检；自定义输入不能绕过 D-021 事实门禁。
+
+**补充说明（2026-08-04，D-023）**：D-023 已确定文案生成使用 DeepSeek JSON Output 返回结构化结果，服务端必须执行 JSON 解析与业务 Schema 校验，并继续执行 D-021 事实安全检查；输出形态失败（空内容、非法 JSON、截断、Schema 不符）最多一次同模型受控重试；AI 输出仍需质检与人工确认后才能进入 VideoPlan。
 
 仍未决定的内容：
 
@@ -196,7 +198,7 @@ Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROAD
 
 影响：Provider Task Router 的 API Worker 部署形态、登录态与安全边界（见 `PROVIDER_AND_AGENT_ARCHITECTURE.md`）、多租户隔离方案。
 
-## Q-019 MVP 默认 LLM Provider 和模型
+## Q-019 MVP 默认 LLM Provider 和模型 —— 已关闭（2026-08-04，D-023）
 
 需要决定：
 
@@ -208,6 +210,24 @@ Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROAD
 - 是否需要结构化输出能力
 
 影响：阶段二文案生成/质检的默认能力与成本口径（见 D-019 / D-020）。
+
+**结论（owner 决定，2026-08-04，D-023）**：
+
+- Provider：DeepSeek 官方开放平台（官方直连）；
+- Credential：平台管理的 DeepSeek 官方 API Key（服务端）；
+- Third-party relay：不使用第三方中转或聚合平台；
+- API format：OpenAI compatible；
+- Base URL：`https://api.deepseek.com`；
+- Default model：`deepseek-v4-flash`（不使用已停止的 `deepseek-chat` / `deepseek-reasoner`；`deepseek-v4-pro` 不作为默认）；
+- Thinking mode：显式 disabled（`thinking.type = disabled`，不依赖 Provider 默认值）；
+- JSON Output：使用（`response_format = {"type": "json_object"}`，prompt 含 json 字样，提供结构示例，合理设置 max_tokens）；
+- Server validation：必须（JSON 解析、业务 Schema、D-021 事实安全、D-022 ContentBrief 约束）；
+- Output retry：输出形态失败最多一次同模型受控重试；仍失败则任务失败，由用户手动重试；
+- Automatic model fallback：无；
+- Automatic provider fallback：无；
+- BYOK：不进入 MVP（企业 BYOK 见 Q-020）；
+- 完整 HTTP 错误重试矩阵、timeout、并发与限流不固化为本 Decision，属于后续实现规格；
+- resolved by：D-023；resolved date：2026-08-04。
 
 ## Q-020 企业 BYOK 上线阶段与允许的 Provider
 

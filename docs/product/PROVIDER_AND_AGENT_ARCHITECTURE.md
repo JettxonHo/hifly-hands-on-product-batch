@@ -234,23 +234,25 @@ CopyGenerationService
 
 凭证边界（必须明确）：
 
-- **LLM Key 和 Hifly Token 是两类不同凭证**；Q-018 只解决 Hifly Token；LLM BYOK 由 D-020 / Q-019 / Q-020 管理；
+- **LLM Key 和 Hifly Token 是两类不同凭证**；Q-018 只解决 Hifly Token；MVP 默认 Provider 与模型已由 D-023 决定；LLM BYOK 由 D-020 / Q-020 管理；
 - **Secret 值不进入领域模型**；领域模型只保存 encryptedSecretRef 或 credential config ID（见 [DOMAIN_MODEL.md](DOMAIN_MODEL.md) 的 LlmProviderConfig）；
 - 具体 SecretStore 由 Q-021 决定；
 - 真实 Key 遵守 D-020 安全底线（不进入前端/仓库/Markdown/日志/错误信息/证据截图，页面只显示掩码）；
 - 腾讯云部署不代表领域层绑定腾讯云：LLM Provider 同样是可替换 Adapter。
 
-### 文案生成业务调用边界与生成前门禁（D-021 / D-022）
+### 文案生成业务调用边界与生成前门禁（D-021 / D-022 / D-023）
 
 业务调用边界（架构规格，本轮不实现服务或代码）：
 
 ```text
 D-021 Confirmed Product Facts
 + Optional ContentBrief（D-022，可缺失/为空/部分填写）
+→ CopyGenerationPreflight
 → ContentBrief Normalization
 → CopyGenerationService
 → LLM Provider Adapter
-→ CopyVariant draft
+→ DeepSeek Official API（D-023）
+→ CopyVariant Draft
 → Quality Gate
 → Human Approval
 → VideoPlan
@@ -287,7 +289,70 @@ D-021 Confirmed Product Facts
 → 构造 LLM 请求
 ```
 
-模型只能基于已确认商品事实进行营销表达，不得自行编造事实性信息（功效、参数、成分、认证、销量、排名、价格、优惠、库存、活动期限、竞品结论、医疗或健康承诺等，完整清单见 [DECISION_LOG.md](DECISION_LOG.md) D-021）。AI 输出均为草稿，必须经质检与人工确认后才能被 VideoPlan 引用。本轮不选择具体 LLM Provider 或模型（Q-019 保持开放）。
+模型只能基于已确认商品事实进行营销表达，不得自行编造事实性信息（功效、参数、成分、认证、销量、排名、价格、优惠、库存、活动期限、竞品结论、医疗或健康承诺等，完整清单见 [DECISION_LOG.md](DECISION_LOG.md) D-021）。AI 输出均为草稿，必须经质检与人工确认后才能被 VideoPlan 引用。MVP 默认 LLM Provider 与模型已由 D-023 决定：DeepSeek 官方开放平台，默认模型 `deepseek-v4-flash`，显式非思考模式；Q-019 已由 D-023 解决并关闭。
+
+### MVP 默认 LLM Provider 与 DeepSeek Adapter 契约（D-023）
+
+Copy generation ownership：CopyGenerationService 属于 SaaS 业务能力，只能通过 LLM Provider Adapter 访问 Provider；业务层不得直接调用 DeepSeek，不得依赖 DeepSeek SDK、DeepSeek HTTP 请求结构、`deepseek-v4-flash` 字符串、reasoning_content 或 DeepSeek 专属错误格式。
+
+DeepSeek Adapter 概念职责（本轮不实现代码）：
+
+- 加载服务端 Provider 配置；
+- 从 Secret 注入 DeepSeek 官方 API Key；
+- 使用官方 Base URL `https://api.deepseek.com`（OpenAI 兼容接口）；
+- 使用默认模型 `deepseek-v4-flash`（不使用已停止的 `deepseek-chat` / `deepseek-reasoner`；`deepseek-v4-pro` 不作为默认，不自动升级）；
+- 显式关闭思考模式（`thinking.type = disabled`），不依赖 Provider 默认值；
+- 请求 JSON Output（`response_format = {"type": "json_object"}`；prompt 中明确出现 json 字样；提供目标 JSON 结构示例；合理设置 max_tokens）；
+- 映射 Provider 响应；
+- 映射稳定错误类别；
+- 不暴露 Secret 或原始错误；
+- 不负责批准 CopyVariant。
+
+生成请求数据边界（Preflight 与 Normalization 之后、Provider 调用前）：
+
+- 执行 D-021 商品事实门禁；
+- 只选取已确认文字事实；
+- 执行 D-022 ContentBrief normalization；
+- 排除未经确认候选；
+- 排除商品图片二进制和图片 URL（商品图片不发送给 DeepSeek，仍主要服务后续数字人手持商品视频生产）；
+- 排除本地路径和 Secret（飞影 Cookie、Hifly Token、浏览器 Session 一律不得进入生成请求）。
+
+Output validation：
+
+```text
+Provider JSON Output
+→ content present
+→ JSON parse
+→ business schema validation
+→ D-021 fact-safety validation
+→ draft persistence
+```
+
+任一步失败：不保存有效 CopyVariant；最多一次同模型受控重试；不自动切换模型或 Provider（Flash → Pro、DeepSeek → 其他 Provider、非思考 → 思考、官方 API → 第三方中转均不允许自动发生）；重试仍失败则生成任务标记失败，向用户显示可理解的失败状态，由用户手动重新发起。DeepSeek 官方提示 JSON Output 偶尔可能返回空 content，官方错误文档列出 429 / 500 / 503；完整 HTTP 错误重试矩阵、退避时长、timeout、并发、限流与 circuit breaker 参数属于后续实现规格，本轮不固化。
+
+Secret boundary：
+
+```text
+Cloud/server secret boundary
+→ LLM Provider Adapter
+→ DeepSeek official endpoint
+```
+
+DeepSeek API Key 只存在于服务端环境变量或后续 Q-021 决定的 Secret 管理服务；Key 不得进入 Domain、Browser、Client logs、Product data、VideoPlan、Local Agent package、Hifly request 或 GitHub。
+
+与 Local Agent 的边界：不得把 DeepSeek API Key 下发给 Local Agent。文案生成由 SaaS CopyGenerationService 管理；Local Agent 继续负责 Provider Execution Engine / Hifly 执行职责。D-023 不改写 Q-018 或 Hifly 调用位置决定。
+
+非规范性配置示例（仅为实现示例，不是本轮数据库 Schema 或公共 API 合同）：
+
+```text
+LLM_PROVIDER=deepseek
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-v4-flash
+LLM_THINKING_ENABLED=false
+LLM_API_KEY=<server-side secret injection>
+```
+
+本轮不实现真实请求；不固化价格、timeout、并发、限流或完整错误重试策略；不声称已获得 DeepSeek SLA、合规认证或数据驻留保证。
 
 ### 图片数字人创建的异步任务边界（Vertical Slice B，D-017）
 
