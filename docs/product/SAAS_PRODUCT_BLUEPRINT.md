@@ -296,6 +296,8 @@ Provider Adapter
 - Q-018（飞影 API Token 保管与调用位置）仍保持开放；Hifly Token 不默认进入云端；
 - D-026 只固化架构方向、环境边界和后续部署验收要求，**不代表任何云资源已经部署**；下一步进入低保真页面结构（本 Decision 不制作低保真）。
 
+**核心领域模型与状态机契约（D-028）**：权威对象关系、不可变版本、状态机、失效传播、并发/幂等与事务边界由 D-028 固化，详见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)。关键口径：ProductRevision / CopyVersion / VideoPlanVersion 使用不可变版本（DM-001）；单一 status 不承载全部含义（文案区分 CopyVersion 生命周期 / QualityRun 技术状态 / QualityResult 业务结论 / HumanReview / 业务可用性投影；VideoPlan 区分 VideoPlanVersion / PreflightRun / PreflightResult / PlanReview）；QC passed ≠ 文案 approved、Preflight passed ≠ VideoPlan approved；ProductionOrder 与 ExecutionAttempt 分离（attempt succeeded ≠ ProductionOrder succeeded），人工执行使用 `executor_type = manual` 的 ExecutionAttempt（DM-003）；ProductionOrder 仅在产物核验与 Work 创建成功后 succeeded，**禁止先标记 succeeded 再创建 Work**；Work ≠ DeliveryRecord，一个 Work 可有多条 DeliveryRecord（DM-002）；revoked Review 不得原地恢复为 approved（DM-005）；前端只提交业务命令，最终状态由服务端验证门禁后决定。D-028 是产品与领域合同，**不代表数据库、API、状态机代码或 Local Agent 已经实现**。
+
 ### 原则 9：人物步骤「创建新人物或选择现有人物」
 
 人物步骤统一表达为「创建新人物或选择现有人物」，产品入口至少规划：公共数字人、企业已有数字人、创建新人物。第一条端到端黄金路径与图片数字人创建拆开实施：Vertical Slice A（已有/公共人物黄金路径）用已有/公共人物打通端到端；Vertical Slice B（图片数字人创建）为独立子切片（上传人物图片 → 检查有效授权 → 创建飞影图片数字人异步任务 → 查询或接收任务状态 → 获取 Provider avatar 标识 → 登记 AvatarAsset → 回到统一人物选择流程 → 用于 VideoPlan）。创建人物必须遵守原则 6（D-011）。正式决策记录为 [DECISION_LOG.md](DECISION_LOG.md) 的 D-017。

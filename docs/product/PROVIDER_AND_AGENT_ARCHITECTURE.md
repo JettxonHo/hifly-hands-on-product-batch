@@ -96,6 +96,8 @@ D-026 只固化架构方向，**不代表任何云资源已经部署**。
 
 ## 三、Local Agent
 
+> **D-028 领域边界**：LocalAgent 区分连接状态（pairing/online/offline/revoked）与业务可用状态（unconfigured/available/busy/requires_action/incompatible/disabled），在线 ≠ 业务可用，前端不得直接将 Agent 改为 online；ProductionOrder 与 ExecutionAttempt 分离，每次技术重试或执行器切换（含 Playwright 切换影刀）创建新 ExecutionAttempt，attempt succeeded ≠ ProductionOrder succeeded；人工执行使用 `executor_type = manual` 的 ExecutionAttempt，不伪造自动化信息（DM-003）；ProviderConnection 不保存 Hifly 网页 Secret（用户名/密码/Cookie/LocalStorage/浏览器 Profile/Hifly Token 明文/验证码/未脱敏页面数据），**Q-018 仍 Pending Evidence / Open**。详见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)（D-028）。
+
 现有项目应**演化为 Local Agent，而不是被删除**。现有可靠执行内核（批量执行、状态机、原子写、幂等、证据采集、跨平台 CI 标准）是 Local Agent 的执行引擎基础。
 
 Local Agent 责任：
