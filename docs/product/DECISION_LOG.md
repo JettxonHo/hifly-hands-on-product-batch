@@ -575,7 +575,7 @@
 - **日期**：2026-08-05
 - **背景（Context）**：D-015 已确定 Cloud-first Web 产品（默认部署腾讯云），但具体云基础设施选型仍为开放问题 Q-021（数据库、对象存储、队列、SecretStore、日志监控、备份、环境划分、成本预算均未决定）；D-019/D-020/D-023 已确定文案为 SaaS 自有能力、DeepSeek 为平台默认 LLM Provider、Secret 遵守安全底线；D-014/D-015 已确定企业内部、单企业单组织、Cloud-first。D-026 负责关闭 Q-021：在产品规格层固化云基础设施方向、区分个人验证环境与企业正式生产环境、明确计算/数据库/存储/任务/Secret/观测/备份边界。详细 Specification 见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)。D-026 不代表任何云资源已经部署，也不固定企业最终实例规格、预算、域名或已有资源；Q-018（飞影 API Token 保管与调用位置）不在本 Decision 范围，保持开放。
 - **决策**：
-  1. **Cloud Control Plane 与 Local Agent 分离**：腾讯云负责云端控制面；Local Agent 负责需要本地文件、浏览器登录态、长时间自动化和人工接管的执行；领域层不绑定腾讯云，Database/ObjectStorage/TaskQueue/SecretStore/LogStore 等通过基础设施抽象接入。
+  1. **Cloud Control Plane 与 Local Agent 分离**：腾讯云负责云端控制面；Local Agent 负责需要本地文件、浏览器登录态、长时间自动化和人工接管的执行；领域层不绑定腾讯云，Database/ObjectStorage/TaskQueue/SecretStore/LogSink 等通过基础设施抽象接入。
   2. **模块化单体 + API/Worker 双部署单元**：MVP 使用模块化单体而非微服务系统；API 与异步 Worker 是两个独立部署单元；不建设 Kubernetes、服务网格或复杂分布式基础设施；长时间 Playwright、视频编码和本地大模型不得运行在 Web/API 请求生命周期。
   3. **个人 2C4G 验证环境**：使用 owner 已有 2 核 4 GB 测试服务器 + 单机 Docker Compose，单 API 实例、单 Worker（并发 1）、PostgreSQL、反向代理；只验证功能闭环、持久化、任务恢复、幂等与 Local Agent 协议；不承担生产 SLA、高可用、并发容量或灾备验收；测试通过不代表生产规格达标。
   4. **企业正式环境以腾讯云广州为主地域**（`ap-guangzhou`）：生产资源尽量同地域、同 VPC；PostgreSQL 不开放公网；staging 与 production 完全隔离。
