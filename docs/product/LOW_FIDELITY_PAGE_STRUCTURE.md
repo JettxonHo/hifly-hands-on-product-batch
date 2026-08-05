@@ -255,6 +255,18 @@ ProductionOrder 业务状态：`draft` / `ready` / `waiting_for_executor` / `cla
 
 重试规则：保留每次 attempt；只对可重试技术故障有限重试；不重复创建等价 ProductionOrder；不重复登记正式作品；不通过重试绕过失效 VideoPlan。
 
+### 人工交接包与人工结果登记（D-029）
+
+人工交接包的权威合同为 [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md)（D-029）。生成与交付页面在 Phase 1 额外展示与反馈：
+
+- 展示当前 `ManualHandoffPackage` 的 `package_id` 与 `package_version`，以及包状态 `generating` / `ready` / `generation_failed` / `superseded` / `expired` / `revoked`；
+- 展示当前 manual `ExecutionAttempt`（`executor_type=manual`）及 `claimed/started/completed` 时间；
+- 展示候选产物核验状态（候选产物 ≠ Work；上传完成 ≠ 核验通过）；
+- **人工结果提交不能直接显示生产成功**：ManualExecutionReport `completed` 仅表示执行完成，ProductionOrder 是否 `succeeded` 由服务端候选产物核验 + Work 创建决定（ManualExecutionReport completed ≠ ProductionOrder succeeded；ExecutionAttempt succeeded ≠ ProductionOrder succeeded）；
+- 交接包 `expired` 不代表本地副本已被远程清除（页面提示遵守企业清理/保留政策）；`revoked` 禁止开始新 manual attempt；`generation_failed` 提供脱敏错误与重试/返回 VideoPlan 入口。
+
+边界（D-029）：生成/下载包 ≠ 开始执行；执行者领取并确认开始才创建 manual attempt；包与证据不得含 Secret/Cookie/密码/永久 URL/跨组织数据；回传时服务端重新校验组织/权限/版本/完整性，不只信前端隐藏字段。本节不增加高保真 UI、像素规格或未确认功能。
+
 - **Local Agent 离线**：工单保持 `waiting_for_executor`；**不标记为失败**（`waiting_for_executor ≠ failed`）；可查看人工交接包。
 - **`requires_action ≠ failed`**：`requires_action` 表示任务可经人工处理继续（例如登录态失效或页面验证）；「标记已处理」不能直接把任务改为成功，必须触发真实恢复或重新检查。
 - **`ProductionOrder succeeded` 需要产物核验完成**：执行器报告完成后仍需核验对象存在、文件类型和大小、组织归属、工单追踪 ID，创建正式 Work，之后才标记生产完成。

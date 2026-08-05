@@ -706,3 +706,45 @@
   - Vertical Slice A 实施发现状态机需要细化或合并（仍不得用单一 status 承载全部含义）；
   - 人工交接包合同设计要求扩展 ManualHandoffPackage 领域边界；
   - 多 Agent 调度或 Phase 2 真实执行要求扩展 ExecutionAttempt。
+
+## D-029 ProductionOrder 人工交接包与人工执行结果合同
+
+- **日期**：2026-08-05
+- **状态**：Confirmed
+- **背景（Context）**：D-027 已固化 Phase 1 人工交接边界（人工交接包必须绑定 ProductionOrder，Phase 1 结束于可追踪 ProductionOrder 和绑定工单的人工交接包）；D-028 已固化 ProductionOrder/ExecutionAttempt/Work/DeliveryRecord 领域关系与 DM-001～DM-005（manual ExecutionAttempt 用 executor_type=manual，ProductionOrder succeeded 需产物核验+Work），并将 ManualHandoffPackage 字段/格式/回传协议列为下一项待完成合同。D-029 负责固化该合同：定义 ManualHandoffPackage 容器/权威/版本/字段/素材引用/生命周期/重新生成、manual ExecutionAttempt 开始条件、ManualExecutionReport、候选产物核验与 Work 创建门禁、证据/幂等/安全边界。详细 Specification 见 [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md)。D-029 是产品与领域合同，**不代表 ZIP 生成、manifest JSON Schema、对象存储上传、人工执行页面、Work 自动登记、Local Agent 或 Hifly 接入已经实现**，不关闭 Q-018，不声称 HIFLY-001/SPK-018 已执行，不改写 D-025～D-028 历史内容。
+- **决策**：
+  1. **核心关系（§2）**：approved VideoPlan → CreateProductionOrder → ProductionOrder → GenerateManualHandoffPackage → 包 ready → 执行者领取 → 创建 executor_type=manual 的 ExecutionAttempt → 人工执行 → 上传候选产物 → 提交不可变 ManualExecutionReport → 服务端产物核验 → 创建 Work → ProductionOrder succeeded；**ManualHandoffPackage 不绕过 ProductionOrder**；生成/下载包 ≠ 开始执行；ExecutionAttempt succeeded ≠ ProductionOrder succeeded；只有核验通过且 Work 创建成功才 succeeded。
+  2. **容器（MHC-001，§3）**：ZIP 含权威 manifest.json（机器可读权威合同，后端校验/登记以它为准）+ 派生 README.md（人工作业说明，不得含 manifest 之外的独立业务事实，非第二权威）+ 可选受控 assets/；README 与 manifest 冲突时以 manifest 为准并视为生成异常，不允许人工自行判断继续。
+  3. **版本与不可变性（MHC-002，§4）**：区分合同 Schema 版本（contract_type=manual_handoff / contract_version=1.0）与业务包版本（package_id/package_version）；每 package version 不可变；manual ExecutionAttempt 绑定 package_id+package_version+manifest_hash；仅人工说明/命名规则/Schema 兼容升级/原包错误可创建新 package version；文案/人物/ProductRevision/VideoPlan/主要素材/purpose 变化必须新上游版本+重新审核+新 ProductionOrder+新包，**不得用新包为旧工单偷换输入**。
+  4. **manifest 字段组（§5）**：合同身份、业务追踪、输入快照（文案/人物快照子字段）、执行说明、输出要求、完整性与访问；字段名为产品级合同，不定义完整 JSON Schema/长度/DB/API/哈希签名实现。
+  5. **execution_purpose（§6）**：first_production/rework/supplemental_version/reproduction；同 VideoPlan 可因不同明确目的多 ProductionOrder；重复点击不自动产生新 purpose/新工单；purpose 为工单创建时固定快照（与 D-028 DM-004 一致）。
+  6. **素材引用（MHC-003，§7）**：embedded / short_lived_fetch / provider_existing；每引用含 asset_id/version/role/media_type/size/checksum/retrieval_mode/access_scope；short_lived_fetch 不保存永久 URL，重签不改变输入也不新 package version；provider_existing 不保存 Provider 凭据。
+  7. **禁止内容（§8）**：禁止 Hifly 账号密码/Token/Cookie/LocalStorage/浏览器 Profile/验证码/Agent 设备凭据/DB Secret/对象存储永久密钥/永久或长期签名 URL/人物原始隐私素材/完整授权证明原件/跨组织素材/未脱敏日志与页面数据/完整本地敏感路径；**Q-018 凭据边界不变**。
+  8. **生命周期（§9）**：generating/ready/generation_failed/superseded/expired/revoked；expired 不代表本地副本被远程清除；revoked 禁止开始新 manual ExecutionAttempt。
+  9. **生成与重新生成（§10）**：首次生成验证 ProductionOrder/输入快照/组织/版本引用/权限/幂等/素材组织归属/禁止项；下载中断/授权过期/重复下载/临时副本过期只重生成下载副本不新业务版本；说明/命名/Schema/错误才新 package_version；输入/目的/方案/文案/人物/素材变化必须新 ProductionOrder。
+  10. **manual ExecutionAttempt（MHC-004，§11）**：Generate/Download Package ≠ StartManualExecution；执行者领取→服务端重新验证→创建 executor_type=manual 的 attempt（绑定 package_id/version/manifest_hash）→确认开始后 running；不伪造 Agent/心跳/Adapter/Playwright/影刀/自动步骤/Provider 回调（与 D-028 DM-003 一致）；同工单同时最多一个有效运行 attempt。
+  11. **ManualExecutionReport（MHC-005，§12）**：不可变人工结果记录，绑定 ExecutionAttempt，不覆盖 attempt，不直设 ProductionOrder 终态，可用新版本/superseding 修正但旧报告保留；outcome=completed/requires_action/failed/cancelled；**禁止人工提交 production_order_succeeded/work_created/provider_verified**；deviations 记录偏差，核心输入偏差不得自动创建 Work；输出引用含 checksum，本地绝对路径不作为云端权威引用。
+  12. **结果状态转换（§13）**：completed→attempt succeeded→核验 AsyncJob→核验→Work→工单 succeeded（attempt succeeded ≠ 工单 succeeded）；requires_action→记录原因/责任/恢复要求，标记已处理不能直接成功（requires_action ≠ failed）；failed→按错误类别决定工单是否 failed（可重试技术问题保留工单+新 attempt，输入/业务问题可 failed+返回上游，未知问题人工判断）；cancelled→配合 cancel_requested 与明确确认。
+  13. **主要产物（MHC-006，§14）**：Phase 1 一工单最多一个主要视频 Work；supporting outputs 不自动成为 Work；未来多正式视频 Work 需新产品决策。
+  14. **成功门禁（MHC-007，§14）**：人工上传文件先是候选产物（candidate output ≠ Work，upload completed ≠ artifact verification passed）；核验需对象存在/组织归属/工单+attempt+report+package ID+版本+manifest hash 匹配/类型/大小/checksum/主要产物数量/未重复登记/Work 创建成功；通过后才创建 Work+推进 succeeded+AuditEvent；**禁止先标记 succeeded 再创建 Work**。
+  15. **Work 来源（§15）**：人工 Work 固定引用 ProductionOrder/manual ExecutionAttempt/ManualExecutionReport/包 ID+版本/manifest hash/VideoPlanVersion/CopyVersion/AvatarAssetVersion/主要文件 AssetVersion/primary output checksum/创建时间；不因后续变化被改写（Work ≠ DeliveryRecord）。
+  16. **证据（MHC-008，§16）**：成功记录操作者/时间/包版本/manifest hash/输出引用/checksum/偏差/归属；ProviderTaskReference 在 HIFLY-001 未完成前不设为绝对必填，能稳定取得则记脱敏引用；失败/requires_action 记录阶段/分类/原因/可重试/返回上游/责任/脱敏证据；禁止上传 Cookie/Token/密码/验证码/Profile/客户内容/未脱敏整页截图/完整签名 URL/Hifly 敏感账号/未脱敏 HTML/本地敏感路径。
+  17. **幂等（MHC-009，§17）**：包生成（production_order_id+package_version+contract_version+generation_request_id）、manual attempt（同工单同时最多一个有效运行）、报告（report_id+payload_hash 相同返回原结果，report_id 同 payload 不同拒绝并记冲突，修正用新 report_version 或 supersedes_report_id 不覆盖旧报告）、Work 创建（production_order_id+execution_attempt_id+primary_output_checksum 不重复）、DeliveryRecord（重复请求不自动多事件）。
+  18. **安全（MHC-010，§18）**：下载前检查组织/权限/工单归属/包状态/版本/访问范围；用短时可审计授权、不公开地址、不写普通日志的签名 URL；下载到本地后云端不保证远程删除（package expired ≠ local copy remotely deleted），页面提示遵守企业清理/保留政策；回传时服务端重新检查组织/工单/attempt/package ID/版本/manifest hash/report ID/output checksum/操作者权限，**不只信前端隐藏字段**。
+  19. **上游变化与历史保留（§19）**：工单创建后输入快照不变，包不读取项目最新值，不静默替换文案/人物/素材，不修改已开始 manual attempt，已有包和报告保留历史；需新内容走 上游修改→新版本→新审核→新工单→新包→新 attempt；原工单明确继续/取消/失败/人工处理，**不得隐藏/删除/静默失效让历史工单消失**（revoked package ≠ local copy remotely deleted）。
+- **影响（Consequences）**：
+  - ManualHandoffPackage 有了稳定产品合同（容器/权威/版本/字段/素材/生命周期/重新生成），manual ExecutionAttempt 开始条件与 ManualExecutionReport 行为明确；
+  - 候选产物核验与 Work 创建门禁统一，人工执行不能绕过 ProductionOrder，工单 succeeded 必须核验+Work；
+  - Phase 1 人工结果登记有了可审计、幂等、安全的边界；
+  - 「ProductionOrder 人工交接包合同」可标记为 specification/产品决策完成（不代表实现）；
+  - 下一步：Vertical Slice A Issue 拆分原则与 Definition of Done；HIFLY-001/SPK-018 并行 Evidence；
+  - Q-018 继续保持 Pending Evidence / Open；HIFLY-001 尚未实际执行；
+  - 详细 Specification 在 [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md)；
+  - 本 Decision 不代表 ZIP/Schema/上传/页面/Work 自动登记/Local Agent/Hifly 接入已实现。
+- **非目标**：不固定完整 JSON Schema/API 路径/DB 表字段/ZIP 压缩实现/哈希算法/数字签名/对象存储服务/文件大小限制/精确视频格式/Hifly 页面字段/ProviderTaskReference 真实格式/高保真页面/Local Agent 协议/Playwright/影刀职责/自动执行/客户交付门户/多主要视频输出/Hifly 凭据管理实现；不关闭 Q-018；不声称 HIFLY-001/SPK-018 已执行；不改写历史决策。
+- **可重新评估条件**：只有在以下情况发生时重新评估：
+  - HIFLY-001/SPK-018 Evidence 结果要求调整 ProviderTaskReference 必填性或 provider_existing 引用方式；
+  - Q-018 决定影响凭据边界；
+  - 需要支持一工单多主要视频 Work；
+  - manifest Schema 需要不兼容升级；
+  - Vertical Slice A 实施发现需要细化字段或状态（仍不得让人工绕过 ProductionOrder 或直设 succeeded）。

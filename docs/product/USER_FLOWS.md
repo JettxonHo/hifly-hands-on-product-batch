@@ -470,3 +470,29 @@ MVP 不提供自助邮件找回密码、邮件重置链接、短信验证码找�
 ```
 
 本节不得添加：公开注册、自助创建组织、邀请链接注册、手机验证码、企业微信 OAuth、邮件找回密码或多组织选择。
+
+## 14. Phase 1 人工交接包流（D-029）
+
+> **D-029 对齐**：权威合同为 [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md)。关键边界：生成/下载包 ≠ 开始执行；ManualExecutionReport completed ≠ ProductionOrder succeeded；候选产物核验失败不创建 Work；上游变化需新工单；requires_action ≠ failed。
+
+```text
+approved VideoPlan
+→ 创建 ProductionOrder
+→ GenerateManualHandoffPackage（ZIP：权威 manifest.json + 派生 README.md + 可选 assets/）
+→ 包 ready
+→ 下载交接包（≠ 开始执行）
+→ 执行者领取任务（Claim Manual Task，服务端重新验证工单与包状态）
+→ 创建 executor_type=manual 的 ExecutionAttempt（绑定 package_id/package_version/manifest_hash）
+→ 执行者确认开始 → attempt running
+→ 人工执行（不伪造 Agent/心跳/Adapter/Playwright/影刀/自动步骤/Provider 回调）
+→ 上传候选产物（candidate output ≠ Work）
+→ 提交不可变 ManualExecutionReport（outcome=completed/requires_action/failed/cancelled；
+   禁止人工提交 production_order_succeeded/work_created/provider_verified）
+→ 服务端候选产物核验（对象存在/组织归属/工单+attempt+report+package 匹配/manifest hash/类型/大小/checksum/主要产物数量/未重复登记）
+→ 核验通过 → 创建 Work → ProductionOrder succeeded（attempt succeeded ≠ 工单 succeeded）
+→ WorkInspection → DeliveryRecord
+```
+
+- **异常**：生成失败→工单不进入 running，可幂等重试或返回 VideoPlan；包授权过期→重签短时授权，内容未变不新建 package version；包 revoked→禁止开始新 manual attempt，已运行 attempt 需明确继续/停止/人工判断；上传失败→保留执行记录，不能提交最终 completed，可继续上传（幂等）；核验失败→不创建 Work，工单不 succeeded，显示处理入口。
+- **上游变化**：文案/人物/ProductRevision/VideoPlan/主要素材/purpose 变化必须新上游版本+新审核+新 ProductionOrder+新包+新 attempt；原工单明确继续/取消/失败/人工处理；**不得用新包为旧工单偷换输入，不得隐藏/删除/静默失效历史工单**。
+- **完成标准**：ProductionOrder 仅在候选产物核验通过且 Work 创建成功后 succeeded；所有 manual attempt、报告、候选产物核验、Work 与 DeliveryRecord 记录完整留痕。
