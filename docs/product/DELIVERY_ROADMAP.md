@@ -73,8 +73,8 @@ PUBLISH-001：发布管理与数据复盘
 - MVP ContentBrief 可选输入与默认生成行为：已由 D-022 决定（ContentBrief 无必填字段、可完全缺失、为空不阻止文案生成；目标平台和目标人群不进入 MVP 独立字段；默认表达风格「自然口语化种草」、默认种草角度策略（AI 基于已确认卖点选择）、默认收尾方式「自然收尾」已决定；期望口播长度仅为文案篇幅提示，不承诺成片时长）；Q-004 已由 D-025 解决并关闭；Q-019 其后已由 D-023 解决并关闭
 - MVP 文案质检、人工审核与批准门禁（Q-004）：已由 D-025 决定——分层规则权威顺序（已确认商品事实 → 平台强制规则 → 企业/品牌规则 → LLM 语义质检 → 人工业务确认）；自动质检四类结果 `invalid`/`blocked`/`needs_review`/`passed`；硬阻断不可被人工或管理员覆盖；确定性规则与 LLM 语义审查职责分离；人工审核状态独立于自动质检状态（`passed ≠ approved`）；版本化品类档案（不建设完整类目树、品类非生成必填）；文案/事实/ContentBrief/品类/规则变化后完整重检；只有当前有效 `approved` 才能进入 VideoPlan；Q-004 已关闭
 - 默认 LLM Provider 与模型（Q-019）：已由 D-023 决定——MVP 使用 DeepSeek 官方开放平台（官方 API Key、服务端管理、不使用第三方中转）；默认模型 `deepseek-v4-flash`；显式非思考模式；JSON Output 与服务端 Schema/事实校验；输出形态失败最多一次同模型受控重试，仍失败则任务失败、由用户手动重试；无自动模型或 Provider fallback；MVP 不启用 BYOK；Q-019 已关闭
-- 低保真页面结构（未完成）
-- 第一条垂直切片落地为开发范围（Vertical Slice A 已由 D-017 定型，具体 Issue 拆分未完成）
+- 低保真页面结构：已由 D-027 在产品规格层固化（Phase 1 六项导航、五阶段工作台、Vertical Slice A 完整页面流、状态/版本/失效/历史保留规则、业务界面与技术诊断边界、Phase 1/Phase 2 验收分界）；specification 完成，**不代表页面已经实现**。详见 [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md)
+- 第一条垂直切片落地为开发范围（Vertical Slice A 已由 D-017 定型，页面结构已由 D-027 固化，具体 Issue 拆分未完成）
 - Issue 拆分（未完成）
 - 腾讯云具体基础设施选型（Q-021）：已由 D-026 决定——Cloud Control Plane 与 Local Agent 分离；个人验证用 owner 已有 2C4G 测试服务器 + Docker Compose（只验证功能闭环与可靠性）；企业正式生产以腾讯云广州（`ap-guangzhou`）为主地域，采用 CloudBase Run API/Worker、TencentDB for PostgreSQL、COS（sensitive+content 私有桶）、PostgreSQL AsyncJob/Outbox、SSM/KMS/CAM/STS、CLS/APM/CloudAudit；企业正式预算 Pending Evidence，上线前重新容量评估；Q-021 已关闭。详见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)
 - 第一版企业登录方式（Q-022）：已由 D-024 决定——管理员预创建账号、工作邮箱和密码登录、首次登录强制修改临时密码、登录后自动进入唯一组织；无公众注册、无组织选择、无手机号或企业微信登录；Q-022 已关闭
@@ -82,7 +82,7 @@ PUBLISH-001：发布管理与数据复盘
 
 已在本轮关闭的 Phase 0 决策门禁：第一批目标用户（Q-001，D-014）、云端 Web 登录形态（Q-002，D-015）、单企业/单组织 MVP（Q-013，D-014/D-015）、垂直切片两层拆分（Q-016，D-017）、文案质检规则来源（Q-004，D-025）、腾讯云具体基础设施选型（Q-021，D-026）。
 
-**D-026 已固化后的 Phase 0 后续重点**：下一步进入低保真页面结构（本 PR 不制作低保真）；Vertical Slice A 具体 Issue 拆分仍未完成；HIFLY-001 Evidence 仍未完成；低保真仍未完成；**企业基础设施没有实际部署**，D-026 只在产品规格层固化方向与验收要求。Q-018（飞影 API Token 保管与调用位置）仍保持开放。
+**D-027 已固化后的 Phase 0 后续重点**：低保真页面结构 specification 已由 D-027 完成（本 PR 不实现页面代码）；下一步依据 [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md) 拆分 Vertical Slice A 开发 Issue 并进入 Phase 1 开发；HIFLY-001 Evidence 仍未完成（可并行推进）；**企业基础设施没有实际部署**（D-026 只在产品规格层固化方向与验收要求）。Q-018（飞影 API Token 保管与调用位置）仍保持开放。Phase 0 整体仍未完成；Phase 1 / Phase 2 未开发完成。
 
 **两阶段部署说明（D-026）**：个人开发与功能验收使用 2C4G Docker Compose，只验证功能闭环与可靠性，不验证生产容量/SLA/高可用；企业上线需重新容量评估、盘点企业已有腾讯云资源，并按 D-026 部署正式环境（含上线前技术验证清单与恢复演练）。Phase 0 整体仍未完成。
 
