@@ -10,7 +10,7 @@
 
 ## 一、总体分层
 
-第一版是 Cloud-first 的云端 Web Control Plane，默认部署目标为腾讯云（Tencent Cloud first，不是 Tencent Cloud only，D-015）；腾讯云部署**不代表领域层绑定腾讯云**，Database、ObjectStorage、Queue、SecretStore 使用基础设施抽象（具体服务待 Q-021）。
+第一版是 Cloud-first 的云端 Web Control Plane，默认部署目标为腾讯云（Tencent Cloud first，不是 Tencent Cloud only，D-015）；腾讯云部署**不代表领域层绑定腾讯云**，Database、ObjectStorage、TaskQueue、SecretStore、LogSink 使用基础设施抽象；具体腾讯云服务已由 D-026 确定（详见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)）。
 
 ```text
 腾讯云部署目标
