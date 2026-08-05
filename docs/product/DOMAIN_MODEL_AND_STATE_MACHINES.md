@@ -212,7 +212,17 @@ CreateProductionOrder 门禁：VideoPlanVersion 是当前有效版本；PlanRevi
 
 ## 17. ManualHandoffPackage
 
-人工交接包必须：绑定精确 ProductionOrder；绑定精确 VideoPlanVersion；绑定输入快照；具有版本；具有幂等生成边界；保留创建人和时间；不自动代表执行成功。**人工交接包不是绕过 ProductionOrder 的独立业务路径。** 具体包格式、字段合同和回传协议留给下一项「人工交接包合同设计」，D-028 不提前固定 JSON、ZIP 或其他文件格式。
+人工交接包必须：绑定精确 ProductionOrder；绑定精确 VideoPlanVersion；绑定输入快照；具有版本；具有幂等生成边界；保留创建人和时间；不自动代表执行成功。**人工交接包不是绕过 ProductionOrder 的独立业务路径。**
+
+包格式、字段合同、生命周期、素材引用、manual ExecutionAttempt 开始条件、候选产物核验与 Work 创建门禁、证据/幂等/安全边界由 **D-029** 正式固化，权威 Specification 为 [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md)。关键口径（D-029）：ZIP 含权威 `manifest.json` + 派生 `README.md` + 可选 `assets/`；区分合同 Schema 版本与业务 `package_version`（不可变，manual ExecutionAttempt 绑定 package_id+package_version+manifest_hash）；生成/下载包 ≠ 开始执行；执行者领取并确认开始时创建 `executor_type=manual` 的 ExecutionAttempt；人工结果用不可变 ManualExecutionReport（见 §17b）；候选产物核验通过且 Work 创建成功后 ProductionOrder 才能 succeeded。
+
+### 17b. ManualExecutionReport（D-029）
+
+ManualExecutionReport 是绑定一个 ExecutionAttempt 的**不可变**人工结果记录：不覆盖 ExecutionAttempt；不直接设置 ProductionOrder 最终状态；可通过新 report_version 或 `supersedes_report_id` 修正，但旧报告保留。`outcome`：`completed` / `requires_action` / `failed` / `cancelled`；**禁止人工提交 `production_order_succeeded` / `work_created` / `provider_verified`**。`deviations` 记录执行偏差，核心输入偏差不得自动创建 Work。输出引用含 `checksum`，本地绝对路径不得成为云端权威引用。
+
+结果转换：`completed` → ExecutionAttempt succeeded → 候选产物核验 → 创建 Work → ProductionOrder succeeded（**ExecutionAttempt succeeded ≠ ProductionOrder succeeded**）；`requires_action`（≠ failed）需真实恢复检查；`failed` 按错误类别决定工单是否 failed；`cancelled` 配合 `cancel_requested`。
+
+幂等：`report_id + payload_hash` 相同返回原结果；`report_id` 同 payload 不同拒绝并记冲突；修正用新 report_version 或 supersedes_report_id，不覆盖旧报告。详见 [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md)（D-029）。
 
 ## 18. AsyncJob
 
