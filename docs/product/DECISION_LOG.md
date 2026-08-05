@@ -569,3 +569,54 @@
   - 需要更复杂的多维度评分与权重策略（仍不得抵消事实硬阻断）；
   - LLM Provider 能力变化需要调整语义质检维度；
   - Phase 4 企业治理要求完整 RBAC 与审计。
+
+## D-026 MVP 云基础设施与两阶段部署策略
+
+- **日期**：2026-08-05
+- **背景（Context）**：D-015 已确定 Cloud-first Web 产品（默认部署腾讯云），但具体云基础设施选型仍为开放问题 Q-021（数据库、对象存储、队列、SecretStore、日志监控、备份、环境划分、成本预算均未决定）；D-019/D-020/D-023 已确定文案为 SaaS 自有能力、DeepSeek 为平台默认 LLM Provider、Secret 遵守安全底线；D-014/D-015 已确定企业内部、单企业单组织、Cloud-first。D-026 负责关闭 Q-021：在产品规格层固化云基础设施方向、区分个人验证环境与企业正式生产环境、明确计算/数据库/存储/任务/Secret/观测/备份边界。详细 Specification 见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)。D-026 不代表任何云资源已经部署，也不固定企业最终实例规格、预算、域名或已有资源；Q-018（飞影 API Token 保管与调用位置）不在本 Decision 范围，保持开放。
+- **决策**：
+  1. **Cloud Control Plane 与 Local Agent 分离**：腾讯云负责云端控制面；Local Agent 负责需要本地文件、浏览器登录态、长时间自动化和人工接管的执行；领域层不绑定腾讯云，Database/ObjectStorage/TaskQueue/SecretStore/LogStore 等通过基础设施抽象接入。
+  2. **模块化单体 + API/Worker 双部署单元**：MVP 使用模块化单体而非微服务系统；API 与异步 Worker 是两个独立部署单元；不建设 Kubernetes、服务网格或复杂分布式基础设施；长时间 Playwright、视频编码和本地大模型不得运行在 Web/API 请求生命周期。
+  3. **个人 2C4G 验证环境**：使用 owner 已有 2 核 4 GB 测试服务器 + 单机 Docker Compose，单 API 实例、单 Worker（并发 1）、PostgreSQL、反向代理；只验证功能闭环、持久化、任务恢复、幂等与 Local Agent 协议；不承担生产 SLA、高可用、并发容量或灾备验收；测试通过不代表生产规格达标。
+  4. **企业正式环境以腾讯云广州为主地域**（`ap-guangzhou`）：生产资源尽量同地域、同 VPC；PostgreSQL 不开放公网；staging 与 production 完全隔离。
+  5. **CloudBase Run API + Worker**：`hifly-web-api` 与 `hifly-async-worker` 两个独立容器服务；API 处理同步请求/身份/事务/任务创建/状态查询，创建 AsyncJob 后返回 job_id；Worker 处理文案生成、LLM 语义质检、批量任务与状态推进；核心业务不依赖 CloudBase 专有身份/数据库/领域 SDK；TKE 不进入 MVP；Lighthouse/CVM 为开发或回退方案；CloudBase Run 具体限制需部署前验证。
+  6. **TencentDB for PostgreSQL 为唯一权威关系型业务数据库**：production 使用托管高可用主实例；核心业务字段用关系型列/外键/约束，仅弹性 finding/规则快照/证据引用/Provider 摘要存 JSONB；Schema 变更走版本化 Migration；禁止启动时自动执行不可逆生产 Migration；最小权限账号、受限连接池；MVP 不建分库分表/读写分离/跨地域双活。
+  7. **Tencent Cloud COS 对象存储**：至少划分 sensitive（数字人原始照片/视频、声音克隆源文件、授权证明等可识别个人身份源素材）与 content（商品图片、业务附件、中间产物、正式输出、缩略图、失败证据）两类私有桶；默认私有读写，浏览器经业务 API 获取短时最小权限上传/下载授权；不保存永久公开 URL，永久 SecretId/SecretKey 不进入浏览器；API 必须在前端报告完成后重新核验对象；对象键用内部 ID；加密敏感桶优先 SSE-KMS、内容桶默认 SSE-COS，SSE-KMS 地域/费用需部署前验证。
+  8. **PostgreSQL AsyncJob / Transactional Outbox**：MVP 不单独采购消息队列；API 在同一数据库事务提交业务变更与 AsyncJob；Worker 用 `FOR UPDATE SKIP LOCKED` 领取，租约+心跳+过期恢复；交付语义 at-least-once，不宣称 exactly-once；每种任务用稳定 idempotency key；只对瞬时技术故障有限重试，blocked/事实不足/权限失败/Schema 错误不自动重试（D-023 LLM 输出形态失败仍最多一次同配置受控重试）；Worker 初始常驻单副本（min=max=1）。
+  9. **SSM + KMS + CAM + STS**：SSM 保存数据库密码/DeepSeek API Key/签名密钥等服务端凭据；KMS 保护密钥；CAM 最小权限；STS 浏览器 COS 直传/下载短期凭证；API/Worker/部署/运维身份分离；Secret 不进 Git/镜像/前端/数据库/日志；日志只记 secret_name/secret_version/access_result；CloudBase Run 服务角色访问 SSM/COS/KMS 需部署前验证；凭据支持版本化/轮换/吊销/审计。
+  10. **CLS / APM / CloudAudit / PostgreSQL AuditEvent**：应用日志→CLS（结构化 JSON，request_id/trace_id/job_id 关联）；云资源指标→腾讯云可观测平台；调用链→APM/OpenTelemetry；业务审计→PostgreSQL AuditEvent；账号资源操作→CloudAudit；不记录密码/Token/Cookie/完整预签名 URL/完整 Prompt/Response/文案正文/原始照片/声音/授权材料；保留期可在预算核算时调整但不能删业务审计降费。
+  11. **备份与恢复**：数据库 RPO≤30 分钟、RTO≤4 小时、应用发布故障 30 分钟内回滚（产品目标，非已取得 SLA，需上线前演练验证）；PostgreSQL 每日全量+日志备份+PITR，常规 30 天、月度 12 个月，恢复优先克隆到新实例验证后切换；COS 开版本控制，MVP 暂不默认跨地域复制；首次上线前及每季度做恢复演练，禁止把生产敏感数据复制到普通 staging。
+  12. **正式月度预算 Pending Evidence**：个人阶段只用已有 2C4G；企业生产规格需根据真实负载和既有资源确定；采购前必须盘点企业已有腾讯云资源并判断是否位于广州、是否属于其他项目、能否隔离 staging/production、能否用独立数据库凭据、是否有未知历史配置、是否满足安全与备案要求。
+  13. **Q-018 保持开放**：采用 SSM 不等于授权上传 Hifly Token；Q-018 决定前 Hifly Token 不进入既定云端 Secret 清单、不默认进入 CloudBase Run、不从 Local Agent 迁移至云端。
+  14. **不把产品主链路绑定 Windows 或低代码 RPA**：Playwright 仍是核心浏览器自动化路径；影刀（Yingdao）仍是可选 Adapter，需独立 Evidence，不在 D-026 做最终工具迁移决策。
+  15. **Q-021 由 D-026 正式解决并关闭。** D-026 只固化架构方向、环境边界和后续部署验收要求，不代表任何云资源已经部署，也不固定数据库、ORM、API、Migration 或前端组件实现。
+- **影响（Consequences）**：
+  - 个人验证在 2C4G Docker Compose 上进行，企业正式生产在广州按 D-026 架构落地；
+  - 模块化单体 + CloudBase Run API/Worker 双部署单元成为 MVP 计算基线；
+  - PostgreSQL 成为唯一权威关系型业务数据库，AsyncJob/Outbox 成为 MVP 任务机制，不采购 RabbitMQ；
+  - COS 承担大文件与媒体，PostgreSQL 不存大文件；
+  - Q-021 从 Phase 0 剩余门禁中移除并关闭；
+  - 企业正式预算、最终实例规格、域名、固定出口 IP、跨地域复制、RabbitMQ 升级时机保持 Pending Evidence / 待决；
+  - Q-018 继续保持 OPEN；Hifly Token 不默认进入云端；
+  - 详细 Specification 在 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)；
+  - 下一步进入低保真页面结构（本 Decision 不制作低保真）；
+  - 本 Decision 不代表云资源已经部署。
+- **被否决或暂缓方案**：
+  - 个人阶段提前购买整套企业生产基础设施；
+  - 将 2C4G 直接作为企业正式生产规格；
+  - MVP 使用 Kubernetes；
+  - MVP 拆分大量微服务（auth-service/product-service/copy-service 等）；
+  - MVP 一开始采购 RabbitMQ；
+  - 把大文件保存进 PostgreSQL；
+  - 将长期 Secret 暴露给浏览器；
+  - 默认把 Hifly Token 上传云端；
+  - 在 Cloud Web 请求进程运行长 Playwright；
+  - 将正式预算在缺乏企业资源证据时拍脑袋固定；
+  - 将本 Decision 描述为已完成部署。
+- **可重新评估条件**：只有在以下情况发生时重新评估：
+  - 企业已有腾讯云资源盘点结果要求调整主地域或计算服务；
+  - CloudBase Run 部署前验证发现不支持服务角色访问 SSM/COS/KMS，或限制不可接受；
+  - Worker 消费者数量或 PostgreSQL 轮询压力达到 RabbitMQ 升级条件；
+  - 企业容量/SLA/风险要求提高，需要跨地域复制或更高规格；
+  - Q-018 决定影响云端 Secret 清单与执行位置；
+  - 企业安全/备案/合规要求变化。

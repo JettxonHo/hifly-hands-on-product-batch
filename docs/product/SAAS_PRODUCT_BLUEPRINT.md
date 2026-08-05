@@ -282,9 +282,19 @@ Provider Adapter
 
 第一版产品是可以通过浏览器访问的 Cloud-first Web Control Plane，默认部署目标为腾讯云（Tencent Cloud first，不是 Tencent Cloud only）。产品属于企业内部 AI 数字人内容生产平台，第一批服务企业内部的电商运营、内容生产、内容审核和管理团队，不是面向公众自助购买的通用消费者 SaaS。第一版先做单企业/单组织云端 MVP，但领域模型保留 Organization 边界。
 
-- 业务领域模型不得依赖具体腾讯云产品名称；Database、ObjectStorage、Queue、SecretStore 使用基础设施抽象；腾讯云只作为第一版默认部署实现（具体服务待 Q-021）。
+- 业务领域模型不得依赖具体腾讯云产品名称；Database、ObjectStorage、Queue、SecretStore 使用基础设施抽象；腾讯云只作为第一版默认部署实现（具体服务已由 D-026 决定，详见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)）。
 - **不建设支付、套餐、订阅、账单、充值、余额、优惠券、续费、面向客户的自动计费**；保留企业内部任务用量、Provider 消耗、LLM 调用量、成本估算、内部预算和限额、成员使用情况、审计日志、异常消耗告警（D-016）。
 - 正式决策记录为 [DECISION_LOG.md](DECISION_LOG.md) 的 D-014 / D-015 / D-016。
+
+**MVP 基础设施与环境（D-026）**：
+
+- Cloud-first + 模块化单体；API 与异步 Worker 为两个独立部署单元；
+- **个人开发与功能验收环境**：使用 owner 已有 2C4G 测试服务器 + Docker Compose（单 API、单 Worker 并发 1、PostgreSQL、反向代理），只验证功能闭环、持久化、任务恢复、幂等与 Local Agent 协议；**不验证生产容量、SLA 或高可用**；
+- **企业正式生产环境**：主地域腾讯云广州（`ap-guangzhou`）；CloudBase Run API + Worker；TencentDB for PostgreSQL（唯一权威关系型业务库）；COS（sensitive + content 私有桶，大文件进 COS 不进 PostgreSQL）；PostgreSQL AsyncJob / Transactional Outbox（MVP 不采购 RabbitMQ、不用 Kubernetes）；SSM/KMS/CAM/STS；CLS/APM/CloudAudit；自动备份、PITR、对象版本控制与恢复演练；
+- 长时间 Playwright、视频编码和本地大模型不在 Web/API 请求进程运行，由 Local Agent 承担；
+- 企业正式月度预算与最终实例规格保持 **Pending Evidence**，上线前必须重新执行容量与资源评估、盘点企业已有腾讯云资源；
+- Q-018（飞影 API Token 保管与调用位置）仍保持开放；Hifly Token 不默认进入云端；
+- D-026 只固化架构方向、环境边界和后续部署验收要求，**不代表任何云资源已经部署**；下一步进入低保真页面结构（本 Decision 不制作低保真）。
 
 ### 原则 9：人物步骤「创建新人物或选择现有人物」
 

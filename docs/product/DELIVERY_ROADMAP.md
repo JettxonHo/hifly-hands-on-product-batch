@@ -55,7 +55,7 @@ PUBLISH-001：发布管理与数据复盘
 - Provider Evidence（飞影能力证据台账 [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md)）
 - 第一条垂直切片
 - Issue 拆分
-- 腾讯云选型问题清单（Q-021）
+- 腾讯云选型问题清单（Q-021，已由 D-026 解决并关闭）
 - 默认 LLM 问题清单（Q-019，已由 D-023 解决）
 - 第一版企业登录方式问题清单（Q-022，已由 D-024 解决）
 
@@ -76,11 +76,15 @@ PUBLISH-001：发布管理与数据复盘
 - 低保真页面结构（未完成）
 - 第一条垂直切片落地为开发范围（Vertical Slice A 已由 D-017 定型，具体 Issue 拆分未完成）
 - Issue 拆分（未完成）
-- 腾讯云具体基础设施选型（Q-021，未决定）
+- 腾讯云具体基础设施选型（Q-021）：已由 D-026 决定——Cloud Control Plane 与 Local Agent 分离；个人验证用 owner 已有 2C4G 测试服务器 + Docker Compose（只验证功能闭环与可靠性）；企业正式生产以腾讯云广州（`ap-guangzhou`）为主地域，采用 CloudBase Run API/Worker、TencentDB for PostgreSQL、COS（sensitive+content 私有桶）、PostgreSQL AsyncJob/Outbox、SSM/KMS/CAM/STS、CLS/APM/CloudAudit；企业正式预算 Pending Evidence，上线前重新容量评估；Q-021 已关闭。详见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)
 - 第一版企业登录方式（Q-022）：已由 D-024 决定——管理员预创建账号、工作邮箱和密码登录、首次登录强制修改临时密码、登录后自动进入唯一组织；无公众注册、无组织选择、无手机号或企业微信登录；Q-022 已关闭
 - Hifly 账号权限与真实调用调研（HIFLY-001，未完成）
 
-已在本轮关闭的 Phase 0 决策门禁：第一批目标用户（Q-001，D-014）、云端 Web 登录形态（Q-002，D-015）、单企业/单组织 MVP（Q-013，D-014/D-015）、垂直切片两层拆分（Q-016，D-017）、文案质检规则来源（Q-004，D-025）。
+已在本轮关闭的 Phase 0 决策门禁：第一批目标用户（Q-001，D-014）、云端 Web 登录形态（Q-002，D-015）、单企业/单组织 MVP（Q-013，D-014/D-015）、垂直切片两层拆分（Q-016，D-017）、文案质检规则来源（Q-004，D-025）、腾讯云具体基础设施选型（Q-021，D-026）。
+
+**D-026 已固化后的 Phase 0 后续重点**：下一步进入低保真页面结构（本 PR 不制作低保真）；Vertical Slice A 具体 Issue 拆分仍未完成；HIFLY-001 Evidence 仍未完成；低保真仍未完成；**企业基础设施没有实际部署**，D-026 只在产品规格层固化方向与验收要求。Q-018（飞影 API Token 保管与调用位置）仍保持开放。
+
+**两阶段部署说明（D-026）**：个人开发与功能验收使用 2C4G Docker Compose，只验证功能闭环与可靠性，不验证生产容量/SLA/高可用；企业上线需重新容量评估、盘点企业已有腾讯云资源，并按 D-026 部署正式环境（含上线前技术验证清单与恢复演练）。Phase 0 整体仍未完成。
 
 ### Phase 1：Cloud Web MVP 骨架
 
