@@ -659,3 +659,50 @@
   - 企业要求多组织、完整 RBAC、套餐账单或客户门户；
   - 出现需要模板中心、声音中心、背景场景编辑器或在线视频编辑的明确业务需求；
   - Q-018 决定影响 Local Agent / Token 前端边界。
+
+## D-028 核心领域模型与状态机契约
+
+- **日期**：2026-08-05
+- **状态**：Confirmed
+- **背景（Context）**：D-021/D-022/D-023 已确定商品事实门禁、可选 ContentBrief 与生成契约；D-025 已确定文案质检/人工批准门禁与版本失效语义；D-026 已确定基础设施抽象与部署边界；D-027 已确定低保真页面结构与交互边界（含 passed≠approved、ProductionOrder→人工交接包绑定、Work≠DeliveryRecord、失效与历史保留口径）。但核心领域对象的关系、不可变版本、状态机、失效传播、并发、幂等与事务边界尚未在产品规格层统一固化，存在用单一 status 承载全部含义、前端直写终态、人工交接绕过 ProductionOrder、ProductionOrder succeeded 早于 Work 创建、revoked Review 恢复等风险。D-028 将 D-025/D-027 的业务门禁转化为一致的领域对象关系与状态机契约，为后续数据库、API 与 Vertical Slice A Issue 拆分提供领域依据。详细 Specification 见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)。D-028 是产品与领域合同，**不代表数据库、Schema、Migration、API、状态机代码、Local Agent 或 Hifly 自动执行已经实现**，不关闭 Q-018，不声称 HIFLY-001 或 SPK-018 已执行，不改写 D-025/D-026/D-027 的历史内容。
+- **决策**：
+  1. **建模原则**：不使用单一 status 承载全部含义（文案区分 CopyVersion 生命周期 / QualityRun 技术状态 / QualityResult 业务结论 / HumanReview / 当前业务可用性投影；VideoPlan 区分 VideoPlanVersion / PreflightRun / PreflightResult / PlanReview / 可用性投影；生产区分 ProductionOrder / ExecutionAttempt / 产物核验 / WorkInspection / DeliveryRecord）；已进入审核或生产引用的对象不可原地覆盖；当前有效不等于历史不存在（不得仅靠 is_active 表达全部关系）；前端只提交业务命令，最终状态由服务端重新验证门禁后决定（前端不得直接写 approved/succeeded/online/passed/cancelled）。
+  2. **领域边界与对象关系**：Organization & Identity、Project Content（Product/ProductRevision/ProductFact/ContentBrief/Asset/AssetVersion/AssetReference）、Copy Quality（CopyVersion/QualityRun/QualityResult/QualityFinding/HumanReview）、Video Planning（AvatarAsset/AvatarSelection/VideoPlanVersion/PreflightRun/PreflightResult/PlanReview）、Production（ProductionOrder/ExecutionAttempt/ProviderTaskReference/ManualHandoffPackage/AsyncJob）、Output & Delivery（Work/WorkInspection/DeliveryRecord）、Execution Environment（LocalAgent/AgentCredential/ProviderConnection/AgentCapabilitySnapshot）；总体关系 Organization→Project→Product→{ProductRevision→CopyVersion→{Quality*/HumanReview}, AvatarSelection→VideoPlanVersion→{Preflight*/PlanReview→ProductionOrder→{ExecutionAttempt/ManualHandoffPackage/Work→{WorkInspection/DeliveryRecord}}}}。
+  3. **ProductRevision（DM-001）**：使用相关商品事实变化后的完整不可变快照，不采用逐字段事件回放作为 MVP 权威模型；生命周期 draft/ready/superseded；draft→ready 需满足 D-021 最低门禁并稳定保存。
+  4. **Asset/AssetVersion**：Asset 长期身份（active/disabled/deleted，deleted 需无历史引用且符合保留政策，停用≠删除）；AssetVersion 核验状态 upload_pending/uploading/verifying/available/verification_failed/unavailable，**上传完成 ≠ available**，仅服务端核验成功才 available；人物资产附加 authorization_status 与 capability_status。
+  5. **CopyVersion**：只描述版本生命周期（draft/frozen/superseded），不承担 QC/审核状态；任何正文变化必须创建新版本；对 frozen 版本的人工修改/AI 改写/复制历史均创建新 draft。
+  6. **QualityRun/QualityResult/QualityFinding**：QualityRun 为技术执行记录（queued/running/succeeded/failed/cancelled），QualityRun 状态 ≠ QualityResult；QualityResult 为不可变业务结论（invalid/blocked/needs_review/passed），遵守 D-025（QC passed≠文案 approved，invalid/blocked 不可人工或管理员绕过）；QualityFinding 不可删除/篡改，needs_review 逐项处理（unresolved/accepted_with_reason/change_requested/returned_to_facts/superseded）。
+  7. **文案 HumanReview（DM-005）**：独立不可变审核记录（not_submitted/pending/approved/changes_requested/revoked）；提交与批准均需服务端再次验证门禁；本人审核记录 review_mode=self_review；**revoked Review 不得原地恢复为 approved，再次批准必须创建新 Review 并重新验证门禁**。
+  8. **文案业务可用性**：「文案可进入新 VideoPlan」是服务端计算结果，非前端可写字段；依据 CopyVersion 未 superseded + 有效 QualityResult + 当前有效 approved HumanReview + ProductRevision/QC Profile 匹配。
+  9. **AvatarSelection**：draft/confirmed/superseded；确认需文案 approved 有效 + AssetVersion 可用 + 授权有效 + Evidence 支持能力 + 组织有权 + 必要素材可访问；更换人物创建新选择并保留旧选择，不静默修改既有 VideoPlan。
+  10. **VideoPlanVersion**：不可变版本（draft/frozen/superseded），固定引用 ProductRevision/CopyVersion/AvatarSelection/能力配置快照/输出说明/创建人时间/父版本；商品/文案/人物不得在 VideoPlan 内原地覆盖。
+  11. **PreflightRun/PreflightResult**：PreflightRun 技术记录（≠ PreflightResult）；PreflightResult 业务结论 not_run/passed/warning/blocked/invalidated，区分 upstream_validity/plan_completeness/production_readiness；上游无效/授权失效/配置缺失为 hard block；Local Agent 离线属 production readiness 提醒；**Preflight passed ≠ VideoPlan approved**；production readiness 不满足仍可审核、可创建 waiting_for_executor 工单、可生成人工交接包。
+  12. **PlanReview**：独立审核记录（not_submitted/pending/approved/changes_requested/revoked）；提交需 VideoPlanVersion frozen + Preflight passed/允许审核的 warning + 无 hard block + CopyVersion approved 有效 + Avatar 授权能力有效 + 未 superseded；创建 ProductionOrder 前必须再次验证 PlanReview；撤销后再次批准需新 PlanReview。
+  13. **ProductionOrder**：状态 draft/ready/waiting_for_executor/claimed/running/requires_action/succeeded/failed/cancel_requested/cancelled；CreateProductionOrder 需 VideoPlanVersion 当前有效 + PlanReview 当前有效 approved + Preflight 未失效 + 输入引用完整 + 无等价幂等工单 + 权限 + 业务目的；**Provider 页面「完成」≠ succeeded**；succeeded 必须产物核验成功（对象存在/类型大小/组织归属/追踪关系）且 Work 创建成功。
+  14. **ExecutionAttempt（DM-003/DM-004）**：一个 ProductionOrder 可有多个 ExecutionAttempt（created/claimed/running/requires_action/succeeded/failed/cancel_requested/cancelled/timed_out/superseded）；每次技术重试或执行器切换创建新 attempt，Playwright 切影刀不得无痕继续原 attempt；attempt succeeded ≠ ProductionOrder succeeded，报告产物后仍需云端核验；重复回调幂等，乱序回调不倒退状态；**人工执行同样创建 ExecutionAttempt（executor_type=manual），不伪造 Agent 心跳/Adapter/Playwright/影刀/自动化步骤/Provider 技术状态（DM-003）**；同一 VideoPlan 可因明确业务目的（first_production/rework/supplemental_version/reproduction）重复生产，但每次新 ProductionOrder，不得由重复点击自动产生（DM-004）。
+  15. **ManualHandoffPackage**：必须绑定精确 ProductionOrder + VideoPlanVersion + 输入快照，具版本与幂等生成边界，保留创建人时间，不自动代表执行成功；**不是绕过 ProductionOrder 的独立业务路径**；具体格式/回传协议留给下一项合同设计，D-028 不提前固定。
+  16. **AsyncJob**：用于文案生成/AI 改写/QC/Preflight/素材核验/产物核验等云端异步工作（queued/running/succeeded/failed/cancelled/timed_out）；AsyncJob 状态 ≠ 业务结论（QualityRun succeeded 可产生 QualityResult blocked）；业务阻断不无限技术重试，Worker 重启可恢复，领取经 lease+幂等保护；不进入全局视频生产任务主表。
+  17. **Work**：已正式核验登记的作品（available/unavailable/withdrawn），固定引用 ProductionOrder/成功 ExecutionAttempt/VideoPlanVersion/CopyVersion/Avatar AssetVersion/文件 AssetVersion/配置快照/创建时间；不因后续变化被改写；不直接使用待检查/可交付/需要返工/已交付（属 WorkInspection 与 DeliveryRecord）。
+  18. **WorkInspection**：pending/passed/rework_required/superseded；要求返工需记录分类/原因/检查人/时间/返回上游阶段/后续工单或 Work 关系；原记录不可覆盖，重新检查创建新 WorkInspection。
+  19. **DeliveryRecord（DM-002）**：交付业务事件而非 Work 状态；**一个 Work 可有多条 DeliveryRecord**，页面「已交付」由至少一条有效 DeliveryRecord 计算；重新交付/补发创建新记录不覆盖原记录；**Work ≠ DeliveryRecord**。
+  20. **LocalAgent**：区分连接状态（pairing/online/offline/revoked）与业务可用状态（unconfigured/available/busy/requires_action/incompatible/disabled）；在线 ≠ 业务可用；前端不得直接将 Agent 改为 online。
+  21. **ProviderConnection（Q-018 不变）**：状态 not_configured/unknown/available/requires_login/requires_verification/unavailable/revoked；**不保存 Hifly 网页 Secret（不保存用户名/密码/Cookie/LocalStorage/浏览器 Profile/Hifly Token 明文/验证码/未脱敏页面数据）**；只保存组织/Agent/Provider 类型/状态摘要/最近验证时间/已验证能力摘要/脱敏账号引用/Evidence 版本；**Q-018 继续保持 Pending Evidence / Open，D-028 不关闭 Q-018，不声称 SPK-018 已完成**。
+  22. **失效传播（§24 矩阵）**：只有相关权威快照变化才传播失效；商品名称/已确认卖点变化撤销文案批准与 PlanReview 但保留历史工单；商品图片仅当参与当前输入时才触发；ContentBrief 变化撤销文案批准与相关方案；QC Profile/规则仅适用当前文案的变化才触发；创建新 CopyVersion 需新 QC/Review 不继承旧批准；更换人物创建新 VideoPlanVersion 并 revoked 原 PlanReview；人物授权失效不修改历史文案但当前方案失效；Local Agent 离线不影响文案/VideoPlan/PlanReview，工单保持 waiting_for_executor；Provider 登录失效不撤销方案审核，自动执行进入 requires_action；非生产元数据变化不触发失效；已有 ProductionOrder/ExecutionAttempt/Work 永远保留生产快照。
+  23. **并发/幂等/事务（§25/§26）**：可编辑对象用乐观并发控制（revision_number/row_version/ETag），冲突拒绝静默覆盖，frozen 版本不允许继续覆盖编辑；关键操作用幂等键/唯一约束；创建异步任务、批准文案、批准 VideoPlan、创建 ProductionOrder、创建 Work 均在单一数据库事务中完成；**禁止先将 ProductionOrder 标记 succeeded 再创建 Work**。
+- **影响（Consequences）**：
+  - 核心领域对象关系、不可变版本、状态机、失效传播、并发/幂等/事务边界在产品规格层统一，单一 status 不再承载全部含义；
+  - D-025/D-027 的业务门禁有了与之一致的领域投影；前端只发命令，终态由服务端验证；
+  - ProductionOrder/ExecutionAttempt/Work/DeliveryRecord 关系清晰，人工执行走 manual ExecutionAttempt，人工交接包绑定 ProductionOrder，succeeded 必须核验+Work；
+  - 失效保留历史，已有工单/作品快照不被改写；
+  - 「核心对象状态机与领域关系」可标记为 specification/产品决策完成（不代表实现）；
+  - 下一步：ProductionOrder 人工交接包合同、Vertical Slice A Issue 拆分原则与 DoD、HIFLY-001/SPK-018 并行 Evidence；
+  - Q-018 继续保持 Pending Evidence / Open；HIFLY-001 尚未实际执行；
+  - 详细 Specification 在 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)；
+  - 本 Decision 不代表数据库、API、状态机代码或 Local Agent 已经实现。
+- **非目标**：不固定数据库表名/字段名、ORM、API 路径、JSON Schema、事件总线产品、前端状态管理、状态机代码库、密码策略、文件大小限制、Hifly 页面状态映射、Playwright/影刀最终职责、Provider 官方 API、Hifly Token 保管实现、ManualHandoffPackage 文件格式、完整 RBAC、高保真 UI；不关闭 Q-018；不声称 HIFLY-001/SPK-018 已执行；不改写历史决策。
+- **可重新评估条件**：只有在以下情况发生时重新评估：
+  - HIFLY-001/SPK-018 Evidence 结果要求调整 ProviderConnection/LocalAgent 状态或凭据边界；
+  - Q-018 决定影响 Token 保管与调用位置；
+  - Vertical Slice A 实施发现状态机需要细化或合并（仍不得用单一 status 承载全部含义）；
+  - 人工交接包合同设计要求扩展 ManualHandoffPackage 领域边界；
+  - 多 Agent 调度或 Phase 2 真实执行要求扩展 ExecutionAttempt。

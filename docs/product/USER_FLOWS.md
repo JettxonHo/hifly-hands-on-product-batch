@@ -312,40 +312,46 @@ ContentBrief 为空不属于错误，不得阻止文案生成。
 
 ## 8. 视频方案审核
 
+> **D-028 对齐**：approved VideoPlan 依赖有效 Preflight（PreflightResult 为 passed 或允许审核的 warning）与独立 PlanReview 记录；**Preflight passed ≠ VideoPlan approved**。详见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)（D-028）。
+
 - **角色**：内容审核人（审核）、电商运营（修改）
-- **前置条件**：方案已创建且文案为 approved
+- **前置条件**：VideoPlanVersion 已 frozen，PreflightResult 允许审核，CopyVersion approved 仍有效，Avatar 授权与能力有效
 - **主路径**：
-  1. 审核人预览方案全部输入（文案/人物/声音/背景/比例/时长）；
-  2. 批准 → 方案进入 approved，可排入生产；或退回并附意见；
-  3. 运营按意见修改（换人物/文案；声音/背景仅在对应视频类型的 Provider capability 已验证支持时可换）后重新提交；
-  4. 批准后的方案经 Preflight 排入生产。
-- **异常路径**：资产授权缺失或不可用 → 审核界面明确标注，不允许批准；方案版本变更 → 保留版本记录，审核针对具体版本。
-- **完成标准**：方案达到 approved 状态，全部输入满足 Preflight。
+  1. 审核人预览方案全部输入（文案/人物/声音/背景/比例/时长）与 PreflightResult；
+  2. ApprovePlan → PlanReview approved；或 RequestPlanChanges → changes_requested 并附意见；
+  3. 运营按意见修改（换人物/文案；声音/背景仅在对应视频类型的 Provider capability 已验证支持时可换）→ 创建新 VideoPlanVersion → 重新 Preflight → 重新提交审核（旧 PlanReview 不恢复）；
+  4. 当前有效 approved VideoPlan 才能创建 ProductionOrder。
+- **异常路径**：资产授权缺失或不可用 → hard block，不允许批准；方案版本变更 → 保留版本记录，审核针对具体 VideoPlanVersion；上游变化 → PlanReview revoked。
+- **完成标准**：方案达到当前有效 approved PlanReview，全部输入满足门禁。
 
 ## 9. 生产失败人工处理
 
+> **D-028 对齐**：ProductionOrder 与 ExecutionAttempt 分离；`requires_action ≠ failed`，`waiting_for_executor ≠ failed`；人工执行同样创建 `executor_type = manual` 的 ExecutionAttempt（DM-003）；`ProductionOrder succeeded` 仅在产物核验与 Work 创建成功后成立。详见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)（D-028）。
+
 - **角色**：电商运营（处理）、技术/本地执行器管理员（执行器问题）
-- **前置条件**：存在 needs_attention/failed 任务
+- **前置条件**：存在 requires_action/failed 的 ProductionOrder 或 ExecutionAttempt
 - **主路径**：
-  1. 在任务详情查看失败原因、重试次数、截图证据、执行日志、Provider 任务 ID；
-  2. 按原因处理：素材问题 → 修复素材后重试；方案问题 → 退回上一阶段；执行器问题 → 交给执行器管理员；
-  3. 重试或取消任务；
-  4. 处理结果回写看板。
-- **异常路径**：需要人工接管（验证码/弹窗） → 系统发出人工接管请求，处理完成后继续；证据缺失 → 明确标注证据不足，不臆断原因。
-- **完成标准**：每个失败任务要么恢复生产、要么取消并留痕，不遗留无状态任务。
+  1. 在任务详情查看失败原因、重试次数、ExecutionAttempt 历史、脱敏证据、Provider 任务 ID；
+  2. 按原因处理：素材问题 → 修复素材后重试（创建新 ExecutionAttempt）；方案问题 → 退回上一阶段创建新版本/新工单；执行器问题 → 交给执行器管理员；需人工接管（验证码/弹窗）→ 人工处理，manual ExecutionAttempt 不伪造自动化信息；
+  3. MarkHumanActionCompleted 必须触发真实恢复或重新检查，不能直接把任务改为成功；
+  4. 处理结果回写看板，每个 ExecutionAttempt 保留。
+- **异常路径**：需要人工接管 → 系统发出人工接管请求；证据缺失 → 明确标注证据不足，不臆断原因。
+- **完成标准**：每个失败/requires_action 工单要么恢复生产、要么取消并留痕，不遗留无状态任务；requires_action 与 failed 严格分开。
 
 ## 10. 作品交付
 
+> **D-028 对齐**：界面「作品」对应领域对象 Work；交付是独立 DeliveryRecord 事件，**Work ≠ DeliveryRecord**；一个 Work 可有多条 DeliveryRecord（DM-002）；要求返工创建新版本/新工单/新 Work 并保留新旧关系；重新交付创建新 DeliveryRecord 不覆盖原记录。详见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)（D-028）。
+
 - **角色**：电商运营、内容审核人
-- **前置条件**：存在通过质检的成片
+- **前置条件**：存在正式 Work（产物核验通过、来源版本完整、Work 创建成功）
 - **主路径**：
-  1. 在作品库预览成片；
-  2. 审核人标记通过/退回；
-  3. 运营批量下载或按商品打包，附文案/封面/审核表；
-  4. 导出项目交付包；
-  5. 标记已发布，记录发布平台与链接，后续记录表现数据。
-- **异常路径**：成片被退回 → 回到生产环节（可复用原方案创建变体）；交付包生成失败 → 明确提示缺失项。
-- **完成标准**：项目产物完整交付并登记发布状态。
+  1. 在作品库预览 Work（固定引用 ProductionOrder/ExecutionAttempt/VideoPlanVersion/CopyVersion/Avatar/配置快照）；
+  2. 审核人 WorkInspection：MarkWorkDeliverable → passed；或 RequestRework → rework_required（记录分类/原因/检查人/返回上游阶段）；
+  3. 运营安全下载，或按商品打包；
+  4. 创建 DeliveryRecord（交付时间/交付人/交付方式/备注）；页面「已交付」由至少一条有效 DeliveryRecord 计算；
+  5. 重新交付/补发 → 创建新 DeliveryRecord，不覆盖原记录。
+- **异常路径**：要求返工 → 返回上游创建新版本/新 ProductionOrder/新 Work，建立新旧作品关系，不替换旧作品文件。
+- **完成标准**：项目产物完整交付并登记 DeliveryRecord；WorkInspection 与 DeliveryRecord 记录完整留痕。
 
 ## 11. 审核人流程
 

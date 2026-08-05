@@ -33,6 +33,7 @@
 - [DELIVERY_ROADMAP.md](DELIVERY_ROADMAP.md)
 - [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)
 - [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md)
+- [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)
 
 ### Evidence
 
@@ -64,7 +65,8 @@
 | [DELIVERY_ROADMAP.md](DELIVERY_ROADMAP.md) | 产品 Epic（SAAS-001 及子项）、Phase 0～4、优先级、依赖与验收标准 |
 | [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md) | D-026 的基础设施 Specification：个人验证环境与企业正式环境；计算、数据库、存储、任务、Secret、观测与灾备；不代表云资源已经部署 |
 | [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md) | D-027 的页面结构 Specification：Phase 1 六项导航与五阶段工作台、Vertical Slice A 完整页面流、状态/版本/失效/历史保留规则、业务界面与技术诊断边界、Phase 1/Phase 2 验收分界；不代表页面已实现 |
-| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-027）；最新：D-027 MVP 低保真页面结构与交互边界 |
+| [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md) | D-028 的领域合同 Specification：核心领域对象关系、不可变版本、状态机、失效传播矩阵、并发/幂等/事务边界、DM-001～DM-005；不代表数据库或代码已实现 |
+| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-028）；最新：D-028 核心领域模型与状态机契约 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决；Q-018 仍开放；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 
