@@ -10,7 +10,7 @@
 
 ## 一、总体分层
 
-第一版是 Cloud-first 的云端 Web Control Plane，默认部署目标为腾讯云（Tencent Cloud first，不是 Tencent Cloud only，D-015）；腾讯云部署**不代表领域层绑定腾讯云**，Database、ObjectStorage、Queue、SecretStore 使用基础设施抽象（具体服务待 Q-021）。
+第一版是 Cloud-first 的云端 Web Control Plane，默认部署目标为腾讯云（Tencent Cloud first，不是 Tencent Cloud only，D-015）；腾讯云部署**不代表领域层绑定腾讯云**，Database、ObjectStorage、TaskQueue、SecretStore、LogSink 使用基础设施抽象；具体腾讯云服务已由 D-026 确定（详见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)）。
 
 ```text
 腾讯云部署目标
@@ -76,6 +76,21 @@ Provider API asynchronous worker
 
 - **云端不得保存不必要的飞影 Cookie**（登录态保存在 Local Agent 本地）；
 - 控制面不直连 Provider 网页执行；需要执行时下发任务给 Local Agent。
+
+### 基础设施边界（D-026）
+
+D-026 固化了云基础设施方向（详见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)），本节只同步与 Provider/Agent 架构相关的边界：
+
+- 个人 2C4G 验证服务器只运行 Web/API、Worker、PostgreSQL 和反向代理；**长时间 Playwright 不在 Cloud Web 请求进程运行，继续在 Local Agent 执行**；
+- 企业正式计算层为 CloudBase Run API + Worker（两个独立部署单元，模块化单体）；核心业务不依赖 CloudBase 专有身份/数据库/领域 SDK，**CloudBase Run 等产品名不泄露到领域模型**（领域层通过基础设施抽象接入，领域层不绑定腾讯云）；
+- MVP 任务机制为 PostgreSQL AsyncJob / Transactional Outbox（Worker 用 `FOR UPDATE SKIP LOCKED` 领取 + 租约/心跳），不采购 RabbitMQ；
+- 正式生产主地域为腾讯云广州（`ap-guangzhou`），API/Worker/PostgreSQL 同 VPC，PostgreSQL 不开放公网；
+- **Q-018 仍开放**：采用 SSM 不等于授权上传 Hifly Token；Q-018 决定前 Hifly Token 不进入既定云端 Secret 清单、不默认进入 CloudBase Run、不从 Local Agent 迁移至云端；
+- CloudBase Run 服务角色（或等效临时身份）能否访问 SSM、COS、KMS 必须在正式部署前验证；
+- Local Agent、Playwright Adapter、Hifly API Adapter 继续保留；影刀（Yingdao）RPA Adapter 仍是可选 Adapter，需独立 Evidence，不替代 Playwright 主链路，不在 D-026 中做最终工具迁移决策；
+- 不新增或修改 Provider capability 声明；不访问真实 Provider。
+
+D-026 只固化架构方向，**不代表任何云资源已经部署**。
 
 ---
 

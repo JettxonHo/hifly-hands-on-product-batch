@@ -31,6 +31,7 @@
 - [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md)
 - [DOMAIN_MODEL.md](DOMAIN_MODEL.md)
 - [DELIVERY_ROADMAP.md](DELIVERY_ROADMAP.md)
+- [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)
 
 ### Evidence
 
@@ -60,8 +61,9 @@
 | [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md) | 导航结构、页面职责、运营与技术页面隔离、设置区、首页/新手引导/模板中心/作品库 |
 | [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md) | 云端 Control Plane、Local Agent、Provider Adapter、LLM Adapter、capability 模型、登录态与安全边界、跨平台约束 |
 | [DELIVERY_ROADMAP.md](DELIVERY_ROADMAP.md) | 产品 Epic（SAAS-001 及子项）、Phase 0～4、优先级、依赖与验收标准 |
-| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-025）；最新：D-025 MVP 文案质检、人工审核与批准门禁 |
-| [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
+| [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md) | D-026 的基础设施 Specification：个人验证环境与企业正式环境；计算、数据库、存储、任务、Secret、观测与灾备；不代表云资源已经部署 |
+| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-026）；最新：D-026 MVP 云基础设施与两阶段部署策略 |
+| [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决；Q-018 仍开放；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 
 ---

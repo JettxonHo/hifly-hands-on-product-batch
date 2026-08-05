@@ -244,7 +244,7 @@ Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROAD
 
 影响：LlmProviderConfig 的启用范围与设置区「AI 模型」能力（见 D-020）。
 
-## Q-021 腾讯云具体基础设施选型
+## Q-021 腾讯云具体基础设施选型 —— 已关闭（2026-08-05，D-026）
 
 需要决定：
 
@@ -258,9 +258,20 @@ Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROAD
 - 环境划分
 - 成本预算
 
-**不得在本轮选择具体腾讯云产品。**
-
 影响：Phase 1 云端部署的基础设施实现（见 D-015；领域层不绑定具体云产品）。
+
+**结论（owner 决定，2026-08-05，D-026）**：Q-021 由 D-026 正式解决并关闭。最终方案要点：
+
+- resolved by：D-026；resolved date：2026-08-05；
+- 产品采用 Cloud Control Plane 与 Local Agent 分离架构；腾讯云负责云端控制面，领域层不绑定腾讯云；
+- 两阶段部署：个人开发与功能验收使用 owner 已有 2C4G 测试服务器 + Docker Compose；企业正式生产另行容量评估；
+- production 主地域：腾讯云广州（`ap-guangzhou`）；
+- 企业生产架构：CloudBase Run API + Worker（独立部署单元，模块化单体）、TencentDB for PostgreSQL（唯一权威关系型业务库）、Tencent Cloud COS（sensitive + content 私有桶）、PostgreSQL AsyncJob / Transactional Outbox（MVP 不采购 RabbitMQ）、SSM/KMS/CAM/STS、CLS/APM/CloudAudit；
+- 个人 2C4G 环境只验证功能闭环与可靠性，不证明生产容量、SLA 或高可用；
+- 企业正式预算保持 **Pending Evidence**，企业正式上线前必须重新执行容量与资源评估、盘点企业已有腾讯云资源；
+- Q-018（飞影 API Token 保管与调用位置）**未被 D-026 解决，仍保持开放**；采用 SSM 不等于授权上传 Hifly Token，Hifly Token 不默认进入云端。
+
+详细 Specification 见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md) 与 [DECISION_LOG.md](DECISION_LOG.md) D-026。D-026 只固化架构方向、环境边界和后续部署验收要求，不代表任何云资源已经部署。
 
 ## Q-022 第一版企业登录方式 —— 已关闭（2026-08-04，D-024）
 
