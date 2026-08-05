@@ -32,6 +32,7 @@
 - [DOMAIN_MODEL.md](DOMAIN_MODEL.md)
 - [DELIVERY_ROADMAP.md](DELIVERY_ROADMAP.md)
 - [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)
+- [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md)
 
 ### Evidence
 
@@ -62,7 +63,8 @@
 | [PROVIDER_AND_AGENT_ARCHITECTURE.md](PROVIDER_AND_AGENT_ARCHITECTURE.md) | 云端 Control Plane、Local Agent、Provider Adapter、LLM Adapter、capability 模型、登录态与安全边界、跨平台约束 |
 | [DELIVERY_ROADMAP.md](DELIVERY_ROADMAP.md) | 产品 Epic（SAAS-001 及子项）、Phase 0～4、优先级、依赖与验收标准 |
 | [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md) | D-026 的基础设施 Specification：个人验证环境与企业正式环境；计算、数据库、存储、任务、Secret、观测与灾备；不代表云资源已经部署 |
-| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-026）；最新：D-026 MVP 云基础设施与两阶段部署策略 |
+| [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md) | D-027 的页面结构 Specification：Phase 1 六项导航与五阶段工作台、Vertical Slice A 完整页面流、状态/版本/失效/历史保留规则、业务界面与技术诊断边界、Phase 1/Phase 2 验收分界；不代表页面已实现 |
+| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-027）；最新：D-027 MVP 低保真页面结构与交互边界 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决；Q-018 仍开放；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 

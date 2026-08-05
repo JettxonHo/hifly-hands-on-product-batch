@@ -12,56 +12,58 @@
 
 ## 1. 新用户第一次生成视频
 
-- **角色**：电商运营
-- **前置条件**：企业用户进入云端 Web 产品并完成登录（第一版提供云端 Web Control Plane 与登录，D-015；第一版登录方式已由 D-024 决定：管理员预创建账号、工作邮箱和密码登录、首次登录强制修改临时密码、登录后自动进入唯一组织）；进入所属企业组织；有至少一件商品素材；Local Agent 在线且 Provider 登录态有效（或系统明确提示缺失）
-- **主路径**：
-  1. 跟随新手引导创建第一个项目（选择模板或空白项目）；
-  2. 上传一个商品（图片 + 卖点）；
-  3. 生成三版文案，选择并确认一版；
-  4. 选择数字人（人物步骤为「创建新人物或选择现有人物」，见 Flow A / Flow B）。第一条黄金路径的人物步骤为「**选择公共或企业已有人物**」→ 系统仅展示当前 `video.product_holding` 已验证配置项：
-     - 当前不提供独立声音选择；
-     - 当前不提供独立背景或场景选择；
-     - 场景暂时跟随人物素材或由 Provider 决定；
-     - 后续字段是否开放由 HIFLY-001 Evidence（见 [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md)）与 [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) Q-017 决定；
-  5. 生成视频方案并通过 Preflight；
-  6. 发起生产（1 条任务），等待完成；
-  7. 在作品库预览并下载第一条视频。
-- **异常路径**：Provider 登录态失效 → 引导至本地执行器页面处理；文案质检不通过 → 按修复建议重写；生产失败 → 任务进入「需人工处理」，展示失败原因与证据，可重试。
-- **完成标准**：用户在无技术背景支持下，独立走完五阶段并下载一条成片。
+> **D-027 对齐说明（2026-08-05）**：本流程的权威页面结构与状态边界以 [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md)（D-027）为准。Vertical Slice A 只创建空白项目（不提供模板选择）；人物只选择公共或企业已有人物；Phase 1 结束于可追踪的 `ProductionOrder` 和绑定该工单的人工交接包，真实自动生产（Local Agent 领取/Provider 执行/产物回传/服务端核验/创建 Work）属 Phase 2。
 
-**云端入口主流程（D-015 / D-024）**：
+- **角色**：电商运营
+- **前置条件**：企业用户进入云端 Web 产品并完成登录（第一版提供云端 Web Control Plane 与登录，D-015；第一版登录方式已由 D-024 决定：管理员预创建账号、工作邮箱和密码登录、首次登录强制修改临时密码、登录后自动进入唯一组织）；进入所属企业组织；有至少一件商品素材。Local Agent 是否在线不影响 Phase 1 走通到 `ProductionOrder`/人工交接包（D-027）；Local Agent 离线只影响 Phase 2 的真实自动生产。
+- **主路径（Vertical Slice A，D-027）**：
+  1. 创建第一个项目（**只创建空白项目**，必填项目名称，不在创建时选择模板/平台/受众/视频类型/Provider/人物/声音/背景）；
+  2. 添加商品（上传图片 + 卖点）并确认商品事实（D-021）；
+  3. 异步生成文案 → 自动质检 → 人工批准文案（QC passed ≠ 文案 approved，D-025）；
+  4. 选择数字人：Vertical Slice A 人物步骤为「**选择公共或企业已有人物**」，必须明确「确认人物选择」（见 Flow A）。不提供独立声音/背景/场景选择，不提供创建新人物（属 Vertical Slice B）；
+  5. 创建 VideoPlan → 方案预检（Preflight）→ 人工批准方案（Preflight passed ≠ VideoPlan approved，D-027）；
+  6. 从 approved VideoPlan 创建 `ProductionOrder`；
+  7. Phase 1：工单可为 `waiting_for_executor`，或生成**绑定该 ProductionOrder** 的人工交接包；
+  8. Phase 2：Local Agent 领取 → Provider 执行 → 状态与产物回传 → 服务端产物核验 → 创建 Work；
+  9. 作品库人工检查 → 下载或创建 DeliveryRecord。
+- **异常路径**：商品事实不足 → 返回「商品与目标」；文案质检 `blocked` → 修改文案或补充事实后完整重检（不可人工/管理员绕过，D-025）；人物授权无效 → 不能用于新方案；Local Agent 离线 → 工单保持 `waiting_for_executor`（**不标记为失败**），可查看人工交接包；执行 `requires_action` → 进入人工处理（`requires_action ≠ failed`）；执行失败 → 任务进入「需人工处理」，展示失败原因与脱敏证据，可有限重试。异常必须返回对应权威页面（D-027）。
+- **完成标准（Phase 1）**：用户在无技术背景支持下独立走完五阶段，产出可追踪的 `ProductionOrder` 和绑定该工单的人工交接包；真实成片下载属 Phase 2。
+
+**云端入口主流程（D-015 / D-024 / D-027）**：
 
 ```text
 企业用户进入云端 Web 产品
 → 工作邮箱和密码登录（D-024）
 → 首次登录强制修改临时密码（D-024）
 → 自动进入唯一组织（D-024）
-→ 创建项目
+→ 创建空白项目（D-027，不选模板）
 → 五阶段生产（商品与目标 → 文案与质检 → 人物与素材 → 视频方案 → 生成与交付）
-→ 作品交付
+→ approved VideoPlan → ProductionOrder → 人工交接包（Phase 1）/ Local Agent 执行（Phase 2）
+→ 作品交付（Work → DeliveryRecord）
 ```
 
-**人物阶段入口（D-017）**：
+**人物阶段入口（D-017 / D-027）**：
 
 ```text
 人物与素材
-├── 选择公共数字人
-├── 选择企业已有人物
-└── 创建新人物
+├── 选择公共数字人        ← Vertical Slice A
+├── 选择企业已有人物      ← Vertical Slice A
+└── 创建新人物            ← Vertical Slice B（独立子切片，不在 A 内）
 ```
 
-**Flow A：选择已有/公共人物完成黄金路径（Vertical Slice A）**：
+**Flow A：选择已有/公共人物完成黄金路径（Vertical Slice A，D-027）**：
 
 ```text
 云端登录
-→ 创建项目
-→ 上传商品
-→ 生成和质检文案
-→ 选择公共或已有数字人
-→ 创建并审核 VideoPlan
-→ 编译为现有 batch
-→ 当前手里有货执行
-→ 作品库交付
+→ 创建空白项目
+→ 添加商品并确认商品事实
+→ 异步生成文案 → 自动质检 → 人工批准文案
+→ 选择公共或企业已有人物 → 确认人物选择
+→ 创建 VideoPlan → 方案预检 → 人工批准方案
+→ 创建 ProductionOrder
+→ Phase 1：waiting_for_executor 或绑定工单的人工交接包
+→ Phase 2：Local Agent 领取 → Provider 执行 → 产物回传 → 服务端核验 → 创建 Work
+→ 作品库人工检查 → 下载 / DeliveryRecord
 ```
 
 **Flow B：创建图片数字人（Vertical Slice B 独立子切片）**：

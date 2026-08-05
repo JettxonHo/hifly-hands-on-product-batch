@@ -620,3 +620,42 @@
   - 企业容量/SLA/风险要求提高，需要跨地域复制或更高规格；
   - Q-018 决定影响云端 Secret 清单与执行位置；
   - 企业安全/备案/合规要求变化。
+
+## D-027 MVP 低保真页面结构与交互边界
+
+- **日期**：2026-08-05
+- **状态**：Confirmed
+- **背景（Context）**：D-014/D-015 已确定企业内部 Cloud-first MVP；D-017 已确定垂直切片两层拆分（Vertical Slice A / B）；D-021/D-022/D-023 已确定商品事实门禁、可选 ContentBrief 与 DeepSeek 生成契约；D-024 已确定管理员预创建账号登录；D-025 已确定文案质检与人工批准门禁；D-026 已确定云基础设施与两阶段部署。Phase 0 仍缺少低保真页面结构与交互边界（Phase 0 门禁中的「低保真页面结构」项未完成），导致 Vertical Slice A 缺少统一的页面、状态、版本、失效、历史保留与业务/技术诊断边界产品依据。D-027 在产品规格层固化 Phase 1 全局信息架构、项目五阶段工作台、Vertical Slice A 完整页面流、状态/版本/失效/历史保留规则、业务界面与技术诊断边界、Phase 1/Phase 2 验收分界。详细 Specification 见 [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md)。D-027 是产品结构决策，**不代表任何页面、组件或 API 已经实现**，不解决 Q-018，不宣称 HIFLY-001 Evidence 已完成，不改写已有历史决策。
+- **决策**：
+  1. **Phase 1 一级导航固定为 6 项**：首页、项目、素材中心、生产任务、作品库、设置；不展示组织切换、账单、充值或尚未实现的入口；不创建模板中心、发布管理、数据分析、声音中心、背景与场景、模型配置、Provider 配置、套餐与账单等空页面。
+  2. **项目统一五阶段工作台**：商品与目标、文案与质检、人物与素材、视频方案、生成与交付；阶段顺序固定，不满足上游门禁时下游禁止关键操作，上游变化后下游显示「需要重新确认」。
+  3. **Vertical Slice A 范围**：只创建空白项目（不提供模板选择）；人物只允许选择公共数字人或企业已有人物（创建新人物属 Vertical Slice B）；声音/背景/场景不是独立选择字段；Playwright、影刀、Provider 不作为普通运营用户选项；Local Agent 位于「设置」并可从阻断提示进入；Phase 1 结束于可追踪的 ProductionOrder 和绑定该工单的人工交接包；Local Agent 真实领取/执行/自动产物回传属 Phase 2。
+  4. **登录/首页/项目入口**：工作邮箱密码登录、首次登录改临时密码、自动进入唯一企业（D-024）；首页为工作入口与待办中心，主操作「创建项目」；项目列表为桌面表格；创建项目只创建空白项目，必填名称，描述/交付日期可选，不在创建时选择模板/平台/受众/视频类型/Provider/人物/声音/背景。
+  5. **商品与目标三栏工作台**：商品列表 / 商品事实与内容偏好编辑 / 文案生成准备度；生成门禁沿用 D-021（名称+核验图片+确认卖点）；卖点逐条确认，修改已确认卖点重新变为未确认，不提供全部确认/AI 自动确认/管理员绕过；文案生成异步，用户可离开，不展示模型/Key/Prompt/Provider；上游变化使旧质检失效、旧批准撤销但保留历史。
+  6. **文案与质检三栏工作台**：不可变版本列表 / 正文编辑与版本对比 / 自动质检与独立人工审核；界面统一用「文案/文案版本/当前版本/历史版本」，不混用 CopyVariant/CopyVersion；QC 状态 invalid/blocked/needs_review/passed 与人工审核状态 not_submitted/pending/approved/changes_requested/revoked 分离；QC passed ≠ 文案 approved；invalid/blocked 不可人工或管理员绕过；needs_review 逐项处理并填理由，未确认事实不能通过接受提醒绕过；AI 改写创建新版本并完整重检，不继承旧质检/旧批准；MVP 允许本人审核但记录 self_review；仅相关权威输入快照变化才触发失效（展示名称/排序/无关备注不撤销批准）。
+  7. **人物与素材**：Vertical Slice A 只选择公共/企业已有人物；人物卡片显示业务可用状态（可用/暂不可用/需要执行环境/授权待确认/能力未验证），不显示 Provider avatar ID/Adapter/Cookie/Playwright/影刀/内部任务编号；只展示已有 Evidence 支持的能力；必须明确「确认人物选择」，不因首项/最近使用/推荐静默提交；更换人物使既有 VideoPlan 需重新确认并保留旧方案与批准历史；Local Agent 离线不影响浏览/选择/设计方案，只影响后续真实自动生产。
+  8. **视频方案**：VideoPlan 组合 approved 文案+已确认人物+能力证据支持的配置，页面不执行真实生产也不直接操作飞影/Playwright/影刀；VideoPlan 为不可变版本，固定引用商品/文案/人物/配置快照/创建人时间/预检/审核；预检分上游有效性/方案完整性/生产准备度，Preflight passed ≠ VideoPlan approved；Local Agent 离线属生产准备提醒，不阻止保存/预检/审核/创建 waiting_for_executor 工单；只有当前有效 approved VideoPlan 才能创建 ProductionOrder；上游变化使旧预检失效、旧批准撤销，历史 VideoPlan 与已有 ProductionOrder 快照保留。
+  9. **生成与交付一致性口径**：approved VideoPlan → 创建 ProductionOrder → 等待 Local Agent 或生成绑定该工单的人工交接包；人工交接包必须绑定 ProductionOrder，不是另一条业务记录；ProductionOrder 业务状态 draft/ready/waiting_for_executor/claimed/running/requires_action/succeeded/failed/cancelled；ProductionOrder └── ExecutionAttempt 分别建模，重试保留每次 attempt、只对可重试技术故障有限重试、不重复创建等价工单/作品、不通过重试绕过失效方案；waiting_for_executor ≠ failed，requires_action ≠ failed；ProductionOrder succeeded 需产物核验完成（对象存在/类型大小/组织归属/工单追踪 ID）并创建正式 Work 后才标记；返工返回上游创建新版本/新工单/新 Work 并保留新旧关系。
+  10. **全局生产任务**：只管理 ProductionOrder/ExecutionAttempt/生产异常/产物回传核验；文案生成/AI 改写/自动质检/素材上传核验等普通 AsyncJob 不进入生产任务主表，在原页面显示状态；ProductionOrder 只能从 approved VideoPlan 创建，不能在全局任务页脱离项目新建；禁止批量强制成功/跳过人工处理/覆盖失败原因/重置运行中/绕过失效方案；Phase 1 可定时轮询+手动刷新，不强制 WebSocket。
+  11. **作品库与交付**：界面术语「作品」，领域对象 Work，交付事件 DeliveryRecord，Work ≠ DeliveryRecord；作品库只接收核验通过、来源完整、正式 Work 创建成功的作品，生产中候选文件与核验失败记录留在生产任务；交付状态待检查/可交付/需要返工/已交付，与生产状态独立；作品固定引用 ProductionOrder/ExecutionAttempt/VideoPlan/文案/人物/配置快照；要求返工填原因、返回上游新建版本/工单/Work 并保留新旧关系，不替换旧作品文件；Phase 1 不宣称自动回传已打通，可通过受控人工结果登记创建 Work 但必须绑定现有 ProductionOrder，禁止无来源视频伪造成系统作品。
+  12. **素材中心**：是生产输入资产库（与作品库分开）；Phase 1 支持商品图片/普通业务素材/已有人物资产记录，不开放创建数字人/声音克隆/独立音色/背景场景编辑器/模板中心/在线视频编辑/Provider 同步/自动生成；上传走短时授权→对象存储→前端报告→服务端核验→Asset→核验成功才可用；普通上传不处理人物隐私源素材/声音克隆源文件/授权证明；素材版本化引用进商品/人物/VideoPlan/ProductionOrder 快照；历史引用素材不能物理删除，只能停用（停用 ≠ 删除）；敏感素材删除期限由 Q-007/Q-008 管理，不在 D-027 擅自固定。
+  13. **设置/成员/Local Agent**：设置区为企业信息/成员/Local Agent/系统信息，不提供 Provider/模型/Key/BYOK/Hifly Token 输入/套餐账单/充值/完整权限矩阵/完整审计中心；成员管理支持列表/创建/查看激活/重置临时密码/停用（停用不删历史）；粗粒度角色管理员/运营/审核人/执行器管理员不代表完整 RBAC；Local Agent 区分连接状态（在线/离线/连接中）与业务可用状态（可接收/正在执行/需要人工处理/配置不完整/版本不兼容），在线 ≠ 业务可用，普通运营只看业务状态，诊断信息脱敏且不显示 Token/Cookie/密码/完整路径/完整签名 URL；普通页面不提供「使用 Playwright/影刀」按钮；**Q-018 仍开放**，不设计 Hifly Token 前端输入/保存表单，不假设 Token 保管位置。
+  14. **全局反馈/异常/状态边界**：反馈分信息/提醒/阻断/失败，提醒不弱化硬门禁；阻断说明原因/受影响版本/下一步/返回权威页面入口；保存状态统一（未保存/保存中/已保存/保存失败），保存失败保留输入不清空；异步任务由服务端持久追踪、用户可离开、不用虚假百分比/前端自造成功；禁用按钮解释原因；权限不足用业务语言不暴露 403/RBAC 内部规则；区分删除/停用/撤销，区分真正空状态/筛选无结果/加载失败；技术诊断（trace_id/ExecutionAttempt/脱敏证据）进权限控制区。
+  15. **一致性收敛**：人工交接包必须绑定 ProductionOrder；Local Agent 离线只阻止自动执行，不阻止 VideoPlan 编辑/预检/审核/waiting_for_executor 工单/人工交接包；全局生产任务只管视频 ProductionOrder 与 ExecutionAttempt；界面用「作品」、领域用 Work、交付用 DeliveryRecord；文案页面统一用文案/文案版本术语；仅相关权威输入快照变化才触发失效；Phase 1 保留作品库入口与人工结果登记但不宣称自动执行/回传；粗粒度角色不等于完整 RBAC；待办入口是轻量入口；人物能力只展示已有 Evidence 支持状态。
+- **影响（Consequences）**：
+  - Phase 1 有了固定全局信息架构、五阶段工作台与 Vertical Slice A 完整页面流；
+  - 自动检查（QC/Preflight）与人工审核（文案/方案 approved）在界面与状态上严格分离；
+  - 版本/失效/撤销/历史保留规则统一，上游变化撤销下游批准但保留历史；
+  - 业务界面与技术诊断界面边界明确，技术概念不进入普通业务主流程；
+  - Phase 0 门禁「低保真页面结构」可标记为产品决策/specification 完成（不代表已实现）；
+  - 下一步可依据本规范拆分 Vertical Slice A 开发 Issue 并进入 Phase 1 开发；
+  - Q-018 继续保持 OPEN；HIFLY-001 Evidence 仍未完成；
+  - 详细 Specification 在 [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md)；
+  - 本 Decision 不代表任何页面、组件或 API 已经实现。
+- **非目标**：不实现功能、不固定品牌视觉/组件库/像素尺寸/前端框架/API 路径/数据库表/精确长度文件限制/密码数值策略/Provider 参数；不解决 Q-018；不宣称 HIFLY-001 Evidence 已完成；不改写已有历史决策；不新增未经负责人确认的产品范围。
+- **可重新评估条件**：只有在以下情况发生时重新评估：
+  - HIFLY-001 Evidence 新增已验证能力，需要开放新的用户可见配置；
+  - Phase 2 自动执行闭环落地后，生产任务/作品库交互需要扩展；
+  - 企业要求多组织、完整 RBAC、套餐账单或客户门户；
+  - 出现需要模板中心、声音中心、背景场景编辑器或在线视频编辑的明确业务需求；
+  - Q-018 决定影响 Local Agent / Token 前端边界。
