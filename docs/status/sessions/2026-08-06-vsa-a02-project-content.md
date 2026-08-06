@@ -6,7 +6,7 @@
 - 实施 Agent：GPT-5.6 Sol / Medium
 - Issue：#58
 - 分支：`codex/vsa-a02-project-content`
-- 基线：`547c843`（A03 分支完成提交）
+- 原始基线：`547c843`（A03 分支完成提交）；A03 合并后已将 PR #74 retarget 到 `main`
 - 权限：实现与测试；不 commit/push/PR/merge
 
 ## 已完成
@@ -41,9 +41,10 @@
 
 实现提交：`f80ad7a`（`feat: add authoritative product snapshots`）。
 
-Draft PR：[#74](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/74)，base 为
-`codex/vsa-a03-assets`，明确依赖 A03 PR #73。CI run `31080673868` 的 Ubuntu、Windows、
-identity/PostgreSQL 三项均通过。
+Ready PR：[#74](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/74)，base 已调整为
+`main`。A03 PR #73 已合并，Issue #59 已关闭；A03 squash 提交与原分支文件树一致，PR #74
+通过非强制、无文件改动的 ancestry merge 消除假冲突，最终 diff 只含 A02 的 29 个文件。
+最终 CI run `31082586753` 的 Ubuntu、Windows、identity/PostgreSQL 三项均通过。
 
-实现、主代理验证、独立 Review 与堆叠 PR CI 已完成。未经单独授权不 merge；A03 合并后先将
-PR #74 retarget 到 `main` 并重新审查最终 diff/CI，不开始 A04。
+实现、主代理验证、独立 Review、最终 diff 审查与 CI 均已完成。未经单独授权不 merge；
+当前只等待 PR #74 的合并授权，不开始 A04。

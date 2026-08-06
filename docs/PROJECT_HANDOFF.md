@@ -3,6 +3,15 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-06 VSA Wave 2 合并检查点（未访问飞影、未消耗积分）
+
+- A03 PR #73 已在三组 CI 全绿后合并；仓库只允许 squash merge，`main` 提交为 `78a8fc3`。Issue #59 已关闭。
+- A03 squash 提交与原 A03 分支完成提交的文件树完全一致，没有代码偏差。
+- A02 PR #74 已从 `codex/vsa-a03-assets` retarget 到 `main`。为避免 rebase/force push，分支仅增加一个不改文件的 ancestry merge；最终 PR diff 收敛为 A02 自身 29 个文件，状态 `MERGEABLE/CLEAN`。
+- PR #74 已转 Ready；最终 CI run `31082586753` 的 Ubuntu、Windows、identity/PostgreSQL 三项全部通过。
+- Issue #58 仍为 Open；未经用户单独授权不得合并 PR #74。合并后核验 Issue 自动关闭，并在 `main` 上完成 Wave 2 最终审计。
+- 本轮未访问 Hifly、未发送真实外部 HTTP、未运行 `MULTI-002`、未消耗积分，也未开始 A04。
+
 ## 2026-08-06 VSA-A01 本地实现与独立 Review 完成（未访问飞影、未消耗积分）
 
 - Issue #57（VSA-A01 Enterprise identity and organization context）已在独立 worktree `/Users/ketchup/Documents/hifly-vsa-a01-identity-dse`、分支 `feat/vsa-a01-enterprise-identity` 完成实现。
