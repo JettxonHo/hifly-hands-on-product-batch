@@ -41,10 +41,11 @@
 
 实现提交：`f80ad7a`（`feat: add authoritative product snapshots`）。
 
-Ready PR：[#74](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/74)，base 已调整为
-`main`。A03 PR #73 已合并，Issue #59 已关闭；A03 squash 提交与原分支文件树一致，PR #74
-通过非强制、无文件改动的 ancestry merge 消除假冲突，最终 diff 只含 A02 的 29 个文件。
-最终 CI run `31082586753` 的 Ubuntu、Windows、identity/PostgreSQL 三项均通过。
+PR [#74](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/74) 已合并，Issue #58 已关闭，
+`main` 提交为 `5e8b28a`。A03 PR #73 已合并，Issue #59 已关闭；A03 squash 提交与原分支
+文件树一致，PR #74 通过非强制、无文件改动的 ancestry merge 消除假冲突，最终 diff 只含
+A02 的 29 个文件。最终分支 CI run `31083604483` 与合并后 `main` CI run `31084194959`
+的 Ubuntu、Windows、identity/PostgreSQL 三项均通过。
 
-实现、主代理验证、独立 Review、最终 diff 审查与 CI 均已完成。未经单独授权不 merge；
-当前只等待 PR #74 的合并授权，不开始 A04。
+实现、主代理验证、独立 Review、最终 diff 审查、合并与 `main` 审计均已完成。Wave 2 已收口；
+未经新的 Goal 与明确开发授权，不开始 A04。
