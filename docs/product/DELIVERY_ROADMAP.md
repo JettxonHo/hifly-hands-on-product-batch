@@ -76,15 +76,15 @@ PUBLISH-001：发布管理与数据复盘
 - 低保真页面结构：已由 D-027 在产品规格层固化（Phase 1 六项导航、五阶段工作台、Vertical Slice A 完整页面流、状态/版本/失效/历史保留规则、业务界面与技术诊断边界、Phase 1/Phase 2 验收分界）；specification 完成，**不代表页面已经实现**。详见 [LOW_FIDELITY_PAGE_STRUCTURE.md](LOW_FIDELITY_PAGE_STRUCTURE.md)
 - 核心对象状态机与领域关系：已由 D-028 在产品规格层固化（核心领域对象关系、不可变版本、状态机、失效传播矩阵、并发/幂等/事务边界、DM-001～DM-005）；specification 完成，**不代表数据库/API/状态机代码已实现**。详见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)
 - ProductionOrder 人工交接包合同：已由 D-029 在产品规格层固化（ZIP/manifest/README/素材引用、版本与生命周期、manual ExecutionAttempt、ManualExecutionReport、候选产物核验与 Work 创建门禁、证据/幂等/安全，MHC-001～MHC-010）；specification 完成，**不代表包生成/上传/人工执行页面/Work 自动登记已实现**。详见 [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md)
-- 第一条垂直切片落地为开发范围（Vertical Slice A 已由 D-017 定型，页面结构已由 D-027 固化，领域合同已由 D-028 固化，具体 Issue 拆分未完成）
-- Issue 拆分（未完成）
+- 第一条垂直切片落地为开发范围（Vertical Slice A 已由 D-017 定型，页面结构已由 D-027 固化，领域合同已由 D-028 固化，人工交接包合同已由 D-029 固化，**交付计划与 DoD 已由 D-030 固化**；具体 Development Issues 未创建）
+- Vertical Slice A Issue 拆分与 Definition of Done：已由 D-030 在产品规格层固化（VS-001～VS-010、VSA-A01～A14 边界、依赖波次 Wave 1～12、统一 Issue 模板、单 Issue DoD、Slice 级 DoD）；specification 完成，**不代表 Development Issues 已创建或开发已开始**。详见 [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md)
 - 腾讯云具体基础设施选型（Q-021）：已由 D-026 决定——Cloud Control Plane 与 Local Agent 分离；个人验证用 owner 已有 2C4G 测试服务器 + Docker Compose（只验证功能闭环与可靠性）；企业正式生产以腾讯云广州（`ap-guangzhou`）为主地域，采用 CloudBase Run API/Worker、TencentDB for PostgreSQL、COS（sensitive+content 私有桶）、PostgreSQL AsyncJob/Outbox、SSM/KMS/CAM/STS、CLS/APM/CloudAudit；企业正式预算 Pending Evidence，上线前重新容量评估；Q-021 已关闭。详见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md)
 - 第一版企业登录方式（Q-022）：已由 D-024 决定——管理员预创建账号、工作邮箱和密码登录、首次登录强制修改临时密码、登录后自动进入唯一组织；无公众注册、无组织选择、无手机号或企业微信登录；Q-022 已关闭
 - Hifly 账号权限与真实调用调研（HIFLY-001，未完成）
 
 已在本轮关闭的 Phase 0 决策门禁：第一批目标用户（Q-001，D-014）、云端 Web 登录形态（Q-002，D-015）、单企业/单组织 MVP（Q-013，D-014/D-015）、垂直切片两层拆分（Q-016，D-017）、文案质检规则来源（Q-004，D-025）、腾讯云具体基础设施选型（Q-021，D-026）。
 
-**D-029 已固化后的 Phase 0 后续重点**：低保真页面结构（D-027）、核心领域状态机（D-028）与人工交接包合同（D-029）specification 已完成（本 PR 不实现代码）；下一项为 Vertical Slice A Issue 拆分原则与 Definition of Done；HIFLY-001 与 SPK-018-01～06 继续并行 Evidence。HIFLY-001 Evidence 仍未完成；**企业基础设施没有实际部署**（D-026 只在产品规格层固化方向与验收要求）。Q-018（飞影 API Token 保管与调用位置）仍保持 Pending Evidence / Open（D-029 不关闭 Q-018）。Phase 0 整体仍未完成；Phase 1 / Phase 2 未开发完成。
+**D-030 已固化后的 Phase 0 后续重点**：低保真页面结构（D-027）、核心领域状态机（D-028）、人工交接包合同（D-029）与 Vertical Slice A 交付计划/DoD（D-030）specification 已全部完成（本 PR 不实现代码）；下一步依次为：(1) D-030 合并；(2) 产品负责人单独授权创建 VSA-A01～A14 GitHub Development Issues；(3) 依据 Wave 1～12 顺序实施开发。HIFLY-001 与 SPK-018-01～06 继续并行 Evidence（真实 Hifly/Local Agent/Playwright/影刀自动执行不进入 Slice A）。HIFLY-001 Evidence 仍未完成；**企业基础设施没有实际部署**（D-026 只在产品规格层固化方向与验收要求）。Q-018（飞影 API Token 保管与调用位置）仍保持 Pending Evidence / Open（D-030 不关闭 Q-018）。Phase 0 整体仍未完成；Phase 1 / Phase 2 未开发完成。
 
 **两阶段部署说明（D-026）**：个人开发与功能验收使用 2C4G Docker Compose，只验证功能闭环与可靠性，不验证生产容量/SLA/高可用；企业上线需重新容量评估、盘点企业已有腾讯云资源，并按 D-026 部署正式环境（含上线前技术验证清单与恢复演练）。Phase 0 整体仍未完成。
 

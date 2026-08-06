@@ -496,3 +496,11 @@ approved VideoPlan
 - **异常**：生成失败→工单不进入 running，可幂等重试或返回 VideoPlan；包授权过期→重签短时授权，内容未变不新建 package version；包 revoked→禁止开始新 manual attempt，已运行 attempt 需明确继续/停止/人工判断；上传失败→保留执行记录，不能提交最终 completed，可继续上传（幂等）；核验失败→不创建 Work，工单不 succeeded，显示处理入口。
 - **上游变化**：文案/人物/ProductRevision/VideoPlan/主要素材/purpose 变化必须新上游版本+新审核+新 ProductionOrder+新包+新 attempt；原工单明确继续/取消/失败/人工处理；**不得用新包为旧工单偷换输入，不得隐藏/删除/静默失效历史工单**。
 - **完成标准**：ProductionOrder 仅在候选产物核验通过且 Work 创建成功后 succeeded；所有 manual attempt、报告、候选产物核验、Work 与 DeliveryRecord 记录完整留痕。
+
+## 15. Vertical Slice A 交付对齐（D-030）
+
+> **D-030 对齐**：Phase 1 完整用户流的开发与验收按 VSA-A01～A14 串联，权威交付计划为 [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md)。Slice A 终点为 ManualExecutionReport、候选产物核验、Work、WorkInspection、DeliveryRecord；**Hifly 自动执行不属于 Slice A**（manual execution ≠ Local Agent execution；test double ≠ verified Provider integration）。
+
+本文件描述的用户流是产品视角的完整业务路径；其开发交付拆分为 VSA-A01～A14（A01 企业身份 → A02 商品快照 → A03 素材核验 → A04 文案生成 → A05 QC → A06 文案审核 → A07 人物 → A08 VideoPlan/Preflight → A09 ProductionOrder → A10 交接包 → A11 manual attempt/Report → A12 产物核验/Work → A13 作品交付 → A14 端到端验收加固），按 Wave 1～12 依赖顺序实施。每个 Issue 同时交付领域正确性、权限隔离、幂等并发、UX 完整性、测试与审计，不作为后续优化补充；A14 只串联加固，不首次实现主要领域对象。
+
+Slice A 完成须通过完整主路径（全新测试 Organization 端到端，不依赖手工改数据库/本地脚本/未合并分支/Hifly 真实自动化/管理员绕过）与关键反向测试（见 [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md) §10.2）。A01～A14 是规划标识，**D-030 不创建 GitHub Development Issues，不代表开发已开始**。
