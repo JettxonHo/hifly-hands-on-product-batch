@@ -3,6 +3,16 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-06 VSA Wave 2 完成（未访问飞影、未消耗积分）
+
+- A03 PR #73 / Issue #59 与 A02 PR #74 / Issue #58 均已合并并关闭；当前 `main` 为 `5e8b28a`。
+- A02/A03 的唯一共享边界为 `assetReferencePort.bindAvailableVersion`，A02 传入同一 transaction client；Organization ownership 始终来自认证身份。
+- A02/A03 分别使用 `project_content_schema_migrations` 与 `asset_schema_migrations`，模块文件归属保持在 `src/project-content/**` 与 `src/assets/**`。
+- A02/A03 均完成实施 Agent、自测、主代理验证和独立 Review。合并后 `main` CI run `31084194959` 的 Ubuntu、Windows、identity/PostgreSQL 三项全部通过。
+- 本地最终审计：98 个 JavaScript 文件检查通过；627 tests / 603 pass / 0 fail / 24 environment skips；3 条商品数据校验通过；`git diff --check` 通过。浏览器/PostgreSQL 实际环境证据已由最终 CI 与前置定向测试覆盖。
+- 默认 Playwright 路径保持不变；本轮未访问 Hifly、未发送真实外部 HTTP、未运行 `MULTI-002`、未消耗积分。
+- Wave 2 已完成。未经新的 Goal 与明确开发授权，不开始 A04。
+
 ## 2026-08-06 VSA Wave 2 合并检查点（未访问飞影、未消耗积分）
 
 - A03 PR #73 已在三组 CI 全绿后合并；仓库只允许 squash merge，`main` 提交为 `78a8fc3`。Issue #59 已关闭。
