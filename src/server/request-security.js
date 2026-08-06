@@ -36,6 +36,13 @@ function validContentType(contentType) {
   return type === "multipart/form-data" && parameters.some((parameter) => parameter.startsWith("boundary="));
 }
 
+function validMutationContentType(request) {
+  if (validContentType(request.headers["content-type"])) return true;
+  const type = String(request.headers["content-type"] || "").split(";", 1)[0].toLowerCase();
+  const path = request.url.split("?", 1)[0];
+  return request.method === "PUT" && path.startsWith("/api/assets/uploads/") && ["image/jpeg", "image/png", "image/webp"].includes(type);
+}
+
 function normalizedStringSet(values, label) {
   if (!Array.isArray(values) || values.length === 0 || values.some((value) => typeof value !== "string" || !value.trim())) {
     throw new TypeError(`${label} must be a non-empty string array`);
@@ -104,7 +111,7 @@ export function createRequestSecurity({ allowedHost = null } = {}) {
       reject(reply, 403, "SAME_ORIGIN_REQUIRED");
       return;
     }
-    if (!validContentType(request.headers["content-type"])) {
+    if (!validMutationContentType(request)) {
       reject(reply, 415, "JSON_OR_MULTIPART_REQUIRED");
       return;
     }
@@ -145,7 +152,7 @@ export function createCloudRequestSecurity({ trustedHosts, trustedOrigins } = {}
       reject(reply, 403, "TRUSTED_ORIGIN_REQUIRED");
       return;
     }
-    if (!validContentType(request.headers["content-type"])) {
+    if (!validMutationContentType(request)) {
       reject(reply, 415, "JSON_OR_MULTIPART_REQUIRED");
       return;
     }

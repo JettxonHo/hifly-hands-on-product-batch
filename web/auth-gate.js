@@ -15,6 +15,15 @@
     window.HiflyIdentity = context;
     const strip = document.querySelector(".status-strip");
     if (!strip) return;
+    const runtimeResponse = await fetch("/api/runtime", { credentials: "same-origin" });
+    const runtime = runtimeResponse.ok ? await runtimeResponse.json() : {};
+    if (runtime.assetsEnabled === true) {
+      const assets = document.createElement("a");
+      assets.href = "/assets.html";
+      assets.className = "status-pill";
+      assets.textContent = "素材中心";
+      strip.append(assets);
+    }
     if (context.membership.role === "admin") {
       const members = document.createElement("a");
       members.href = "/members.html";

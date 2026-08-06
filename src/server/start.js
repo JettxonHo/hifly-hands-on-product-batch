@@ -117,7 +117,8 @@ export async function startServer({
   pointsEstimate = {},
   generationConfig = {},
   captureLive = null,
-  identity = null
+  identity = null,
+  assets = null
 } = {}) {
   let selectedPort = await findAvailablePort(port);
   let app;
@@ -133,6 +134,7 @@ export async function startServer({
       pointsEstimate,
       generationConfig,
       identity,
+      assets,
       captureLive: captureLive || {
         authProvider: createPlaywrightRuntimeAuthProvider({
           chromium,
@@ -206,6 +208,7 @@ if (isDirectExecution()) {
     executionLock: config.executionLock,
     pointsEstimate: config.pointsEstimate,
     generationConfig: config,
-    identity: config.gui?.identity
+    identity: config.gui?.identity,
+    assets: config.gui?.assets
   });
 }
