@@ -748,3 +748,34 @@
   - 需要支持一工单多主要视频 Work；
   - manifest Schema 需要不兼容升级；
   - Vertical Slice A 实施发现需要细化字段或状态（仍不得让人工绕过 ProductionOrder 或直设 succeeded）。
+
+## D-030 Vertical Slice A 交付计划与完成定义
+
+- **日期**：2026-08-05
+- **状态**：Confirmed
+- **背景（Context）**：D-017 已定型 Vertical Slice A/B 两层拆分；D-027 已固化 Phase 1 页面结构与交互边界；D-028 已固化核心领域对象/状态机/失效/并发/幂等/事务（DM-001～DM-005）；D-029 已固化人工交接包与人工执行结果合同（MHC-001～MHC-010）。但 Vertical Slice A 的真实交付终点、Issue 拆分方式、A01～A14 业务边界、依赖波次、统一 Issue 模板、单 Issue DoD 与 Slice 级 DoD 尚未在产品规格层统一固化，存在按技术层横向拆分、安全/幂等/并发后补、最终集成 Issue 收容遗漏功能、测试替身冒充 Provider 能力等风险。D-030 负责固化该交付规划与验收合同，为后续创建 GitHub Development Issues 提供权威依据。详细 Specification 见 [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md)。D-030 是交付规划与验收合同，**不代表 GitHub Development Issues 已创建、A01～A14 已进入开发、数据库/API/前端/测试已实现或 Vertical Slice A 已完成**，不接入 Hifly，不关闭 Q-018，不声称 HIFLY-001/SPK-018 已执行，不改写 D-025～D-029 历史内容。
+- **决策**：
+  1. **交付目标（VS-001）**：Vertical Slice A 以「空白项目到正式 Work 和 DeliveryRecord」的人工生产闭环为交付目标（登录→项目→商品事实→CopyVersion→QC→人工批准→人物→VideoPlan→Preflight→人工批准→ProductionOrder→ManualHandoffPackage→manual ExecutionAttempt→ManualExecutionReport→候选产物核验→Work→WorkInspection→DeliveryRecord）；**不以 Hifly 自动化为完成条件**（manual execution ≠ Local Agent execution；test double ≠ verified Provider integration）。
+  2. **拆分原则（VS-002）**：按用户结果和主要状态转换拆分，不按数据库/后端/前端/测试技术层横向拆；一个 Issue 默认 1 Issue→1 分支→1 主 PR（VS-004），合并后可构建可测试不依赖未合并分支；业务正确性（不可变版本/失效传播/权限/Organization 隔离/幂等/并发）与首次功能同时交付（VS-005）；最终集成 Issue 不收容遗漏功能（VS-008/原则 10）。
+  3. **A01～A14 边界（VS-003）**：A01 企业身份与组织上下文；A02 空白项目与商品权威快照；A03 素材上传与服务端核验；A04 文案生成与不可变 CopyVersion；A05 文案 QC 与 Finding 处理；A06 文案人工审核与失效传播；A07 已有数字人物目录与选择；A08 VideoPlan/Preflight/PlanReview；A09 ProductionOrder 创建与等待执行；A10 ManualHandoffPackage 生成与下载；A11 人工 ExecutionAttempt 与 ManualExecutionReport；A12 候选产物核验与 Work 创建；A13 作品检查与交付登记；A14 端到端验收与加固（只串联/回归/加固，不首次实现主要领域对象）。A01～A14 是规划标识，**不是当前 GitHub Issue 编号**。
+  4. **Evidence 阻塞能力不进入 Slice A（VS-006）**：Hifly 真实网页登录、Cookie/LocalStorage/浏览器 Profile 管理、Local Agent 真实配对、Playwright/影刀自动执行、Provider 自动领取/状态回传/产物下载、多 Agent 调度不作为 A01～A14 隐含范围；测试替身/种子数据必须标识为 Phase 1 受控实现、非真实 Hifly 集成、非 Provider 能力 Evidence。
+  5. **统一 Issue 结构与 DoD（VS-007）**：所有 A01～A14 使用统一正文模板（User outcome/Scope/Out of scope/Preconditions/Domain contract/UX states/Authorization and isolation/Idempotency and concurrency/Acceptance scenarios/Tests/Evidence/Dependencies/Definition of Done）与统一单 Issue DoD（业务结果/领域正确性/权限与隔离/幂等与并发/UX 完整性/数据与 Migration/测试/可观测性与审计/文档/工程质量 十类）。
+  6. **Slice 级 DoD（VS-009）**：A01～A14 全部完成后须通过完整主路径（全新测试 Organization 端到端，不依赖手工改 DB/本地脚本/未合并分支/Hifly 真实自动化/管理员绕过）+ 关键反向测试（blocked 不可批准、passed≠approved、revoked 不恢复、相关上游变化撤销批准、无关展示变化不撤销、Local Agent 离线不阻止审核/waiting_for_executor、重复点击不重复工单、生成/下载包不创建 attempt、ManualExecutionReport completed≠Order succeeded、上传≠Work、核验失败不创建 Work、同候选产物不重复 Work、一工单一主要视频 Work、跨组织 ID 拒绝、Secret/Cookie/密码/Profile/永久 URL 不入包/报告/Evidence/日志、重复 DeliveryRecord 不重复事件）+ 稳定性与恢复 + 交付质量。
+  7. **依赖与开发波次**：Wave 1 A01；Wave 2 A02‖A03（A02 ready 验收依赖 A03）；Wave 3 A04‖A07 基础；Wave 4 A05‖A07 确认；Wave 5 A06；Wave 6 A08；Wave 7 A09；Wave 8 A10；Wave 9 A11；Wave 10 A12；Wave 11 A13；Wave 12 A14。波次表示依赖关系，不强制人员并行；不允许两个并行 Issue 同时无协调修改同一权威领域状态机。
+  8. **后续流程（VS-010）**：D-030 合并后须由产品负责人单独授权才允许创建 A01～A14 GitHub Development Issues；Issue 创建阶段只创建任务不自动开始开发；每个 Issue 开发与 PR 仍遵守仓库后续授权与工作区安全边界。
+- **影响（Consequences）**：
+  - Vertical Slice A 有了明确交付终点（人工 ProductionOrder 闭环）、Issue 拆分原则、A01～A14 边界、依赖波次、统一模板与单 Issue/Slice 级 DoD；
+  - 安全/幂等/并发/不可变版本/失效传播须与首次功能同时交付，不得后补；
+  - 真实 Hifly/Local Agent/Playwright/影刀自动执行明确排除在 Slice A 外，测试替身不得冒充 Provider 能力；
+  - 「Vertical Slice A Issue 拆分与 DoD」可标记为 specification/产品决策完成（不代表实现）；
+  - 下一步：D-030 合并→单独授权创建 A01～A14 Development Issues→依 Wave 顺序实施；HIFLY-001/SPK-018 并行 Evidence；
+  - Q-018 继续保持 Pending Evidence / Open；HIFLY-001 尚未实际执行；
+  - 详细 Specification 在 [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md)；
+  - 本 Decision 不代表 Development Issues 已创建或开发已开始。
+- **非目标**：不创建 GitHub Development Issues；不实现代码/DB/Schema/Migration/API/前端/测试；不接入 Hifly；不关闭 Q-018；不声称 HIFLY-001/SPK-018 已执行；不创建 Milestone/Project/Discussion/Release；不改写历史决策。
+- **可重新评估条件**：只有在以下情况发生时重新评估：
+  - Wave 实施中发现需要新通用 Enabler（单独提出待确认，不在 D-030 自动增 Issue）；
+  - HIFLY-001/SPK-018 Evidence 结果要求调整 Evidence 阻塞能力边界；
+  - Q-018 决定影响 A01/A09/A11 凭据或执行边界；
+  - 需要支持多主要视频 Work 或多 Provider 生产（新产品决策）；
+  - Slice A 实施发现 A01～A14 边界需细化（仍不得让人工绕过 ProductionOrder 或推迟安全/幂等）。
