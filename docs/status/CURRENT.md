@@ -4,6 +4,17 @@
 > 当前远端 main：`60ecaa2`（VSA-A01 + 多 Agent 治理文档）
 > 当前 Goal：Vertical Slice A
 
+## VSA-A02 独立分支快照
+
+- `codex/vsa-a02-project-content` 基于 A03 完成提交 `547c843` 实现 Issue #58，主代理验证与独立 Review 已完成。
+- 已交付 Project/Product/ProductRevision memory/PostgreSQL 持久化、独立 `project_content_schema_migrations`、service/API、最小 UI、审计、幂等、乐观并发与下游 ready snapshot port。
+- ready 只通过 A03 `assetReferencePort` 绑定 available 商品图片，并复用同一 transaction client；PostgreSQL 16 rollback 测试通过。
+- 系统 Chrome 已完成创建项目、创建商品、保存卖点、逐条确认、选择图片、Ready、刷新恢复与重复 Ready 禁用流程。
+- 默认 feature disabled，旧 Playwright workbench 回归通过；完整套件 627 tests / 603 passed / 24 environment-conditional skips / 0 failed，A02 PostgreSQL 16 与系统 Chrome定向测试另行实际通过且无 skip。
+- 独立 Reviewer 首轮发现相同 Ready 快照会派生重复 child revision；TDD 修复后复审 `APPROVED`，无 Blocker/Important。
+- 未访问 Hifly、未发送真实外部 HTTP、未消耗积分。
+- 详细证据见 `docs/status/sessions/2026-08-06-vsa-a02-project-content.md` 和 `docs/project-content/VSA-A02.md`。
+
 ## VSA-A03 独立分支快照
 
 - `codex/vsa-a03-assets` 基于 `60ecaa2` 完成 Issue #59 TDD 实现与独立审查，Important 已修复；PR #73 CI 全绿，等待合并授权。
@@ -19,8 +30,8 @@
 - 合并提交：`82d1c9f5075098559306f4a72eebbeaa79ed1959`。
 - A01 独立 Review 结论为 `APPROVED`；最终 CI run `31072997173` 的 Ubuntu、Windows、PostgreSQL identity 三项均通过。
 - A01 已实现 PostgreSQL 权威身份库、工作邮箱登录、首次强制改密、单 Organization 上下文、退出、disabled 每请求失效，以及管理员成员管理。
-- A03 / Issue #59 已完成分支实现与本地验收；A02 / Issue #58 等待 A03 合并后实施，A02 ready 通过唯一 `assetReferencePort` 绑定 available AssetVersion。
-- 实现 Agent 请求配置：GPT-5.6 Sol / Medium；运行时状态 `UNVERIFIED_RUNTIME_MODEL`。
+- A03 / Issue #59 已完成分支实现与本地验收；A02 / Issue #58 已在独立分支完成实现、验证与独立 Review，A02 ready 通过唯一 `assetReferencePort` 绑定 available AssetVersion。
+- A02 实施 Agent 使用 GPT-5.6 Sol / Medium；独立 Reviewer 使用 GPT-5.6 Terra / High。
 
 ## 当前治理
 
@@ -53,7 +64,7 @@
 
 ## 下一步
 
-1. 完成治理文档 PR #72 的 CI 与合并。
-2. 以 A01 已合并合同为基础，核对 A02/A03 的共享 Migration、Organization ownership 与文件归属边界。
-3. 由用户分别授权 A02/A03 后，再创建独立分支、任务包、实现与 Review；不得自动越级开始。
+1. A02 创建以 `codex/vsa-a03-assets` 为 base 的堆叠 PR并等待 CI。
+2. 未经用户单独授权不合并 A03 PR #73 或 A02 PR，也不开始 A04。
+3. A03 合并后将 A02 PR base 调整为 `main`，重跑最终 CI 与 diff 审查。
 4. 每个里程碑结束时更新本文件与 `GOAL.md`。

@@ -131,7 +131,7 @@ export function createMemoryAssetRepository() {
       audits.push({ id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId, event_type: "asset.metadata_updated", asset_id: assetId, metadata: { display_name: displayName }, created_at: now });
       return clone(asset);
     },
-    async bindReference({ organizationId, assetVersionId, referenceType, referenceId, role, now, transactionClient: _transactionClient = null }) {
+    async bindReference({ organizationId, assetVersionId, referenceType, referenceId, role, now, transactionClient = null }) {
       const version = owned(versions, assetVersionId, organizationId, "ASSET_VERSION_NOT_FOUND");
       const asset = assets.get(version.asset_id);
       if (asset.status !== "active") throw failure("ASSET_NOT_ACTIVE");
@@ -140,7 +140,8 @@ export function createMemoryAssetRepository() {
       let reference = references.get(key);
       if (!reference) {
         reference = { id: randomUUID(), organization_id: organizationId, asset_id: asset.id, asset_version_id: version.id, reference_type: referenceType, reference_id: referenceId, role, created_at: now };
-        references.set(key, reference);
+        if (transactionClient?.onCommit) transactionClient.onCommit(() => references.set(key, clone(reference)));
+        else references.set(key, reference);
       }
       return { reference: clone(reference), asset: clone(asset), asset_version: clone(version) };
     },

@@ -80,9 +80,15 @@ DATABASE_URL=postgresql://hifly_test:local-test-only@127.0.0.1:55432/hifly_ident
 ```
 
 生产部署必须使用 HTTPS、`cookieSecure: true`、实际域名的 Host/Origin 白名单，且建议通过
-`DATABASE_URL` 注入连接信息。部署流程先显式执行 `npm run migrate:identity`；应用启动只检查
-schema 版本，不自动执行生产 migration。初始管理员 seed 只用于受控部署初始化，启用 seed
+`DATABASE_URL` 注入连接信息。部署流程先显式执行 `npm run migrate:identity`；启用素材与项目内容时，
+再依次执行 `npm run migrate:assets` 与 `npm run migrate:project-content`。应用启动只检查 schema
+版本，不自动执行生产 migration。初始管理员 seed 只用于受控部署初始化，启用 seed
 时 `CHANGE_ME` 占位密码会被拒绝。
+
+项目内容默认关闭。启用时 `gui.identity.enabled`、`gui.assets.enabled` 和
+`gui.projectContent.enabled` 必须同时为 `true`。A01、A03、A02 共用一个 PostgreSQL pool，
+但分别使用 `identity_schema_migrations`、`asset_schema_migrations` 和
+`project_content_schema_migrations`。
 
 本地数据库验证完成后可清理：
 
