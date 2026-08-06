@@ -1,8 +1,16 @@
 # 项目当前状态
 
 > 最后更新：2026-08-06
-> 当前远端 main：`5e8b28a`（VSA Wave 2 已合并）
+> 当前远端 main：`dd57a08`（VSA Wave 2 收尾已合并）
 > 当前 Goal：Vertical Slice A
+
+## Kimi K3 前端视觉升级策划（2026-08-06）
+
+- 已建立独立规划文件 `docs/frontend/KIMI_K3_FRONTEND_VISUAL_UPGRADE_PLAN.md`，采用 Stage 0 方向确认、Stage 1 基础层、Stage 2 随 VSA 增量落地、Stage 3 全链路收尾的节奏。
+- 已建立 Claude 对接提示词 `docs/prompts/CLAUDE_KIMI_K3_FRONTEND_HANDOFF.md`；Claude 只协调 Stage 0 与业务复核，Kimi K3 只负责设计，Owner 批准 Stage 1 后由 Codex 实施代码、测试和 Git 交付。
+- 当前仅完成策划与提示词，不授权修改前端代码。A01-A03 一键演示环境进入 `main` 且 Owner 批准视觉方向后，才进入 Stage 1。
+- Kimi K3 实际运行时必须可验证；不可用时不得静默替换后继续声称由 Kimi K3 实施。
+- 本轮未访问 Hifly、未发送真实外部 HTTP、未消耗积分。
 
 ## VSA-A02 已合并快照
 
