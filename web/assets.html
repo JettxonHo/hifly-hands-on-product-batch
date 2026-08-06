@@ -4,29 +4,44 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>素材中心 · 飞影企业工作台</title>
+    <link rel="stylesheet" href="/tokens.css">
+    <link rel="stylesheet" href="/base.css">
+    <link rel="stylesheet" href="/shell.css">
     <link rel="stylesheet" href="/assets.css">
+    <script src="/shell.js" defer></script>
     <script src="/assets.js" defer></script>
   </head>
-  <body>
-    <main class="asset-shell">
-      <header>
-        <div><p class="eyebrow">企业内容资产</p><h1>素材中心</h1></div>
-        <a href="/">返回工作台</a>
-      </header>
-      <section class="upload-section" aria-labelledby="uploadTitle">
-        <div><h2 id="uploadTitle">上传商品图</h2><p>文件上传后由服务端核验，核验通过才可被商品引用。</p></div>
-        <form id="uploadForm">
-          <label for="assetFile">商品图片</label>
-          <input id="assetFile" type="file" accept="image/jpeg,image/png,image/webp" required>
-          <button type="submit">上传并开始核验</button>
-        </form>
-        <p id="uploadStatus" class="notice" role="status"></p>
-        <p id="assetError" class="notice error" role="alert"></p>
-      </section>
-      <section aria-labelledby="libraryTitle">
-        <div class="section-head"><div><h2 id="libraryTitle">商品图片</h2><p>状态来自服务端，可随时离开后返回。</p></div><button id="refreshAssets" class="secondary" type="button">刷新</button></div>
-        <div id="assetList" class="asset-list" aria-live="polite"><p class="empty">正在加载...</p></div>
-      </section>
-    </main>
+  <body data-shell-page="assets">
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="app-sidebar">
+        <a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a>
+        <nav class="app-nav" aria-label="主导航">
+          <a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a>
+          <a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a>
+          <a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a>
+        </nav>
+      </aside>
+      <div class="app-frame">
+        <header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
+        <main id="mainContent" class="page-content">
+          <div class="page-header"><div><p class="eyebrow">企业内容资产</p><h1>素材中心</h1><p class="page-description">上传、核验并管理商品图片。</p></div></div>
+          <section class="surface upload-section" aria-labelledby="uploadTitle">
+            <div class="surface-header"><div><h2 id="uploadTitle">上传商品图</h2><p>核验通过的图片才可被商品引用，支持 JPG、PNG、WebP。</p></div></div>
+            <form id="uploadForm">
+              <label for="assetFile">商品图片</label>
+              <input id="assetFile" type="file" accept="image/jpeg,image/png,image/webp" required>
+              <button type="submit">上传并开始核验</button>
+            </form>
+            <p id="uploadStatus" class="notice" role="status"></p>
+            <p id="assetError" class="notice error" role="alert"></p>
+          </section>
+          <section class="surface" aria-labelledby="libraryTitle">
+            <div class="surface-header"><div><h2 id="libraryTitle">商品图片</h2><p>状态来自服务端，可随时离开后返回。</p></div><button id="refreshAssets" class="secondary" type="button">刷新</button></div>
+            <div id="assetList" class="asset-list" aria-live="polite"><p class="empty">正在加载...</p></div>
+          </section>
+        </main>
+      </div>
+    </div>
   </body>
 </html>

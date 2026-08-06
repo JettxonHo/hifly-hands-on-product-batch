@@ -1,17 +1,54 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>商品内容 · 飞影企业工作台</title><link rel="stylesheet" href="/project-content.css"><script src="/project.js" defer></script></head>
-<body><main class="shell">
-  <header><div><p class="eyebrow">项目商品</p><h1 id="projectName">正在加载...</h1></div><a href="/projects.html">全部项目</a></header>
-  <section><h2>创建商品</h2><form id="productForm" class="grid"><label class="wide">商品名称<input name="product_name" required></label><div class="actions wide"><p id="productError" class="notice error"></p><button type="submit">创建商品</button></div></form></section>
-  <section><div class="section-head"><h2>商品</h2><div id="productList" class="product-list"></div></div></section>
-  <section id="editor" hidden><div class="section-head"><div><h2>商品快照</h2><span id="revisionState" class="state"></span></div><button id="refreshRevision" class="secondary" type="button">刷新</button></div>
-    <form id="revisionForm" class="grid">
-      <label>商品名称<input name="product_name" required></label><label>品类<input name="primary_category" value="general"></label>
-      <label class="wide">商品说明<textarea name="product_description" rows="3"></textarea></label>
-      <label>表达风格<input name="expression_style"></label><label>补充要求<input name="additional_requirements"></label>
-      <div class="wide"><div class="section-head"><strong>核心卖点</strong><button id="addPoint" class="secondary" type="button">新增卖点</button></div><div id="pointList" class="point-list"></div></div>
-      <div class="wide"><strong>商品图片</strong><div id="assetOptions" class="asset-options"><p class="empty">正在加载素材...</p></div></div>
-      <div class="actions wide"><p id="editorNotice" class="notice" role="status"></p><div><button id="saveDraft" class="secondary" type="submit">保存草稿</button> <button id="readyRevision" type="button">设为 Ready</button></div></div>
-    </form>
-  </section>
-</main></body></html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>商品内容 · 飞影企业工作台</title>
+    <link rel="stylesheet" href="/tokens.css">
+    <link rel="stylesheet" href="/base.css">
+    <link rel="stylesheet" href="/shell.css">
+    <link rel="stylesheet" href="/project-content.css">
+    <script src="/shell.js" defer></script>
+    <script src="/project.js" defer></script>
+  </head>
+  <body data-shell-page="projects">
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="app-sidebar">
+        <a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a>
+        <nav class="app-nav" aria-label="主导航">
+          <a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a>
+          <a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a>
+          <a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a>
+        </nav>
+      </aside>
+      <div class="app-frame">
+        <header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
+        <main id="mainContent" class="page-content">
+          <div class="page-header">
+            <div><p class="eyebrow"><a href="/projects.html">项目</a> / 商品</p><h1 id="projectName">正在加载...</h1><p class="page-description">维护可审阅、可追溯的商品内容快照。</p></div>
+            <div class="page-actions"><button id="openProductDialog" type="button">创建商品</button></div>
+          </div>
+          <div class="product-workspace">
+            <section class="surface product-sidebar" aria-labelledby="productListTitle"><div class="surface-header"><h2 id="productListTitle">商品</h2></div><div id="productList" class="product-list"></div></section>
+            <section id="editor" class="surface product-editor" hidden>
+              <div class="surface-header"><div><h2>商品快照</h2><span id="revisionState" class="state"></span></div><button id="refreshRevision" class="secondary" type="button">刷新</button></div>
+              <form id="revisionForm" class="grid">
+                <label>商品名称<input name="product_name" required></label><label>品类<input name="primary_category" value="general"></label>
+                <label class="wide">商品说明<textarea name="product_description" rows="3"></textarea></label>
+                <label>表达风格<input name="expression_style"></label><label>补充要求<input name="additional_requirements"></label>
+                <div class="wide"><div class="section-head"><strong>核心卖点</strong><button id="addPoint" class="secondary" type="button">新增卖点</button></div><div id="pointList" class="point-list"></div></div>
+                <div class="wide"><strong>商品图片</strong><div id="assetOptions" class="asset-options"><p class="empty">正在加载素材...</p></div></div>
+                <div class="actions wide"><p id="editorNotice" class="notice" role="status"></p><div class="button-row"><button id="saveDraft" class="secondary" type="submit">保存草稿</button><button id="readyRevision" type="button">设为 Ready</button></div></div>
+              </form>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+    <dialog id="productDialog" aria-labelledby="productDialogTitle">
+      <div class="dialog-header"><div><p class="eyebrow">新商品</p><h2 id="productDialogTitle">创建商品</h2></div><button id="closeProductDialog" class="dialog-close" type="button" aria-label="关闭创建商品">×</button></div>
+      <div class="dialog-body"><form id="productForm" class="grid"><label class="wide">商品名称<input name="product_name" required></label><div class="actions wide"><p id="productError" class="notice error" role="alert"></p><button type="submit">创建商品</button></div></form></div>
+    </dialog>
+  </body>
+</html>

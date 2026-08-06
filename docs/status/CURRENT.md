@@ -1,7 +1,7 @@
 # 项目当前状态
 
 > 最后更新：2026-08-06
-> 当前远端 main：`dd57a08`（VSA Wave 2 收尾已合并）
+> 当前远端 main：`21d4174`（Kimi K3 Stage 0 视觉方案已合并）
 > 当前 Goal：Vertical Slice A
 
 ## Kimi K3 前端视觉升级策划（2026-08-06）
@@ -13,6 +13,15 @@
 - Owner 已授权单独建立 Stage 1 Frontend Foundation Issue；后续由 Codex 实施、测试，并交给独立 Reviewer 审查。
 - 未实现的首页、生产任务、作品库不得进入代码导航；遗留 `index.html` 继续作为运维兜底页，不作为企业一级导航。
 - 本轮未访问 Hifly、未发送真实外部 HTTP、未消耗积分。
+
+## Frontend Foundation Stage 1（Issue #77）
+
+- 状态：Codex 已完成本地实现、视觉验收与独立 Review；Review 结论 `APPROVED`，无剩余 blocker/important。
+- 分支/worktree：`codex/frontend-foundation-stage1` / `/private/tmp/hifly-frontend-foundation-stage1`。
+- 已覆盖登录、项目、商品快照、素材中心、成员管理；共享导航只含已实现入口，遗留 `index.html` 未改。
+- 验证：628 tests / 624 pass / 0 fail / 4 environment skips；桌面与 390px 截图位于仓库外 `/private/tmp/hifly-stage1-visual-qa/`。
+- 下一步：创建 ready PR；未经 Owner 单独授权不合并、不关闭 Issue #77。
+- 本轮未访问 Hifly、未运行真实生成、未消耗积分。
 
 ## VSA-A02 已合并快照
 

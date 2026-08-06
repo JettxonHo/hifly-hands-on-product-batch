@@ -20,8 +20,8 @@
     return body;
   }
   const labels = {
-    upload_pending: "等待上传", uploading: "上传完成，等待确认", verifying: "服务端核验中",
-    available: "可引用", verification_failed: "核验失败", unavailable: "不可用"
+    upload_pending: "等待上传", uploading: "等待核验", verifying: "核验中",
+    available: "核验通过", verification_failed: "核验失败", unavailable: "不可用"
   };
   const failures = {
     OBJECT_MISSING: "未找到上传文件，请重新选择图片上传。", FILE_TYPE_MISMATCH: "文件内容不是支持的图片格式，请重新选择 JPG、PNG 或 WebP。",
@@ -37,7 +37,7 @@
       const version = asset.versions[0];
       const row = document.createElement("article"); row.className = "asset-row";
       const detail = document.createElement("div");
-      const name = document.createElement("p"); name.className = "asset-name"; name.textContent = version.original_filename;
+      const name = document.createElement("p"); name.className = "asset-name"; name.textContent = version.original_filename; name.title = version.original_filename;
       const meta = document.createElement("p"); meta.className = "asset-meta";
       meta.textContent = version.failure_code ? failures[version.failure_code] || `核验失败：${version.failure_code}` : `版本 ${version.version_number} · ${version.expected_content_type}`;
       const state = document.createElement("span"); state.className = `state ${version.status}`; state.textContent = labels[version.status] || version.status;
