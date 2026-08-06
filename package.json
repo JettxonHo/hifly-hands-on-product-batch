@@ -9,6 +9,7 @@
     "gui": "node src/server/start.js",
     "login": "node src/login.js",
     "migrate:identity": "node scripts/migrate-identity.mjs",
+    "migrate:assets": "node scripts/migrate-assets.mjs",
     "validate": "node src/validate-products.js",
     "run": "node src/run-batch.js",
     "prepare-standard": "node scripts/generate-standard-assets.mjs",

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>素材中心 · 飞影企业工作台</title>
+    <link rel="stylesheet" href="/assets.css">
+    <script src="/assets.js" defer></script>
+  </head>
+  <body>
+    <main class="asset-shell">
+      <header>
+        <div><p class="eyebrow">企业内容资产</p><h1>素材中心</h1></div>
+        <a href="/">返回工作台</a>
+      </header>
+      <section class="upload-section" aria-labelledby="uploadTitle">
+        <div><h2 id="uploadTitle">上传商品图</h2><p>文件上传后由服务端核验，核验通过才可被商品引用。</p></div>
+        <form id="uploadForm">
+          <label for="assetFile">商品图片</label>
+          <input id="assetFile" type="file" accept="image/jpeg,image/png,image/webp" required>
+          <button type="submit">上传并开始核验</button>
+        </form>
+        <p id="uploadStatus" class="notice" role="status"></p>
+        <p id="assetError" class="notice error" role="alert"></p>
+      </section>
+      <section aria-labelledby="libraryTitle">
+        <div class="section-head"><div><h2 id="libraryTitle">商品图片</h2><p>状态来自服务端，可随时离开后返回。</p></div><button id="refreshAssets" class="secondary" type="button">刷新</button></div>
+        <div id="assetList" class="asset-list" aria-live="polite"><p class="empty">正在加载...</p></div>
+      </section>
+    </main>
+  </body>
+</html>

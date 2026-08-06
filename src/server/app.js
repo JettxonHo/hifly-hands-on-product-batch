@@ -3,6 +3,10 @@ import multipart from "@fastify/multipart";
 import staticFiles from "@fastify/static";
 import path from "node:path";
 
+import { createAssetService } from "../assets/asset-service.js";
+import { createLocalObjectStore } from "../assets/local-object-store.js";
+import { createPostgresAssetRepository } from "../assets/postgres-asset-repository.js";
+import { createVerificationWorker } from "../assets/verification-worker.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
@@ -11,6 +15,7 @@ import { seedInitialAdmin } from "../identity/seed-admin.js";
 import { getProjectRoot } from "../core/project-root.js";
 import { createCloudRequestSecurity, createRequestSecurity } from "./request-security.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
+import { registerAssetRoutes } from "./routes/assets.js";
 import { registerAuthRoutes, createIdentityGuard } from "./routes/auth.js";
 import { registerBatchRoutes } from "./routes/batches.js";
 import { registerCaptureRoutes } from "./routes/capture.js";
@@ -72,6 +77,20 @@ const CLIENT_ERROR_CODES = new Set([
 ]);
 
 function apiError(error) {
+  if (["ASSET_NOT_FOUND", "ASSET_VERSION_NOT_FOUND", "UPLOAD_SESSION_NOT_FOUND", "DOWNLOAD_AUTHORIZATION_NOT_FOUND", "OBJECT_MISSING"].includes(error?.code)) {
+    return { statusCode: 404, code: error.code };
+  }
+  if (["ASSET_VERSION_CONFLICT", "ASSET_HISTORY_REFERENCED", "IDEMPOTENCY_CONFLICT", "OBJECT_ALREADY_EXISTS", "UPLOAD_SESSION_NOT_PENDING", "UPLOAD_AUTHORIZATION_NOT_REPLAYABLE"].includes(error?.code)) {
+    return { statusCode: 409, code: error.code };
+  }
+  if (["ASSET_NOT_ACTIVE", "ASSET_VERSION_NOT_AVAILABLE", "UPLOAD_NOT_COMPLETED"].includes(error?.code)) {
+    return { statusCode: 422, code: error.code };
+  }
+  if (error?.code === "ADMIN_REQUIRED") return { statusCode: 403, code: "ADMIN_REQUIRED" };
+  if (error?.code === "UPLOAD_AUTHORIZATION_EXPIRED") return { statusCode: 410, code: "UPLOAD_AUTHORIZATION_EXPIRED" };
+  if (["INVALID_ASSET_PAYLOAD", "ASSET_TYPE_NOT_ALLOWED", "ASSET_SIZE_NOT_ALLOWED", "INVALID_ASSET_CHECKSUM", "INVALID_ASSET_ID", "INVALID_ASSET_ACTOR", "INVALID_ASSET_DISPLAY_NAME", "INVALID_ASSET_REVISION", "INVALID_UPLOAD_BODY", "UPLOAD_CONTENT_TYPE_MISMATCH", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) {
+    return { statusCode: 400, code: error.code };
+  }
   if (error?.code === "ENOENT" || error?.code === "INVALID_BATCH_ID" || error?.code === "ARTIFACT_NOT_FOUND") {
     return { statusCode: 404, code: "NOT_FOUND" };
   }
@@ -103,6 +122,7 @@ export async function buildApp({
   webRoot = path.join(getProjectRoot(), "web"),
   storeOptions = {},
   identity: identityOptions = null,
+  assets: assetOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -112,6 +132,8 @@ export async function buildApp({
   const batchRoot = path.join(path.resolve(root), "batches");
   const staticRoot = path.resolve(webRoot);
   const identityEnabled = identityOptions?.enabled === true;
+  const assetsEnabled = assetOptions?.enabled === true;
+  if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -120,19 +142,22 @@ export async function buildApp({
   let identityRepository = null;
   let identityService = null;
   let ownsIdentityRepository = false;
+  let assetService = null;
+  let assetWorker = null;
+  let sharedPool = null;
   if (identityEnabled) {
     if (identityOptions.repository) {
       identityRepository = identityOptions.repository;
     } else {
-      const pool = createIdentityPool({ connectionString: identityOptions.databaseUrl || process.env.DATABASE_URL });
-      identityRepository = createPostgresIdentityRepository({ pool });
+      sharedPool = createIdentityPool({ connectionString: identityOptions.databaseUrl || process.env.DATABASE_URL });
+      identityRepository = createPostgresIdentityRepository({ pool: sharedPool, ownsPool: false });
       ownsIdentityRepository = true;
     }
     try {
       await identityRepository.initialize();
       if (identityOptions.seed?.enabled) await seedInitialAdmin(identityRepository, identityOptions.seed, { now });
     } catch (error) {
-      if (ownsIdentityRepository) await identityRepository.close().catch(() => undefined);
+      if (ownsIdentityRepository) await sharedPool?.end().catch(() => undefined);
       throw error;
     }
     identityService = createAuthService({
@@ -165,7 +190,7 @@ export async function buildApp({
   app.decorate("workbench", { batchRoot, executor, openBrowser, store });
   app.decorate("stopExecutions", coordinator.stop);
   app.addHook("onClose", async () => coordinator.stop());
-  if (ownsIdentityRepository) app.addHook("onClose", async () => identityRepository.close());
+  if (ownsIdentityRepository) app.addHook("onClose", async () => sharedPool.end());
   app.addHook("onRequest", security.onRequest);
   if (identityService) app.addHook("preHandler", createIdentityGuard(identityService));
   app.setErrorHandler((error, request, reply) => {
@@ -175,12 +200,16 @@ export async function buildApp({
   await app.register(multipart, {
     limits: { files: 500, fileSize: 20 * 1024 * 1024, fields: 8, parts: 508 }
   });
+  for (const contentType of ["image/jpeg", "image/png", "image/webp"]) {
+    app.addContentTypeParser(contentType, { parseAs: "buffer" }, (_request, body, done) => done(null, body));
+  }
 
   if (!identityEnabled) app.get("/api/session", async (request, reply) => security.bootstrap(reply));
   app.get("/api/runtime", async () => {
     const batchConfig = generationConfig.rpa?.realLive?.batch || {};
     return {
       executionBackend: generationConfig.executionBackend || "playwright",
+      assetsEnabled,
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -194,6 +223,34 @@ export async function buildApp({
   if (identityService) {
     app.decorate("identity", { repository: identityRepository, service: identityService });
     await registerAuthRoutes(app, { authService: identityService });
+  }
+  if (assetsEnabled) {
+    const assetRepository = assetOptions.repository || (sharedPool ? createPostgresAssetRepository({ pool: sharedPool }) : null);
+    const objectStore = assetOptions.objectStore || (assetOptions.adapter === "local"
+      ? createLocalObjectStore({ root: path.resolve(root, assetOptions.localRoot || ".local-assets") })
+      : null);
+    if (!assetRepository) throw Object.assign(new Error("ASSET_REPOSITORY_REQUIRED_WITH_INJECTED_IDENTITY"), { code: "ASSET_REPOSITORY_REQUIRED_WITH_INJECTED_IDENTITY" });
+    if (!objectStore) throw Object.assign(new Error("ASSET_OBJECT_STORE_REQUIRED"), { code: "ASSET_OBJECT_STORE_REQUIRED" });
+    try {
+      await assetRepository.initialize();
+      await objectStore.initialize?.();
+    } catch (error) {
+      await assetRepository.close?.().catch(() => undefined);
+      if (ownsIdentityRepository) await sharedPool.end().catch(() => undefined);
+      throw error;
+    }
+    assetService = createAssetService({
+      repository: assetRepository, objectStore,
+      uploadTtlMs: assetOptions.uploadTtlMs, downloadTtlMs: assetOptions.downloadTtlMs, now
+    });
+    assetWorker = createVerificationWorker({
+      service: assetService, pollIntervalMs: assetOptions.worker?.pollIntervalMs,
+      onError: assetOptions.worker?.onError || ((error) => console.error("Asset verification worker error:", error?.code || "UNEXPECTED_ERROR"))
+    });
+    app.decorate("assets", { repository: assetRepository, service: assetService, assetReferencePort: assetService.assetReferencePort, worker: assetWorker, objectStore });
+    app.addHook("onClose", async () => { assetWorker.stop(); await assetRepository.close?.(); });
+    await registerAssetRoutes(app, { service: assetService, worker: assetWorker });
+    if (assetOptions.worker?.autoStart !== false) assetWorker.start();
   }
 
   await registerBatchRoutes(app, { store });

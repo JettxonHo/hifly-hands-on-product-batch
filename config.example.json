@@ -45,6 +45,17 @@
         "adminTempPassword": "CHANGE_ME_initial_temp_password"
       }
     },
+    "assets": {
+      "enabled": false,
+      "adapter": "local",
+      "localRoot": ".local-assets",
+      "uploadTtlMs": 600000,
+      "downloadTtlMs": 300000,
+      "worker": {
+        "autoStart": true,
+        "pollIntervalMs": 1000
+      }
+    },
     "openBrowser": true
   },
   "uploadLimits": {

@@ -65,7 +65,7 @@ const CONTEXT_SQL = `
     JOIN identity_organizations o ON o.id = ms.organization_id
 `;
 
-export function createPostgresIdentityRepository({ pool } = {}) {
+export function createPostgresIdentityRepository({ pool, ownsPool = true } = {}) {
   if (!pool || typeof pool.query !== "function") throw new TypeError("pool is required");
 
   async function initialize() {
@@ -461,6 +461,6 @@ export function createPostgresIdentityRepository({ pool } = {}) {
     resetMemberPassword,
     seedInitialAdmin,
     listAuditEvents,
-    close: () => pool.end()
+    close: () => ownsPool ? pool.end() : Promise.resolve()
   };
 }
