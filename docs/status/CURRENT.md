@@ -16,11 +16,11 @@
 
 ## Frontend Foundation Stage 1（Issue #77）
 
-- 状态：Codex 已完成本地实现、视觉验收与独立 Review；Review 结论 `APPROVED`，无剩余 blocker/important。
+- 状态：Codex 已完成本地实现、视觉验收与独立 Review；Review 结论 `APPROVED`，无剩余 blocker/important；ready PR #78 已创建。
 - 分支/worktree：`codex/frontend-foundation-stage1` / `/private/tmp/hifly-frontend-foundation-stage1`。
 - 已覆盖登录、项目、商品快照、素材中心、成员管理；共享导航只含已实现入口，遗留 `index.html` 未改。
 - 验证：628 tests / 624 pass / 0 fail / 4 environment skips；桌面与 390px 截图位于仓库外 `/private/tmp/hifly-stage1-visual-qa/`。
-- 下一步：创建 ready PR；未经 Owner 单独授权不合并、不关闭 Issue #77。
+- 下一步：等待 PR #78 CI 与 Owner 合并授权；未经 Owner 单独授权不合并、不关闭 Issue #77。
 - 本轮未访问 Hifly、未运行真实生成、未消耗积分。
 
 ## VSA-A02 已合并快照

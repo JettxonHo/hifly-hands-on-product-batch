@@ -14,7 +14,7 @@
 - 独立 Reviewer 首轮发现管理员/feature 入口在异步身份响应前短暂可见；已按 TDD 修复为 HTML 默认 `hidden`、仅在 `shell.js` 收到正向授权后显示，并新增 300ms 延迟身份响应回归，关键浏览器流程 5/5 通过。快速复审结论为 `APPROVED`，无剩余 blocker/important。
 - 验证：`npm run check` 99 个 JavaScript 文件；`npm test` 628 total / 624 pass / 0 fail / 4 environment skips；关键真实浏览器流程（项目 Ready、素材核验恢复、Stage 1 壳层）均实际通过；`git diff --check` 通过。
 - 桌面与 390px 脱敏截图保存在仓库外 `/private/tmp/hifly-stage1-visual-qa/`，未提交截图或运行数据。视觉检查未发现重叠、裁切或横向溢出；成员次按钮层级和移动上传间距已据截图修正。
-- 下一步：提交、推送并创建 Issue #77 的 ready PR。未经 Owner 单独授权不得合并 PR 或关闭 Issue #77。
+- 实现提交 `5a2f031` 已推送，ready PR #78：https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/78 。未经 Owner 单独授权不得合并 PR 或关闭 Issue #77。
 
 ## 2026-08-06 VSA Wave 2 完成（未访问飞影、未消耗积分）
 

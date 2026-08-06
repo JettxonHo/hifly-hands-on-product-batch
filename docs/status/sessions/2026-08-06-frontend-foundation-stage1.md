@@ -45,7 +45,8 @@ git diff --check
 
 - Issue：#77
 - 分支：`codex/frontend-foundation-stage1`
-- PR：待独立 Review 完成后创建
+- 提交：`5a2f031`
+- PR：#78（ready）https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/78
 
 ## 真实飞影访问情况
 
@@ -60,5 +61,5 @@ git diff --check
 
 ## 下一步
 
-1. commit、push、创建 ready PR。
+1. 等待 PR #78 CI。
 2. 等待 Owner 单独授权合并和关闭 Issue #77。
