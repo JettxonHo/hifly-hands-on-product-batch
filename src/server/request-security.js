@@ -36,6 +36,13 @@ function validContentType(contentType) {
   return type === "multipart/form-data" && parameters.some((parameter) => parameter.startsWith("boundary="));
 }
 
+function normalizedStringSet(values, label) {
+  if (!Array.isArray(values) || values.length === 0 || values.some((value) => typeof value !== "string" || !value.trim())) {
+    throw new TypeError(`${label} must be a non-empty string array`);
+  }
+  return new Set(values.map((value) => value.trim()));
+}
+
 function tokensMatch(left, right) {
   if (typeof left !== "string" || typeof right !== "string") return false;
   const leftValue = Buffer.from(left);
@@ -112,4 +119,38 @@ export function createRequestSecurity({ allowedHost = null } = {}) {
   }
 
   return { bootstrap, onRequest };
+}
+
+export function createCloudRequestSecurity({ trustedHosts, trustedOrigins } = {}) {
+  const hosts = normalizedStringSet(trustedHosts, "trustedHosts");
+  const origins = normalizedStringSet(trustedOrigins, "trustedOrigins");
+
+  function onRequest(request, reply, done) {
+    reply.header("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+    reply.header("Cache-Control", "no-store");
+    if (!hosts.has(request.headers.host)) {
+      reject(reply, 403, "TRUSTED_HOST_REQUIRED");
+      return;
+    }
+    const origin = request.headers.origin;
+    if (origin !== undefined && !origins.has(origin)) {
+      reject(reply, 403, "TRUSTED_ORIGIN_REQUIRED");
+      return;
+    }
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
+      done();
+      return;
+    }
+    if (!origins.has(origin)) {
+      reject(reply, 403, "TRUSTED_ORIGIN_REQUIRED");
+      return;
+    }
+    if (!validContentType(request.headers["content-type"])) {
+      reject(reply, 415, "JSON_OR_MULTIPART_REQUIRED");
+      return;
+    }
+    done();
+  }
+
+  return { onRequest };
 }

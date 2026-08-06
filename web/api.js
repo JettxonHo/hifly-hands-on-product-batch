@@ -16,7 +16,15 @@
 
   async function ensureSession() {
     if (session) return session;
-    const payload = await parseResponse(await fetch("/api/session", { credentials: "same-origin" }));
+    const response = await fetch("/api/session", { credentials: "same-origin" });
+    if (response.status === 404) {
+      const value = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf="));
+      const token = value ? decodeURIComponent(value.split("=").slice(1).join("=")) : null;
+      if (!token) throw Object.assign(new Error("AUTH_REQUIRED"), { status: 401 });
+      session = { token, headerName: "x-identity-csrf" };
+      return session;
+    }
+    const payload = await parseResponse(response);
     session = { token: payload.token, headerName: payload.headerName };
     return session;
   }

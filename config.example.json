@@ -28,6 +28,23 @@
   "gui": {
     "host": "127.0.0.1",
     "port": 4317,
+    "identity": {
+      "enabled": false,
+      "databaseUrl": null,
+      "listenHost": "0.0.0.0",
+      "trustedHosts": ["app.example.com"],
+      "trustedOrigins": ["https://app.example.com"],
+      "cookieSecure": true,
+      "sessionTtlMs": 28800000,
+      "seed": {
+        "enabled": false,
+        "organizationId": "org_default",
+        "organizationName": "Default Enterprise",
+        "adminEmail": "admin@example.local",
+        "adminDisplayName": "Initial Admin",
+        "adminTempPassword": "CHANGE_ME_initial_temp_password"
+      }
+    },
     "openBrowser": true
   },
   "uploadLimits": {
