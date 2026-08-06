@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>成员管理 · 飞影企业工作台</title>
+    <link rel="stylesheet" href="/login.css">
+    <link rel="stylesheet" href="/members.css">
+    <script src="/members.js" defer></script>
+  </head>
+  <body>
+    <main class="members-shell">
+      <header><div><p class="muted">企业设置</p><h1>成员管理</h1></div><a href="/">返回工作台</a></header>
+      <section class="member-create">
+        <h2>创建成员</h2>
+        <form id="createMemberForm">
+          <label>工作邮箱<input id="memberEmail" type="email" required></label>
+          <label>姓名<input id="memberName" required></label>
+          <label>角色<select id="memberRole"><option value="member">成员</option><option value="admin">管理员</option></select></label>
+          <button type="submit">创建并生成临时密码</button>
+        </form>
+        <div id="temporaryPassword" class="temporary-password" hidden role="status"></div>
+      </section>
+      <section><h2>现有成员</h2><p id="membersError" class="error" role="alert"></p><div id="memberList" class="member-list"></div></section>
+    </main>
+  </body>
+</html>

@@ -166,6 +166,10 @@ test("delivery package includes GUI assets and excludes local state", async (t) 
   assert.ok(files.includes("web/index.html"));
   assert.ok(files.includes("web/app.js"));
   assert.ok(files.includes("web/api.js"));
+  assert.ok(files.includes("web/login.html"));
+  assert.ok(files.includes("web/login.js"));
+  assert.ok(files.includes("web/login.css"));
+  assert.ok(files.includes("web/members.html"));
   assert.ok(files.includes("src/server/start.js"));
   assert.ok(files.includes("src/server/app.js"));
   assert.ok(files.includes("docs/ENVIRONMENT.md"));

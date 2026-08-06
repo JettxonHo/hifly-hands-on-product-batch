@@ -4,9 +4,14 @@ import staticFiles from "@fastify/static";
 import path from "node:path";
 
 import { createBatchStore } from "../core/batch-store.js";
+import { createAuthService } from "../identity/auth-service.js";
+import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
+import { createIdentityPool } from "../identity/postgres.js";
+import { seedInitialAdmin } from "../identity/seed-admin.js";
 import { getProjectRoot } from "../core/project-root.js";
-import { createRequestSecurity } from "./request-security.js";
+import { createCloudRequestSecurity, createRequestSecurity } from "./request-security.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
+import { registerAuthRoutes, createIdentityGuard } from "./routes/auth.js";
 import { registerBatchRoutes } from "./routes/batches.js";
 import { registerCaptureRoutes } from "./routes/capture.js";
 import { createExecutionCoordinator, registerExecutionRoutes } from "./routes/executions.js";
@@ -97,6 +102,7 @@ export async function buildApp({
   captureLive = {},
   webRoot = path.join(getProjectRoot(), "web"),
   storeOptions = {},
+  identity: identityOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -105,12 +111,44 @@ export async function buildApp({
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
   const batchRoot = path.join(path.resolve(root), "batches");
   const staticRoot = path.resolve(webRoot);
+  const identityEnabled = identityOptions?.enabled === true;
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
   // until migration is complete (no fire-and-forget background migration).
   await store.initialize();
-  const security = createRequestSecurity({ allowedHost });
+  let identityRepository = null;
+  let identityService = null;
+  let ownsIdentityRepository = false;
+  if (identityEnabled) {
+    if (identityOptions.repository) {
+      identityRepository = identityOptions.repository;
+    } else {
+      const pool = createIdentityPool({ connectionString: identityOptions.databaseUrl || process.env.DATABASE_URL });
+      identityRepository = createPostgresIdentityRepository({ pool });
+      ownsIdentityRepository = true;
+    }
+    try {
+      await identityRepository.initialize();
+      if (identityOptions.seed?.enabled) await seedInitialAdmin(identityRepository, identityOptions.seed, { now });
+    } catch (error) {
+      if (ownsIdentityRepository) await identityRepository.close().catch(() => undefined);
+      throw error;
+    }
+    identityService = createAuthService({
+      repository: identityRepository,
+      sessionTtlMs: identityOptions.sessionTtlMs,
+      cookieSecure: identityOptions.cookieSecure !== false,
+      rateLimit: identityOptions.rateLimit,
+      now
+    });
+  }
+  const security = identityEnabled
+    ? createCloudRequestSecurity({
+        trustedHosts: identityOptions.trustedHosts,
+        trustedOrigins: identityOptions.trustedOrigins
+      })
+    : createRequestSecurity({ allowedHost });
   const coordinator = createExecutionCoordinator({
     batchRoot,
     executor,
@@ -127,7 +165,9 @@ export async function buildApp({
   app.decorate("workbench", { batchRoot, executor, openBrowser, store });
   app.decorate("stopExecutions", coordinator.stop);
   app.addHook("onClose", async () => coordinator.stop());
+  if (ownsIdentityRepository) app.addHook("onClose", async () => identityRepository.close());
   app.addHook("onRequest", security.onRequest);
+  if (identityService) app.addHook("preHandler", createIdentityGuard(identityService));
   app.setErrorHandler((error, request, reply) => {
     const result = apiError(error);
     reply.code(result.statusCode).send({ error: result.code });
@@ -136,7 +176,7 @@ export async function buildApp({
     limits: { files: 500, fileSize: 20 * 1024 * 1024, fields: 8, parts: 508 }
   });
 
-  app.get("/api/session", async (request, reply) => security.bootstrap(reply));
+  if (!identityEnabled) app.get("/api/session", async (request, reply) => security.bootstrap(reply));
   app.get("/api/runtime", async () => {
     const batchConfig = generationConfig.rpa?.realLive?.batch || {};
     return {
@@ -145,6 +185,17 @@ export async function buildApp({
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
   });
+
+  // Enterprise identity layer (VSA-A01). Opt-in: when identity is enabled, an
+  // identity store + auth service are constructed and a guard attaches the
+  // server-resolved { member, membership, organization } context to every
+  // non-public /api/* request. When disabled (the default for the legacy
+  // single-user capture workbench) behavior is unchanged.
+  if (identityService) {
+    app.decorate("identity", { repository: identityRepository, service: identityService });
+    await registerAuthRoutes(app, { authService: identityService });
+  }
+
   await registerBatchRoutes(app, { store });
   await registerCaptureRoutes(app, { batchRoot, store, generationConfig, captureLive });
   await registerImportRoutes(app, { batchRoot, store, uploadLimits });

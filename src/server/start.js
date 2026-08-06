@@ -116,7 +116,8 @@ export async function startServer({
   executionLock = {},
   pointsEstimate = {},
   generationConfig = {},
-  captureLive = null
+  captureLive = null,
+  identity = null
 } = {}) {
   let selectedPort = await findAvailablePort(port);
   let app;
@@ -131,6 +132,7 @@ export async function startServer({
       executionLock,
       pointsEstimate,
       generationConfig,
+      identity,
       captureLive: captureLive || {
         authProvider: createPlaywrightRuntimeAuthProvider({
           chromium,
@@ -148,7 +150,7 @@ export async function startServer({
       executorFactory: ({ recordHarPath }) => createExecutorForBackend(root, generationConfig, { recordHarPath })
     });
     try {
-      await app.listen({ host: "127.0.0.1", port: selectedPort });
+      await app.listen({ host: identity?.enabled ? (identity.listenHost || "0.0.0.0") : "127.0.0.1", port: selectedPort });
       break;
     } catch (error) {
       await app.close();
@@ -203,6 +205,7 @@ if (isDirectExecution()) {
     uploadLimits: config.uploadLimits,
     executionLock: config.executionLock,
     pointsEstimate: config.pointsEstimate,
-    generationConfig: config
+    generationConfig: config,
+    identity: config.gui?.identity
   });
 }

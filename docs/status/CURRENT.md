@@ -1,16 +1,30 @@
 # 项目当前状态
 
-> 最后更新：2026-08-04
-> 最后验证代码 commit：`3e859e0` (fix(core): enforce safe portable-path API boundaries (#39))
-> 稳定代码基线 commit：`3e859e0079c29ab2b0558d26ffdf6340e97ab261`
+> 最后更新：2026-08-06
+> 当前 main：`9c18859` (docs(product): define Vertical Slice A delivery plan (#56))
+> 当前开发：VSA-A01 / Issue #57（独立 worktree，独立 Review 已 APPROVED，尚未提交）
 
 ## Open PR
 
-- **PR #41 / CORE-001 / Issue #20**：batch schema version 与 migrations（分支 `feat/core-001-batch-schema-migrations`），**待审查，未合并**。
+- 当前没有 Open PR。VSA-A01 本地实现、验证与独立 Review 已完成，等待 commit/push/PR。
 
 ## 当前工作分支
 
-`feat/core-001-batch-schema-migrations`（PR #41，基于 `3752755`，独立 worktree，等待审查）
+`feat/vsa-a01-enterprise-identity`，worktree：`/Users/ketchup/Documents/hifly-vsa-a01-identity-dse`。
+
+## VSA-A01 当前进度
+
+- PostgreSQL 已确定为唯一生产身份库；JSON identity store 方案已撤销。
+- 已有 versioned migration、PostgreSQL repository、显式 migration 命令和 fail-closed schema 检查。
+- 已实现工作邮箱登录、服务器侧受限 intent、首次强制改密、单 Organization 上下文、退出、disabled 每请求失效。
+- 已实现管理员创建/查看/重置临时密码/停用成员；临时密码只在命令响应显示，数据库与审计只保留哈希/安全元数据。
+- 已实现 Membership 上的 admin/member 权限、Member optimistic concurrency、不可变凭据历史和 append-only AuditEvent。
+- 身份关闭时保留旧本地请求防护；身份开启时使用可信 Host/Origin、每会话 CSRF、HttpOnly session cookie。
+- 登录与成员管理页面使用外链 JS/CSS，符合现有 CSP；真实浏览器已验证登录、强制改密与安全退出。
+- 普通无数据库测试、PostgreSQL clean migration/integration、全量回归、真实浏览器冒烟与凭据扫描已通过；独立 Reviewer 结论为 `APPROVED`，尚未 commit/push/PR。
+- 登录与首次改密以服务器 session intent 幂等；会话记录本次登录使用的不可变 credential id，不对普通 payload 做哈希。
+- 已知残余风险：登录限流当前为单进程最小实现，多实例生产部署前需共享网关或数据库限流。
+- 依赖审计仍报告仓库既有的 5 个 high 与 2 个 moderate 告警；涉及静态文件、图片和压缩依赖的跨主版本升级，需独立回归，不纳入 A01。
 
 ## 当前生产路径
 
@@ -78,10 +92,9 @@
 
 ## 下一步（最多 5 项）
 
-1. 审查 CORE-001 PR（batch schema version 与 migrations，Issue #20）。
-2. 推进 CORE-002：crash-recovery fault-injection tests。
-3. 推进 CORE-003：stale execution-lock recovery。
-4. 推进 OBS-001：structured redacted diagnostics。
+1. 由主 Agent commit/push/创建 Issue #57 PR，并等待 Ubuntu、Windows 与 PostgreSQL CI。
+2. PR 合并和 Issue #57 关闭需单独授权；不得提前开始 VSA-A02。
+4. 后续再推进 CORE-002 / CORE-003 / OBS-001。
 5. 继续观察 Issue #37 provenance（原始 `interrupted_unknown` 写入者）。
 
 ## 必须禁止的操作
@@ -93,6 +106,22 @@
 - 执行 git reset --hard / git clean -fd / 修改 stash。
 
 ## 最近一次验证
+
+VSA-A01 本地 worktree（未提交）验证：
+
+```
+node --test test/identity-auth.test.js test/identity-routes.test.js test/identity-password.test.js: 26/26 ✓
+IDENTITY_BROWSER_SMOKE=1 node --test test/identity-browser.test.js: 1/1 ✓
+PostgreSQL 16 clean migration + identity integration: 1/1 ✓
+npm run check: Checked 80 JavaScript file(s) ✓
+npm test (with IDENTITY_TEST_DATABASE_URL): 581 total / 564 passed / 0 failed / 17 skipped ✓
+npm run validate: Validated 3 product row(s) ✓
+git diff --check: ✓
+high-confidence secret scan: 0 findings ✓
+independent Review: APPROVED; 0 blocker / 0 important ✓
+```
+
+下列记录仍是合并到 main 的稳定代码基线，不代表尚未提交的 VSA-A01：
 
 以下为**稳定代码基线**（validated code baseline）的完整运行时 CI 验证记录——即通过全部运行时检查的最新代码 commit；main HEAD 可能在其之上另有纯文档 commit，不代表新的代码基线：
 
