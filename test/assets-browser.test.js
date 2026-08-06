@@ -74,7 +74,10 @@ test("identity and assets disabled preserve the real browser Playwright workbenc
   await page.goto(`http://127.0.0.1:${port}/`);
   await page.getByRole("heading", { name: "飞影批量工作台" }).waitFor();
   assert.equal(await page.getByText("素材中心", { exact: true }).count(), 0);
-  assert.equal(await page.evaluate(async () => (await (await fetch("/api/runtime")).json()).executionBackend), "playwright");
+  assert.equal(await page.getByText("项目", { exact: true }).count(), 0);
+  const runtime = await page.evaluate(async () => await (await fetch("/api/runtime")).json());
+  assert.equal(runtime.executionBackend, "playwright");
+  assert.equal(runtime.projectContentEnabled, false);
 });
 
 test("identity-enabled workbench hides the material center when assets are disabled", async (t) => {

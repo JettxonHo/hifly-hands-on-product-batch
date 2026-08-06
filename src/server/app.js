@@ -7,6 +7,8 @@ import { createAssetService } from "../assets/asset-service.js";
 import { createLocalObjectStore } from "../assets/local-object-store.js";
 import { createPostgresAssetRepository } from "../assets/postgres-asset-repository.js";
 import { createVerificationWorker } from "../assets/verification-worker.js";
+import { createProjectContentService } from "../project-content/project-content-service.js";
+import { createPostgresProjectContentRepository } from "../project-content/postgres-project-content-repository.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
@@ -22,6 +24,7 @@ import { registerCaptureRoutes } from "./routes/capture.js";
 import { createExecutionCoordinator, registerExecutionRoutes } from "./routes/executions.js";
 import { registerImportRoutes } from "./routes/imports.js";
 import { registerRpaCallbackRoutes } from "./routes/rpa-callbacks.js";
+import { registerProjectContentRoutes } from "./routes/project-content.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -77,6 +80,18 @@ const CLIENT_ERROR_CODES = new Set([
 ]);
 
 function apiError(error) {
+  if (["PROJECT_NOT_FOUND", "PRODUCT_REVISION_NOT_FOUND", "SELLING_POINT_NOT_FOUND"].includes(error?.code)) {
+    return { statusCode: 404, code: error.code };
+  }
+  if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
+    return { statusCode: 409, code: error.code };
+  }
+  if (error?.code === "PRODUCT_REVISION_READY_BLOCKED") {
+    return { statusCode: 422, code: error.code, reasons: error.reasons };
+  }
+  if (["PROJECT_CONTENT_CONTEXT_REQUIRED", "PROJECT_NAME_REQUIRED", "INVALID_CONTENT_BRIEF", "INVALID_SELLING_POINTS", "INVALID_SELLING_POINT_ID", "SELLING_POINT_EMPTY"].includes(error?.code)) {
+    return { statusCode: 400, code: error.code };
+  }
   if (["ASSET_NOT_FOUND", "ASSET_VERSION_NOT_FOUND", "UPLOAD_SESSION_NOT_FOUND", "DOWNLOAD_AUTHORIZATION_NOT_FOUND", "OBJECT_MISSING"].includes(error?.code)) {
     return { statusCode: 404, code: error.code };
   }
@@ -123,6 +138,7 @@ export async function buildApp({
   storeOptions = {},
   identity: identityOptions = null,
   assets: assetOptions = null,
+  projectContent: projectContentOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -133,7 +149,9 @@ export async function buildApp({
   const staticRoot = path.resolve(webRoot);
   const identityEnabled = identityOptions?.enabled === true;
   const assetsEnabled = assetOptions?.enabled === true;
+  const projectContentEnabled = projectContentOptions?.enabled === true;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
+  if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -145,6 +163,7 @@ export async function buildApp({
   let assetService = null;
   let assetWorker = null;
   let sharedPool = null;
+  let projectContentRepository = null;
   if (identityEnabled) {
     if (identityOptions.repository) {
       identityRepository = identityOptions.repository;
@@ -195,7 +214,7 @@ export async function buildApp({
   if (identityService) app.addHook("preHandler", createIdentityGuard(identityService));
   app.setErrorHandler((error, request, reply) => {
     const result = apiError(error);
-    reply.code(result.statusCode).send({ error: result.code });
+    reply.code(result.statusCode).send({ error: result.code, ...(result.reasons ? { reasons: result.reasons } : {}) });
   });
   await app.register(multipart, {
     limits: { files: 500, fileSize: 20 * 1024 * 1024, fields: 8, parts: 508 }
@@ -210,6 +229,7 @@ export async function buildApp({
     return {
       executionBackend: generationConfig.executionBackend || "playwright",
       assetsEnabled,
+      projectContentEnabled,
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -251,6 +271,17 @@ export async function buildApp({
     app.addHook("onClose", async () => { assetWorker.stop(); await assetRepository.close?.(); });
     await registerAssetRoutes(app, { service: assetService, worker: assetWorker });
     if (assetOptions.worker?.autoStart !== false) assetWorker.start();
+  }
+  if (projectContentEnabled) {
+    projectContentRepository = projectContentOptions.repository || (sharedPool ? createPostgresProjectContentRepository({ pool: sharedPool }) : null);
+    const assetReferencePort = projectContentOptions.assetReferencePort || assetService?.assetReferencePort;
+    if (!projectContentRepository) throw Object.assign(new Error("PROJECT_CONTENT_REPOSITORY_REQUIRED_WITH_INJECTED_IDENTITY"), { code: "PROJECT_CONTENT_REPOSITORY_REQUIRED_WITH_INJECTED_IDENTITY" });
+    if (!assetReferencePort) throw Object.assign(new Error("PROJECT_CONTENT_ASSET_PORT_REQUIRED"), { code: "PROJECT_CONTENT_ASSET_PORT_REQUIRED" });
+    await projectContentRepository.initialize();
+    const projectContentService = createProjectContentService({ repository: projectContentRepository, assetReferencePort, now });
+    app.decorate("projectContent", { repository: projectContentRepository, service: projectContentService, productRevisionPort: projectContentService.productRevisionPort });
+    app.addHook("onClose", async () => projectContentRepository.close?.());
+    await registerProjectContentRoutes(app, { service: projectContentService });
   }
 
   await registerBatchRoutes(app, { store });

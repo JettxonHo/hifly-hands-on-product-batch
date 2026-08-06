@@ -56,6 +56,9 @@
         "pollIntervalMs": 1000
       }
     },
+    "projectContent": {
+      "enabled": false
+    },
     "openBrowser": true
   },
   "uploadLimits": {

@@ -24,6 +24,13 @@
       assets.textContent = "素材中心";
       strip.append(assets);
     }
+    if (runtime.projectContentEnabled === true) {
+      const projects = document.createElement("a");
+      projects.href = "/projects.html";
+      projects.className = "status-pill";
+      projects.textContent = "项目";
+      strip.append(projects);
+    }
     if (context.membership.role === "admin") {
       const members = document.createElement("a");
       members.href = "/members.html";
