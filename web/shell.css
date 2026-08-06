@@ -1,0 +1,27 @@
+.app-shell { min-height: 100dvh; display: grid; grid-template-columns: 200px minmax(0, 1fr); }
+.app-sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; padding: 18px 12px; border-right: 1px solid var(--n-200); background: var(--n-0); }
+.app-brand { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; color: var(--n-900); text-decoration: none; font-weight: 700; }
+.app-brand-mark { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 7px; color: var(--n-0); background: var(--brand); font-size: 13px; }
+.app-nav { display: grid; gap: 4px; margin-top: 24px; }
+.app-nav a { display: flex; min-height: 38px; align-items: center; padding: 8px 10px; border-radius: var(--radius-control); color: var(--n-700); text-decoration: none; font-weight: 500; transition: color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+.app-nav a:hover { color: var(--n-900); background: var(--n-50); }
+.app-nav a[aria-current="page"] { color: var(--brand); background: var(--brand-tint); font-weight: 600; }
+.app-frame { min-width: 0; }
+.app-topbar { min-height: 52px; display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 8px 24px; border-bottom: 1px solid var(--n-200); background: rgba(255, 255, 255, 0.96); }
+.identity-context { min-width: 0; text-align: right; }
+.identity-context strong, .identity-context span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.identity-context strong { font-size: 13px; }
+.identity-context span { color: var(--n-500); font-size: 12px; }
+.identity-logout { min-height: 32px; padding: 5px 10px; border-color: var(--n-300); color: var(--n-700); background: var(--n-0); }
+.identity-logout:hover:not(:disabled) { border-color: var(--n-400); color: var(--n-900); background: var(--n-50); }
+.page-content { width: min(100% - 48px, 1120px); margin: 0 auto; padding: 22px 0 48px; }
+@media (max-width: 760px) {
+  .app-shell { display: block; }
+  .app-sidebar { position: sticky; z-index: 20; height: auto; padding: 8px 12px 0; border-right: 0; border-bottom: 1px solid var(--n-200); }
+  .app-brand { min-height: 36px; padding-inline: 2px; }
+  .app-nav { display: flex; gap: 4px; margin: 6px -4px 0; padding: 0 4px 8px; overflow-x: auto; scrollbar-width: thin; }
+  .app-nav a { flex: 0 0 auto; min-height: 34px; padding: 6px 10px; }
+  .app-topbar { min-height: 48px; padding: 7px 16px; }
+  .identity-context { flex: 1; }
+  .page-content { width: min(100% - 32px, 1120px); padding-top: 18px; }
+}

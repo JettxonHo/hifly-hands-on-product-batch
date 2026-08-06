@@ -1,12 +1,55 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>项目 · 飞影企业工作台</title><link rel="stylesheet" href="/project-content.css"><script src="/projects.js" defer></script></head>
-<body><main class="shell">
-  <header><div><p class="eyebrow">企业内容</p><h1>项目</h1></div><a href="/">返回工作台</a></header>
-  <section><h2>创建项目</h2><form id="projectForm" class="grid">
-    <label>项目名称<input name="name" required maxlength="120"></label>
-    <label>交付日期<input name="delivery_date" type="date"></label>
-    <label class="wide">项目说明<textarea name="description" rows="3"></textarea></label>
-    <div class="actions wide"><p id="formError" class="notice error" role="alert"></p><button type="submit">创建项目</button></div>
-  </form></section>
-  <section><div class="section-head"><h2>全部项目</h2><button id="refresh" class="secondary" type="button">刷新</button></div><div id="projectList" class="project-list"><p class="empty">正在加载...</p></div><p id="listError" class="notice error" role="alert"></p></section>
-</main></body></html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>项目 · 飞影企业工作台</title>
+    <link rel="stylesheet" href="/tokens.css">
+    <link rel="stylesheet" href="/base.css">
+    <link rel="stylesheet" href="/shell.css">
+    <link rel="stylesheet" href="/project-content.css">
+    <script src="/shell.js" defer></script>
+    <script src="/projects.js" defer></script>
+  </head>
+  <body data-shell-page="projects">
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="app-sidebar">
+        <a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a>
+        <nav class="app-nav" aria-label="主导航">
+          <a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a>
+          <a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a>
+          <a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a>
+        </nav>
+      </aside>
+      <div class="app-frame">
+        <header class="app-topbar">
+          <div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div>
+          <button class="identity-logout" type="button" data-shell-logout>退出</button>
+        </header>
+        <main id="mainContent" class="page-content">
+          <div class="page-header">
+            <div><p class="eyebrow">企业内容</p><h1>项目</h1><p class="page-description">集中管理商品资料与后续内容生产。</p></div>
+            <div class="page-actions"><button id="openProjectDialog" type="button">创建项目</button></div>
+          </div>
+          <section class="surface" aria-labelledby="projectListTitle">
+            <div class="surface-header"><div><h2 id="projectListTitle">全部项目</h2><p>按项目进入商品与素材准备工作。</p></div><button id="refresh" class="secondary" type="button">刷新</button></div>
+            <div id="projectList" class="project-list"><p class="empty">正在加载...</p></div>
+            <p id="listError" class="notice error" role="alert"></p>
+          </section>
+        </main>
+      </div>
+    </div>
+    <dialog id="projectDialog" aria-labelledby="projectDialogTitle">
+      <div class="dialog-header"><div><p class="eyebrow">新项目</p><h2 id="projectDialogTitle">创建项目</h2></div><button id="closeProjectDialog" class="dialog-close" type="button" aria-label="关闭创建项目">×</button></div>
+      <div class="dialog-body">
+        <form id="projectForm" class="grid">
+          <label>项目名称<input name="name" required maxlength="120"></label>
+          <label>交付日期<input name="delivery_date" type="date"></label>
+          <label class="wide">项目说明<textarea name="description" rows="3"></textarea></label>
+          <div class="actions wide"><p id="formError" class="notice error" role="alert"></p><button type="submit">创建项目</button></div>
+        </form>
+      </div>
+    </dialog>
+  </body>
+</html>

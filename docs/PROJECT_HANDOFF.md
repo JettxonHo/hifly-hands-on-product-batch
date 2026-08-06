@@ -3,6 +3,19 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-06 Frontend Foundation Stage 1 实现与本地验收（未访问飞影、未消耗积分）
+
+- Kimi K3 Stage 0 视觉方案 PR #76 已以仓库允许的 squash 方式合并，`main` 提交为 `21d4174`；Stage 1 开发 Issue 为 #77。
+- Codex 从最新 `origin/main` 建立独立 worktree `/private/tmp/hifly-frontend-foundation-stage1` 和分支 `codex/frontend-foundation-stage1`，原 `gui/visual-refresh` 脏工作区保持不动。
+- 已新增共享 `tokens.css`、`base.css`、`shell.css`、`shell.js`，并把登录、项目列表、项目商品、素材中心、成员管理统一为冷中性灰 + 品牌蓝企业工作台。导航只显示已实现的项目、素材中心、成员管理；普通成员不显示管理员入口。
+- 创建项目、商品和成员采用原生对话框；成员停用增加明确确认层；商品/素材/成员状态使用中文显示映射；API、数据库、权限、Organization 隔离、状态机和遗留 `index.html` 均未改。
+- 动效限制在 140-220ms，支持 `prefers-reduced-motion`；共享焦点样式、长中文/长邮箱截断和 390px 响应式布局已完成。
+- TDD 浏览器合同覆盖共享导航、对话框创建流、390px 无横向溢出、CSP 无内联脚本、键盘焦点、reduced-motion、成员危险操作确认和普通成员导航权限。
+- 独立 Reviewer 首轮发现管理员/feature 入口在异步身份响应前短暂可见；已按 TDD 修复为 HTML 默认 `hidden`、仅在 `shell.js` 收到正向授权后显示，并新增 300ms 延迟身份响应回归，关键浏览器流程 5/5 通过。快速复审结论为 `APPROVED`，无剩余 blocker/important。
+- 验证：`npm run check` 99 个 JavaScript 文件；`npm test` 628 total / 624 pass / 0 fail / 4 environment skips；关键真实浏览器流程（项目 Ready、素材核验恢复、Stage 1 壳层）均实际通过；`git diff --check` 通过。
+- 桌面与 390px 脱敏截图保存在仓库外 `/private/tmp/hifly-stage1-visual-qa/`，未提交截图或运行数据。视觉检查未发现重叠、裁切或横向溢出；成员次按钮层级和移动上传间距已据截图修正。
+- 实现提交 `5a2f031` 已推送，ready PR #78：https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/78 。未经 Owner 单独授权不得合并 PR 或关闭 Issue #77。
+
 ## 2026-08-06 VSA Wave 2 完成（未访问飞影、未消耗积分）
 
 - A03 PR #73 / Issue #59 与 A02 PR #74 / Issue #58 均已合并并关闭；当前 `main` 为 `5e8b28a`。
