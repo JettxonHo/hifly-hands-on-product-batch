@@ -6,7 +6,7 @@
 
 ## VSA-A03 独立分支快照
 
-- `codex/vsa-a03-assets` 基于 `60ecaa2` 完成 Issue #59 TDD 实现与独立审查，Important 已修复，待提交 PR，尚未合并。
+- `codex/vsa-a03-assets` 基于 `60ecaa2` 完成 Issue #59 TDD 实现与独立审查，Important 已修复；PR #73 CI 全绿，等待合并授权。
 - A03 使用独立 `asset_schema_migrations`，与 A01 共用 PostgreSQL 连接但不进入 identity migration ledger。
 - 已交付资产 API、核验状态机、可恢复 verification job、生产 PostgreSQL/memory repositories、
   local development ObjectStore、素材中心 UI 和唯一 A02 `assetReferencePort`。
