@@ -2,11 +2,11 @@
 
 > 最后更新：2026-08-06
 > 当前 main：`9c18859` (docs(product): define Vertical Slice A delivery plan (#56))
-> 当前开发：VSA-A01 / Issue #57（独立 worktree，独立 Review 已 APPROVED，尚未提交）
+> 当前开发：VSA-A01 / Issue #57（PR #71，独立 Review 与 CI 已通过，等待合并授权）
 
 ## Open PR
 
-- 当前没有 Open PR。VSA-A01 本地实现、验证与独立 Review 已完成，等待 commit/push/PR。
+- PR #71 `feat: add enterprise identity and organization context`：Ready，独立 Review `APPROVED`；GitHub Actions run `31072901893` 的 Ubuntu、Windows、PostgreSQL 三项均通过。未授权 merge 或关闭 Issue #57。
 
 ## 当前工作分支
 
@@ -21,7 +21,7 @@
 - 已实现 Membership 上的 admin/member 权限、Member optimistic concurrency、不可变凭据历史和 append-only AuditEvent。
 - 身份关闭时保留旧本地请求防护；身份开启时使用可信 Host/Origin、每会话 CSRF、HttpOnly session cookie。
 - 登录与成员管理页面使用外链 JS/CSS，符合现有 CSP；真实浏览器已验证登录、强制改密与安全退出。
-- 普通无数据库测试、PostgreSQL clean migration/integration、全量回归、真实浏览器冒烟与凭据扫描已通过；独立 Reviewer 结论为 `APPROVED`，尚未 commit/push/PR。
+- 普通无数据库测试、PostgreSQL clean migration/integration、全量回归、真实浏览器冒烟与凭据扫描已通过；独立 Reviewer 结论为 `APPROVED`，PR #71 三项 CI 已通过。
 - 登录与首次改密以服务器 session intent 幂等；会话记录本次登录使用的不可变 credential id，不对普通 payload 做哈希。
 - 已知残余风险：登录限流当前为单进程最小实现，多实例生产部署前需共享网关或数据库限流。
 - 依赖审计仍报告仓库既有的 5 个 high 与 2 个 moderate 告警；涉及静态文件、图片和压缩依赖的跨主版本升级，需独立回归，不纳入 A01。
@@ -92,8 +92,8 @@
 
 ## 下一步（最多 5 项）
 
-1. 由主 Agent commit/push/创建 Issue #57 PR，并等待 Ubuntu、Windows 与 PostgreSQL CI。
-2. PR 合并和 Issue #57 关闭需单独授权；不得提前开始 VSA-A02。
+1. 等待用户对 PR #71 的合并与 Issue #57 关闭给出单独授权。
+2. 未获授权前不得 merge、关闭 Issue #57 或开始 VSA-A02。
 4. 后续再推进 CORE-002 / CORE-003 / OBS-001。
 5. 继续观察 Issue #37 provenance（原始 `interrupted_unknown` 写入者）。
 
@@ -119,6 +119,7 @@ npm run validate: Validated 3 product row(s) ✓
 git diff --check: ✓
 high-confidence secret scan: 0 findings ✓
 independent Review: APPROVED; 0 blocker / 0 important ✓
+GitHub Actions run 31072901893: Ubuntu / Windows / PostgreSQL all passed ✓
 ```
 
 下列记录仍是合并到 main 的稳定代码基线，不代表尚未提交的 VSA-A01：
