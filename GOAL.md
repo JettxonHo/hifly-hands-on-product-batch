@@ -18,7 +18,7 @@
 ## 当前范围与非目标
 
 - 当前范围：D-030 的 VSA-A01～A14，对应 GitHub Issues #57～#70。
-- 当前阶段：Wave 2，VSA-A01 已合并；VSA-A03 / Issue #59 已完成实现与验收；VSA-A02 / Issue #58 已完成实现、主代理验证与独立 Review，准备堆叠 PR。
+- 当前阶段：Wave 2，VSA-A01 已合并；VSA-A03 / Issue #59 已完成实现与验收；VSA-A02 / Issue #58 已完成实现、主代理验证与独立 Review，Draft PR #74 CI 全绿并依赖 A03 PR #73。
 - 非目标：真实 Hifly 接入、Local Agent 自动执行、Playwright/影刀作为新 SaaS 主流程、SSO/MFA、多 Organization 切换、完整 RBAC、自动发布和客户计费。
 - 旧本地 GUI/Playwright 链路保持兼容，不作为 Slice A 完成条件。
 - Q-018、HIFLY-001、SPK-018 继续按 Evidence 管理，不因 Slice A 测试替身而关闭。
@@ -53,7 +53,7 @@
 
 ## 下一步
 
-1. 提交 A02 并创建以 A03 分支为 base 的堆叠 PR，等待 CI。
+1. A02 Draft PR #74 已完成堆叠 CI；等待用户对 A03 PR #73 的单独合并授权。
 2. 未经用户单独授权不得合并 A03/A02，也不得越级开始 A04。
 3. A03 合并后把 A02 PR 调整到 `main`，重跑最终审查和 CI。
 4. 每个里程碑结束时更新本文件与 `docs/status/CURRENT.md`，再进入下一波次。

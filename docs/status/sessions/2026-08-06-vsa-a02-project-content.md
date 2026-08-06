@@ -39,4 +39,11 @@
 
 ## 当前状态与下一步
 
-实现、主代理验证与独立 Review 已完成。下一步提交并创建依赖 A03 PR #73 的堆叠 PR；未经单独授权不 merge，不开始 A04。
+实现提交：`f80ad7a`（`feat: add authoritative product snapshots`）。
+
+Draft PR：[#74](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/74)，base 为
+`codex/vsa-a03-assets`，明确依赖 A03 PR #73。CI run `31080673868` 的 Ubuntu、Windows、
+identity/PostgreSQL 三项均通过。
+
+实现、主代理验证、独立 Review 与堆叠 PR CI 已完成。未经单独授权不 merge；A03 合并后先将
+PR #74 retarget 到 `main` 并重新审查最终 diff/CI，不开始 A04。

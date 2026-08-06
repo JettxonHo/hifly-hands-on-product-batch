@@ -6,12 +6,13 @@
 
 ## VSA-A02 独立分支快照
 
-- `codex/vsa-a02-project-content` 基于 A03 完成提交 `547c843` 实现 Issue #58，主代理验证与独立 Review 已完成。
+- `codex/vsa-a02-project-content` 基于 A03 完成提交 `547c843` 实现 Issue #58；提交 `f80ad7a` 已创建 Draft PR #74，base 为 A03 分支。
 - 已交付 Project/Product/ProductRevision memory/PostgreSQL 持久化、独立 `project_content_schema_migrations`、service/API、最小 UI、审计、幂等、乐观并发与下游 ready snapshot port。
 - ready 只通过 A03 `assetReferencePort` 绑定 available 商品图片，并复用同一 transaction client；PostgreSQL 16 rollback 测试通过。
 - 系统 Chrome 已完成创建项目、创建商品、保存卖点、逐条确认、选择图片、Ready、刷新恢复与重复 Ready 禁用流程。
-- 默认 feature disabled，旧 Playwright workbench 回归通过；完整套件 627 tests / 603 passed / 24 environment-conditional skips / 0 failed，A02 PostgreSQL 16 与系统 Chrome定向测试另行实际通过且无 skip。
+- 默认 feature disabled，旧 Playwright workbench 回归通过；完整套件 627 tests / 603 passed / 24 environment-conditional skips / 0 failed，A02 PostgreSQL 16 与系统 Chrome 定向测试另行实际通过且无 skip。
 - 独立 Reviewer 首轮发现相同 Ready 快照会派生重复 child revision；TDD 修复后复审 `APPROVED`，无 Blocker/Important。
+- PR #74 CI run `31080673868` 的 Ubuntu、Windows、identity/PostgreSQL 三项均通过。
 - 未访问 Hifly、未发送真实外部 HTTP、未消耗积分。
 - 详细证据见 `docs/status/sessions/2026-08-06-vsa-a02-project-content.md` 和 `docs/project-content/VSA-A02.md`。
 
@@ -64,7 +65,7 @@
 
 ## 下一步
 
-1. A02 创建以 `codex/vsa-a03-assets` 为 base 的堆叠 PR并等待 CI。
+1. 等待用户对 A03 PR #73 的单独合并授权；A02 PR #74 保持 Draft 堆叠状态。
 2. 未经用户单独授权不合并 A03 PR #73 或 A02 PR，也不开始 A04。
-3. A03 合并后将 A02 PR base 调整为 `main`，重跑最终 CI 与 diff 审查。
+3. A03 合并后将 A02 PR #74 base 调整为 `main`，重跑最终 CI 与 diff 审查。
 4. 每个里程碑结束时更新本文件与 `GOAL.md`。
