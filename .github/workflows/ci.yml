@@ -32,3 +32,36 @@ jobs:
       - run: npm test
       - run: npm run validate
       - run: git diff --check
+
+  identity-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: hifly_identity_test
+          POSTGRES_USER: hifly_test
+          POSTGRES_PASSWORD: ci-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hifly_test -d hifly_identity_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      IDENTITY_TEST_DATABASE_URL: postgresql://hifly_test:ci-test-only@127.0.0.1:5432/hifly_identity_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run clean migration and identity integration tests
+        run: node --test test/identity-postgres.integration.test.js
+      - name: Run identity browser smoke
+        env:
+          IDENTITY_BROWSER_SMOKE: "1"
+        run: node --test test/identity-browser.test.js

@@ -3,6 +3,16 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-06 VSA-A01 本地实现与独立 Review 完成（未访问飞影、未消耗积分）
+
+- Issue #57（VSA-A01 Enterprise identity and organization context）已在独立 worktree `/Users/ketchup/Documents/hifly-vsa-a01-identity-dse`、分支 `feat/vsa-a01-enterprise-identity` 完成实现。
+- 已实现 PostgreSQL 权威身份库、migration、工作邮箱登录、首次强制改密、单 Organization 上下文、退出、disabled 成员即时失效、admin/member 权限和管理员成员管理。
+- 独立 Review 发现的并发改密冲突、内部 credential 字段公开、跨 Organization member 命令和改密刷新/成员页恢复问题均已修复；最终结论 `APPROVED`，无剩余 blocker/important。
+- 最终本地证据：`npm run check` 80 个 JavaScript 文件；身份关键测试 26/26；PostgreSQL clean migration/integration 1/1；真实浏览器 smoke 1/1；全量测试 581 total / 564 pass / 0 fail / 17 skip；`git diff --check` 通过。
+- 本轮未访问飞影、未执行真实 Playwright/Capture HTTP、未消耗积分；`MULTI-002` 保持 pending。
+- A01 本地提交 `3e8d262` 已推送并创建 ready PR #71：https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/71 。GitHub Actions run `31072901893` 的 Ubuntu、Windows 与 PostgreSQL 三项均通过。
+- 下一步仅等待用户对 merge 与 Issue #57 关闭给出单独授权。未获授权前不得 merge、关闭 #57 或开始 VSA-A02。
+
 ## 2026-07-23 Capture HTTP manifest drift 恢复成功（用户授权真实执行，1 条恢复任务）
 
 - 用户本会话明确允许「重新录制并最多恢复 1 条真实 HTTP 任务」。本轮严格按该边界执行：先做 1 条 Playwright 校准录制，再只恢复 `MULTI-001`；没有运行 `MULTI-002`，没有额外重提。

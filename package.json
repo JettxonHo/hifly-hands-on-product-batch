@@ -8,6 +8,7 @@
     "test": "node --test test/*.test.js",
     "gui": "node src/server/start.js",
     "login": "node src/login.js",
+    "migrate:identity": "node scripts/migrate-identity.mjs",
     "validate": "node src/validate-products.js",
     "run": "node src/run-batch.js",
     "prepare-standard": "node scripts/generate-standard-assets.mjs",
@@ -22,8 +23,8 @@
     "fastify": "^5.0.0",
     "file-type": "^21.0.0",
     "open": "^10.0.0",
+    "pg": "^8.22.0",
     "playwright": "^1.61.0",
     "sharp": "^0.34.0"
-  },
-  "devDependencies": {}
+  }
 }

@@ -39,7 +39,7 @@ npm run gui
 Local workbench: http://127.0.0.1:4317
 ```
 
-工作台只绑定 `127.0.0.1`。如果 `4317` 被占用，会自动尝试下一个端口。也可以临时指定端口：
+身份关闭时工作台只绑定 `127.0.0.1`。如果 `4317` 被占用，会自动尝试下一个端口。也可以临时指定端口：
 
 ```bash
 HIFLY_GUI_PORT=4320 npm run gui
@@ -49,6 +49,45 @@ Windows PowerShell 可使用：
 
 ```powershell
 $env:HIFLY_GUI_PORT=4320; npm run gui
+```
+
+## 企业身份模式（VSA-A01）
+
+身份模式默认关闭；关闭时仍是原来的 127.0.0.1 单用户工作台，不需要数据库。
+启用后 PostgreSQL 是唯一权威身份库，不可用时服务拒绝启动，不会回退到 JSON 文件。
+
+本地验证可启动专用 PostgreSQL：
+
+```bash
+docker compose -f docker-compose.identity.yml up -d --wait
+DATABASE_URL=postgresql://hifly_test:local-test-only@127.0.0.1:55432/hifly_identity_test npm run migrate:identity
+```
+
+然后在 `config.local.json` 明确设置本地测试值：
+
+```json
+{
+  "gui": {
+    "identity": {
+      "enabled": true,
+      "databaseUrl": "postgresql://hifly_test:local-test-only@127.0.0.1:55432/hifly_identity_test",
+      "trustedHosts": ["127.0.0.1:4317"],
+      "trustedOrigins": ["http://127.0.0.1:4317"],
+      "cookieSecure": false
+    }
+  }
+}
+```
+
+生产部署必须使用 HTTPS、`cookieSecure: true`、实际域名的 Host/Origin 白名单，且建议通过
+`DATABASE_URL` 注入连接信息。部署流程先显式执行 `npm run migrate:identity`；应用启动只检查
+schema 版本，不自动执行生产 migration。初始管理员 seed 只用于受控部署初始化，启用 seed
+时 `CHANGE_ME` 占位密码会被拒绝。
+
+本地数据库验证完成后可清理：
+
+```bash
+docker compose -f docker-compose.identity.yml down -v
 ```
 
 ### 改代码后必须重启 GUI（无热重载）
