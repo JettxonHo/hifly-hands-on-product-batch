@@ -87,6 +87,9 @@
     "copyReview": {
       "enabled": false
     },
+    "avatarSelection": {
+      "enabled": false
+    },
     "openBrowser": true
   },
   "uploadLimits": {

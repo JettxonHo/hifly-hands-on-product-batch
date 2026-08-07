@@ -23,6 +23,8 @@ import { createPostgresCopyQualityRepository } from "../copy-quality/postgres-co
 import { createCopyReviewService } from "../copy-review/copy-review-service.js";
 import { createCopyReviewInvalidationCoordinator } from "../copy-review/invalidation-coordinator.js";
 import { createPostgresCopyReviewRepository } from "../copy-review/postgres-copy-review-repository.js";
+import { createAvatarSelectionService, createCurrentApprovedCopyPort } from "../avatar-selection/avatar-selection-service.js";
+import { createPostgresAvatarSelectionRepository } from "../avatar-selection/postgres-avatar-selection-repository.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
@@ -42,6 +44,7 @@ import { registerProjectContentRoutes } from "./routes/project-content.js";
 import { registerCopyGenerationRoutes } from "./routes/copy-generation.js";
 import { registerCopyQualityRoutes } from "./routes/copy-quality.js";
 import { registerCopyReviewRoutes } from "./routes/copy-review.js";
+import { registerAvatarSelectionRoutes } from "./routes/avatar-selection.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -111,6 +114,11 @@ function apiError(error) {
   if (["COPY_REVIEW_CONTEXT_REQUIRED", "COPY_REVIEW_REASON_REQUIRED"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (error?.code === "COPY_REVIEW_FORBIDDEN") return { statusCode: 403, code: error.code };
   if (error?.code === "COPY_REVIEW_GATE_BLOCKED") return { statusCode: 422, code: error.code, reasons: error.details || [] };
+  if (error?.code === "AVATAR_ASSET_VERSION_NOT_FOUND") return { statusCode: 404, code: error.code };
+  if (["AVATAR_SELECTION_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (["AVATAR_SELECTION_CONTEXT_REQUIRED", "INVALID_AVATAR_SELECTION_PAYLOAD"].includes(error?.code)) return { statusCode: 400, code: error.code };
+  if (error?.code === "AVATAR_SELECTION_FORBIDDEN") return { statusCode: 403, code: error.code };
+  if (error?.code === "AVATAR_SELECTION_GATE_BLOCKED") return { statusCode: 422, code: error.code, reasons: error.details || [] };
   if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
@@ -172,6 +180,7 @@ export async function buildApp({
   copyGeneration: copyGenerationOptions = null,
   copyQuality: copyQualityOptions = null,
   copyReview: copyReviewOptions = null,
+  avatarSelection: avatarSelectionOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -186,11 +195,14 @@ export async function buildApp({
   const copyGenerationEnabled = copyGenerationOptions?.enabled === true;
   const copyQualityEnabled = copyQualityOptions?.enabled === true;
   const copyReviewEnabled = copyReviewOptions?.enabled === true;
+  const avatarSelectionEnabled = avatarSelectionOptions?.enabled === true;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
   if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
   if (copyQualityEnabled && !copyGenerationEnabled) throw Object.assign(new Error("COPY_QUALITY_REQUIRES_COPY_GENERATION"), { code: "COPY_QUALITY_REQUIRES_COPY_GENERATION" });
   if (copyReviewEnabled && !copyQualityEnabled) throw Object.assign(new Error("COPY_REVIEW_REQUIRES_COPY_QUALITY"), { code: "COPY_REVIEW_REQUIRES_COPY_QUALITY" });
+  if (avatarSelectionEnabled && !identityEnabled) throw Object.assign(new Error("AVATAR_SELECTION_REQUIRES_IDENTITY"), { code: "AVATAR_SELECTION_REQUIRES_IDENTITY" });
+  if (avatarSelectionEnabled && !avatarSelectionOptions.copyApprovalPort && !copyReviewEnabled) throw Object.assign(new Error("AVATAR_SELECTION_REQUIRES_COPY_REVIEW"), { code: "AVATAR_SELECTION_REQUIRES_COPY_REVIEW" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -272,6 +284,7 @@ export async function buildApp({
       copyGenerationEnabled,
       copyQualityEnabled,
       copyReviewEnabled,
+      avatarSelectionEnabled,
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -382,6 +395,18 @@ export async function buildApp({
     app.decorate("copyReview", { repository, service });
     app.addHook("onClose", async () => repository.close?.());
     await registerCopyReviewRoutes(app, { service });
+  }
+  if (avatarSelectionEnabled) {
+    const repository = avatarSelectionOptions.repository || (sharedPool ? createPostgresAvatarSelectionRepository({ pool: sharedPool }) : null);
+    if (!repository) throw Object.assign(new Error("AVATAR_SELECTION_REPOSITORY_REQUIRED"), { code: "AVATAR_SELECTION_REPOSITORY_REQUIRED" });
+    await repository.initialize();
+    const copyApprovalPort = avatarSelectionOptions.copyApprovalPort || createCurrentApprovedCopyPort({
+      copyService: app.copyGeneration.service, copyReviewService: app.copyReview.service
+    });
+    const service = createAvatarSelectionService({ repository, copyApprovalPort, now });
+    app.decorate("avatarSelection", { repository, service, copyApprovalPort });
+    app.addHook("onClose", async () => repository.close?.());
+    await registerAvatarSelectionRoutes(app, { service });
   }
 
   await registerBatchRoutes(app, { store });

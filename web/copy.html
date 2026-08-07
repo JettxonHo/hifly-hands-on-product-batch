@@ -33,9 +33,9 @@
           <nav class="stage-strip stage-desktop" aria-label="项目阶段">
             <a id="factsStageLink" href="/projects.html"><span>1</span>商品与目标</a>
             <strong aria-current="step"><span>2</span>文案与质检</strong>
-            <span><b>3</b>人物与素材</span><span><b>4</b>视频方案</span><span><b>5</b>生成与交付</span>
+            <a id="avatarStageLink" href="/avatar.html"><span>3</span>人物与素材</a><span><b>4</b>视频方案</span><span><b>5</b>生成与交付</span>
           </nav>
-          <details class="stage-mobile"><summary>阶段 2/5 · 文案与质检</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品与目标</a></li><li aria-current="step">文案与质检</li><li>人物与素材</li><li>视频方案</li><li>生成与交付</li></ol></details>
+          <details class="stage-mobile"><summary>阶段 2/5 · 文案与质检</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品与目标</a></li><li aria-current="step">文案与质检</li><li><a id="mobileAvatarStageLink" href="/avatar.html">人物与素材</a></li><li>视频方案</li><li>生成与交付</li></ol></details>
 
           <section class="product-context" aria-labelledby="productContextTitle">
             <label id="productContextTitle" for="productSelector">当前商品</label>
@@ -117,7 +117,7 @@
                     <button id="approveReview" type="button" hidden>批准文案</button>
                     <button id="requestReviewChanges" class="secondary" type="button" hidden>要求修改</button>
                     <button id="revokeReview" class="secondary" type="button" hidden>撤销批准</button>
-                    <button id="nextStageDisabled" class="secondary" type="button" disabled hidden>人物与素材尚未开放</button>
+                    <a id="nextStageLink" class="button-link" href="/avatar.html" hidden>进入人物与素材</a>
                   </div>
                   <details class="quality-history" open><summary id="reviewHistorySummary">审核历史（0）</summary><div id="reviewHistory" class="quality-history-list"></div></details>
                 </div>

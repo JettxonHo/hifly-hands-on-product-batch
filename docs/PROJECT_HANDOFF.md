@@ -3,6 +3,17 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-07 VSA-A07 本地实现完成（未访问飞影、未消耗积分）
+
+- 实际 `origin/main` 为 `ca47ec9`；A06 已通过 PR #81 合并，A07/A08 设计已通过 PR #82 合并。旧 A06 “未 PR/merge”记录保留为历史，不再代表当前状态。
+- Issue #63 已在 `/private/tmp/hifly-vsa-a07`、`codex/vsa-a07-avatar-selection` 按 TDD 完成 existing-only 公共/企业目录、受控预置标识、授权/有效期、Evidence-only 能力、显式确认与更换历史。
+- 新增独立 `avatar_selection_schema_migrations`、memory/PostgreSQL repository、正式 API、A06 current approved gate adapter、Organization 隔离、幂等/并发/审计与动态有效性投影。
+- `/avatar.html` 按 PR #82 设计实现三栏/390 单栏、目录抽屉、门禁原因、确认/更换 Dialog 与历史；`copy.html` 阶段 3 改真实链接；A08 仍禁用且无假页面。
+- 首轮 Reviewer 两项 Important 已按 TDD 修复：A→B 后 A 旧 key 完整回放首次 receipt；workspace 缺省 copy query 时按 product 解析 current effective approved copy，前端商品切换恢复 resolved id 后可继续确认。
+- 验证：Reviewer 前定向 service/API 实际 11 pass（原 A07 文档 10 已纠正），修复后 14 pass；PostgreSQL 16 clean 1 pass；全量 710 / 678 pass / 0 fail / 32 environment skips；`npm run check` 133 files。主控使用系统 Chrome 实跑 1/1，覆盖 1440/390、确认/更换/刷新/历史、商品切换恢复对应批准文案和 A08 禁用边界。
+- 最终独立 Reviewer 结论为 **`APPROVED`**，无剩余 Critical/Important。
+- 没有访问 Hifly、真实 Provider 或 `MULTI-002`，没有消耗积分；未 commit/push/PR/merge/close Issue。详细证据见 `docs/avatar-selection/VSA-A07.md` 与 session 文档。
+
 ## 2026-08-07 VSA-A06 最终独立审查通过（未访问飞影、未消耗积分）
 
 - 工作区仍为 `/private/tmp/hifly-vsa-a06`、分支 `codex/vsa-a06-copy-review`；未 commit/push/PR/merge。

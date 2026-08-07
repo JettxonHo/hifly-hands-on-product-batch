@@ -36,6 +36,12 @@ export function createMemoryCopyGenerationRepository() {
         .sort((left, right) => left.version_number - right.version_number)
         .map(clone);
     },
+    async listCopiesByProduct(organizationId, productId) {
+      return [...copies.values()]
+        .filter((copy) => copy.organization_id === organizationId && copy.product_id === productId)
+        .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id))
+        .map(clone);
+    },
     async getCopy(organizationId, id) {
       const copy = copies.get(id);
       return clone(copy?.organization_id === organizationId ? copy : null);

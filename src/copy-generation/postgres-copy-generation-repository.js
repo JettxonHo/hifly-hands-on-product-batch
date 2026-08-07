@@ -36,6 +36,7 @@ export function createPostgresCopyGenerationRepository({ pool, ownsPool = false 
     async getJob(organizationId, id) { return job(one(await pool.query("SELECT * FROM copy_generation_jobs WHERE organization_id=$1 AND id=$2", [organizationId,id]))); },
     async listJobs(organizationId, productRevisionId) { return (await pool.query("SELECT * FROM copy_generation_jobs WHERE organization_id=$1 AND product_revision_id=$2 ORDER BY created_at DESC", [organizationId,productRevisionId])).rows.map(job); },
     async listCopies(organizationId, productRevisionId) { return (await pool.query("SELECT * FROM copy_versions WHERE organization_id=$1 AND product_revision_id=$2 ORDER BY version_number", [organizationId,productRevisionId])).rows.map(copy); },
+    async listCopiesByProduct(organizationId, productId) { return (await pool.query("SELECT * FROM copy_versions WHERE organization_id=$1 AND product_id=$2 ORDER BY created_at DESC,id DESC", [organizationId,productId])).rows.map(copy); },
     async getCopy(organizationId, id) { return copy(one(await pool.query("SELECT * FROM copy_versions WHERE organization_id=$1 AND id=$2", [organizationId,id]))); },
     async editCopy({ organizationId, copyVersionId, expectedRevision, body, childCopyVersion, receiptKey, fingerprint, audit, now }) {
       return withTransaction(pool, async (client) => {

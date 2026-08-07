@@ -61,6 +61,10 @@ export function createCopyGenerationService({ repository, productRevisionPort, r
       await productRevisionPort.getSnapshot({ organizationId: input.organizationId, productRevisionId: input.productRevisionId });
       return repository.listCopies(input.organizationId, input.productRevisionId);
     },
+    async listCopyVersionsForProduct(input) {
+      context(input);
+      return repository.listCopiesByProduct(input.organizationId, input.productId);
+    },
     async getCopyVersion(input) {
       context(input);
       const copy = await repository.getCopy(input.organizationId, input.copyVersionId);
