@@ -2,11 +2,13 @@
   const params = new URLSearchParams(location.search);
   const projectId = params.get("project");
   let requestedRevisionId = params.get("revision");
-  let project, revision, runtime, copyVersion;
+  let project, revision, runtime, identityContext, copyVersion;
   let copyJobs = [], copyVersions = [], copyPollTimer;
   let qualityRuns = [], qualityDetails = [], qualityPollTimer, activeFinding;
   let rewriteJobs = [], rewritePollTimer, activeRewriteFinding, handledRewriteJobId;
+  const observedActiveRewriteJobs = new Set();
   let rewriteSubmissionKey, rewriteSubmitting = false;
+  let reviewState = null, reviewSubmitting = false, reviewReasonAction = "changes";
   let dirty = false, deriveMode = false, conflictDraft = null, pendingNavigation = null;
 
   const revisionLabels = { draft: "草稿", ready: "已 Ready", superseded: "已被替代" };
@@ -15,6 +17,20 @@
   const conclusionLabels = { invalid: "质检结果无效", blocked: "存在硬阻断", needs_review: "待人工判断", passed: "质检通过" };
   const severityLabels = { low: "低", medium: "中", high: "高", critical: "严重" };
   const resolutionLabels = { accepted_with_reason: "已接受（附理由）", change_requested: "已要求修改", returned_to_facts: "已退回商品事实" };
+  const reviewLabels = { pending: "审核中", approved: "已批准", changes_requested: "要求修改", revoked: "批准已失效" };
+  const reviewEventLabels = { pending: "提交审核", approved: "批准文案", changes_requested: "要求修改", revoked: "撤销批准" };
+  const gateReasonLabels = {
+    copy_version_superseded: "文案版本已被替代，请对当前版本重新质检",
+    copy_version_not_frozen: "文案尚未冻结，请先完成质检",
+    quality_result_missing: "尚无可用质检结果",
+    quality_result_replaced: "已有新的质检结果，需创建新审核周期",
+    quality_result_invalidated: "质检结果已失效，请重新完整质检",
+    product_revision_changed: "商品事实已有新版本，请返回商品与目标确认",
+    quality_policy_changed: "质检规则已更新，请重新完整质检",
+    quality_invalid: "质检结果无效，不能提交或批准",
+    quality_blocked: "存在硬阻断，任何角色都不能批准",
+    quality_needs_review: "请先逐项处理所有待人工判断 Finding"
+  };
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const element = (selector) => document.querySelector(selector);
 
@@ -22,7 +38,7 @@
     const headers = new Headers(options.headers || {});
     if (options.method && options.method !== "GET") headers.set("x-identity-csrf", csrf());
     const response = await fetch(url, { credentials: "same-origin", ...options, headers });
-    if ([401, 403].includes(response.status)) {
+    if (response.status === 401) {
       location.replace("/login.html");
       throw new Error("AUTH_REQUIRED");
     }
@@ -174,7 +190,7 @@
     deriveMode = false;
     dirty = false;
     renderEditor();
-    loadQuality().catch(() => undefined);
+    loadQuality().then(loadReview).catch(() => undefined);
   }
 
   function stopQualityPolling() {
@@ -194,7 +210,7 @@
 
   function scheduleQualityPolling() {
     stopQualityPolling();
-    qualityPollTimer = setTimeout(() => loadQuality().catch(() => undefined), 1000);
+    qualityPollTimer = setTimeout(() => loadQuality().then(loadReview).catch(() => undefined), 1000);
   }
 
   function renderQualityHistory() {
@@ -357,12 +373,14 @@
     element("#retryRewrite").hidden = rewriteFactsStale || !["failed", "timed_out"].includes(latestRewrite?.status) ||
       latestRewrite.attempts >= latestRewrite.max_attempts;
     if (["queued", "running"].includes(latestRewrite?.status)) {
+      observedActiveRewriteJobs.add(latestRewrite.id);
       setNotice(element("#qualityNotice"), latestRewrite.status === "queued" ? "AI 改写已排队，可离开或刷新页面。" : "AI 正在改写，可离开或刷新页面。", "");
       scheduleRewritePolling();
     } else {
       stopRewritePolling();
       if (latestRewrite?.status === "succeeded" && latestRewrite.output_copy_version_id &&
-        latestRewrite.id !== handledRewriteJobId && latestRewrite.output_copy_version_id !== copyVersion.id) {
+        observedActiveRewriteJobs.has(latestRewrite.id) && latestRewrite.id !== handledRewriteJobId &&
+        latestRewrite.output_copy_version_id !== copyVersion.id) {
         handledRewriteJobId = latestRewrite.id;
         await loadWorkspace({ preferredId: latestRewrite.output_copy_version_id });
         setNotice(element("#qualityNotice"), "AI 改写已生成新版本，并已进入完整质检。", "success");
@@ -372,6 +390,141 @@
           "AI 改写未完成，原版本和质检历史未受影响。可以安全重试。", rewriteFactsStale ? "blocked" : "error");
       }
     }
+  }
+
+  function selectPanel(name) {
+    const qualitySelected = name === "quality";
+    element("#qualityTab").setAttribute("aria-selected", String(qualitySelected));
+    element("#reviewTab").setAttribute("aria-selected", String(!qualitySelected));
+    element("#qualityTabPanel").hidden = !qualitySelected;
+    element("#reviewTabPanel").hidden = qualitySelected;
+  }
+
+  function latestQualityResult() {
+    return qualityDetails.at(-1)?.quality_result || null;
+  }
+
+  function renderReviewGate() {
+    const result = latestQualityResult();
+    const checks = [
+      { ready: copyVersion?.status === "frozen", text: "文案版本已冻结且未被替代" },
+      { ready: Boolean(result?.current_valid), text: "存在当前有效的 QualityResult" },
+      { ready: result?.effective_conclusion === "passed", text: "有效结论为质检通过，待判断项已逐项处理" },
+      { ready: revision?.status === "ready" && !reviewState?.gate?.reasons.some((reason) => ["product_revision_changed", "quality_policy_changed"].includes(reason)),
+        text: "商品快照、QC Profile 与规则版本仍为当前版本" }
+    ];
+    const list = element("#reviewGateList");
+    list.replaceChildren(...checks.map((check) => {
+      const item = document.createElement("li"); item.className = `review-gate-item${check.ready ? " ready" : ""}`;
+      item.textContent = check.text; return item;
+    }));
+  }
+
+  function renderReviewHistory() {
+    const history = reviewState?.history || [], list = element("#reviewHistory");
+    element("#reviewHistorySummary").textContent = `审核历史（${history.length}）`;
+    list.replaceChildren(...[...history].reverse().map((record) => {
+      const item = document.createElement("div"); item.className = "quality-history-item review-history-item";
+      const title = document.createElement("strong"); title.textContent = reviewEventLabels[record.to_status] || "审核状态变化";
+      const meta = document.createElement("span");
+      meta.textContent = `${formatTime(record.created_at)} · 操作人 ${record.actor_member_id || "系统"}`;
+      item.append(title, meta);
+      if (record.reason || record.reason_code) {
+        const reason = document.createElement("p"); reason.textContent = record.reason || gateReasonLabels[record.reason_code] || "相关上游输入已变化";
+        item.append(reason);
+      }
+      return item;
+    }));
+  }
+
+  function renderReview() {
+    const enabled = runtime?.copyReviewEnabled === true;
+    element("#reviewTab").hidden = !enabled;
+    element("#reviewStateBadge").hidden = !enabled;
+    element("#reviewLoading").hidden = true;
+    element("#reviewContent").hidden = !enabled;
+    for (const selector of ["#submitReview", "#approveReview", "#requestReviewChanges", "#revokeReview", "#nextStageDisabled"]) element(selector).hidden = true;
+    if (!enabled) return;
+    const review = reviewState?.current_review;
+    const status = review?.status || "not_submitted";
+    const label = reviewLabels[status] || "未提交审核";
+    for (const selector of ["#reviewStateBadge", "#reviewConclusion"]) {
+      const badge = element(selector); badge.className = `state ${status}`; badge.textContent = label;
+    }
+    renderReviewGate(); renderReviewHistory(); setNotice(element("#reviewNotice"));
+    const reasons = reviewState?.gate?.reasons || [];
+    if (status === "not_submitted") {
+      element("#reviewConclusionText").textContent = "等待提交人工审核";
+      element("#reviewGuidance").textContent = reasons.length ? (gateReasonLabels[reasons[0]] || "当前条件不满足，请先处理门禁。") : "质检通过不等于批准，提交后由审核人作出独立决策。";
+      element("#submitReview").hidden = !reviewState?.gate?.can_submit;
+    } else if (status === "pending") {
+      element("#reviewConclusionText").textContent = "文案正在等待人工决策";
+      element("#reviewGuidance").textContent = identityContext?.membership?.role === "admin" ? "批准前服务端会再次验证全部门禁。" : "你可以查看审核进度；管理员负责批准或要求修改。";
+      if (identityContext?.membership?.role === "admin") {
+        element("#approveReview").hidden = false; element("#approveReview").disabled = !reviewState.gate.can_approve;
+        element("#requestReviewChanges").hidden = false;
+      } else setNotice(element("#reviewNotice"), "当前账号为只读审核视角，请联系管理员完成决策。", "blocked");
+    } else if (status === "approved") {
+      element("#reviewConclusionText").textContent = review.review_mode === "self_review" ? "文案已批准 · 本人审核" : "文案已批准 · 当前有效";
+      element("#reviewGuidance").textContent = "人物与素材页面将在 A07 提供；当前没有可跳转页面。";
+      element("#nextStageDisabled").hidden = false;
+      element("#revokeReview").hidden = identityContext?.membership?.role !== "admin";
+    } else if (status === "changes_requested") {
+      element("#reviewConclusionText").textContent = "审核人要求修改文案";
+      element("#reviewGuidance").textContent = review.decision_reason || "请基于此版本创建新草稿，修改后重新完整质检。";
+    } else {
+      element("#reviewConclusionText").textContent = "原批准已撤销，历史仍完整保留";
+      element("#reviewGuidance").textContent = review.revoke_reason || gateReasonLabels[review.revoke_reason_code] || "请按当前商品事实和规则重新质检并创建新审核周期。";
+      setNotice(element("#reviewNotice"), "此批准不可恢复；重新审核会创建新的 HumanReview。", "blocked");
+      element("#submitReview").hidden = !reviewState?.gate?.can_submit;
+    }
+  }
+
+  async function loadReview() {
+    if (!runtime?.copyReviewEnabled || !copyVersion) { reviewState = null; renderReview(); return; }
+    try {
+      reviewState = await request(`/api/copy-versions/${copyVersion.id}/review`);
+      renderReview();
+      if (reviewState.current_review?.status === "pending") selectPanel("review");
+    } catch (_error) {
+      element("#reviewLoading").hidden = true; element("#reviewContent").hidden = false;
+      setNotice(element("#reviewNotice"), "审核状态暂时无法读取，请刷新后重试。", "error");
+    }
+  }
+
+  function setReviewButtonsLocked(locked) {
+    reviewSubmitting = locked;
+    for (const selector of ["#submitReview", "#approveReview", "#requestReviewChanges", "#revokeReview", "#confirmApproveReview", "#confirmReviewReason"]) element(selector).disabled = locked;
+  }
+
+  async function reviewCommand(url, payload, { closeDialog } = {}) {
+    if (reviewSubmitting) return;
+    setReviewButtonsLocked(true);
+    try {
+      reviewState = await request(url, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(payload) });
+      closeDialog?.close(); renderReview(); selectPanel("review");
+    } catch (error) {
+      const message = error.status === 403 ? "当前账号没有审核决策权限。" : error.status === 409 ? "审核状态已被其他人更新，请刷新后重试。" :
+        error.status === 422 ? (gateReasonLabels[error.body?.reasons?.[0]] || "上游状态已变化，当前不能完成审核。") : "审核请求未完成，请稍后重试。";
+      setNotice(element("#reviewNotice"), message, error.status === 409 || error.status === 422 || error.status === 403 ? "blocked" : "error");
+      await loadReview();
+    } finally {
+      reviewSubmitting = false;
+      element("#confirmApproveReview").disabled = false;
+      element("#confirmReviewReason").disabled = false;
+      renderReview();
+    }
+  }
+
+  function openApproveReview() {
+    const review = reviewState?.current_review, result = latestQualityResult();
+    element("#approveReviewSummary").textContent = `文案 v${copyVersion.version_number}\n商品快照 v${revision.revision_number}\n质检：${conclusionLabels[result?.effective_conclusion] || "待确认"}\n审核模式：${review?.author_member_id === identityContext?.member?.id ? "本人审核（self_review）" : "普通审核"}`;
+    element("#approveReviewError").textContent = ""; element("#approveReviewDialog").showModal();
+  }
+
+  function openReviewReason(action) {
+    reviewReasonAction = action; element("#reviewReasonTitle").textContent = action === "revoke" ? "撤销批准" : "要求修改";
+    element("#reviewReason").value = ""; element("#reviewReasonError").textContent = ""; element("#reviewReasonDialog").showModal();
   }
 
   async function startQualityCheck() {
@@ -553,6 +706,7 @@
     if (preferredId) copyVersion = copyVersions.find((value) => value.id === preferredId) || copyVersion;
     renderWorkspace();
     await loadQuality();
+    await loadReview();
   }
 
   async function loadProject(selectRevisionId = requestedRevisionId) {
@@ -738,6 +892,29 @@
   element("#retryQuality").addEventListener("click", retryQualityCheck);
   element("#cancelQuality").addEventListener("click", cancelQualityCheck);
   element("#retryRewrite").addEventListener("click", retryRewrite);
+  element("#qualityTab").addEventListener("click", () => selectPanel("quality"));
+  element("#reviewTab").addEventListener("click", () => selectPanel("review"));
+  element("#submitReview").addEventListener("click", () => reviewCommand(`/api/copy-versions/${copyVersion.id}/reviews`, {}));
+  element("#approveReview").addEventListener("click", openApproveReview);
+  element("#requestReviewChanges").addEventListener("click", () => openReviewReason("changes"));
+  element("#revokeReview").addEventListener("click", () => openReviewReason("revoke"));
+  element("#closeApproveReview").addEventListener("click", () => element("#approveReviewDialog").close());
+  element("#cancelApproveReview").addEventListener("click", () => element("#approveReviewDialog").close());
+  element("#closeReviewReason").addEventListener("click", () => element("#reviewReasonDialog").close());
+  element("#cancelReviewReason").addEventListener("click", () => element("#reviewReasonDialog").close());
+  element("#approveReviewForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const review = reviewState?.current_review;
+    await reviewCommand(`/api/copy-reviews/${review.id}/approve`, { expected_revision: review.row_version }, { closeDialog: element("#approveReviewDialog") });
+  });
+  element("#reviewReasonForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const reason = element("#reviewReason").value.trim();
+    if (!reason) { element("#reviewReasonError").textContent = reviewReasonAction === "revoke" ? "请填写撤销理由。" : "请填写修改意见。"; return; }
+    const review = reviewState?.current_review;
+    const action = reviewReasonAction === "revoke" ? "revoke" : "request-changes";
+    await reviewCommand(`/api/copy-reviews/${review.id}/${action}`, { expected_revision: review.row_version, reason }, { closeDialog: element("#reviewReasonDialog") });
+  });
   element("#closeAcceptFinding").addEventListener("click", () => element("#acceptFindingDialog").close());
   element("#cancelAcceptFinding").addEventListener("click", () => element("#acceptFindingDialog").close());
   element("#closeRewriteDialog").addEventListener("click", () => element("#rewriteDialog").close());
@@ -762,6 +939,7 @@
   try {
     runtime = await request("/api/runtime");
     if (!runtime.projectContentEnabled || !runtime.copyGenerationEnabled) return location.replace("/projects.html");
+    identityContext = await request("/api/auth/me");
     await loadProject();
   } catch (_error) {
     element("#copyLoading").hidden = true;

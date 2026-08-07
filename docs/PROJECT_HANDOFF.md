@@ -3,6 +3,17 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-07 VSA-A06 最终独立审查通过（未访问飞影、未消耗积分）
+
+- 工作区仍为 `/private/tmp/hifly-vsa-a06`、分支 `codex/vsa-a06-copy-review`；未 commit/push/PR/merge。
+- 按 TDD 修复四类审核命令的 receipt preflight：相同 key/payload 在上游后续失效时回放原业务 head，冲突 payload 拒绝；memory/PostgreSQL 行为一致。
+- ProductRevision current 变化、父 CopyVersion superseded、新 QualityResult、Finding effective conclusion 变化会由现有服务命令 post-commit 调用最小显式 coordinator，主动 append revoked；读取 reconcile 与下游 gate 保留兜底。
+- approve 在 transition 后、返回前最终权威重验；barrier 测试覆盖首次 gate 通过后上游变化完成，结果持久化并返回 revoked。未引入分布式锁、通用 event bus 或 Outbox。
+- 第二轮最终审查 Important 已修复：final gate 有效、返回 projection gate 失效时，自动撤销也同步批准 receipt；double-gate barrier 验证首次/回放均 revoked，撤销事件一次。
+- 验证：定向 47/47（含 PostgreSQL 16）；全量 694 tests / 664 pass / 0 fail / 30 environment skips；系统 Chrome 1/1，1440/390 截图在 `/private/tmp/hifly-a06-final-visual-qa/`；`npm run check` 126 文件。
+- 最终独立 Reviewer 结论为 **`APPROVED`**，无剩余 Critical/Important。
+- 没有真实 Hifly、模型或 Provider 调用，没有运行 `MULTI-002`，没有消耗积分。下一步为 commit、PR、CI 与合并。
+
 ## 2026-08-07 VSA-A04 实现、验收与独立 Review 完成（未访问飞影、未消耗积分）
 
 - Issue #60 已在独立 worktree `/private/tmp/hifly-vsa-a04`、分支

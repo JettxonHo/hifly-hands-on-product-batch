@@ -1,12 +1,36 @@
 # 项目当前状态
 
 > 最后更新：2026-08-07
-> 当前远端 main：`2484197`（VSA-A04 已合并）
+> 当前远端 main：`0a1fa9c`（VSA-A05 已合并）
 > 当前 Goal：Vertical Slice A
 
-## VSA-A05 当前开发（Issue #61）
+## VSA-A06 当前开发（Issue #62）
 
-- A04 已通过 PR #79 合并，Issue #60 已关闭；A05 基于最新 `origin/main` 的独立 worktree 开发。
+- A05 已通过 PR #80 合并；A06 在独立 worktree `/private/tmp/hifly-vsa-a06`、分支
+  `codex/vsa-a06-copy-review` 完成实现与最终独立审查，尚未 commit/push/建 PR。
+- 已实现独立 HumanReview、不可变审核周期、append-only transition/event、mutable head/row_version、
+  memory/PostgreSQL repository、独立 migration、正式 API、审计与 current approved gate。
+- member 可提交/查看；admin 决策；self-review 明确记录。批准重新验证 CopyVersion、QualityResult、
+  effective conclusion、ProductRevision、profile/rule；passed 不等于 approved。
+- 相关商品事实、文案替代、QC policy/result 变化会在服务端读取/命令时持久化 revoked；展示名等
+  无关元数据不撤销；revoked 不恢复，重新审核创建新 HumanReview。
+- 独立审查问题已按 TDD 修复：receipt 回放先于动态 gate；相关 ProductRevision/CopyVersion/QC
+  命令通过最小显式 coordinator 主动失效；批准 transition 后、返回前做最终权威 recheck，竞态结果
+  会持久化 revoked。读取与未来下游 gate 仍每次重验。
+- 第二轮最终审查 Important 已修复：若 final gate 仍有效但返回 projection 再次发现变化，该自动撤销
+  同样更新批准 receipt；首次结果与同 key 回放均为 revoked，撤销事件只追加一次。
+- `/copy.html` 已加入质检/审核 tabs、门禁列表、Dialogs、权限只读、失效阻断和历史；A07 只显示
+  禁用说明。系统 Chrome 1440/390 流程通过，截图在仓库外 `/private/tmp/hifly-a06-visual-qa/`。
+- PostgreSQL 16.14 clean migration/integration 1/1 通过；全量 694 tests / 664 pass / 0 fail /
+  30 environment skips，`npm run check` 检查 126 个 JavaScript 文件；详细证据见
+  `docs/status/sessions/2026-08-07-vsa-a06-copy-review.md`。
+- 最终独立 Reviewer 结论为 **`APPROVED`**，无剩余 Critical/Important。主控另行实际通过
+  PostgreSQL 16 clean integration 与系统 Chrome 1440/390 验收。
+- 本轮未访问 Hifly、未调用真实模型、未消耗积分。下一步是 commit、PR、CI 与合并。
+
+## VSA-A05 已合并快照（Issue #61）
+
+- A04 已通过 PR #79 合并，Issue #60 已关闭；A05 后续通过 PR #80 合并，Issue #61 已关闭。
 - A05 已实现服务端权威 QC policy、current/ready ProductRevision 门禁、异步 QualityRun、不可变
   QualityResult/QualityFinding、D-028 Finding 结构字段、逐条 Resolution，以及持久化 RewriteJob
   驱动的新版本与自动完整 QC。
@@ -23,8 +47,7 @@
 - 当前全量无积分自验：673 tests / 644 pass / 0 fail / 29 environment skips；`npm run check`
   119 文件。系统 Chrome 1440/390 流程 1/1、PostgreSQL 16 clean migration/integration 1/1；
   最终截图在仓库外 `/private/tmp/hifly-a05-final-visual-qa/`。
-- 当前尚未 commit/push/建 PR，等待主控 Git 交付。本轮未访问 Hifly、未执行真实外部生成、
-  未消耗积分。
+- PR #80 已合并到 `main`，提交为 `0a1fa9c`。该轮未访问 Hifly、未执行真实外部生成、未消耗积分。
 
 ## VSA-A04 已合并快照（Issue #60）
 

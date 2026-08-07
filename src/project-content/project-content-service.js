@@ -71,7 +71,8 @@ function snapshotFields(revision) {
   };
 }
 
-export function createProjectContentService({ repository, assetReferencePort, now = Date.now } = {}) {
+export function createProjectContentService({ repository, assetReferencePort, reviewInvalidationCoordinator,
+  now = Date.now } = {}) {
   if (!repository || !assetReferencePort?.bindAvailableVersion) throw new TypeError("repository and assetReferencePort are required");
   const timestamp = () => new Date(now()).toISOString();
   const receiptKey = (input, command) => `${input.organizationId}:${input.actorMemberId}:${command}:${validateIdempotencyKey(input.idempotencyKey)}`;
@@ -155,7 +156,7 @@ export function createProjectContentService({ repository, assetReferencePort, no
 
   async function saveRevision(input) {
     validateContext(input);
-    return repository.transaction(async (uow) => {
+    const saved = await repository.transaction(async (uow) => {
       const current = await uow.findRevision(input.organizationId, input.productRevisionId);
       if (!current) throw failure("PRODUCT_REVISION_NOT_FOUND");
       if (current.revision_number !== input.expectedRevision) throw failure("PRODUCT_REVISION_CONFLICT");
@@ -183,6 +184,11 @@ export function createProjectContentService({ repository, assetReferencePort, no
       await uow.appendAudit({ id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId, event_type: current.status === "ready" ? "product_revision.child_draft_created" : "product_revision.saved", project_id: current.project_id, product_id: current.product_id, product_revision_id: revision.id, created_at: updatedAt });
       return revision;
     });
+    if (saved.parent_revision_id === input.productRevisionId) {
+      await reviewInvalidationCoordinator?.productRevisionChanged({ organizationId: input.organizationId,
+        actorMemberId: input.actorMemberId, productRevisionId: input.productRevisionId });
+    }
+    return saved;
   }
 
   async function confirmSellingPoint(input) {
@@ -205,7 +211,7 @@ export function createProjectContentService({ repository, assetReferencePort, no
 
   async function readyRevision(input) {
     validateContext(input);
-    return repository.transaction(async (uow) => {
+    const ready = await repository.transaction(async (uow) => {
       const key = receiptKey(input, "ready_revision");
       const fingerprint = stableJson({ product_revision_id: input.productRevisionId, expected_revision: input.expectedRevision });
       return replayOrRun(uow, key, fingerprint, async () => {
@@ -234,6 +240,11 @@ export function createProjectContentService({ repository, assetReferencePort, no
         return revision;
       });
     });
+    if (ready.parent_revision_id) {
+      await reviewInvalidationCoordinator?.productRevisionChanged({ organizationId: input.organizationId,
+        actorMemberId: input.actorMemberId, productRevisionId: ready.parent_revision_id });
+    }
+    return ready;
   }
 
   const productRevisionPort = {

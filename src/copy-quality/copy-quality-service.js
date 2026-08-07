@@ -24,7 +24,8 @@ function conclusionFor(evaluation) {
 }
 
 export function createCopyQualityService({ repository, copyService,
-  profileResolver = createStaticQualityProfileResolver(), now = () => Date.now(), maxAttempts = 3 } = {}) {
+  profileResolver = createStaticQualityProfileResolver(), reviewInvalidationCoordinator,
+  now = () => Date.now(), maxAttempts = 3 } = {}) {
   if (!repository || !copyService) throw new TypeError("repository and copyService are required");
   if (!profileResolver?.resolve) throw new TypeError("profileResolver is required");
   const timestamp = () => new Date(now()).toISOString();
@@ -122,6 +123,18 @@ export function createCopyQualityService({ repository, copyService,
       await copyService.getCopyVersion({ ...input, copyVersionId: input.copyVersionId });
       return repository.listRuns(input.organizationId, input.copyVersionId);
     },
+    async getApprovalCandidate(input) {
+      requireContext(input);
+      const runs = await repository.listRuns(input.organizationId, input.copyVersionId);
+      for (const run of [...runs].reverse()) {
+        const details = await projectDetails(input, run.id);
+        if (details.quality_result) return {
+          ...details.quality_result,
+          product_revision_id: details.quality_run.product_revision_id
+        };
+      }
+      return null;
+    },
     async claimNextQualityRun({ leaseMs = 30_000 } = {}) {
       const at = timestamp();
       return repository.claimNextRun({ now: at, leaseExpiresAt: new Date(Date.parse(at) + leaseMs).toISOString(), leaseToken: randomUUID() });
@@ -157,6 +170,8 @@ export function createCopyQualityService({ repository, copyService,
         audit: { id: randomUUID(), organization_id: run.organization_id, event_type: "copy.quality_succeeded",
           copy_version_id: run.copy_version_id, quality_run_id: run.id, quality_result_id: result.id,
           metadata: { conclusion, finding_count: findingRows.length }, created_at: at } });
+      await reviewInvalidationCoordinator?.copyVersionChanged({ organizationId: run.organization_id,
+        copyVersionId: run.copy_version_id });
       return projectDetails({ organizationId: run.organization_id, actorMemberId: "copy-quality-worker" }, run.id);
     },
     async failQualityRun({ run, failureCode = "QUALITY_EVALUATION_FAILED" }) {
@@ -198,6 +213,8 @@ export function createCopyQualityService({ repository, copyService,
           quality_run_id: details.run.id, quality_result_id: details.result.id, quality_finding_id: details.finding.id,
           metadata: { state: input.resolution }, created_at: at }
       });
+      await reviewInvalidationCoordinator?.copyVersionChanged({ organizationId: input.organizationId,
+        actorMemberId: input.actorMemberId, copyVersionId: details.run.copy_version_id });
       return { resolution: saved, ...(await projectDetails(input, details.run.id)) };
     },
     async requestCopyRewrite(input) {
