@@ -250,6 +250,15 @@ export function createProjectContentService({ repository, assetReferencePort, no
         if (!revision || revision.status !== "ready") throw failure("PRODUCT_REVISION_NOT_FOUND");
         return immutableClone(revision);
       });
+    },
+    async getCurrentReadySnapshot({ organizationId, productRevisionId }) {
+      return repository.transaction(async (uow) => {
+        const revision = await uow.findRevision(organizationId, productRevisionId);
+        if (!revision || revision.status !== "ready") throw failure("PRODUCT_REVISION_NOT_FOUND");
+        const product = await uow.findProduct(organizationId, revision.product_id);
+        if (!product || product.current_revision_id !== revision.id) throw failure("PRODUCT_REVISION_NOT_FOUND");
+        return immutableClone(revision);
+      });
     }
   };
 

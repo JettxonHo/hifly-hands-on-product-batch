@@ -41,6 +41,9 @@ function world({ provider, now } = {}) {
         throw Object.assign(new Error("PRODUCT_REVISION_NOT_FOUND"), { code: "PRODUCT_REVISION_NOT_FOUND" });
       }
       return snapshot;
+    },
+    async getCurrentReadySnapshot(input) {
+      return this.getReadySnapshot(input);
     }
   };
   const service = createCopyGenerationService({ repository, productRevisionPort, now });

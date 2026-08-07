@@ -1,10 +1,32 @@
 # 项目当前状态
 
 > 最后更新：2026-08-07
-> 当前远端 main：`46f7da0`（Frontend Foundation 已合并）
+> 当前远端 main：`2484197`（VSA-A04 已合并）
 > 当前 Goal：Vertical Slice A
 
-## VSA-A04 当前开发（Issue #60）
+## VSA-A05 当前开发（Issue #61）
+
+- A04 已通过 PR #79 合并，Issue #60 已关闭；A05 基于最新 `origin/main` 的独立 worktree 开发。
+- A05 已实现服务端权威 QC policy、current/ready ProductRevision 门禁、异步 QualityRun、不可变
+  QualityResult/QualityFinding、D-028 Finding 结构字段、逐条 Resolution，以及持久化 RewriteJob
+  驱动的新版本与自动完整 QC。
+- memory/PostgreSQL repository、独立 migration、正式 API 与 `/copy.html` 质检右栏均已完成；
+  A06 审核操作未提前实现，passed 明确不等于 approved。
+- Terra/High 最终复审追加四项 Important。实现者已按 TDD 完成 current ProductRevision 正式门禁、
+  已完成 Result 的当前有效性投影、Finding 完整性校验及 AI 改写 Dialog 双击幂等；复审结论为
+  **`APPROVED`**，无剩余 Critical/Important。
+- D-025 policy/事实漂移均不会改写历史 Result：API 动态投影 `current_valid` 与受控失效原因，UI 以
+  amber 阻断；失效 Finding 只读展示且不再提供处理动作。child draft 成为 current 后，旧 ready
+  revision 在 freeze 前即被拒绝。
+- Rewrite worker 在 Provider 调用前后均复核 current revision；运行期间事实变化不会遗留 stale
+  CopyVersion，Job 以稳定 stale 错误失败。
+- 当前全量无积分自验：673 tests / 644 pass / 0 fail / 29 environment skips；`npm run check`
+  119 文件。系统 Chrome 1440/390 流程 1/1、PostgreSQL 16 clean migration/integration 1/1；
+  最终截图在仓库外 `/private/tmp/hifly-a05-final-visual-qa/`。
+- 当前尚未 commit/push/建 PR，等待主控 Git 交付。本轮未访问 Hifly、未执行真实外部生成、
+  未消耗积分。
+
+## VSA-A04 已合并快照（Issue #60）
 
 - Kimi Code 已使用 `kimi-code/k3` 完成 A04-A06 页面级设计，批准文档为
   `docs/frontend/VSA-A04-A06_UIUX_DESIGN.md`；未发现 `DESIGN_BLOCKER`。
@@ -18,10 +40,8 @@
   PostgreSQL 16 clean migration 1/1；`npm run check` 108 文件；`git diff --check` 通过。
 - 独立 Reviewer 首轮发现 390px 失败态缺少重试入口；已补移动版本抽屉重试并将真实浏览器流程改为
   移动端失败后完成重试，复审结论 `APPROVED`，无剩余 Blocker/Important。
-- ready PR #79 已创建：https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/79 。
-- PR #79 CI run `31141572545` 的 Ubuntu、Windows、PostgreSQL 三项均通过，PR 为 mergeable。
-- 本轮未访问 Hifly、未执行真实外部生成、未消耗积分。下一步仅等待 Owner 合并授权；未经授权
-  不合并、不关闭 Issue #60，也不开始 A05。
+- PR #79 已合并，Issue #60 已关闭；合并提交为 `2484197`。
+- 本轮未访问 Hifly、未执行真实外部生成、未消耗积分。
 
 ## Kimi K3 前端视觉升级策划（2026-08-06）
 
@@ -103,7 +123,7 @@
 
 ## 下一步
 
-1. Wave 2 已完成：PR #73/#74 已合并，Issue #58/#59 已关闭，`main` CI 全绿。
-2. 未经用户建立下一阶段 Goal 与明确开发授权，不开始 A04 或其他后续 Issue。
-3. 下一阶段开始前，从最新 `main` 创建新的独立 worktree/分支并重新确认范围。
+1. A05 最终独立复审已 `APPROVED`；主控正在完成 commit、PR、CI 与合并交付。
+2. 用户已授权 A04-A13 在各自审查与 CI 通过后合并；A05 合并前不开始 A06 实施。
+3. A06 继续复用 Kimi K3 已批准的 A04-A06 UI/UX 设计，不把 QC passed 当 approved。
 4. 每个里程碑结束时更新本文件与 `GOAL.md`。

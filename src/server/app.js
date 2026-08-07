@@ -13,6 +13,13 @@ import { createControlledCopyProvider } from "../copy-generation/controlled-prov
 import { createCopyGenerationService } from "../copy-generation/copy-generation-service.js";
 import { createCopyGenerationWorker } from "../copy-generation/copy-generation-worker.js";
 import { createPostgresCopyGenerationRepository } from "../copy-generation/postgres-copy-generation-repository.js";
+import { createControlledQualityEvaluator } from "../copy-quality/controlled-evaluator.js";
+import { createControlledCopyRewriter } from "../copy-quality/controlled-rewriter.js";
+import { createStaticQualityProfileResolver } from "../copy-quality/static-profile-resolver.js";
+import { createCopyQualityService } from "../copy-quality/copy-quality-service.js";
+import { createCopyQualityWorker } from "../copy-quality/copy-quality-worker.js";
+import { createCopyRewriteWorker } from "../copy-quality/copy-rewrite-worker.js";
+import { createPostgresCopyQualityRepository } from "../copy-quality/postgres-copy-quality-repository.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
@@ -30,6 +37,7 @@ import { registerImportRoutes } from "./routes/imports.js";
 import { registerRpaCallbackRoutes } from "./routes/rpa-callbacks.js";
 import { registerProjectContentRoutes } from "./routes/project-content.js";
 import { registerCopyGenerationRoutes } from "./routes/copy-generation.js";
+import { registerCopyQualityRoutes } from "./routes/copy-quality.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -89,8 +97,13 @@ function apiError(error) {
     return { statusCode: 404, code: error.code };
   }
   if (["COPY_GENERATION_JOB_NOT_FOUND", "COPY_VERSION_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
+  if (["QUALITY_RUN_NOT_FOUND", "QUALITY_FINDING_NOT_FOUND", "COPY_REWRITE_JOB_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
   if (["COPY_VERSION_CONFLICT", "COPY_VERSION_IMMUTABLE", "COPY_GENERATION_RETRY_BLOCKED", "COPY_GENERATION_ABORT_BLOCKED", "COPY_GENERATION_LEASE_LOST", "COPY_GENERATION_RETRY_EXHAUSTED"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (["QUALITY_RUN_RETRY_BLOCKED", "QUALITY_RUN_CANCEL_BLOCKED", "QUALITY_RUN_LEASE_LOST", "COPY_REWRITE_REQUIRES_FROZEN_VERSION", "COPY_REWRITE_RETRY_BLOCKED", "COPY_REWRITE_LEASE_LOST"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (["COPY_GENERATION_CONTEXT_REQUIRED", "COPY_BODY_REQUIRED", "INVALID_COPY_REVISION"].includes(error?.code)) return { statusCode: 400, code: error.code };
+  if (["COPY_QUALITY_CONTEXT_REQUIRED", "QUALITY_PROFILE_REQUIRED", "QUALITY_FINDING_RESOLUTION_INVALID", "QUALITY_FINDING_REASON_REQUIRED", "QUALITY_FINDING_ACCEPT_BLOCKED", "COPY_REWRITE_EMPTY_RESULT", "COPY_REWRITE_NO_CHANGE", "COPY_REWRITE_SCOPE_INVALID", "COPY_REWRITE_INSTRUCTION_REQUIRED"].includes(error?.code)) return { statusCode: 400, code: error.code };
+  if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
+  if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
     return { statusCode: 409, code: error.code };
   }
@@ -148,6 +161,7 @@ export async function buildApp({
   assets: assetOptions = null,
   projectContent: projectContentOptions = null,
   copyGeneration: copyGenerationOptions = null,
+  copyQuality: copyQualityOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -160,9 +174,11 @@ export async function buildApp({
   const assetsEnabled = assetOptions?.enabled === true;
   const projectContentEnabled = projectContentOptions?.enabled === true;
   const copyGenerationEnabled = copyGenerationOptions?.enabled === true;
+  const copyQualityEnabled = copyQualityOptions?.enabled === true;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
   if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
+  if (copyQualityEnabled && !copyGenerationEnabled) throw Object.assign(new Error("COPY_QUALITY_REQUIRES_COPY_GENERATION"), { code: "COPY_QUALITY_REQUIRES_COPY_GENERATION" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -242,6 +258,7 @@ export async function buildApp({
       assetsEnabled,
       projectContentEnabled,
       copyGenerationEnabled,
+      copyQualityEnabled,
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -311,6 +328,34 @@ export async function buildApp({
     app.addHook("onClose", async () => { worker.stop(); await repository.close?.(); });
     await registerCopyGenerationRoutes(app, { service, worker });
     if (copyGenerationOptions.worker?.autoStart !== false) worker.start();
+  }
+  if (copyQualityEnabled) {
+    const repository = copyQualityOptions.repository || (sharedPool ? createPostgresCopyQualityRepository({ pool: sharedPool }) : null);
+    if (!repository) throw Object.assign(new Error("COPY_QUALITY_REPOSITORY_REQUIRED"), { code: "COPY_QUALITY_REPOSITORY_REQUIRED" });
+    await repository.initialize();
+    const evaluator = copyQualityOptions.evaluator || createControlledQualityEvaluator();
+    const rewriter = copyQualityOptions.rewriter || createControlledCopyRewriter();
+    const profileResolver = copyQualityOptions.profileResolver || createStaticQualityProfileResolver({
+      profileVersion: copyQualityOptions.profileVersion, ruleVersion: copyQualityOptions.ruleVersion
+    });
+    const service = createCopyQualityService({ repository, copyService: app.copyGeneration.service,
+      profileResolver, now,
+      maxAttempts: copyQualityOptions.worker?.maxAttempts });
+    const worker = createCopyQualityWorker({ service, evaluator,
+      pollIntervalMs: copyQualityOptions.worker?.pollIntervalMs,
+      leaseMs: copyQualityOptions.worker?.leaseMs,
+      heartbeatIntervalMs: copyQualityOptions.worker?.heartbeatIntervalMs,
+      onError: copyQualityOptions.worker?.onError || ((error) => console.error("Copy quality worker error:", error?.code || "UNEXPECTED_ERROR")) });
+    const rewriteWorker = createCopyRewriteWorker({ service, rewriter,
+      pollIntervalMs: copyQualityOptions.worker?.pollIntervalMs,
+      leaseMs: copyQualityOptions.worker?.leaseMs,
+      heartbeatIntervalMs: copyQualityOptions.worker?.heartbeatIntervalMs,
+      onError: copyQualityOptions.worker?.onError || ((error) => console.error("Copy rewrite worker error:", error?.code || "UNEXPECTED_ERROR")) });
+    app.decorate("copyQuality", { repository, service, worker, rewriteWorker, evaluatorKind: worker.evaluatorKind,
+      rewriterKind: rewriteWorker.rewriterKind, profileResolverKind: profileResolver.kind || "unknown" });
+    app.addHook("onClose", async () => { worker.stop(); rewriteWorker.stop(); await repository.close?.(); });
+    await registerCopyQualityRoutes(app, { service, worker, rewriteWorker });
+    if (copyQualityOptions.worker?.autoStart !== false) { worker.start(); rewriteWorker.start(); }
   }
 
   await registerBatchRoutes(app, { store });

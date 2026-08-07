@@ -50,7 +50,7 @@
             <span class="button-row"><button id="saveAndContinue" type="button">保存并继续</button><button id="discardAndContinue" class="secondary" type="button">放弃修改</button><button id="keepEditing" class="text-button" type="button">继续编辑</button></span>
           </section>
 
-          <div class="copy-workspace">
+          <div class="copy-workspace quality-disabled">
             <aside class="surface version-panel" aria-labelledby="versionListTitle">
               <div class="surface-header"><div><h2 id="versionListTitle">文案版本</h2><p>历史版本只读保留</p></div></div>
               <button id="generateCopy" type="button">生成文案</button>
@@ -77,6 +77,27 @@
                 <div class="actions"><p id="copyNotice" class="notice" role="status"></p><div class="button-row"><button id="deriveCopy" class="secondary" type="button" hidden>基于此版本修改</button><button id="saveCopy" type="submit">保存草稿</button></div></div>
               </form>
             </section>
+
+            <aside id="qualityPanel" class="surface quality-panel" aria-labelledby="qualityTitle">
+              <div class="surface-header quality-header"><div><p class="eyebrow">当前版本</p><h2 id="qualityTitle">质检</h2></div><span id="qualityRunState" class="state">未质检</span></div>
+              <div id="qualityLoading" class="empty">正在读取质检状态...</div>
+              <div id="qualityContent" hidden>
+                <section id="qualitySummary" class="quality-summary">
+                  <div><span id="qualityConclusion" class="state">未质检</span><strong id="qualityConclusionText">尚未开始质检</strong></div>
+                  <p id="qualityGuidance">保存草稿后开始完整质检。</p>
+                </section>
+                <p id="qualityNotice" class="notice" role="status"></p>
+                <div class="quality-actions">
+                  <button id="startQuality" type="button">开始质检</button>
+                  <button id="retryQuality" type="button" hidden>重新质检</button>
+                  <button id="cancelQuality" class="secondary" type="button" hidden>取消质检</button>
+                  <button id="retryRewrite" class="secondary" type="button" hidden>重试 AI 改写</button>
+                </div>
+                <div id="findingList" class="finding-list"></div>
+                <p id="reviewReminder" class="notice" hidden>尚未提交人工审核</p>
+                <details class="quality-history"><summary id="qualityHistorySummary">历史质检（0）</summary><div id="qualityHistory" class="quality-history-list"></div></details>
+              </div>
+            </aside>
           </div>
         </main>
       </div>
@@ -90,6 +111,27 @@
     <dialog id="compareDialog" class="compare-dialog" aria-labelledby="compareDialogTitle">
       <div class="dialog-header"><div><p class="eyebrow">只读对比</p><h2 id="compareDialogTitle">对比文案版本</h2></div><button id="closeCompareDialog" class="dialog-close" type="button" aria-label="关闭版本对比">×</button></div>
       <div class="dialog-body"><div class="compare-selectors"><label>版本一<select id="compareLeft"></select></label><label>版本二<select id="compareRight"></select></label></div><div class="compare-grid"><section><h3 id="compareLeftTitle">版本一</h3><div id="compareLeftBody" class="compare-body"></div></section><section><h3 id="compareRightTitle">版本二</h3><div id="compareRightBody" class="compare-body"></div></section></div></div>
+    </dialog>
+
+    <dialog id="acceptFindingDialog" aria-labelledby="acceptFindingTitle">
+      <form id="acceptFindingForm">
+        <div class="dialog-header"><div><p class="eyebrow">逐条处理</p><h2 id="acceptFindingTitle">接受 Finding</h2></div><button id="closeAcceptFinding" class="dialog-close" type="button" aria-label="关闭接受 Finding">×</button></div>
+        <div class="dialog-body"><p id="acceptFindingMessage" class="muted"></p><label for="acceptReason">接受理由<textarea id="acceptReason" rows="4" required></textarea></label><p id="acceptFindingError" class="error" role="alert"></p><div class="actions"><button id="cancelAcceptFinding" class="secondary" type="button">取消</button><button type="submit">确认接受</button></div></div>
+      </form>
+    </dialog>
+
+    <dialog id="rewriteDialog" aria-labelledby="rewriteDialogTitle">
+      <form id="rewriteForm">
+        <div class="dialog-header"><div><p class="eyebrow">创建异步任务</p><h2 id="rewriteDialogTitle">AI 改写文案</h2></div><button id="closeRewriteDialog" class="dialog-close" type="button" aria-label="关闭 AI 改写">×</button></div>
+        <div class="dialog-body rewrite-dialog-body">
+          <p id="rewriteFindingMessage" class="muted"></p>
+          <label for="rewriteScope">改写范围<select id="rewriteScope"><option value="matched_text">仅改写命中片段</option><option value="full">改写完整文案</option></select></label>
+          <label for="rewriteInstruction">业务改写要求<textarea id="rewriteInstruction" rows="4" maxlength="1000" required placeholder="例如：保留核心卖点，改为自然、可由商品事实支持的表达"></textarea></label>
+          <p class="muted">提交后可离开或刷新页面。完成时会创建新文案版本，并自动重新完整质检。</p>
+          <p id="rewriteError" class="error" role="alert"></p>
+          <div class="actions"><button id="cancelRewrite" class="secondary" type="button">取消</button><button id="submitRewrite" type="submit">提交改写任务</button></div>
+        </div>
+      </form>
     </dialog>
   </body>
 </html>

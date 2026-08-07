@@ -4,10 +4,17 @@
   let requestedRevisionId = params.get("revision");
   let project, revision, runtime, copyVersion;
   let copyJobs = [], copyVersions = [], copyPollTimer;
+  let qualityRuns = [], qualityDetails = [], qualityPollTimer, activeFinding;
+  let rewriteJobs = [], rewritePollTimer, activeRewriteFinding, handledRewriteJobId;
+  let rewriteSubmissionKey, rewriteSubmitting = false;
   let dirty = false, deriveMode = false, conflictDraft = null, pendingNavigation = null;
 
   const revisionLabels = { draft: "草稿", ready: "已 Ready", superseded: "已被替代" };
   const copyLabels = { draft: "草稿", frozen: "已冻结", superseded: "已被替代" };
+  const qualityRunLabels = { queued: "排队中", running: "质检中", succeeded: "已完成", failed: "技术失败", cancelled: "已取消" };
+  const conclusionLabels = { invalid: "质检结果无效", blocked: "存在硬阻断", needs_review: "待人工判断", passed: "质检通过" };
+  const severityLabels = { low: "低", medium: "中", high: "高", critical: "严重" };
+  const resolutionLabels = { accepted_with_reason: "已接受（附理由）", change_requested: "已要求修改", returned_to_facts: "已退回商品事实" };
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const element = (selector) => document.querySelector(selector);
 
@@ -136,6 +143,7 @@
     const changed = copyVersion ? body !== copyVersion.body : false;
     dirty = (copyVersion?.status === "draft" || deriveMode) && changed;
     element("#saveCopy").disabled = !dirty;
+    if (element("#startQuality")) element("#startQuality").disabled = dirty || deriveMode;
     element("#saveState").textContent = dirty ? "有未保存的修改" : "已保存";
   }
 
@@ -166,6 +174,313 @@
     deriveMode = false;
     dirty = false;
     renderEditor();
+    loadQuality().catch(() => undefined);
+  }
+
+  function stopQualityPolling() {
+    if (qualityPollTimer) clearTimeout(qualityPollTimer);
+    qualityPollTimer = undefined;
+  }
+
+  function stopRewritePolling() {
+    if (rewritePollTimer) clearTimeout(rewritePollTimer);
+    rewritePollTimer = undefined;
+  }
+
+  function scheduleRewritePolling() {
+    stopRewritePolling();
+    rewritePollTimer = setTimeout(() => loadWorkspace({ preferredId: copyVersion?.id }).catch(() => undefined), 1000);
+  }
+
+  function scheduleQualityPolling() {
+    stopQualityPolling();
+    qualityPollTimer = setTimeout(() => loadQuality().catch(() => undefined), 1000);
+  }
+
+  function renderQualityHistory() {
+    const list = element("#qualityHistory");
+    list.replaceChildren();
+    element("#qualityHistorySummary").textContent = `历史质检（${qualityRuns.length}）`;
+    for (const details of [...qualityDetails].reverse()) {
+      const item = document.createElement("div");
+      item.className = "quality-history-item";
+      const title = document.createElement("strong");
+      title.textContent = details.quality_result ? conclusionLabels[details.quality_result.conclusion] : qualityRunLabels[details.quality_run.status];
+      const meta = document.createElement("span");
+      meta.textContent = `${details.quality_run.profile_version} · ${details.quality_run.rule_version} · ${formatTime(details.quality_run.created_at)}`;
+      item.append(title, meta);
+      list.append(item);
+    }
+  }
+
+  function findingButton(label, action, className = "secondary") {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = className;
+    button.textContent = label;
+    button.addEventListener("click", action);
+    return button;
+  }
+
+  function renderFindings(details, { readOnly = false } = {}) {
+    const list = element("#findingList");
+    list.replaceChildren();
+    for (const finding of details?.quality_findings || []) {
+      const latest = finding.resolutions.at(-1);
+      const card = document.createElement("article");
+      card.className = `finding-card${latest ? " resolved" : ""}`;
+      const kind = document.createElement("span");
+      kind.className = `state ${finding.kind === "review" ? "needs_review" : "blocked"}`;
+      kind.textContent = `${finding.kind === "review" ? "待人工判断" : "不可绕过门禁"} · ${severityLabels[finding.severity] || "等级待确认"}`;
+      const title = document.createElement("h3"); title.textContent = finding.title;
+      const message = document.createElement("p"); message.textContent = finding.message;
+      const matched = document.createElement("blockquote"); matched.className = "finding-match";
+      matched.textContent = `命中文本：${finding.matched_text || "未定位到具体片段"}`;
+      const evidence = document.createElement("p"); evidence.className = "finding-meta";
+      evidence.textContent = `规则来源：${finding.rule_source} · 证据引用：${finding.evidence_reference}`;
+      const suggestion = document.createElement("p"); suggestion.className = "finding-suggestion";
+      suggestion.textContent = `修复建议：${finding.suggestion}`;
+      card.append(kind, title, matched, message, evidence, suggestion);
+      if (latest) {
+        const resolution = document.createElement("p"); resolution.className = "finding-resolution";
+        resolution.textContent = `${resolutionLabels[latest.state] || "已处理"}${latest.reason ? `：${latest.reason}` : ""}`;
+        card.append(resolution);
+      } else if (readOnly) {
+        const historical = document.createElement("p"); historical.className = "finding-resolution";
+        historical.textContent = "结果已失效，仅供历史查看。";
+        card.append(historical);
+      } else {
+        const actions = document.createElement("div"); actions.className = "button-row";
+        if (finding.kind === "review") actions.append(findingButton("接受并填写理由", () => openAcceptFinding(finding)));
+        actions.append(
+          findingButton("返回商品事实", () => resolveFinding(finding, "returned_to_facts", "需要补充或修正商品事实")
+            .then(() => { window.location.href = element("#productFactsLink").href; })
+            .catch(() => setNotice(element("#qualityNotice"), "未能记录返回商品事实操作，请重试。", "error"))),
+          findingButton("人工修改", () => resolveFinding(finding, "change_requested", "运营选择人工修改文案")
+            .then(() => beginManualEdit())
+            .catch(() => setNotice(element("#qualityNotice"), "未能进入人工修改，请重试。", "error"))),
+          findingButton("AI 改写", () => openRewriteDialog(finding), "")
+        );
+        card.append(actions);
+      }
+      list.append(card);
+    }
+  }
+
+  function renderQuality() {
+    const loading = element("#qualityLoading"), content = element("#qualityContent");
+    loading.hidden = true; content.hidden = false;
+    const latest = qualityDetails.at(-1), run = latest?.quality_run, result = latest?.quality_result;
+    const runState = element("#qualityRunState"), conclusion = element("#qualityConclusion");
+    const start = element("#startQuality"), retry = element("#retryQuality"), cancel = element("#cancelQuality");
+    if (!run || !["queued", "running"].includes(run.status)) setNotice(element("#qualityNotice"));
+    retry.hidden = true; cancel.hidden = true; start.hidden = false;
+    start.disabled = dirty || deriveMode || !copyVersion || !["draft", "frozen"].includes(copyVersion.status);
+    renderQualityHistory(); renderFindings(latest, { readOnly: result?.current_valid === false });
+    element("#reviewReminder").hidden = true;
+    if (!run) {
+      runState.className = "state"; runState.textContent = "未质检";
+      conclusion.className = "state"; conclusion.textContent = "未质检";
+      element("#qualityConclusionText").textContent = "尚未开始质检";
+      element("#qualityGuidance").textContent = dirty ? "先保存当前修改，再开始完整质检。" : "开始质检会冻结当前草稿。";
+      start.textContent = "开始质检"; stopQualityPolling(); return;
+    }
+    runState.className = `state ${run.status}`; runState.textContent = qualityRunLabels[run.status] || "状态待确认";
+    if (["queued", "running"].includes(run.status)) {
+      conclusion.className = "state running"; conclusion.textContent = "质检中";
+      element("#qualityConclusionText").textContent = "质检中，可离开本页";
+      element("#qualityGuidance").textContent = "结果会由服务端保存，重新进入后可继续。";
+      start.hidden = true; cancel.hidden = false; scheduleQualityPolling(); return;
+    }
+    stopQualityPolling();
+    if (run.status === "failed") {
+      const factsStale = run.failure_code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT";
+      conclusion.className = factsStale ? "state blocked" : "state failed";
+      conclusion.textContent = factsStale ? "商品事实已失效" : "技术失败";
+      element("#qualityConclusionText").textContent = factsStale ? "商品事实已更新，当前质检已停止" : "质检未完成（技术原因）";
+      element("#qualityGuidance").textContent = factsStale ?
+        "请返回商品事实确认最新快照，再为最新商品版本生成文案并重新质检。" :
+        "没有形成业务质检结论，可以安全重新质检。";
+      start.hidden = true; retry.hidden = factsStale; return;
+    }
+    if (!result) {
+      conclusion.className = "state"; conclusion.textContent = qualityRunLabels[run.status] || "未完成";
+      element("#qualityConclusionText").textContent = "本次质检未形成结论";
+      element("#qualityGuidance").textContent = "可以重新发起完整质检。";
+      start.textContent = "重新质检"; return;
+    }
+    if (result.current_valid === false) {
+      const factsChanged = result.invalidation_reason === "product_revision_changed";
+      conclusion.className = "state blocked"; conclusion.textContent = "结论已失效";
+      element("#qualityConclusionText").textContent = factsChanged ?
+        "质检结论已失效：商品事实已有新版本，请重新确认后质检。" :
+        "质检结论已失效：质检规则已更新，请重新完整质检。";
+      element("#qualityGuidance").textContent = factsChanged ?
+        "请返回商品事实确认当前版本，再为最新文案执行完整质检。" :
+        "历史结论已保留，但不能继续使用；请按当前规则重新质检。";
+      start.textContent = "重新质检"; start.hidden = factsChanged;
+      element("#reviewReminder").hidden = true; return;
+    }
+    const unresolved = latest.quality_findings.filter((finding) => finding.kind === "review" &&
+      finding.resolutions.at(-1)?.state !== "accepted_with_reason").length;
+    conclusion.className = `state ${result.effective_conclusion}`;
+    conclusion.textContent = conclusionLabels[result.effective_conclusion] || "结论待确认";
+    element("#qualityConclusionText").textContent = result.effective_conclusion === "needs_review" ? `待人工判断（${unresolved} 条）` : conclusionLabels[result.effective_conclusion];
+    const guidance = {
+      invalid: "本次检查未得到可信结果，请重新质检。",
+      blocked: "必须修正文案或商品事实并完整重新质检，不能绕过。",
+      needs_review: "请逐条处理所有 Finding。",
+      passed: result.conclusion === "needs_review" ? "Finding 已逐条处理，原始质检结论和处理历史均已保留。" : "文案已通过质检，但不等于人工审核通过。"
+    };
+    element("#qualityGuidance").textContent = guidance[result.effective_conclusion];
+    start.textContent = "重新质检";
+    start.hidden = !["invalid"].includes(result.effective_conclusion);
+    element("#reviewReminder").hidden = result.effective_conclusion !== "passed";
+  }
+
+  async function loadQuality() {
+    stopQualityPolling();
+    element(".copy-workspace").classList.toggle("quality-disabled", !runtime?.copyQualityEnabled);
+    if (!runtime?.copyQualityEnabled || !copyVersion) {
+      element("#qualityPanel").hidden = !runtime?.copyQualityEnabled;
+      qualityRuns = []; qualityDetails = []; rewriteJobs = []; renderQuality(); return;
+    }
+    element("#qualityPanel").hidden = false;
+    const listed = await request(`/api/copy-versions/${copyVersion.id}/quality-runs`);
+    qualityRuns = listed.quality_runs;
+    qualityDetails = await Promise.all(qualityRuns.map((run) => request(`/api/quality-runs/${run.id}`)));
+    renderQuality();
+    const rewriteList = await request(`/api/copy-versions/${copyVersion.id}/rewrite-jobs`);
+    rewriteJobs = rewriteList.rewrite_jobs;
+    const latestRewrite = rewriteJobs.at(-1);
+    const rewriteFactsStale = latestRewrite?.failure_code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT";
+    element("#retryRewrite").hidden = rewriteFactsStale || !["failed", "timed_out"].includes(latestRewrite?.status) ||
+      latestRewrite.attempts >= latestRewrite.max_attempts;
+    if (["queued", "running"].includes(latestRewrite?.status)) {
+      setNotice(element("#qualityNotice"), latestRewrite.status === "queued" ? "AI 改写已排队，可离开或刷新页面。" : "AI 正在改写，可离开或刷新页面。", "");
+      scheduleRewritePolling();
+    } else {
+      stopRewritePolling();
+      if (latestRewrite?.status === "succeeded" && latestRewrite.output_copy_version_id &&
+        latestRewrite.id !== handledRewriteJobId && latestRewrite.output_copy_version_id !== copyVersion.id) {
+        handledRewriteJobId = latestRewrite.id;
+        await loadWorkspace({ preferredId: latestRewrite.output_copy_version_id });
+        setNotice(element("#qualityNotice"), "AI 改写已生成新版本，并已进入完整质检。", "success");
+      } else if (["failed", "timed_out"].includes(latestRewrite?.status)) {
+        setNotice(element("#qualityNotice"), rewriteFactsStale ?
+          "商品事实已更新，AI 改写已停止。请返回商品事实确认最新内容。" :
+          "AI 改写未完成，原版本和质检历史未受影响。可以安全重试。", rewriteFactsStale ? "blocked" : "error");
+      }
+    }
+  }
+
+  async function startQualityCheck() {
+    if (!copyVersion || dirty || deriveMode) return;
+    try {
+      await request(`/api/copy-versions/${copyVersion.id}/quality-runs`, { method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ expected_revision: copyVersion.row_version }) });
+      await loadWorkspace({ preferredId: copyVersion.id });
+    } catch (error) {
+      if (error.message === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") {
+        setNotice(element("#qualityNotice"), "商品事实已更新或尚未确认，请返回商品事实完成确认后再质检。", "blocked");
+      } else setNotice(element("#qualityNotice"), "质检请求未提交，请刷新后重试。", "error");
+    }
+  }
+
+  async function retryQualityCheck() {
+    const failed = qualityRuns.findLast((run) => run.status === "failed");
+    if (!failed) return;
+    try {
+      await request(`/api/quality-runs/${failed.id}/retry`, { method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: "{}" });
+      await loadQuality();
+    } catch (_error) { setNotice(element("#qualityNotice"), "重新质检未提交，请刷新后再试。", "error"); }
+  }
+
+  async function cancelQualityCheck() {
+    const active = qualityRuns.findLast((run) => ["queued", "running"].includes(run.status));
+    if (!active) return;
+    await request(`/api/quality-runs/${active.id}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    await loadQuality();
+  }
+
+  function openAcceptFinding(finding) {
+    activeFinding = finding;
+    element("#acceptFindingMessage").textContent = finding.title;
+    element("#acceptReason").value = "";
+    element("#acceptFindingError").textContent = "";
+    element("#acceptFindingDialog").showModal();
+    element("#acceptReason").focus();
+  }
+
+  async function resolveFinding(finding, resolution, reason) {
+    const result = await request(`/api/quality-findings/${finding.id}/resolutions`, { method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({ resolution, reason }) });
+    qualityDetails = qualityDetails.map((details) => details.quality_run.id === result.quality_run.id ? result : details);
+    renderQuality();
+    return result;
+  }
+
+  function beginManualEdit() {
+    if (!copyVersion) return;
+    deriveMode = true; element("#copyBody").readOnly = false; element("#deriveCopy").hidden = true;
+    element("#saveCopy").textContent = "保存为新草稿";
+    setNotice(element("#readonlyNotice"), "修改后保存会创建新草稿；新版本需要重新完整质检。", "blocked");
+    element("#copyBody").focus();
+  }
+
+  function openRewriteDialog(finding) {
+    activeRewriteFinding = finding;
+    rewriteSubmissionKey = crypto.randomUUID(); rewriteSubmitting = false;
+    element("#submitRewrite").disabled = false; element("#submitRewrite").textContent = "提交改写任务";
+    element("#rewriteFindingMessage").textContent = `${finding.title}：${finding.suggestion}`;
+    element("#rewriteScope").value = finding.matched_text ? "matched_text" : "full";
+    element("#rewriteInstruction").value = "";
+    element("#rewriteError").textContent = "";
+    element("#rewriteDialog").showModal();
+    element("#rewriteInstruction").focus();
+  }
+
+  async function rewriteCopy() {
+    if (rewriteSubmitting) return;
+    rewriteSubmitting = true;
+    const submit = element("#submitRewrite");
+    submit.disabled = true; submit.textContent = "提交中…";
+    try {
+      const result = await request(`/api/copy-versions/${copyVersion.id}/rewrite-jobs`, { method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": rewriteSubmissionKey },
+        body: JSON.stringify({ finding_id: activeRewriteFinding?.id,
+          scope: element("#rewriteScope").value, instruction: element("#rewriteInstruction").value.trim() }) });
+      rewriteJobs.push(result.rewrite_job);
+      element("#rewriteDialog").close();
+      rewriteSubmissionKey = undefined;
+      setNotice(element("#qualityNotice"), "AI 改写已排队，可离开或刷新页面。", "success");
+      scheduleRewritePolling();
+    } catch (error) {
+      if (error.message === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") {
+        element("#rewriteError").textContent = "商品事实已更新，请返回商品事实确认最新内容。";
+      } else element("#rewriteError").textContent = "改写任务未提交，请稍后重试。";
+    } finally {
+      rewriteSubmitting = false;
+      if (element("#rewriteDialog").open) {
+        submit.disabled = false; submit.textContent = "提交改写任务";
+      }
+    }
+  }
+
+  async function retryRewrite() {
+    const failed = rewriteJobs.findLast((job) => ["failed", "timed_out"].includes(job.status));
+    if (!failed) return;
+    try {
+      await request(`/api/rewrite-jobs/${failed.id}/retry`, { method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: "{}" });
+      await loadQuality();
+    } catch (error) {
+      setNotice(element("#qualityNotice"), error.message === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT" ?
+        "商品事实已更新，请返回商品事实确认最新内容。" : "AI 改写重试未提交，请稍后再试。", "error");
+    }
   }
 
   function renderJobState() {
@@ -237,6 +552,7 @@
     copyVersions = copiesResult.copy_versions;
     if (preferredId) copyVersion = copyVersions.find((value) => value.id === preferredId) || copyVersion;
     renderWorkspace();
+    await loadQuality();
   }
 
   async function loadProject(selectRevisionId = requestedRevisionId) {
@@ -418,6 +734,28 @@
   element("#closeCompareDialog").addEventListener("click", () => element("#compareDialog").close());
   element("#compareLeft").addEventListener("change", renderComparison);
   element("#compareRight").addEventListener("change", renderComparison);
+  element("#startQuality").addEventListener("click", startQualityCheck);
+  element("#retryQuality").addEventListener("click", retryQualityCheck);
+  element("#cancelQuality").addEventListener("click", cancelQualityCheck);
+  element("#retryRewrite").addEventListener("click", retryRewrite);
+  element("#closeAcceptFinding").addEventListener("click", () => element("#acceptFindingDialog").close());
+  element("#cancelAcceptFinding").addEventListener("click", () => element("#acceptFindingDialog").close());
+  element("#closeRewriteDialog").addEventListener("click", () => element("#rewriteDialog").close());
+  element("#cancelRewrite").addEventListener("click", () => element("#rewriteDialog").close());
+  element("#rewriteForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!element("#rewriteInstruction").value.trim()) {
+      element("#rewriteError").textContent = "请填写业务改写要求。"; return;
+    }
+    await rewriteCopy();
+  });
+  element("#acceptFindingForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const reason = element("#acceptReason").value.trim();
+    if (!reason) { element("#acceptFindingError").textContent = "请填写接受理由。"; return; }
+    try { await resolveFinding(activeFinding, "accepted_with_reason", reason); element("#acceptFindingDialog").close(); }
+    catch (_error) { element("#acceptFindingError").textContent = "Finding 处理失败，请刷新后重试。"; }
+  });
   window.addEventListener("beforeunload", (event) => { if (dirty) event.preventDefault(); });
 
   if (!projectId) return location.replace("/projects.html");
