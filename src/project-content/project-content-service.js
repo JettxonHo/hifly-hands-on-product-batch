@@ -237,6 +237,13 @@ export function createProjectContentService({ repository, assetReferencePort, no
   }
 
   const productRevisionPort = {
+    async getSnapshot({ organizationId, productRevisionId }) {
+      return repository.transaction(async (uow) => {
+        const revision = await uow.findRevision(organizationId, productRevisionId);
+        if (!revision) throw failure("PRODUCT_REVISION_NOT_FOUND");
+        return immutableClone(revision);
+      });
+    },
     async getReadySnapshot({ organizationId, productRevisionId }) {
       return repository.transaction(async (uow) => {
         const revision = await uow.findRevision(organizationId, productRevisionId);
