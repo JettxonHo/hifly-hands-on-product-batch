@@ -20,7 +20,8 @@
 - 独立 Reviewer 首轮发现 390px 失败态看不到重试动作；已在移动版本抽屉增加同一重试入口，
   并用系统 Chrome 从移动失败态实际完成重试。复审 `APPROVED`，无剩余 Blocker/Important。
 - 本轮没有访问 Hifly、没有真实外部生成、没有消耗积分，历史 `MULTI-002` 仍保持 pending。
-- 下一步：提交、推送并创建 Issue #60 PR；未经 Owner 后续授权不合并、不关闭 #60，也不开始 A05。
+- 分支三个提交已推送，ready PR #79：https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/79 。
+- 下一步：等待 CI 与 Owner 合并授权；未经授权不合并、不关闭 #60，也不开始 A05。
 
 ## 2026-08-06 Frontend Foundation Stage 1 实现与本地验收（未访问飞影、未消耗积分）
 
