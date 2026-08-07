@@ -44,8 +44,10 @@ async function world({ evaluate, rewrite, now = () => Date.parse("2026-08-07T08:
   const job = await copyService.claimNextGenerationJob();
   const copy = await copyService.completeGenerationJob({ job, body: "这是一条待质检的商品种草文案。" });
   const repository = createMemoryCopyQualityRepository();
+  const invalidations = [];
   let activePolicy = { profileVersion, ruleVersion };
   const service = createCopyQualityService({ repository, copyService,
+    reviewInvalidationCoordinator: { async copyVersionChanged(input) { invalidations.push(structuredClone(input)); } },
     profileResolver: { async resolve() { return { ...activePolicy }; } },
     rewriter: { async rewrite(input) {
     return rewrite ? rewrite(input) : { body: `${input.copyVersion.body}\n已按质检建议完成改写。` };
@@ -55,7 +57,7 @@ async function world({ evaluate, rewrite, now = () => Date.parse("2026-08-07T08:
   const rewriteWorker = createCopyRewriteWorker({ service, rewriter: { async rewrite(input) {
     return rewrite ? rewrite(input) : { body: `${input.copyVersion.body}\n已按质检建议完成改写。` };
   } }, pollIntervalMs: 5 });
-  return { copyRepository, copyService, copy, repository, service, worker, rewriteWorker,
+  return { copyRepository, copyService, copy, repository, service, worker, rewriteWorker, invalidations,
     setRevisionStatus(status) { revisionSnapshot = { ...revisionSnapshot, status }; },
     setCurrentRevisionId(id) { currentRevisionId = id; },
     setPolicy(next) { activePolicy = { ...next }; } };
@@ -258,6 +260,8 @@ test("review findings are resolved one by one with append-only reasons and updat
   const [tone, price] = details.quality_findings;
   await assert.rejects(ctx.service.resolveFinding({ ...actor, findingId: tone.id, resolution: "accepted_with_reason", reason: "" , idempotencyKey: "resolve-empty" }), { code: "QUALITY_FINDING_REASON_REQUIRED" });
   await ctx.service.resolveFinding({ ...actor, findingId: tone.id, resolution: "accepted_with_reason", reason: "符合品牌自然分享语气", idempotencyKey: "resolve-tone" });
+  assert.deepEqual(ctx.invalidations.at(-1), { ...actor, copyVersionId: ctx.copy.id });
+  assert.equal(ctx.invalidations.length, 2);
   details = await ctx.service.getQualityRun({ ...actor, qualityRunId: started.quality_run.id });
   assert.equal(details.quality_result.conclusion, "needs_review");
   assert.equal(details.quality_result.effective_conclusion, "needs_review");

@@ -18,7 +18,8 @@ function idempotencyKey(value) {
   return value;
 }
 
-export function createCopyGenerationService({ repository, productRevisionPort, now = () => Date.now(), maxAttempts = 3 } = {}) {
+export function createCopyGenerationService({ repository, productRevisionPort, reviewInvalidationCoordinator,
+  now = () => Date.now(), maxAttempts = 3 } = {}) {
   if (!repository || !productRevisionPort?.getReadySnapshot || !productRevisionPort?.getSnapshot ||
     !productRevisionPort?.getCurrentReadySnapshot) throw new TypeError("repository and productRevisionPort are required");
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new TypeError("maxAttempts must be a positive integer");
@@ -116,6 +117,9 @@ export function createCopyGenerationService({ repository, productRevisionPort, n
           event_type: "copy.frozen", copy_version_id: input.copyVersionId, created_at: at }
       });
       if (!result) throw failure("COPY_VERSION_NOT_FOUND");
+      if (result.parent_copy_version_id) await reviewInvalidationCoordinator?.copyVersionChanged({
+        organizationId: input.organizationId, actorMemberId: input.actorMemberId,
+        copyVersionId: result.parent_copy_version_id });
       return result;
     },
     async claimNextGenerationJob({ leaseMs = 30_000 } = {}) {

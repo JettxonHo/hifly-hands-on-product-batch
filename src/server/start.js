@@ -121,7 +121,8 @@ export async function startServer({
   assets = null,
   projectContent = null,
   copyGeneration = null,
-  copyQuality = null
+  copyQuality = null,
+  copyReview = null
 } = {}) {
   let selectedPort = await findAvailablePort(port);
   let app;
@@ -141,6 +142,7 @@ export async function startServer({
       projectContent,
       copyGeneration,
       copyQuality,
+      copyReview,
       captureLive: captureLive || {
         authProvider: createPlaywrightRuntimeAuthProvider({
           chromium,
@@ -218,6 +220,7 @@ if (isDirectExecution()) {
     assets: config.gui?.assets,
     projectContent: config.gui?.projectContent,
     copyGeneration: config.gui?.copyGeneration,
-    copyQuality: config.gui?.copyQuality
+    copyQuality: config.gui?.copyQuality,
+    copyReview: config.gui?.copyReview
   });
 }

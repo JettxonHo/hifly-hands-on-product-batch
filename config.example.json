@@ -84,6 +84,9 @@
         "maxAttempts": 3
       }
     },
+    "copyReview": {
+      "enabled": false
+    },
     "openBrowser": true
   },
   "uploadLimits": {

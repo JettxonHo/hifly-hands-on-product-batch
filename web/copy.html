@@ -79,7 +79,12 @@
             </section>
 
             <aside id="qualityPanel" class="surface quality-panel" aria-labelledby="qualityTitle">
-              <div class="surface-header quality-header"><div><p class="eyebrow">当前版本</p><h2 id="qualityTitle">质检</h2></div><span id="qualityRunState" class="state">未质检</span></div>
+              <div class="surface-header quality-header"><div><p class="eyebrow">当前版本</p><h2 id="qualityTitle">质检与审核</h2></div><div class="status-cluster"><span id="qualityRunState" class="state">未质检</span><span id="reviewStateBadge" class="state">未提交审核</span></div></div>
+              <div class="panel-tabs" role="tablist" aria-label="文案检查与审核">
+                <button id="qualityTab" class="panel-tab" type="button" role="tab" aria-selected="true" aria-controls="qualityTabPanel">质检</button>
+                <button id="reviewTab" class="panel-tab" type="button" role="tab" aria-selected="false" aria-controls="reviewTabPanel">审核</button>
+              </div>
+              <div id="qualityTabPanel" role="tabpanel" aria-labelledby="qualityTab">
               <div id="qualityLoading" class="empty">正在读取质检状态...</div>
               <div id="qualityContent" hidden>
                 <section id="qualitySummary" class="quality-summary">
@@ -97,6 +102,26 @@
                 <p id="reviewReminder" class="notice" hidden>尚未提交人工审核</p>
                 <details class="quality-history"><summary id="qualityHistorySummary">历史质检（0）</summary><div id="qualityHistory" class="quality-history-list"></div></details>
               </div>
+              </div>
+              <section id="reviewTabPanel" role="tabpanel" aria-labelledby="reviewTab" hidden>
+                <div id="reviewLoading" class="empty">正在读取审核状态...</div>
+                <div id="reviewContent" hidden>
+                  <section id="reviewSummary" class="quality-summary review-summary">
+                    <div><span id="reviewConclusion" class="state">未提交审核</span><strong id="reviewConclusionText">等待提交人工审核</strong></div>
+                    <p id="reviewGuidance">满足全部门禁后可提交。</p>
+                  </section>
+                  <ul id="reviewGateList" class="review-gate-list" aria-label="审核门禁"></ul>
+                  <p id="reviewNotice" class="notice" role="status"></p>
+                  <div class="quality-actions review-actions">
+                    <button id="submitReview" type="button">提交人工审核</button>
+                    <button id="approveReview" type="button" hidden>批准文案</button>
+                    <button id="requestReviewChanges" class="secondary" type="button" hidden>要求修改</button>
+                    <button id="revokeReview" class="secondary" type="button" hidden>撤销批准</button>
+                    <button id="nextStageDisabled" class="secondary" type="button" disabled hidden>人物与素材尚未开放</button>
+                  </div>
+                  <details class="quality-history" open><summary id="reviewHistorySummary">审核历史（0）</summary><div id="reviewHistory" class="quality-history-list"></div></details>
+                </div>
+              </section>
             </aside>
           </div>
         </main>
@@ -131,6 +156,20 @@
           <p id="rewriteError" class="error" role="alert"></p>
           <div class="actions"><button id="cancelRewrite" class="secondary" type="button">取消</button><button id="submitRewrite" type="submit">提交改写任务</button></div>
         </div>
+      </form>
+    </dialog>
+
+    <dialog id="approveReviewDialog" aria-labelledby="approveReviewTitle">
+      <form id="approveReviewForm">
+        <div class="dialog-header"><div><p class="eyebrow">人工决策</p><h2 id="approveReviewTitle">批准文案</h2></div><button id="closeApproveReview" class="dialog-close" type="button" aria-label="关闭批准确认">×</button></div>
+        <div class="dialog-body"><p id="approveReviewSummary" class="review-dialog-summary"></p><p class="muted">服务端会在确认时重新验证商品快照、文案版本、质检结果与规则版本。</p><p id="approveReviewError" class="error" role="alert"></p><div class="actions"><button id="cancelApproveReview" class="secondary" type="button">取消</button><button id="confirmApproveReview" type="submit">确认批准</button></div></div>
+      </form>
+    </dialog>
+
+    <dialog id="reviewReasonDialog" aria-labelledby="reviewReasonTitle">
+      <form id="reviewReasonForm">
+        <div class="dialog-header"><div><p class="eyebrow">人工决策</p><h2 id="reviewReasonTitle">要求修改</h2></div><button id="closeReviewReason" class="dialog-close" type="button" aria-label="关闭审核意见">×</button></div>
+        <div class="dialog-body"><label for="reviewReason">原因<textarea id="reviewReason" rows="4" maxlength="1000" required></textarea></label><p id="reviewReasonError" class="error" role="alert"></p><div class="actions"><button id="cancelReviewReason" class="secondary" type="button">取消</button><button id="confirmReviewReason" type="submit">确认</button></div></div>
       </form>
     </dialog>
   </body>

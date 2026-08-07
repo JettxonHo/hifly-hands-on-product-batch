@@ -13,6 +13,7 @@ import { createControlledCopyProvider } from "../src/copy-generation/controlled-
 import { createMemoryCopyGenerationRepository } from "../src/copy-generation/memory-copy-generation-repository.js";
 import { createControlledQualityEvaluator } from "../src/copy-quality/controlled-evaluator.js";
 import { createMemoryCopyQualityRepository } from "../src/copy-quality/memory-copy-quality-repository.js";
+import { createMemoryCopyReviewRepository } from "../src/copy-review/memory-copy-review-repository.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { createMemoryIdentityRepository } from "../src/identity/memory-identity-repository.js";
 import { seedInitialAdmin } from "../src/identity/seed-admin.js";
@@ -62,7 +63,8 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
     projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort: assetService.assetReferencePort },
     copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
     copyQuality: { enabled: true, repository: createMemoryCopyQualityRepository(), evaluator,
-      profileResolver: { async resolve() { return { ...qualityPolicy }; } }, worker: { autoStart: false } }
+      profileResolver: { async resolve() { return { ...qualityPolicy }; } }, worker: { autoStart: false } },
+    copyReview: { enabled: true, repository: createMemoryCopyReviewRepository() }
   });
   const actor = { organizationId, actorMemberId: seeded.member.id };
   const project = await app.projectContent.service.createProject({ ...actor, idempotencyKey: "quality-browser-project", name: "质检项目" });
@@ -126,11 +128,30 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   await page.locator("#qualityConclusionText").getByText("质检通过", { exact: true }).waitFor();
   await page.getByText("尚未提交人工审核", { exact: true }).waitFor();
   await page.getByText("历史质检（1）").waitFor();
+  await page.getByRole("tab", { name: "审核" }).click();
+  await page.getByText("文案版本已冻结且未被替代").waitFor();
+  await page.getByRole("button", { name: "提交人工审核" }).click();
+  await page.getByText("文案正在等待人工决策").waitFor();
+  await page.getByRole("button", { name: "批准文案" }).click();
+  const approveDialog = page.getByRole("dialog", { name: "批准文案" });
+  await approveDialog.getByText("本人审核（self_review）").waitFor();
+  await approveDialog.getByRole("button", { name: "确认批准" }).click();
+  await page.getByText("文案已批准 · 本人审核").waitFor();
+  await page.getByRole("button", { name: "人物与素材尚未开放" }).waitFor();
+  await page.reload();
+  await page.getByRole("tab", { name: "审核" }).click();
+  await page.getByText("文案已批准 · 本人审核").waitFor();
+  await page.getByText("审核历史（2）").waitFor();
+  await page.getByRole("tab", { name: "质检" }).click();
   await page.locator("#copyVersions").getByRole("button", { name: /v1.*已被替代/ }).click();
+  await page.getByRole("tab", { name: "质检" }).click();
   await page.getByText("历史质检（2）").waitFor();
   await page.locator("#copyVersions").getByRole("button", { name: /v2.*已冻结/ }).click();
+  await page.getByRole("tab", { name: "质检" }).click();
   await page.locator("#qualityConclusionText").getByText("质检通过", { exact: true }).waitFor();
-  assert.equal(await page.getByRole("button", { name: /批准|提交审核/ }).count(), 0);
+  await page.getByRole("tab", { name: "审核" }).click();
+  assert.equal(await page.getByRole("button", { name: "提交人工审核" }).count(), 0);
+  await page.getByRole("tab", { name: "质检" }).click();
   produceStaleFinding = true;
   const latestCopy = (await app.copyGeneration.service.listCopyVersions({ ...actor,
     productRevisionId: revision.id })).find((value) => value.version_number === 2);
@@ -140,6 +161,10 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   qualityPolicy = { profileVersion: "commerce-cn-v2", ruleVersion: "rules-2026-09" };
   await page.reload();
   await page.getByText("质检结论已失效：质检规则已更新，请重新完整质检。").waitFor();
+  await page.getByRole("tab", { name: "审核" }).click();
+  await page.getByText("原批准已撤销，历史仍完整保留").waitFor();
+  await page.getByText("此批准不可恢复；重新审核会创建新的 HumanReview。").waitFor();
+  await page.getByRole("tab", { name: "质检" }).click();
   const staleFindings = page.locator("#findingList");
   await staleFindings.getByText("失效历史语气 Finding", { exact: true }).waitFor();
   assert.equal(await staleFindings.getByRole("button", {
@@ -152,12 +177,14 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   assert.equal(currentDraft.status, "draft");
   await page.locator("#copyVersions").getByRole("button", { name: /v2.*已冻结/ }).click();
   await page.getByText("质检结论已失效：商品事实已有新版本，请重新确认后质检。").waitFor();
+  await page.getByRole("tab", { name: "审核" }).click();
+  await page.getByText("原批准已撤销，历史仍完整保留").waitFor();
   if (process.env.A05_SCREENSHOT_DIR) {
     await mkdir(process.env.A05_SCREENSHOT_DIR, { recursive: true });
     await page.screenshot({ path: path.join(process.env.A05_SCREENSHOT_DIR, "copy-quality-desktop.png"), fullPage: true });
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByText("质检结论已失效：商品事实已有新版本，请重新确认后质检。").waitFor();
+  await page.getByText("原批准已撤销，历史仍完整保留").waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
   if (process.env.A05_SCREENSHOT_DIR) {
     await page.screenshot({ path: path.join(process.env.A05_SCREENSHOT_DIR, "copy-quality-mobile.png"), fullPage: true });
