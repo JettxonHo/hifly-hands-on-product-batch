@@ -21,7 +21,8 @@
   并用系统 Chrome 从移动失败态实际完成重试。复审 `APPROVED`，无剩余 Blocker/Important。
 - 本轮没有访问 Hifly、没有真实外部生成、没有消耗积分，历史 `MULTI-002` 仍保持 pending。
 - 分支三个提交已推送，ready PR #79：https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/79 。
-- 下一步：等待 CI 与 Owner 合并授权；未经授权不合并、不关闭 #60，也不开始 A05。
+- PR #79 CI run `31141572545` 的 Ubuntu、Windows、PostgreSQL 三项均通过，当前 mergeable。
+- 下一步：仅等待 Owner 合并授权；未经授权不合并、不关闭 #60，也不开始 A05。
 
 ## 2026-08-06 Frontend Foundation Stage 1 实现与本地验收（未访问飞影、未消耗积分）
 
