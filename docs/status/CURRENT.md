@@ -1,32 +1,41 @@
 # 项目当前状态
 
 > 最后更新：2026-08-07
-> 当前远端 main：`0a1fa9c`（VSA-A05 已合并）
+> 当前远端 main：`ca47ec9`（VSA-A06 与 A07/A08 UI/UX 设计已合并）
 > 当前 Goal：Vertical Slice A
 
-## VSA-A06 当前开发（Issue #62）
+## VSA-A07 当前开发（Issue #63）
 
-- A05 已通过 PR #80 合并；A06 在独立 worktree `/private/tmp/hifly-vsa-a06`、分支
-  `codex/vsa-a06-copy-review` 完成实现与最终独立审查，尚未 commit/push/建 PR。
-- 已实现独立 HumanReview、不可变审核周期、append-only transition/event、mutable head/row_version、
-  memory/PostgreSQL repository、独立 migration、正式 API、审计与 current approved gate。
-- member 可提交/查看；admin 决策；self-review 明确记录。批准重新验证 CopyVersion、QualityResult、
-  effective conclusion、ProductRevision、profile/rule；passed 不等于 approved。
-- 相关商品事实、文案替代、QC policy/result 变化会在服务端读取/命令时持久化 revoked；展示名等
-  无关元数据不撤销；revoked 不恢复，重新审核创建新 HumanReview。
-- 独立审查问题已按 TDD 修复：receipt 回放先于动态 gate；相关 ProductRevision/CopyVersion/QC
-  命令通过最小显式 coordinator 主动失效；批准 transition 后、返回前做最终权威 recheck，竞态结果
-  会持久化 revoked。读取与未来下游 gate 仍每次重验。
-- 第二轮最终审查 Important 已修复：若 final gate 仍有效但返回 projection 再次发现变化，该自动撤销
-  同样更新批准 receipt；首次结果与同 key 回放均为 revoked，撤销事件只追加一次。
-- `/copy.html` 已加入质检/审核 tabs、门禁列表、Dialogs、权限只读、失效阻断和历史；A07 只显示
-  禁用说明。系统 Chrome 1440/390 流程通过，截图在仓库外 `/private/tmp/hifly-a06-visual-qa/`。
-- PostgreSQL 16.14 clean migration/integration 1/1 通过；全量 694 tests / 664 pass / 0 fail /
-  30 environment skips，`npm run check` 检查 126 个 JavaScript 文件；详细证据见
-  `docs/status/sessions/2026-08-07-vsa-a06-copy-review.md`。
-- 最终独立 Reviewer 结论为 **`APPROVED`**，无剩余 Critical/Important。主控另行实际通过
-  PostgreSQL 16 clean integration 与系统 Chrome 1440/390 验收。
-- 本轮未访问 Hifly、未调用真实模型、未消耗积分。下一步是 commit、PR、CI 与合并。
+- A06 已通过 PR #81 合并并关闭 Issue #62；A07/A08 Kimi 设计已通过 PR #82 合并。A07 当前在
+  `/private/tmp/hifly-vsa-a07`、分支 `codex/vsa-a07-avatar-selection` 完成本地实现，未 commit/push/PR。
+- 已交付 existing-only 公共/企业目录；Phase 1 受控预置显式标记；不连接真实 Hifly、不提供人物/
+  声音/背景创建、不宣称推荐。未知能力不投影 supported，只有带 Evidence 的 verified capability 展示。
+- AvatarAsset、AvatarAssetVersion、AvatarVerifiedCapability、AvatarSelection 已有正式 memory/PostgreSQL
+  repository 与独立 migration；选择事实/事件历史保留，状态为 draft→confirmed→superseded。
+- member/admin 可浏览和显式确认；A06 current effective approved copy、资产、授权/有效期、Evidence、
+  Organization 范围与素材访问由服务端确认 gate 权威重验。expired/incomplete/unknown/cross-org 均阻断。
+- 相同 key+payload 回放、冲突 payload 拒绝；商品级 `selection_revision` 防静默覆盖。更换创建新选择，
+  旧选择 superseded retained。上游批准后续失效通过读取/下游 gate 动态投影 current_valid=false，历史不改写。
+- 独立 Reviewer 首轮两项 Important 已按 TDD 最小修复：receipt 重放返回完整首次业务结果，不再把旧选择/
+  revision 与最新 history 拼接；workspace 在 copy query 缺省时按 product 解析 current effective approved copy，
+  返回 resolved id，前端商品切换后恢复 URL/状态并可继续确认。最终独立复审 `APPROVED`，无剩余
+  Critical/Important。
+- 正式 API 与 `/avatar.html/css/js` 已完成；桌面 288/弹性/384 三栏、390 单栏/目录 Dialog、门禁、
+  禁用原因、确认/更换 Dialog 与历史；`copy.html` 阶段 3 为真实链接；A08 保持禁用且无假页面。
+- Reviewer 前 service/API 实际为 11 pass；修复回归加入后为 14 pass。PostgreSQL 16 clean integration
+  1/1 实际通过；全量 710 tests / 678 pass / 0 fail / 32 environment skips；`npm run check` 133 files；
+  `git diff --check` 通过。
+- 主控使用系统 Chrome 实跑 browser flow 1/1，覆盖 1440/390、确认/更换/刷新/历史、未知能力、
+  商品切换恢复对应批准文案、无横向溢出及 A08 禁用边界。
+- 本轮未访问 Hifly、未发送真实业务 HTTP、未调用真实 Provider、未运行 `MULTI-002`、未消耗积分。
+
+## VSA-A06 已合并快照（Issue #62）
+
+- PR #81 已合并，Issue #62 已关闭，合并提交 `517654c`。
+- 已交付独立 HumanReview、不可变审核周期、append-only transition/event、memory/PostgreSQL、正式 API、
+  审计、主动/读取失效协调与 current effective approved-copy gate；最终独立 Review 为 `APPROVED`。
+- 系统 Chrome 1440/390 与 PostgreSQL 16 clean integration 均实际通过；详细证据见
+  `docs/status/sessions/2026-08-07-vsa-a06-copy-review.md`。该轮未访问 Hifly、未消耗积分。
 
 ## VSA-A05 已合并快照（Issue #61）
 
@@ -146,7 +155,6 @@
 
 ## 下一步
 
-1. A05 最终独立复审已 `APPROVED`；主控正在完成 commit、PR、CI 与合并交付。
-2. 用户已授权 A04-A13 在各自审查与 CI 通过后合并；A05 合并前不开始 A06 实施。
-3. A06 继续复用 Kimi K3 已批准的 A04-A06 UI/UX 设计，不把 QC passed 当 approved。
-4. 每个里程碑结束时更新本文件与 `GOAL.md`。
+1. 主控完成 A07 commit/PR/CI/合并并关闭 Issue #63；A07 合并前不开始 A08 实现。
+2. A07 合并后从最新 main 启动 A08。
+3. 每个里程碑结束时更新本文件与 `GOAL.md`。

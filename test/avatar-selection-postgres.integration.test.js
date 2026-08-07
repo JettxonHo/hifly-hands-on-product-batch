@@ -1,0 +1,73 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import test from "node:test";
+
+import { createPostgresAvatarSelectionRepository } from "../src/avatar-selection/postgres-avatar-selection-repository.js";
+import { runAvatarSelectionMigrations } from "../src/avatar-selection/postgres.js";
+import { runAssetMigrations } from "../src/assets/postgres.js";
+import { runCopyGenerationMigrations } from "../src/copy-generation/postgres.js";
+import { runCopyQualityMigrations } from "../src/copy-quality/postgres.js";
+import { runCopyReviewMigrations } from "../src/copy-review/postgres.js";
+import { createPostgresIdentityRepository } from "../src/identity/postgres-identity-repository.js";
+import { createIdentityPool, runIdentityMigrations } from "../src/identity/postgres.js";
+import { seedInitialAdmin } from "../src/identity/seed-admin.js";
+import { runProjectContentMigrations } from "../src/project-content/postgres.js";
+
+const connectionString = process.env.TEST_DATABASE_URL || process.env.IDENTITY_TEST_DATABASE_URL;
+const isolatedUrl = (value, schema) => { const url = new URL(value); url.searchParams.set("options", `-c search_path=${schema}`); return url.toString(); };
+
+test("clean PostgreSQL avatar migration seeds controlled catalog and serializes selection changes", { skip: !connectionString }, async (t) => {
+  const schema = `avatar_selection_${randomUUID().replaceAll("-", "")}`;
+  const adminPool = createIdentityPool({ connectionString });
+  await adminPool.query(`CREATE SCHEMA "${schema}"`);
+  const pool = createIdentityPool({ connectionString: isolatedUrl(connectionString, schema) });
+  t.after(async () => { await pool.end(); await adminPool.query(`DROP SCHEMA "${schema}" CASCADE`); await adminPool.end(); });
+  await runIdentityMigrations(pool); await runAssetMigrations(pool); await runProjectContentMigrations(pool);
+  await runCopyGenerationMigrations(pool); await runCopyQualityMigrations(pool); await runCopyReviewMigrations(pool);
+  await runAvatarSelectionMigrations(pool);
+  assert.equal((await pool.query("SELECT max(version)::integer version FROM avatar_selection_schema_migrations")).rows[0].version, 1);
+
+  const seeded = await seedInitialAdmin(createPostgresIdentityRepository({ pool, ownsPool: false }), {
+    organizationId: "org-avatar-pg", organizationName: "Avatar PG", adminEmail: "avatar-pg@example.test",
+    adminDisplayName: "Avatar Admin", adminTempPassword: "Temporary-Avatar-PG-9!"
+  });
+  const ids = { project: randomUUID(), product: randomUUID(), revision: randomUUID(), copy: randomUUID() };
+  const at = "2026-08-07T08:00:00.000Z";
+  await pool.query("INSERT INTO project_content_projects(id,organization_id,name,created_by_member_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$5)", [ids.project,"org-avatar-pg","人物项目",seeded.member.id,at]);
+  await pool.query("INSERT INTO project_content_products(id,organization_id,project_id,created_by_member_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$5)", [ids.product,"org-avatar-pg",ids.project,seeded.member.id,at]);
+  await pool.query(`INSERT INTO project_content_product_revisions(id,organization_id,project_id,product_id,status,revision_number,product_name,created_by_member_id,created_at,updated_at,ready_at)
+    VALUES ($1,$2,$3,$4,'ready',1,'人物商品',$5,$6,$6,$6)`, [ids.revision,"org-avatar-pg",ids.project,ids.product,seeded.member.id,at]);
+  await pool.query("UPDATE project_content_products SET current_revision_id=$1 WHERE id=$2", [ids.revision,ids.product]);
+  await pool.query(`INSERT INTO copy_versions(id,organization_id,project_id,product_id,product_revision_id,intent,status,version_number,row_version,body,created_by_member_id,created_at,updated_at,frozen_at)
+    VALUES ($1,$2,$3,$4,$5,'product_recommendation','frozen',1,2,'人物文案。',$6,$7,$7,$7)`, [ids.copy,"org-avatar-pg",ids.project,ids.product,ids.revision,seeded.member.id,at]);
+
+  const repository = createPostgresAvatarSelectionRepository({ pool });
+  await repository.initialize();
+  await repository.ensureControlledCatalog("org-avatar-pg", at);
+  const catalog = await repository.listCatalog("org-avatar-pg");
+  assert.ok(catalog.length >= 6);
+  assert.deepEqual(new Set(catalog.map((entry) => entry.asset.source_type)), new Set(["public", "enterprise"]));
+  const available = catalog.filter((entry) => entry.asset_version.authorization_status === "valid" && entry.asset_version.capability_status === "verified");
+  const confirm = (key, versionId, expectedRevision) => repository.confirmSelection({ organizationId: "org-avatar-pg",
+    productId: ids.product, copyVersionId: ids.copy, assetVersionId: versionId, actorMemberId: seeded.member.id,
+    expectedRevision, receiptKey: key, fingerprint: `${versionId}:${expectedRevision}`, now: at });
+  const first = await confirm("pg-first", available[0].asset_version.id, 0);
+  assert.equal(first.current_selection.status, "confirmed");
+  const originalResult = { ...first, current_valid: true, invalidation_reasons: [], history: [first.current_selection] };
+  await repository.updateReceiptResult("pg-first", originalResult);
+  assert.equal((await repository.getReceipt("pg-first", `${available[0].asset_version.id}:0`)).current_selection.id,
+    first.current_selection.id);
+  await assert.rejects(repository.getReceipt("pg-first", "other"), { code: "IDEMPOTENCY_CONFLICT" });
+
+  const outcomes = await Promise.allSettled([
+    confirm("pg-change-a", available[1].asset_version.id, 1),
+    confirm("pg-change-b", available[1].asset_version.id, 1)
+  ]);
+  assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(outcomes.find((item) => item.status === "rejected").reason.code, "AVATAR_SELECTION_CONFLICT");
+  assert.deepEqual(await repository.getReceipt("pg-first", `${available[0].asset_version.id}:0`), originalResult);
+  const state = await repository.getSelectionState("org-avatar-pg", ids.product);
+  assert.deepEqual(state.history.map((item) => item.status), ["superseded", "confirmed"]);
+  assert.equal((await repository.listEvents("org-avatar-pg", ids.product)).length, 5);
+  await assert.rejects(pool.query("UPDATE avatar_selections SET copy_version_id=$1 WHERE id=$2", [ids.copy,first.current_selection.id]), /append-only/);
+});

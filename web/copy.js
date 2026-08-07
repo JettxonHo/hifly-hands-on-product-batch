@@ -61,6 +61,14 @@
     return project?.products.find((item) => item.revision.id === revision?.id);
   }
 
+  function updateAvatarLinks() {
+    if (!project || !revision) return;
+    const avatarHref = `/avatar.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(currentProduct()?.id || "")}&copy=${encodeURIComponent(copyVersion?.id || "")}`;
+    element("#avatarStageLink").href = avatarHref;
+    element("#mobileAvatarStageLink").href = avatarHref;
+    element("#nextStageLink").href = avatarHref;
+  }
+
   function updateLocation() {
     const next = new URL(location.href);
     next.searchParams.set("project", projectId);
@@ -74,6 +82,7 @@
     element("#factsStageLink").href = `/project.html?id=${encodeURIComponent(project.id)}`;
     element("#mobileFactsStageLink").href = `/project.html?id=${encodeURIComponent(project.id)}`;
     element("#productFactsLink").href = `/project.html?id=${encodeURIComponent(project.id)}`;
+    updateAvatarLinks();
 
     const selector = element("#productSelector");
     selector.replaceChildren(...project.products.map((item) => {
@@ -164,6 +173,7 @@
   }
 
   function renderEditor() {
+    updateAvatarLinks();
     const form = element("#copyForm"), body = element("#copyBody"), state = element("#copyState");
     element("#copyLoading").hidden = true;
     element("#copyEmpty").hidden = true;
@@ -443,7 +453,7 @@
     element("#reviewStateBadge").hidden = !enabled;
     element("#reviewLoading").hidden = true;
     element("#reviewContent").hidden = !enabled;
-    for (const selector of ["#submitReview", "#approveReview", "#requestReviewChanges", "#revokeReview", "#nextStageDisabled"]) element(selector).hidden = true;
+    for (const selector of ["#submitReview", "#approveReview", "#requestReviewChanges", "#revokeReview", "#nextStageLink"]) element(selector).hidden = true;
     if (!enabled) return;
     const review = reviewState?.current_review;
     const status = review?.status || "not_submitted";
@@ -466,8 +476,8 @@
       } else setNotice(element("#reviewNotice"), "当前账号为只读审核视角，请联系管理员完成决策。", "blocked");
     } else if (status === "approved") {
       element("#reviewConclusionText").textContent = review.review_mode === "self_review" ? "文案已批准 · 本人审核" : "文案已批准 · 当前有效";
-      element("#reviewGuidance").textContent = "人物与素材页面将在 A07 提供；当前没有可跳转页面。";
-      element("#nextStageDisabled").hidden = false;
+      element("#reviewGuidance").textContent = "文案批准仍会在人物确认时由服务端再次验证。";
+      element("#nextStageLink").hidden = false;
       element("#revokeReview").hidden = identityContext?.membership?.role !== "admin";
     } else if (status === "changes_requested") {
       element("#reviewConclusionText").textContent = "审核人要求修改文案";

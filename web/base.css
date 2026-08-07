@@ -31,6 +31,8 @@ textarea { min-height: 78px; padding: 8px 11px; resize: vertical; }
 input::placeholder, textarea::placeholder { color: var(--n-400); }
 input:focus-visible, textarea:focus-visible, select:focus-visible { border-color: var(--brand); outline: 0; box-shadow: 0 0 0 3px rgba(23, 105, 224, 0.15); }
 button { min-height: 36px; padding: 7px 14px; border: 1px solid var(--brand); border-radius: var(--radius-control); color: var(--n-0); background: var(--brand); font-weight: 600; cursor: pointer; transition: color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
+.button-link { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; padding: 7px 14px; border: 1px solid var(--brand); border-radius: var(--radius-control); color: var(--n-0); background: var(--brand); font-weight: 600; text-decoration: none; }
+.button-link:hover { border-color: var(--brand-hover); color: var(--n-0); background: var(--brand-hover); }
 button:hover:not(:disabled) { border-color: var(--brand-hover); background: var(--brand-hover); }
 button:active:not(:disabled) { border-color: var(--brand-pressed); background: var(--brand-pressed); }
 button:focus-visible, a:focus-visible { outline: 3px solid rgba(23, 105, 224, 0.25); outline-offset: 2px; }

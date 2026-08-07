@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>人物与素材 · 飞影企业工作台</title>
+    <link rel="stylesheet" href="/tokens.css">
+    <link rel="stylesheet" href="/base.css">
+    <link rel="stylesheet" href="/shell.css">
+    <link rel="stylesheet" href="/copy.css">
+    <link rel="stylesheet" href="/avatar.css">
+    <script src="/shell.js" defer></script>
+    <script src="/avatar.js" defer></script>
+  </head>
+  <body data-shell-page="projects">
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="app-sidebar">
+        <a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a>
+        <nav class="app-nav" aria-label="主导航">
+          <a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a>
+          <a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a>
+          <a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a>
+        </nav>
+      </aside>
+      <div class="app-frame">
+        <header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
+        <main id="mainContent" class="page-content avatar-page-content">
+          <div class="page-header">
+            <div><p class="eyebrow"><a href="/projects.html">项目</a> / <a id="projectBreadcrumb" href="/projects.html">当前项目</a> / 人物与素材</p><h1>人物与素材</h1><p class="page-description">从已有公共或企业人物中浏览，并显式确认当前商品使用的人物。</p></div>
+            <div class="page-actions"><button id="refreshAvatar" class="secondary" type="button">刷新</button></div>
+          </div>
+
+          <nav class="stage-strip stage-desktop" aria-label="项目阶段">
+            <a id="factsStageLink" href="/projects.html"><span>✓</span>商品与目标</a>
+            <a id="copyStageLink" href="/copy.html"><span>✓</span>文案与质检</a>
+            <strong aria-current="step"><span>3</span>人物与素材</strong><span><b>4</b>视频方案</span><span><b>5</b>生成与交付</span>
+          </nav>
+          <details class="stage-mobile"><summary>阶段 3/5 · 人物与素材</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品与目标</a></li><li><a id="mobileCopyStageLink" href="/copy.html">文案与质检</a></li><li aria-current="step">人物与素材</li><li>视频方案</li><li>生成与交付</li></ol></details>
+
+          <section class="product-context" aria-labelledby="productContextTitle">
+            <label id="productContextTitle" for="productSelector">当前商品</label>
+            <select id="productSelector" aria-label="切换商品"></select>
+            <div class="product-context-meta"><span id="copyApprovalState" class="state"></span><span id="copyApprovalMeta" class="muted"></span></div>
+            <a id="copyContextLink" href="/copy.html">查看文案</a>
+          </section>
+          <p id="pageNotice" class="notice" role="status"></p>
+          <button id="openCatalogDrawer" class="catalog-drawer-trigger secondary" type="button">人物目录</button>
+
+          <div id="avatarWorkspace" class="avatar-workspace">
+            <aside class="surface catalog-panel" aria-labelledby="catalogTitle">
+              <div class="surface-header"><div><h2 id="catalogTitle">人物目录</h2><p>按名称排序 · 仅已有对象</p></div></div>
+              <div class="catalog-filters"><label>来源<select id="sourceFilter"><option value="all">全部来源</option><option value="public">公共人物</option><option value="enterprise">企业人物</option></select></label><label>状态<select id="statusFilter"><option value="all">全部状态</option><option value="available">可确认</option><option value="blocked">暂不可确认</option></select></label></div>
+              <div id="catalogLoading" class="empty">正在读取人物目录...</div>
+              <div id="catalogList" class="avatar-list" aria-live="polite"></div>
+              <div id="catalogEmpty" class="empty" hidden><p>没有符合条件的人物</p><button id="clearFilters" class="secondary" type="button">清除筛选</button></div>
+            </aside>
+
+            <section class="surface avatar-detail" aria-labelledby="avatarDetailTitle">
+              <div id="detailLoading" class="empty">选择人物后查看详情</div>
+              <div id="detailContent" hidden>
+                <div id="avatarPreview" class="avatar-preview" aria-hidden="true"></div>
+                <div class="detail-heading"><div><p id="avatarSource" class="eyebrow"></p><h2 id="avatarDetailTitle"></h2></div><div class="status-cluster"><span id="avatarAvailability" class="state"></span><span id="avatarAuthorization" class="state"></span></div></div>
+                <p id="avatarDescription" class="detail-description"></p>
+                <dl class="avatar-facts"><div><dt>版本</dt><dd id="avatarVersion"></dd></div><div><dt>使用范围</dt><dd>当前 Organization</dd></div><div><dt>目录性质</dt><dd id="avatarSeed"></dd></div></dl>
+                <section class="capability-section"><h3>已验证能力</h3><div id="verifiedCapabilities" class="capability-list"></div></section>
+                <p id="detailNotice" class="notice" role="status"></p>
+              </div>
+            </section>
+
+            <aside class="surface selection-panel" aria-labelledby="selectionTitle">
+              <div class="surface-header"><div><p class="eyebrow">当前商品</p><h2 id="selectionTitle">当前选择</h2></div><span id="selectionState" class="state">未选择</span></div>
+              <section id="currentSelection" class="selection-summary"><p>尚未确认人物</p></section>
+              <h3>可用性检查</h3><ul id="selectionGateList" class="selection-gate-list"></ul>
+              <p id="selectionNotice" class="notice" role="status"></p>
+              <div class="selection-actions"><button id="confirmAvatar" type="button" disabled>确认此人物</button><button id="nextPlanDisabled" class="secondary" type="button" disabled>进入视频方案尚未开放</button></div>
+              <details class="selection-history"><summary id="selectionHistorySummary">历史选择（0）</summary><div id="selectionHistory"></div></details>
+            </aside>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <dialog id="catalogDialog" class="catalog-dialog" aria-labelledby="catalogDialogTitle">
+      <div class="dialog-header"><div><p class="eyebrow">已有数字人物</p><h2 id="catalogDialogTitle">人物目录</h2></div><button id="closeCatalogDialog" class="dialog-close" type="button" aria-label="关闭人物目录">×</button></div>
+      <div class="dialog-body"><div id="mobileCatalogFilters" class="catalog-filters"></div><div id="mobileCatalogList" class="avatar-list"></div></div>
+    </dialog>
+    <dialog id="confirmAvatarDialog" aria-labelledby="confirmAvatarDialogTitle">
+      <form id="confirmAvatarForm">
+        <div class="dialog-header"><div><p class="eyebrow">显式确认</p><h2 id="confirmAvatarDialogTitle">确认人物选择</h2></div><button id="closeConfirmAvatar" class="dialog-close" type="button" aria-label="关闭确认人物选择">×</button></div>
+        <div class="dialog-body"><p id="confirmAvatarSummary" class="confirm-summary"></p><p id="confirmAvatarConsequence" class="notice blocked"></p><p class="muted">服务端会再次验证文案批准、人物版本、授权、Evidence、企业范围与素材可访问性。</p><p id="confirmAvatarError" class="error" role="alert"></p><div class="actions"><button id="cancelConfirmAvatar" class="secondary" type="button">取消</button><button id="submitConfirmAvatar" type="submit">确认选择此人物</button></div></div>
+      </form>
+    </dialog>
+  </body>
+</html>
