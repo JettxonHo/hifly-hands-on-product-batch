@@ -9,6 +9,10 @@ import { createPostgresAssetRepository } from "../assets/postgres-asset-reposito
 import { createVerificationWorker } from "../assets/verification-worker.js";
 import { createProjectContentService } from "../project-content/project-content-service.js";
 import { createPostgresProjectContentRepository } from "../project-content/postgres-project-content-repository.js";
+import { createControlledCopyProvider } from "../copy-generation/controlled-provider.js";
+import { createCopyGenerationService } from "../copy-generation/copy-generation-service.js";
+import { createCopyGenerationWorker } from "../copy-generation/copy-generation-worker.js";
+import { createPostgresCopyGenerationRepository } from "../copy-generation/postgres-copy-generation-repository.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
@@ -25,6 +29,7 @@ import { createExecutionCoordinator, registerExecutionRoutes } from "./routes/ex
 import { registerImportRoutes } from "./routes/imports.js";
 import { registerRpaCallbackRoutes } from "./routes/rpa-callbacks.js";
 import { registerProjectContentRoutes } from "./routes/project-content.js";
+import { registerCopyGenerationRoutes } from "./routes/copy-generation.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -83,6 +88,9 @@ function apiError(error) {
   if (["PROJECT_NOT_FOUND", "PRODUCT_REVISION_NOT_FOUND", "SELLING_POINT_NOT_FOUND"].includes(error?.code)) {
     return { statusCode: 404, code: error.code };
   }
+  if (["COPY_GENERATION_JOB_NOT_FOUND", "COPY_VERSION_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
+  if (["COPY_VERSION_CONFLICT", "COPY_VERSION_IMMUTABLE", "COPY_GENERATION_RETRY_BLOCKED", "COPY_GENERATION_ABORT_BLOCKED", "COPY_GENERATION_LEASE_LOST", "COPY_GENERATION_RETRY_EXHAUSTED"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (["COPY_GENERATION_CONTEXT_REQUIRED", "COPY_BODY_REQUIRED", "INVALID_COPY_REVISION"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
     return { statusCode: 409, code: error.code };
   }
@@ -139,6 +147,7 @@ export async function buildApp({
   identity: identityOptions = null,
   assets: assetOptions = null,
   projectContent: projectContentOptions = null,
+  copyGeneration: copyGenerationOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -150,8 +159,10 @@ export async function buildApp({
   const identityEnabled = identityOptions?.enabled === true;
   const assetsEnabled = assetOptions?.enabled === true;
   const projectContentEnabled = projectContentOptions?.enabled === true;
+  const copyGenerationEnabled = copyGenerationOptions?.enabled === true;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
+  if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -230,6 +241,7 @@ export async function buildApp({
       executionBackend: generationConfig.executionBackend || "playwright",
       assetsEnabled,
       projectContentEnabled,
+      copyGenerationEnabled,
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -282,6 +294,23 @@ export async function buildApp({
     app.decorate("projectContent", { repository: projectContentRepository, service: projectContentService, productRevisionPort: projectContentService.productRevisionPort });
     app.addHook("onClose", async () => projectContentRepository.close?.());
     await registerProjectContentRoutes(app, { service: projectContentService });
+  }
+  if (copyGenerationEnabled) {
+    const repository = copyGenerationOptions.repository || (sharedPool ? createPostgresCopyGenerationRepository({ pool: sharedPool }) : null);
+    if (!repository) throw Object.assign(new Error("COPY_GENERATION_REPOSITORY_REQUIRED"), { code: "COPY_GENERATION_REPOSITORY_REQUIRED" });
+    await repository.initialize();
+    const provider = copyGenerationOptions.provider || createControlledCopyProvider();
+    const service = createCopyGenerationService({ repository, productRevisionPort: app.projectContent.productRevisionPort, now,
+      maxAttempts: copyGenerationOptions.worker?.maxAttempts });
+    const worker = createCopyGenerationWorker({
+      service, provider, pollIntervalMs: copyGenerationOptions.worker?.pollIntervalMs,
+      leaseMs: copyGenerationOptions.worker?.leaseMs, heartbeatIntervalMs: copyGenerationOptions.worker?.heartbeatIntervalMs,
+      onError: copyGenerationOptions.worker?.onError || ((error) => console.error("Copy generation worker error:", error?.code || "UNEXPECTED_ERROR"))
+    });
+    app.decorate("copyGeneration", { repository, service, worker, providerKind: worker.providerKind });
+    app.addHook("onClose", async () => { worker.stop(); await repository.close?.(); });
+    await registerCopyGenerationRoutes(app, { service, worker });
+    if (copyGenerationOptions.worker?.autoStart !== false) worker.start();
   }
 
   await registerBatchRoutes(app, { store });

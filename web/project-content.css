@@ -16,6 +16,8 @@
 .asset-options { gap: 6px; margin-top: 10px; }
 .asset-option { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 7px 10px; border: 1px solid var(--n-200); border-radius: var(--radius-control); font-weight: 500; overflow-wrap: anywhere; }
 .asset-option input { width: 18px; min-height: 18px; flex: 0 0 18px; }
+.workspace-link { display: inline-flex; min-height: 36px; align-items: center; padding: 7px 14px; border: 1px solid var(--brand); border-radius: var(--radius-control); color: var(--n-0); background: var(--brand); font-weight: 600; text-decoration: none; transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
+.workspace-link:hover { border-color: var(--brand-hover); color: var(--n-0); background: var(--brand-hover); }
 @media (max-width: 900px) { .product-workspace { grid-template-columns: 220px minmax(0, 1fr); } }
 @media (max-width: 680px) {
   .product-workspace { grid-template-columns: 1fr; }
@@ -23,4 +25,6 @@
   .product-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
   .product-list > button.secondary { flex: 0 0 min(78vw, 260px); }
   .point-row { grid-template-columns: 1fr; }
+  .surface-header .button-row { width: 100%; }
+  .surface-header .button-row > * { flex: 1; justify-content: center; }
 }

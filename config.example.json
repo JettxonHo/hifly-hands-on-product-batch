@@ -59,6 +59,17 @@
     "projectContent": {
       "enabled": false
     },
+    "copyGeneration": {
+      "enabled": false,
+      "provider": "phase1_controlled_test_double",
+      "worker": {
+        "autoStart": true,
+        "pollIntervalMs": 1000,
+        "leaseMs": 30000,
+        "heartbeatIntervalMs": 10000,
+        "maxAttempts": 3
+      }
+    },
     "openBrowser": true
   },
   "uploadLimits": {

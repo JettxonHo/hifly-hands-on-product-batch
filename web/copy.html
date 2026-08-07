@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>文案与质检 · 飞影企业工作台</title>
+    <link rel="stylesheet" href="/tokens.css">
+    <link rel="stylesheet" href="/base.css">
+    <link rel="stylesheet" href="/shell.css">
+    <link rel="stylesheet" href="/copy.css">
+    <script src="/shell.js" defer></script>
+    <script src="/copy.js" defer></script>
+  </head>
+  <body data-shell-page="projects">
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="app-sidebar">
+        <a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a>
+        <nav class="app-nav" aria-label="主导航">
+          <a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a>
+          <a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a>
+          <a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a>
+        </nav>
+      </aside>
+      <div class="app-frame">
+        <header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
+        <main id="mainContent" class="page-content copy-page-content">
+          <div class="page-header">
+            <div><p class="eyebrow"><a href="/projects.html">项目</a> / <a id="projectBreadcrumb" href="/projects.html">当前项目</a> / 文案与质检</p><h1>文案与质检</h1><p class="page-description">生成、编辑并管理可追溯的商品种草文案版本。</p></div>
+            <div class="page-actions"><button id="refreshCopy" class="secondary" type="button">刷新</button></div>
+          </div>
+
+          <nav class="stage-strip stage-desktop" aria-label="项目阶段">
+            <a id="factsStageLink" href="/projects.html"><span>1</span>商品与目标</a>
+            <strong aria-current="step"><span>2</span>文案与质检</strong>
+            <span><b>3</b>人物与素材</span><span><b>4</b>视频方案</span><span><b>5</b>生成与交付</span>
+          </nav>
+          <details class="stage-mobile"><summary>阶段 2/5 · 文案与质检</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品与目标</a></li><li aria-current="step">文案与质检</li><li>人物与素材</li><li>视频方案</li><li>生成与交付</li></ol></details>
+
+          <section class="product-context" aria-labelledby="productContextTitle">
+            <label id="productContextTitle" for="productSelector">当前商品</label>
+            <select id="productSelector" aria-label="切换商品"></select>
+            <div class="product-context-meta"><span id="revisionState" class="state"></span><span id="revisionMeta" class="muted"></span></div>
+            <a id="productFactsLink" href="/projects.html">查看商品事实</a>
+          </section>
+
+          <p id="pageNotice" class="notice" role="status"></p>
+          <section id="unsavedNotice" class="notice blocked action-notice" aria-live="assertive" hidden>
+            <span>有未保存的修改。保存后再切换，或明确放弃本次修改。</span>
+            <span class="button-row"><button id="saveAndContinue" type="button">保存并继续</button><button id="discardAndContinue" class="secondary" type="button">放弃修改</button><button id="keepEditing" class="text-button" type="button">继续编辑</button></span>
+          </section>
+
+          <div class="copy-workspace">
+            <aside class="surface version-panel" aria-labelledby="versionListTitle">
+              <div class="surface-header"><div><h2 id="versionListTitle">文案版本</h2><p>历史版本只读保留</p></div></div>
+              <button id="generateCopy" type="button">生成文案</button>
+              <button id="retryCopy" type="button" hidden>重试生成</button>
+              <div id="copyVersions" class="copy-version-list" aria-live="polite"></div>
+            </aside>
+
+            <section class="surface editor-panel" aria-labelledby="editorTitle">
+              <button id="openVersionDialog" class="mobile-version-trigger secondary" type="button">当前版本</button>
+              <div id="copyLoading" class="empty">正在加载文案状态...</div>
+              <div id="copyEmpty" class="copy-empty" hidden>
+                <p class="eyebrow">第一步</p><h2 id="emptyTitle">还没有文案</h2><p>基于当前 Ready 商品快照异步生成第一版文案。生成期间可以离开页面，回来后继续。</p>
+              </div>
+              <form id="copyForm" hidden>
+                <div class="surface-header copy-editor-header"><div><h2 id="editorTitle">文案正文</h2><div class="status-cluster"><span id="copyState" class="state"></span><span id="copySource" class="muted"></span></div></div><button id="compareVersions" class="secondary" type="button">对比版本</button></div>
+                <p id="readonlyNotice" class="notice" role="status"></p>
+                <label for="copyBody">文案正文</label>
+                <textarea id="copyBody" rows="16" required></textarea>
+                <div class="editor-meta"><span id="copyCount">0 字</span><span id="saveState">已保存</span></div>
+                <section id="conflictNotice" class="notice blocked action-notice" hidden>
+                  <span>此内容已被他人更新，你的修改未保存。</span>
+                  <span class="button-row"><button id="viewLatestCopy" type="button">查看最新版本</button><button id="copyLocalDraft" class="secondary" type="button">复制我的修改</button><button id="discardLocalDraft" class="text-button" type="button">放弃修改</button></span>
+                </section>
+                <div class="actions"><p id="copyNotice" class="notice" role="status"></p><div class="button-row"><button id="deriveCopy" class="secondary" type="button" hidden>基于此版本修改</button><button id="saveCopy" type="submit">保存草稿</button></div></div>
+              </form>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <dialog id="versionDialog" aria-labelledby="versionDialogTitle">
+      <div class="dialog-header"><div><p class="eyebrow">文案历史</p><h2 id="versionDialogTitle">选择版本</h2></div><button id="closeVersionDialog" class="dialog-close" type="button" aria-label="关闭版本选择">×</button></div>
+      <div class="dialog-body"><button id="mobileGenerateCopy" type="button">生成文案</button><button id="mobileRetryCopy" type="button" hidden>重试生成</button><div id="mobileCopyVersions" class="copy-version-list"></div></div>
+    </dialog>
+
+    <dialog id="compareDialog" class="compare-dialog" aria-labelledby="compareDialogTitle">
+      <div class="dialog-header"><div><p class="eyebrow">只读对比</p><h2 id="compareDialogTitle">对比文案版本</h2></div><button id="closeCompareDialog" class="dialog-close" type="button" aria-label="关闭版本对比">×</button></div>
+      <div class="dialog-body"><div class="compare-selectors"><label>版本一<select id="compareLeft"></select></label><label>版本二<select id="compareRight"></select></label></div><div class="compare-grid"><section><h3 id="compareLeftTitle">版本一</h3><div id="compareLeftBody" class="compare-body"></div></section><section><h3 id="compareRightTitle">版本二</h3><div id="compareRightBody" class="compare-body"></div></section></div></div>
+    </dialog>
+  </body>
+</html>
