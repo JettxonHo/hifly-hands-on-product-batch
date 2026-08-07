@@ -3,6 +3,25 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-07 VSA-A04 实现、验收与独立 Review 完成（未访问飞影、未消耗积分）
+
+- Issue #60 已在独立 worktree `/private/tmp/hifly-vsa-a04`、分支
+  `codex/vsa-a04-copy-generation` 实现，不触碰根目录 `gui/visual-refresh` 的既有脏文件。
+- Kimi K3 页面设计已持久化为 `docs/frontend/VSA-A04-A06_UIUX_DESIGN.md`。A04 只实现文案生成、
+  CopyVersion 与独立文案工作区；A05 QC、A06 审核和未来页面保持隐藏。
+- 已实现受控异步生成、任务租约/心跳/超时、安全重试与重试幂等重放、draft/frozen/superseded、
+  frozen 派生新 draft、并发版本分配、Organization 隔离、审计、PostgreSQL migration 与 API。
+- 真实系统 Chrome 流程通过：Ready 商品进入文案工作区 → 受控失败 → 安全重试 → 页面重入恢复 →
+  编辑保存 → frozen 只读 → 派生新 draft → 409 冲突三选项 → 390px 无横向溢出。脱敏截图只在
+  `/private/tmp/hifly-a04-visual-qa/`，不提交仓库。
+- 最终验证：全量 641 tests / 614 pass / 0 fail / 27 environment skips；copy service/API 11/11；
+  系统 Chrome A04 1/1；PostgreSQL 16 clean migration 1/1；`npm run check` 108 文件；
+  `git diff --check` 通过。
+- 独立 Reviewer 首轮发现 390px 失败态看不到重试动作；已在移动版本抽屉增加同一重试入口，
+  并用系统 Chrome 从移动失败态实际完成重试。复审 `APPROVED`，无剩余 Blocker/Important。
+- 本轮没有访问 Hifly、没有真实外部生成、没有消耗积分，历史 `MULTI-002` 仍保持 pending。
+- 下一步：提交、推送并创建 Issue #60 PR；未经 Owner 后续授权不合并、不关闭 #60，也不开始 A05。
+
 ## 2026-08-06 Frontend Foundation Stage 1 实现与本地验收（未访问飞影、未消耗积分）
 
 - Kimi K3 Stage 0 视觉方案 PR #76 已以仓库允许的 squash 方式合并，`main` 提交为 `21d4174`；Stage 1 开发 Issue 为 #77。

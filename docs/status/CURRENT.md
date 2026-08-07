@@ -1,8 +1,25 @@
 # 项目当前状态
 
-> 最后更新：2026-08-06
-> 当前远端 main：`21d4174`（Kimi K3 Stage 0 视觉方案已合并）
+> 最后更新：2026-08-07
+> 当前远端 main：`46f7da0`（Frontend Foundation 已合并）
 > 当前 Goal：Vertical Slice A
+
+## VSA-A04 当前开发（Issue #60）
+
+- Kimi Code 已使用 `kimi-code/k3` 完成 A04-A06 页面级设计，批准文档为
+  `docs/frontend/VSA-A04-A06_UIUX_DESIGN.md`；未发现 `DESIGN_BLOCKER`。
+- A04 已在独立分支 `codex/vsa-a04-copy-generation` 实现 Provider-neutral 异步文案生成、
+  CopyVersion 历史、幂等、安全重试、租约恢复、冻结后派生、组织隔离、PostgreSQL migration、
+  正式 API 与独立 `/copy.html` 工作区。
+- A05 QC 与 A06 人工审核没有提前实现；Phase 1 受控生成器不是真实模型或飞影接入。
+- 真实系统 Chrome 已通过生成失败/重试、离开后恢复、冻结历史、派生新草稿、409 冲突恢复和
+  390px 无横向溢出流程。桌面与移动截图保存在仓库外 `/private/tmp/hifly-a04-visual-qa/`。
+- 最终验证：全量 641 tests / 614 pass / 0 fail / 27 environment skips；系统 Chrome A04 1/1；
+  PostgreSQL 16 clean migration 1/1；`npm run check` 108 文件；`git diff --check` 通过。
+- 独立 Reviewer 首轮发现 390px 失败态缺少重试入口；已补移动版本抽屉重试并将真实浏览器流程改为
+  移动端失败后完成重试，复审结论 `APPROVED`，无剩余 Blocker/Important。
+- 本轮未访问 Hifly、未执行真实外部生成、未消耗积分。下一步仅创建 A04 PR；未经 Owner 授权
+  不合并、不关闭 Issue #60，也不开始 A05。
 
 ## Kimi K3 前端视觉升级策划（2026-08-06）
 
