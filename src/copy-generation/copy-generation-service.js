@@ -19,7 +19,8 @@ function idempotencyKey(value) {
 }
 
 export function createCopyGenerationService({ repository, productRevisionPort, now = () => Date.now(), maxAttempts = 3 } = {}) {
-  if (!repository || !productRevisionPort?.getReadySnapshot || !productRevisionPort?.getSnapshot) throw new TypeError("repository and productRevisionPort are required");
+  if (!repository || !productRevisionPort?.getReadySnapshot || !productRevisionPort?.getSnapshot ||
+    !productRevisionPort?.getCurrentReadySnapshot) throw new TypeError("repository and productRevisionPort are required");
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new TypeError("maxAttempts must be a positive integer");
   const timestamp = () => new Date(now()).toISOString();
 
@@ -65,6 +66,15 @@ export function createCopyGenerationService({ repository, productRevisionPort, n
       if (!copy) throw failure("COPY_VERSION_NOT_FOUND");
       return copy;
     },
+    async getProductRevisionSnapshot(input) {
+      context(input);
+      return productRevisionPort.getSnapshot({ organizationId: input.organizationId, productRevisionId: input.productRevisionId });
+    },
+    async getCurrentProductRevisionSnapshot(input) {
+      context(input);
+      return productRevisionPort.getCurrentReadySnapshot({ organizationId: input.organizationId,
+        productRevisionId: input.productRevisionId });
+    },
     async editCopyVersion(input) {
       context(input);
       const body = cleanText(input.body);
@@ -72,6 +82,7 @@ export function createCopyGenerationService({ repository, productRevisionPort, n
       if (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 1) throw failure("INVALID_COPY_REVISION");
       const current = await repository.getCopy(input.organizationId, input.copyVersionId);
       if (!current) throw failure("COPY_VERSION_NOT_FOUND");
+      const deriveKey = current.status === "frozen" && input.idempotencyKey ? idempotencyKey(input.idempotencyKey) : null;
       const at = timestamp();
       const childCopyVersion = {
         ...current,
@@ -82,6 +93,8 @@ export function createCopyGenerationService({ repository, productRevisionPort, n
       const result = await repository.editCopy({
         organizationId: input.organizationId, copyVersionId: current.id, expectedRevision: input.expectedRevision,
         body, childCopyVersion, now: at,
+        receiptKey: deriveKey ? `${input.organizationId}:derive-copy:${deriveKey}` : null,
+        fingerprint: deriveKey ? stableJson({ copy_version_id: current.id, body }) : null,
         audit: { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId,
           event_type: current.status === "draft" ? "copy.draft_edited" : "copy.child_draft_created",
           product_revision_id: current.product_revision_id, copy_version_id: current.status === "draft" ? current.id : childCopyVersion.id,

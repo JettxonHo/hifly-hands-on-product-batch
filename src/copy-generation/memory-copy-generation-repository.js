@@ -40,7 +40,12 @@ export function createMemoryCopyGenerationRepository() {
       const copy = copies.get(id);
       return clone(copy?.organization_id === organizationId ? copy : null);
     },
-    async editCopy({ organizationId, copyVersionId, expectedRevision, body, childCopyVersion, audit, now }) {
+    async editCopy({ organizationId, copyVersionId, expectedRevision, body, childCopyVersion, receiptKey, fingerprint, audit, now }) {
+      const receipt = receiptKey ? receipts.get(receiptKey) : null;
+      if (receipt) {
+        if (receipt.fingerprint !== fingerprint) throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { code: "IDEMPOTENCY_CONFLICT" });
+        return clone(copies.get(receipt.copyVersionId));
+      }
       const current = copies.get(copyVersionId);
       if (!current || current.organization_id !== organizationId) return null;
       if (current.row_version !== expectedRevision) throw Object.assign(new Error("COPY_VERSION_CONFLICT"), { code: "COPY_VERSION_CONFLICT" });
@@ -62,6 +67,7 @@ export function createMemoryCopyGenerationRepository() {
         .filter((copy) => copy.organization_id === organizationId && copy.product_revision_id === current.product_revision_id)
         .map((copy) => copy.version_number)) + 1;
       copies.set(childCopyVersion.id, clone(childCopyVersion));
+      if (receiptKey) receipts.set(receiptKey, { fingerprint, copyVersionId: childCopyVersion.id });
       audits.push(clone(audit));
       return clone(childCopyVersion);
     },

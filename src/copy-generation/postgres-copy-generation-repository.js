@@ -37,8 +37,16 @@ export function createPostgresCopyGenerationRepository({ pool, ownsPool = false 
     async listJobs(organizationId, productRevisionId) { return (await pool.query("SELECT * FROM copy_generation_jobs WHERE organization_id=$1 AND product_revision_id=$2 ORDER BY created_at DESC", [organizationId,productRevisionId])).rows.map(job); },
     async listCopies(organizationId, productRevisionId) { return (await pool.query("SELECT * FROM copy_versions WHERE organization_id=$1 AND product_revision_id=$2 ORDER BY version_number", [organizationId,productRevisionId])).rows.map(copy); },
     async getCopy(organizationId, id) { return copy(one(await pool.query("SELECT * FROM copy_versions WHERE organization_id=$1 AND id=$2", [organizationId,id]))); },
-    async editCopy({ organizationId, copyVersionId, expectedRevision, body, childCopyVersion, audit, now }) {
+    async editCopy({ organizationId, copyVersionId, expectedRevision, body, childCopyVersion, receiptKey, fingerprint, audit, now }) {
       return withTransaction(pool, async (client) => {
+        if (receiptKey) {
+          await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`copy-generation:${receiptKey}`]);
+          const receipt = one(await client.query("SELECT * FROM copy_generation_idempotency_receipts WHERE receipt_key=$1", [receiptKey]));
+          if (receipt) {
+            if (receipt.payload_fingerprint !== fingerprint) throw failure("IDEMPOTENCY_CONFLICT");
+            return copy(one(await client.query("SELECT * FROM copy_versions WHERE id=$1", [receipt.copy_version_id])));
+          }
+        }
         const current = copy(one(await client.query("SELECT * FROM copy_versions WHERE organization_id=$1 AND id=$2 FOR UPDATE", [organizationId,copyVersionId])));
         if (!current) return null;
         if (current.row_version !== expectedRevision) throw failure("COPY_VERSION_CONFLICT");
@@ -54,6 +62,7 @@ export function createPostgresCopyGenerationRepository({ pool, ownsPool = false 
           await client.query("UPDATE copy_versions SET status='superseded',row_version=row_version+1,updated_at=$3 WHERE organization_id=$1 AND product_revision_id=$2 AND status='draft'", [current.organization_id,current.product_revision_id,now]);
           result = copy(one(await client.query(`INSERT INTO copy_versions(id,organization_id,project_id,product_id,product_revision_id,generation_job_id,intent,status,version_number,row_version,body,parent_copy_version_id,created_by_member_id,created_at,updated_at,frozen_at)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [value.id,value.organization_id,value.project_id,value.product_id,value.product_revision_id,value.generation_job_id,value.intent,value.status,nextVersion,value.row_version,value.body,value.parent_copy_version_id,value.created_by_member_id,value.created_at,value.updated_at,value.frozen_at])));
+          if (receiptKey) await client.query("INSERT INTO copy_generation_idempotency_receipts(receipt_key,payload_fingerprint,copy_version_id,created_at) VALUES ($1,$2,$3,$4)", [receiptKey,fingerprint,result.id,now]);
         }
         await appendAudit(client, audit);
         return result;

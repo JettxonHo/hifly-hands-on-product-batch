@@ -70,6 +70,20 @@
         "maxAttempts": 3
       }
     },
+    "copyQuality": {
+      "enabled": false,
+      "profileVersion": "commerce-cn-v1",
+      "ruleVersion": "rules-2026-08",
+      "evaluator": "phase1_controlled_test_double",
+      "rewriter": "phase1_controlled_test_double",
+      "worker": {
+        "autoStart": true,
+        "pollIntervalMs": 1000,
+        "leaseMs": 30000,
+        "heartbeatIntervalMs": 10000,
+        "maxAttempts": 3
+      }
+    },
     "openBrowser": true
   },
   "uploadLimits": {

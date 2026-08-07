@@ -12,6 +12,7 @@
     "migrate:assets": "node scripts/migrate-assets.mjs",
     "migrate:project-content": "node scripts/migrate-project-content.mjs",
     "migrate:copy-generation": "node scripts/migrate-copy-generation.mjs",
+    "migrate:copy-quality": "node scripts/migrate-copy-quality.mjs",
     "validate": "node src/validate-products.js",
     "run": "node src/run-batch.js",
     "prepare-standard": "node scripts/generate-standard-assets.mjs",

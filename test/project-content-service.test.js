@@ -344,6 +344,8 @@ test("downstream port returns only same-organization ready immutable snapshots",
   const ready = await ctx.service.readyRevision({ ...ctx.actor, productRevisionId: draft.id, expectedRevision: draft.revision_number, idempotencyKey: "ready-port" });
   const snapshot = await ctx.service.productRevisionPort.getReadySnapshot({ organizationId: ORG, productRevisionId: ready.id });
   assert.equal(snapshot.status, "ready");
+  assert.equal((await ctx.service.productRevisionPort.getCurrentReadySnapshot({ organizationId: ORG,
+    productRevisionId: ready.id })).id, ready.id);
   assert.deepEqual(snapshot.selling_points.map((point) => point.text), ["柔软亲肤"]);
   await assert.rejects(ctx.service.productRevisionPort.getReadySnapshot({ organizationId: "org_other", productRevisionId: ready.id }), { code: "PRODUCT_REVISION_NOT_FOUND" });
 
@@ -351,6 +353,8 @@ test("downstream port returns only same-organization ready immutable snapshots",
     ...ctx.actor, productRevisionId: ready.id, expectedRevision: ready.revision_number,
     productName: "云朵抱枕升级款", sellingPoints: [{ text: "柔软亲肤" }], assetVersionIds: ["asset-version-1"]
   });
+  await assert.rejects(ctx.service.productRevisionPort.getCurrentReadySnapshot({ organizationId: ORG,
+    productRevisionId: ready.id }), { code: "PRODUCT_REVISION_NOT_FOUND" });
   child = await ctx.service.confirmSellingPoint({ ...ctx.actor, productRevisionId: child.id, pointId: child.selling_points[0].id, expectedRevision: child.revision_number });
   await ctx.service.readyRevision({ ...ctx.actor, productRevisionId: child.id, expectedRevision: child.revision_number, idempotencyKey: "ready-child-port" });
 
