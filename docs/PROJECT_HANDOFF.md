@@ -3,6 +3,22 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-08 VSA-A10 已合并，A11-A13 Kimi 页面设计完成（未访问飞影、未消耗积分）
+
+- A10 已通过 PR #87 合并并关闭 Issue #66；main 合并提交为
+  `0ca96009d94dd3d5e65f7b179366804246fe9bd6`。
+- 独立设计 worktree `/private/tmp/hifly-vsa-a11-a13-design`、分支
+  `codex/vsa-a11-a13-uiux-design` 基于该 main 生成 `docs/frontend/VSA-A11-A13_UIUX_DESIGN.md`。
+- Kimi Code 调用显式指定 `kimi-code/k3`；用户级配置已核验为 1M context
+  (`max_context_size=1048576`) 与最高推理档 (`default_effort=max`，thinking enabled)。实际服务端运行模型
+  未由 CLI 暴露，记录为 `UNVERIFIED_RUNTIME_MODEL / CONFIG_VERIFIED`。
+- 主控复核结论：无 DESIGN_BLOCKER；A11/A12 继续增量使用 `production.html`，A13 新建权威
+  `works.html` 作品库。设计明确下载包不等于开始执行、上传完成不等于核验通过、报告 completed 不等于
+  工单 succeeded、交付登记幂等且历史不可覆盖。
+- 下一步：先合并纯设计 PR，再由准确自定义 Agent `luna-worker` 依次实施 A11、A12、A13；每个 Slice
+  单独 Review/PR/CI，A13 完成后停止，不开始 A14。
+- 本轮没有修改生产代码，没有访问 Hifly、真实 Provider 或 Capture HTTP，没有运行批次或消耗积分。
+
 ## 2026-08-08 VSA-A09 独立验收通过，待提交 PR（Issue #65；未访问飞影、未消耗积分）
 
 - 保持 worktree `/private/tmp/hifly-vsa-a09`、分支 `codex/vsa-a09-production-order`、未 commit/push/PR/merge。
