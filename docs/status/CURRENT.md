@@ -1,13 +1,39 @@
 # 项目当前状态
 
-> 最后更新：2026-08-07
-> 当前远端 main：`ca47ec9`（VSA-A06 与 A07/A08 UI/UX 设计已合并）
+> 最后更新：2026-08-08
+> 当前远端 main：`78cf74d`（VSA-A07 已通过 PR #83 合并）
 > 当前 Goal：Vertical Slice A
 
-## VSA-A07 当前开发（Issue #63）
+## VSA-A08 当前本地实现（Issue #64）
 
-- A06 已通过 PR #81 合并并关闭 Issue #62；A07/A08 Kimi 设计已通过 PR #82 合并。A07 当前在
-  `/private/tmp/hifly-vsa-a07`、分支 `codex/vsa-a07-avatar-selection` 完成本地实现，未 commit/push/PR。
+- A07 已通过 PR #83 合并并关闭 Issue #63；A08 基于该 main 在 `/private/tmp/hifly-vsa-a08`、分支
+  `codex/vsa-a08-video-plan` 完成本地实现、两轮独立 Review 修复与最终复审，尚未 commit、push、PR、CI 或合并。
+- 已实现不可变 VideoPlanVersion（draft→frozen→superseded）、只读 ProductRevision/approved CopyVersion/
+  confirmed AvatarSelection/实际 capability snapshot 引用；frozen 修改只能派生新 draft。
+- PreflightRun 技术执行与 PreflightResult 业务结论完全分离；三组检查为 upstream_validity、
+  plan_completeness、production_readiness。技术失败不产生 blocked 结论；执行环境离线只产生 amber warning，
+  不阻止保存、预检、提交或批准审核。
+- PlanReview 采用不可变审核记录 + 状态头 + 追加事件；passed/warning 不会自动 approved；同方案仅一个审核周期，
+  changes_requested/revoked 后必须派生新方案，revoked 不恢复。审核决定支持相同命令安全回放，并始终返回
+  当前服务端投影。读取/关键命令会重验上游与 capability/Evidence 快照，相关变化使预检 invalidated、
+  批准 revoked；未进入权威快照的展示元数据不级联。
+- memory/PostgreSQL repository、独立 migration、正式 API、异步 preflight worker 与 `/plan.html/css/js`
+  已完成；A07 阶段 4 已变为真实链接；A09「创建生产工单」明确禁用且无假链接。
+- 页面在草稿有未保存输入时禁用预检并提示先保存；切换商品、切换版本和刷新均通过保存/放弃/取消
+  对话框保护本地输入。A07 仅在 runtime 明确启用 A08 时展示可点击视频方案入口。
+- 当前自动验证：A08 service/API 定向 12 pass；PostgreSQL 16 clean migration/integration 1/1 实际通过；
+  系统 Chrome 中 A07 回归与 A08 1440/390 页面合同 2/2 实际通过；全量 724 tests / 690 pass /
+  0 fail / 34 environment skips；`npm run check` 142 文件通过。全量命令中的浏览器/数据库用例仍按
+  环境条件 skip，但已分别在可用环境定向实跑通过。
+- 最终独立 Reviewer 结论为 **`APPROVED`**，无剩余 Critical/Important。首轮发现的审核决定回放、
+  capability/Evidence 失效传播、未保存输入保护与 feature flag 入口问题均已按 TDD 修复；初始 DOM
+  在 runtime 返回前也不会暴露 A08 链接。
+- 本轮未访问 Hifly、未调用真实 Provider/外部生产、未运行 `MULTI-002`、未消耗积分。
+
+## VSA-A07 已合并快照（Issue #63）
+
+- A06 已通过 PR #81 合并并关闭 Issue #62；A07/A08 Kimi 设计已通过 PR #82 合并；A07 已通过
+  PR #83 合并并关闭 Issue #63。
 - 已交付 existing-only 公共/企业目录；Phase 1 受控预置显式标记；不连接真实 Hifly、不提供人物/
   声音/背景创建、不宣称推荐。未知能力不投影 supported，只有带 Evidence 的 verified capability 展示。
 - AvatarAsset、AvatarAssetVersion、AvatarVerifiedCapability、AvatarSelection 已有正式 memory/PostgreSQL
@@ -155,6 +181,6 @@
 
 ## 下一步
 
-1. 主控完成 A07 commit/PR/CI/合并并关闭 Issue #63；A07 合并前不开始 A08 实现。
-2. A07 合并后从最新 main 启动 A08。
+1. 主控完成 A08 commit、PR、CI、合并并关闭 Issue #64。
+2. A08 合并并关闭 Issue #64 后，先由 Kimi K3 完成 A09-A10 页面设计，再开始 A09。
 3. 每个里程碑结束时更新本文件与 `GOAL.md`。

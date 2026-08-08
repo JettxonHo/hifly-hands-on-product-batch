@@ -90,6 +90,13 @@
     "avatarSelection": {
       "enabled": false
     },
+    "videoPlanning": {
+      "enabled": false,
+      "worker": {
+        "autoStart": true,
+        "pollIntervalMs": 1000
+      }
+    },
     "openBrowser": true
   },
   "uploadLimits": {

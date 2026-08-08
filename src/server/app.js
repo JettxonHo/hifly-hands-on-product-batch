@@ -25,6 +25,10 @@ import { createCopyReviewInvalidationCoordinator } from "../copy-review/invalida
 import { createPostgresCopyReviewRepository } from "../copy-review/postgres-copy-review-repository.js";
 import { createAvatarSelectionService, createCurrentApprovedCopyPort } from "../avatar-selection/avatar-selection-service.js";
 import { createPostgresAvatarSelectionRepository } from "../avatar-selection/postgres-avatar-selection-repository.js";
+import { createVideoPlanningService } from "../video-planning/video-planning-service.js";
+import { createPostgresVideoPlanningRepository } from "../video-planning/postgres-video-planning-repository.js";
+import { createControlledPreflightEvaluator } from "../video-planning/controlled-preflight-evaluator.js";
+import { createPreflightWorker } from "../video-planning/preflight-worker.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
@@ -45,6 +49,7 @@ import { registerCopyGenerationRoutes } from "./routes/copy-generation.js";
 import { registerCopyQualityRoutes } from "./routes/copy-quality.js";
 import { registerCopyReviewRoutes } from "./routes/copy-review.js";
 import { registerAvatarSelectionRoutes } from "./routes/avatar-selection.js";
+import { registerVideoPlanningRoutes } from "./routes/video-planning.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -119,6 +124,16 @@ function apiError(error) {
   if (["AVATAR_SELECTION_CONTEXT_REQUIRED", "INVALID_AVATAR_SELECTION_PAYLOAD"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (error?.code === "AVATAR_SELECTION_FORBIDDEN") return { statusCode: 403, code: error.code };
   if (error?.code === "AVATAR_SELECTION_GATE_BLOCKED") return { statusCode: 422, code: error.code, reasons: error.details || [] };
+  if (["VIDEO_PLAN_NOT_FOUND", "VIDEO_PLAN_REVIEW_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
+  if (["VIDEO_PLAN_CONFLICT", "VIDEO_PLAN_IMMUTABLE", "VIDEO_PLAN_DERIVE_BLOCKED", "VIDEO_PLAN_REVIEW_CONFLICT",
+    "VIDEO_PLAN_REVIEW_ACTIVE_EXISTS", "PREFLIGHT_RUN_LEASE_LOST"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (["VIDEO_PLAN_CONTEXT_REQUIRED", "VIDEO_PLAN_OUTPUT_INSTRUCTIONS_REQUIRED", "VIDEO_PLAN_CAPABILITY_SNAPSHOT_REQUIRED"].includes(error?.code)) {
+    return { statusCode: 400, code: error.code };
+  }
+  if (error?.code === "VIDEO_PLAN_FORBIDDEN") return { statusCode: 403, code: error.code };
+  if (["VIDEO_PLAN_UPSTREAM_BLOCKED", "VIDEO_PLAN_PREFLIGHT_BLOCKED", "VIDEO_PLAN_REVIEW_GATE_BLOCKED"].includes(error?.code)) {
+    return { statusCode: 422, code: error.code, reasons: error.details || [] };
+  }
   if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
@@ -181,6 +196,7 @@ export async function buildApp({
   copyQuality: copyQualityOptions = null,
   copyReview: copyReviewOptions = null,
   avatarSelection: avatarSelectionOptions = null,
+  videoPlanning: videoPlanningOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -196,6 +212,7 @@ export async function buildApp({
   const copyQualityEnabled = copyQualityOptions?.enabled === true;
   const copyReviewEnabled = copyReviewOptions?.enabled === true;
   const avatarSelectionEnabled = avatarSelectionOptions?.enabled === true;
+  const videoPlanningEnabled = videoPlanningOptions?.enabled === true;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
   if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
@@ -203,6 +220,7 @@ export async function buildApp({
   if (copyReviewEnabled && !copyQualityEnabled) throw Object.assign(new Error("COPY_REVIEW_REQUIRES_COPY_QUALITY"), { code: "COPY_REVIEW_REQUIRES_COPY_QUALITY" });
   if (avatarSelectionEnabled && !identityEnabled) throw Object.assign(new Error("AVATAR_SELECTION_REQUIRES_IDENTITY"), { code: "AVATAR_SELECTION_REQUIRES_IDENTITY" });
   if (avatarSelectionEnabled && !avatarSelectionOptions.copyApprovalPort && !copyReviewEnabled) throw Object.assign(new Error("AVATAR_SELECTION_REQUIRES_COPY_REVIEW"), { code: "AVATAR_SELECTION_REQUIRES_COPY_REVIEW" });
+  if (videoPlanningEnabled && !avatarSelectionEnabled && !videoPlanningOptions.upstreamPort) throw Object.assign(new Error("VIDEO_PLANNING_REQUIRES_AVATAR_SELECTION"), { code: "VIDEO_PLANNING_REQUIRES_AVATAR_SELECTION" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -285,6 +303,7 @@ export async function buildApp({
       copyQualityEnabled,
       copyReviewEnabled,
       avatarSelectionEnabled,
+      videoPlanningEnabled,
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -407,6 +426,26 @@ export async function buildApp({
     app.decorate("avatarSelection", { repository, service, copyApprovalPort });
     app.addHook("onClose", async () => repository.close?.());
     await registerAvatarSelectionRoutes(app, { service });
+  }
+  if (videoPlanningEnabled) {
+    const repository = videoPlanningOptions.repository || (sharedPool ? createPostgresVideoPlanningRepository({ pool: sharedPool }) : null);
+    if (!repository) throw Object.assign(new Error("VIDEO_PLANNING_REPOSITORY_REQUIRED"), { code: "VIDEO_PLANNING_REPOSITORY_REQUIRED" });
+    await repository.initialize();
+    const upstreamPort = videoPlanningOptions.upstreamPort || {
+      async resolveCurrent(input) { return app.avatarSelection.service.getPlanningInput(input); }
+    };
+    const capabilitySnapshotPort = videoPlanningOptions.capabilitySnapshotPort || {
+      async resolve(input) { return (await app.avatarSelection.service.getPlanningInput(input))?.capability_config_snapshot || null; }
+    };
+    const agentReadinessPort = videoPlanningOptions.agentReadinessPort || { async isOnline() { return false; } };
+    const service = createVideoPlanningService({ repository, upstreamPort, capabilitySnapshotPort, agentReadinessPort, now });
+    const evaluator = videoPlanningOptions.evaluator || createControlledPreflightEvaluator();
+    const worker = createPreflightWorker({ service, evaluator, pollIntervalMs: videoPlanningOptions.worker?.pollIntervalMs,
+      onError: videoPlanningOptions.worker?.onError || ((error) => console.error("Video preflight worker error:", error?.code || "UNEXPECTED_ERROR")) });
+    app.decorate("videoPlanning", { repository, service, worker, evaluatorKind: worker.evaluatorKind });
+    app.addHook("onClose", async () => { worker.stop(); await repository.close?.(); });
+    await registerVideoPlanningRoutes(app, { service });
+    if (videoPlanningOptions.worker?.autoStart !== false) worker.start();
   }
 
   await registerBatchRoutes(app, { store });

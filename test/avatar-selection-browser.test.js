@@ -63,9 +63,26 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   await page.waitForURL(`${origin}/`);
 
   const url = `${origin}/avatar.html?project=${project.id}&product=${product.id}&copy=copy-approved`;
+  let releaseRuntime;
+  const runtimeGate = new Promise((resolve) => { releaseRuntime = resolve; });
+  const delayedRuntime = async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await runtimeGate;
+    await route.fulfill({ response, json: { ...body, videoPlanningEnabled: true } });
+  };
+  await page.route("**/api/runtime", delayedRuntime);
   await page.goto(url);
+  for (const selector of ["#planStageLink", "#mobilePlanStageLink", "#nextPlanLink"]) {
+    assert.equal(await page.locator(selector).getAttribute("href"), null);
+  }
+  await page.getByText("视频方案尚未开放", { exact: true }).waitFor();
+  releaseRuntime();
   await page.getByRole("heading", { name: "人物与素材" }).waitFor();
   await page.getByText("Phase 1 受控预置", { exact: true }).first().waitFor();
+  for (const selector of ["#planStageLink", "#mobilePlanStageLink", "#nextPlanLink"]) {
+    assert.match(await page.locator(selector).getAttribute("href"), /^\/plan\.html\?/);
+  }
   assert.equal(await page.locator("#avatarWorkspace").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length), 3);
   assert.equal(await page.getByText(/推荐/).count(), 0);
 
@@ -104,7 +121,12 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   await page.getByRole("dialog", { name: "人物目录" }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
   await page.getByRole("button", { name: "关闭人物目录" }).click();
-  assert.equal(await page.getByRole("button", { name: "进入视频方案尚未开放" }).isDisabled(), true);
+  await page.unroute("**/api/runtime", delayedRuntime);
+  await page.reload();
+  for (const selector of ["#planStageLink", "#mobilePlanStageLink", "#nextPlanLink"]) {
+    assert.equal(await page.locator(selector).getAttribute("href"), null);
+  }
+  await page.getByText("视频方案尚未开放", { exact: true }).waitFor();
 
   const copyMarkup = await readFile(new URL("../web/copy.html", import.meta.url), "utf8");
   assert.match(copyMarkup, /id="mobileAvatarStageLink" href="\/avatar\.html"/);
