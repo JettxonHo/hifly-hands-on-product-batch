@@ -30,7 +30,11 @@ import { createPostgresVideoPlanningRepository } from "../video-planning/postgre
 import { createControlledPreflightEvaluator } from "../video-planning/controlled-preflight-evaluator.js";
 import { createPreflightWorker } from "../video-planning/preflight-worker.js";
 import { createProductionOrderService } from "../production-orders/production-order-service.js";
+import { createProductionOrderInputSnapshotPort } from "../production-orders/production-order-input-snapshot.js";
 import { createPostgresProductionOrderRepository } from "../production-orders/postgres-production-order-repository.js";
+import { createManualHandoffPackageService } from "../manual-handoff/manual-handoff-package-service.js";
+import { createManualHandoffPackageWorker } from "../manual-handoff/manual-handoff-package-worker.js";
+import { createPostgresManualHandoffRepository } from "../manual-handoff/postgres-manual-handoff-repository.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
@@ -53,6 +57,7 @@ import { registerCopyReviewRoutes } from "./routes/copy-review.js";
 import { registerAvatarSelectionRoutes } from "./routes/avatar-selection.js";
 import { registerVideoPlanningRoutes } from "./routes/video-planning.js";
 import { registerProductionOrderRoutes } from "./routes/production-orders.js";
+import { registerManualHandoffRoutes } from "./routes/manual-handoff.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -141,10 +146,21 @@ function apiError(error) {
   if (["PRODUCTION_ORDER_CONTEXT_REQUIRED", "PRODUCTION_ORDER_PURPOSE_INVALID"].includes(error?.code)) {
     return { statusCode: 400, code: error.code };
   }
+  if (error?.code === "PRODUCTION_ORDER_INPUT_SNAPSHOT_REQUIRED") return { statusCode: 422, code: error.code };
   if (error?.code === "PRODUCTION_ORDER_FORBIDDEN") return { statusCode: 403, code: error.code };
   if (error?.code === "PRODUCTION_ORDER_PLAN_GATE_BLOCKED") {
     return { statusCode: 422, code: error.code, reasons: error.details || [] };
   }
+  if (["MANUAL_HANDOFF_PACKAGE_NOT_FOUND", "MANUAL_HANDOFF_JOB_NOT_FOUND", "MANUAL_HANDOFF_ORDER_NOT_FOUND", "MANUAL_HANDOFF_PACKAGE_OBJECT_MISSING"].includes(error?.code)) {
+    return { statusCode: 404, code: error.code };
+  }
+  if (["MANUAL_HANDOFF_CONTEXT_REQUIRED", "MANUAL_HANDOFF_GENERATION_REQUEST_REQUIRED", "MANUAL_HANDOFF_CONTRACT_VERSION_UNSUPPORTED", "MANUAL_HANDOFF_PACKAGE_VERSION_INVALID", "MANUAL_HANDOFF_PACKAGE_STATE_INVALID", "MANUAL_HANDOFF_ASSET_MODE_INVALID", "MANUAL_HANDOFF_ASSET_REFERENCE_INVALID"].includes(error?.code)) {
+    return { statusCode: 400, code: error.code };
+  }
+  if (["MANUAL_HANDOFF_FORBIDDEN", "MANUAL_HANDOFF_DOWNLOAD_AUTHORIZATION_REQUIRED"].includes(error?.code)) return { statusCode: 403, code: error.code };
+  if (["MANUAL_HANDOFF_PACKAGE_VERSION_CONFLICT", "MANUAL_HANDOFF_RETRY_BLOCKED", "MANUAL_HANDOFF_LEASE_LOST", "MANUAL_HANDOFF_PACKAGE_TRANSITION_INVALID", "MANUAL_HANDOFF_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (error?.code === "MANUAL_HANDOFF_DOWNLOAD_AUTHORIZATION_EXPIRED") return { statusCode: 410, code: error.code };
+  if (["MANUAL_HANDOFF_PACKAGE_NOT_READY", "MANUAL_HANDOFF_PACKAGE_NOT_DOWNLOADABLE", "MANUAL_HANDOFF_CROSS_ORGANIZATION_DATA", "MANUAL_HANDOFF_INPUT_SNAPSHOT_REQUIRED", "MANUAL_HANDOFF_ASSET_UNAVAILABLE"].includes(error?.code)) return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
@@ -209,6 +225,7 @@ export async function buildApp({
   avatarSelection: avatarSelectionOptions = null,
   videoPlanning: videoPlanningOptions = null,
   productionOrders: productionOrdersOptions = null,
+  manualHandoff: manualHandoffOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -226,6 +243,7 @@ export async function buildApp({
   const avatarSelectionEnabled = avatarSelectionOptions?.enabled === true;
   const videoPlanningEnabled = videoPlanningOptions?.enabled === true;
   const productionOrdersEnabled = productionOrdersOptions?.enabled === true;
+  const manualHandoffEnabled = manualHandoffOptions?.enabled === true;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
   if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
@@ -236,6 +254,8 @@ export async function buildApp({
   if (videoPlanningEnabled && !avatarSelectionEnabled && !videoPlanningOptions.upstreamPort) throw Object.assign(new Error("VIDEO_PLANNING_REQUIRES_AVATAR_SELECTION"), { code: "VIDEO_PLANNING_REQUIRES_AVATAR_SELECTION" });
   if (productionOrdersEnabled && !identityEnabled) throw Object.assign(new Error("PRODUCTION_ORDERS_REQUIRE_IDENTITY"), { code: "PRODUCTION_ORDERS_REQUIRE_IDENTITY" });
   if (productionOrdersEnabled && !videoPlanningEnabled) throw Object.assign(new Error("PRODUCTION_ORDERS_REQUIRE_VIDEO_PLANNING"), { code: "PRODUCTION_ORDERS_REQUIRE_VIDEO_PLANNING" });
+  if (manualHandoffEnabled && !identityEnabled) throw Object.assign(new Error("MANUAL_HANDOFF_REQUIRE_IDENTITY"), { code: "MANUAL_HANDOFF_REQUIRE_IDENTITY" });
+  if (manualHandoffEnabled && !productionOrdersEnabled) throw Object.assign(new Error("MANUAL_HANDOFF_REQUIRE_PRODUCTION_ORDERS"), { code: "MANUAL_HANDOFF_REQUIRE_PRODUCTION_ORDERS" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -320,6 +340,7 @@ export async function buildApp({
       avatarSelectionEnabled,
       videoPlanningEnabled,
       productionOrdersEnabled,
+      manualHandoffEnabled,
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -471,11 +492,52 @@ export async function buildApp({
     const planPort = productionOrdersOptions.planPort || {
       async resolveCurrentApprovedPlan(input) { return app.videoPlanning.service.resolveCurrentApprovedPlan(input); }
     };
+    const inputSnapshotPort = productionOrdersOptions.inputSnapshotPort || createProductionOrderInputSnapshotPort({
+      copyService: app.copyGeneration?.service,
+      copyReviewService: app.copyReview?.service,
+      productRevisionPort: app.projectContent?.service?.productRevisionPort,
+      avatarSelectionService: app.avatarSelection?.service,
+      assetService: app.assets?.service
+    });
     const agentReadinessPort = productionOrdersOptions.agentReadinessPort || videoPlanningOptions.agentReadinessPort || { async isOnline() { return false; } };
-    const service = createProductionOrderService({ repository, planPort, agentReadinessPort, now });
+    const service = createProductionOrderService({ repository, planPort, inputSnapshotPort, agentReadinessPort, now });
     app.decorate("productionOrders", { repository, service });
     app.addHook("onClose", async () => repository.close?.());
     await registerProductionOrderRoutes(app, { service });
+  }
+
+  if (manualHandoffEnabled) {
+    const repository = manualHandoffOptions.repository || (sharedPool ? createPostgresManualHandoffRepository({ pool: sharedPool }) : null);
+    if (!repository) throw Object.assign(new Error("MANUAL_HANDOFF_REPOSITORY_REQUIRED"), { code: "MANUAL_HANDOFF_REPOSITORY_REQUIRED" });
+    const packageStore = manualHandoffOptions.packageStore || createLocalObjectStore({ root: path.resolve(root, manualHandoffOptions.localRoot || ".manual-handoff-packages") });
+    await repository.initialize();
+    await packageStore.initialize?.();
+    const orderPort = manualHandoffOptions.orderPort || { getOrder: app.productionOrders.service.getOrder };
+    const assetResolver = manualHandoffOptions.assetResolver || (assetService ? {
+      async getEmbeddedAsset({ organizationId, assetVersionId }) {
+        try {
+          const version = await assetService.getAssetVersion({ organizationId, assetVersionId });
+          if (!version || version.status !== "available" || version.organization_id !== organizationId) throw new Error("asset unavailable");
+          const head = await app.assets.objectStore.head(version.object_key);
+          if (!head || head.metadata?.organizationId !== organizationId) throw new Error("asset ownership mismatch");
+          const body = await app.assets.objectStore.get(version.object_key);
+          if (!body) throw new Error("asset object missing");
+          return body;
+        } catch (error) {
+          throw Object.assign(new Error("MANUAL_HANDOFF_ASSET_UNAVAILABLE"), { code: "MANUAL_HANDOFF_ASSET_UNAVAILABLE", cause: error });
+        }
+      }
+    } : null);
+    const service = createManualHandoffPackageService({ repository, packageStore, orderPort,
+      assetResolver, archiveBuilder: manualHandoffOptions.archiveBuilder,
+      grantTtlMs: manualHandoffOptions.grantTtlMs, maxAttempts: manualHandoffOptions.worker?.maxAttempts, now });
+    const worker = createManualHandoffPackageWorker({ service, pollIntervalMs: manualHandoffOptions.worker?.pollIntervalMs,
+      leaseMs: manualHandoffOptions.worker?.leaseMs, heartbeatIntervalMs: manualHandoffOptions.worker?.heartbeatIntervalMs,
+      onError: manualHandoffOptions.worker?.onError || ((error) => console.error("Manual handoff worker error:", error?.code || "UNEXPECTED_ERROR")) });
+    app.decorate("manualHandoff", { repository, packageStore, service, worker });
+    app.addHook("onClose", async () => { worker.stop(); await repository.close?.(); await packageStore.close?.(); });
+    await registerManualHandoffRoutes(app, { service });
+    if (manualHandoffOptions.worker?.autoStart !== false) worker.start();
   }
 
   await registerBatchRoutes(app, { store });

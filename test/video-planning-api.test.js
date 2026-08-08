@@ -21,6 +21,7 @@ function options({ agentOnline = false } = {}) {
 function productionOptions() {
   return { enabled: true, repository: createMemoryProductionOrderRepository(),
     planPort: { async resolveCurrentApprovedPlan() { return null; } },
+    inputSnapshotPort: { async freezeForOrder() { return { approved_copy_snapshot: { copy_version_id: "copy", product_revision_id: "revision", version_number: 1, status: "frozen", body: "copy", review: { id: "review", status: "approved" } }, product_revision_snapshot: { id: "revision", product_id: "product-a", status: "ready", product_name: "商品", asset_version_ids: ["asset"] }, asset_references: [{ asset_id: "asset", asset_version_id: "asset", role: "product_image", media_type: "image/png", size: 5, checksum: "6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d", retrieval_mode: "embedded", body: Buffer.from("image") }], avatar_selection_snapshot: { avatar_selection_id: "selection", copy_version_id: "copy", asset_version_id: "avatar", status: "confirmed", avatar_asset_id: "avatar", display_name: "人物", source_type: "enterprise", authorization_status: "valid", capability_status: "verified", capabilities: [{ code: "speech", evidence_reference: "seed:speech" }] } }; } },
     agentReadinessPort: { async isOnline() { return false; } } };
 }
 

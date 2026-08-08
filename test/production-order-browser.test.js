@@ -31,6 +31,12 @@ test("production workspace supports empty/create/re-entry flows at desktop and 3
       upstreamPort: { async resolveCurrent() { return null; } }, capabilitySnapshotPort: { async resolve() { return null; } },
       agentReadinessPort: { async isOnline() { return false; } } },
     productionOrders: { enabled: true, repository: createMemoryProductionOrderRepository(),
+      inputSnapshotPort: { async freezeForOrder() {
+        return { approved_copy_snapshot: { copy_version_id: "copy-browser", product_revision_id: "revision-browser", version_number: 1, status: "frozen", intent: "product_recommendation", body: "浏览器冻结文案正文", review: { id: "review-browser", status: "approved" } },
+          product_revision_snapshot: { id: "revision-browser", organization_id: "org-production-browser", project_id: "project-browser", product_id: product.id, status: "ready", revision_number: 1, product_name: "云感保湿乳", product_description: "日常保湿", asset_version_ids: ["product-image-browser"] },
+          asset_references: [{ asset_id: "asset-browser", asset_version_id: "product-image-browser", role: "product_image", display_name: "商品图", media_type: "image/png", size: 5, checksum: "6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d", retrieval_mode: "embedded", access_scope: "organization", body: Buffer.from("image") }],
+          avatar_selection_snapshot: { avatar_selection_id: "selection-browser", copy_version_id: "copy-browser", asset_version_id: "avatar-browser", status: "confirmed", version_number: 1, avatar_asset_id: "avatar-asset-browser", display_name: "浏览器人物", source_type: "enterprise", authorization_status: "valid", capability_status: "verified", capabilities: [{ code: "speech", evidence_reference: "seed:speech" }] } };
+      } },
       planPort: { async resolveCurrentApprovedPlan({ organizationId, productId }) {
         if (organizationId !== "org-production-browser" || productId !== product.id) return null;
         return { current_valid: true, gate: { can_create: true, reasons: [] },

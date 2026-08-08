@@ -51,11 +51,80 @@ function approvedPlan(overrides = {}) {
   };
 }
 
+function frozenInputSnapshot() {
+  return {
+    approved_copy_snapshot: {
+      copy_version_id: "copy-a-v3",
+      product_revision_id: "revision-a-v4",
+      version_number: 3,
+      status: "frozen",
+      intent: "product_recommendation",
+      body: "真实冻结文案：先展示使用场景，再说明保湿体验。",
+      frozen_at: "2026-08-08T08:06:00.000Z",
+      review: {
+        id: "review-a-v2",
+        status: "approved",
+        quality_result_id: "quality-a-v2",
+        profile_version: "commerce-cn-v1",
+        rule_version: "rules-2026-08",
+        reviewer_member_id: "reviewer-a",
+        decision_reason: "方案完整",
+        decided_at: "2026-08-08T08:10:00.000Z"
+      }
+    },
+    product_revision_snapshot: {
+      id: "revision-a-v4",
+      organization_id: actor.organizationId,
+      project_id: "project-a",
+      product_id: actor.productId,
+      status: "ready",
+      revision_number: 4,
+      product_name: "云感保湿乳",
+      product_description: "日常保湿护理",
+      primary_category: "beauty",
+      content_brief: { expression_style: "自然口语" },
+      selling_points: [{ id: "point-a", text: "清爽不黏", confirmed: true }],
+      asset_version_ids: ["product-asset-version-a"],
+      ready_at: "2026-08-08T08:02:00.000Z"
+    },
+    asset_references: [{
+      asset_id: "product-asset-a",
+      asset_version_id: "product-asset-version-a",
+      role: "product_image",
+      display_name: "商品主图",
+      media_type: "image/png",
+      size: 5,
+      checksum: "6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d",
+      retrieval_mode: "embedded",
+      access_scope: "organization",
+      body: Buffer.from("image")
+    }],
+    avatar_selection_snapshot: {
+      avatar_selection_id: "selection-a-v2",
+      copy_version_id: "copy-a-v3",
+      asset_version_id: "avatar-version-a-v2",
+      status: "confirmed",
+      version_number: 2,
+      confirmed_at: "2026-08-08T08:04:00.000Z",
+      avatar_asset_id: "avatar-a",
+      display_name: "林小满",
+      source_type: "enterprise",
+      authorization_status: "valid",
+      authorization_expires_at: "2027-12-31T15:59:59.000Z",
+      authorization_scope: "current_organization",
+      capability_status: "verified",
+      materials_accessible: true,
+      capabilities: [{ code: "mandarin_speech", evidence_reference: "seed:speech-v2" }]
+    }
+  };
+}
+
 function world({ plan = approvedPlan(), agentOnline = false } = {}) {
   const repository = createMemoryProductionOrderRepository();
   const service = createProductionOrderService({
     repository,
     planPort: { async resolveCurrentApprovedPlan() { return structuredClone(plan); } },
+    inputSnapshotPort: { async freezeForOrder() { return structuredClone(frozenInputSnapshot()); } },
     agentReadinessPort: { async isOnline() { return agentOnline; } },
     now: () => Date.parse("2026-08-08T09:00:00.000Z")
   });
@@ -72,6 +141,14 @@ test("creates a purpose-bound immutable snapshot and completes draft-ready-waiti
   assert.equal(result.order.input_snapshot.plan_review.status, "approved");
   assert.equal(result.order.input_snapshot.upstream_snapshot.copy_version_id, "copy-a-v3");
   assert.equal(result.order.input_snapshot.capability_config_snapshot.snapshot_version, "capability-v2");
+  assert.equal(result.order.input_snapshot.approved_copy_snapshot.body, "真实冻结文案：先展示使用场景，再说明保湿体验。");
+  assert.equal(result.order.input_snapshot.approved_copy_snapshot.review.status, "approved");
+  assert.equal(result.order.input_snapshot.product_revision_snapshot.product_name, "云感保湿乳");
+  assert.deepEqual(result.order.input_snapshot.product_revision_snapshot.asset_version_ids, ["product-asset-version-a"]);
+  assert.equal(result.order.input_snapshot.asset_references[0].asset_version_id, "product-asset-version-a");
+  assert.equal(result.order.input_snapshot.avatar_selection_snapshot.display_name, "林小满");
+  assert.equal(result.order.input_snapshot.avatar_selection_snapshot.authorization_status, "valid");
+  assert.equal(result.order.input_snapshot.avatar_selection_snapshot.capabilities[0].code, "mandarin_speech");
 
   const events = await repository.listAuditEvents();
   assert.deepEqual(events.map((event) => event.event_type), [

@@ -18,8 +18,8 @@
 ## 当前范围与非目标
 
 - 当前范围：D-030 的 VSA-A01～A14，对应 GitHub Issues #57～#70。
-- 当前阶段：VSA-A04～A08 已合并并关闭，A09-A10 页面设计已合并（main `1afac0b`）。A09 Issue #65 已在
-  `/private/tmp/hifly-vsa-a09` 独立 worktree 完成本地实现、独立代码审查与桌面/移动视觉验收，等待 PR/CI；A10 及 A11+ 未开始。
+- 当前阶段：VSA-A04～A08 已合并并关闭，A09-A10 页面设计已合并（main `1afac0b`）。A09 Issue #65 已通过
+  PR #86 合并；A10 Issue #66 已在 `/private/tmp/hifly-vsa-a10`、分支 `codex/vsa-a10-manual-handoff` 完成本地实现、Review 修复、真实链路/定向测试与桌面/移动视觉验收，等待主控独立 Review/PR/CI；A11+ 未开始。
 - 非目标：真实 Hifly 接入、Local Agent 自动执行、Playwright/影刀作为新 SaaS 主流程、SSO/MFA、多 Organization 切换、完整 RBAC、自动发布和客户计费。
 - 旧本地 GUI/Playwright 链路保持兼容，不作为 Slice A 完成条件。
 - Q-018、HIFLY-001、SPK-018 继续按 Evidence 管理，不因 Slice A 测试替身而关闭。
@@ -31,7 +31,7 @@
 | 1 | A01 / #57 | 企业身份与单 Organization 上下文 | 已合并，Issue 已关闭 |
 | 2 | A02 / #58 ‖ A03 / #59 | 商品权威快照 ‖ 素材上传核验 | 已合并，Issues 已关闭，Wave 2 验收通过 |
 | 3-5 | A04 / #60、A05 / #61、A06 / #62、A07 / #63 | 文案生成、质检、批准与已有人物选择 | 已合并，Issues 已关闭 |
-| 6-8 | A08 / #64、A09 / #65、A10 / #66 | 方案、工单与人工交接包 | A08 已合并并关闭；A09 本地实现与独立验收通过，待 PR/CI；A10 待开始 |
+| 6-8 | A08 / #64、A09 / #65、A10 / #66 | 方案、工单与人工交接包 | A08、A09 已合并并关闭；A10 本地实现与定向验收通过，待独立 Review/PR/CI |
 | 9-11 | A11 / #67、A12 / #68、A13 / #69 | 人工执行、产物核验、作品交付 | 等待前置 |
 | 12 | A14 / #70 | Slice A 端到端验收与加固 | 等待 A01～A13 |
 
@@ -54,10 +54,9 @@
 
 ## 下一步
 
-Owner 已明确恢复执行。A09-A10 Kimi 设计已完成并合并；A09 实现、Review 修复和独立验收已完成，当前等待 PR/CI。
+Owner 已明确恢复执行。A09-A10 Kimi 设计已完成并合并；A09 已合并，A10 本地实现与 Review 修复、定向验收已完成，当前等待主控独立 Review/PR/CI。
 
-1. 由 Sol 提交 A09、创建 PR 并等待 CI；实现者不得批准或合并自己的改动。
-2. A09、A10 实现必须分别使用自定义 Agent `luna-worker`；不得回退 Terra。
-3. A09 Review/PR/CI/合并完成后，才按独立 worktree 实现 A10；不开始 A11+。
-4. A09-A10 完成后，先由 Kimi K3 完成 A11-A13 页面设计，再按同一流程依次实现；不开始 A14。
-5. 每个里程碑结束时更新本文件与 `docs/status/CURRENT.md`。
+1. 由主控对 A10 独立 Review 后提交、创建 PR 并等待 CI；实现者不得批准或合并自己的改动。
+2. PostgreSQL clean migration/integration 在 CI 或带连接的受控环境补跑；本地无数据库连接时不得声称通过。
+3. A10 合并后先由 Kimi K3 完成 A11-A13 页面设计，再按同一流程依次实现；不开始 A14。
+4. 每个里程碑结束时更新本文件与 `docs/status/CURRENT.md`。

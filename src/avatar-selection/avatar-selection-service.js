@@ -69,6 +69,8 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       source_type: entry.asset.source_type, status: entry.asset.status, controlled_seed: entry.asset.controlled_seed,
       seed_label: entry.asset.seed_label, creation_supported: false, authorization_status: entry.asset_version.authorization_status,
       authorization_expires_at: entry.asset_version.authorization_expires_at,
+      authorization_scope: entry.asset_version.authorization_scope,
+      materials_accessible: entry.asset_version.materials_accessible,
       capability_status: entry.asset_version.capability_status,
       verified_capabilities: verified.map(({ code, label, evidence_reference }) => ({ code, label, evidence_reference })),
       asset_version: { id: entry.asset_version.id, version_number: entry.asset_version.version_number,

@@ -1,6 +1,7 @@
 (async () => {
   const params = new URLSearchParams(location.search), projectId = params.get("project"), requestedProductId = params.get("product");
-  let project, product, runtime, workspace, creating = false, selectedOrderId = params.get("orderId") || null, pendingCreateKey = null;
+  let project, product, runtime, workspace, packages = [], creating = false, packageBusy = false, packagePoll = null,
+    selectedOrderId = params.get("orderId") || null, pendingCreateKey = null, pendingPackageKey = null, pendingRetryKey = null;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const purposeLabels = { first_production: "首次生产", rework: "返工重做", supplemental_version: "补充版本", reproduction: "再次生产" };
@@ -9,12 +10,20 @@
     supplemental_version: "在已有生产结果之外，按相同方案追加生产一个版本。", reproduction: "按相同方案再次生产，例如原产物不可用或需要重出。"
   };
   const statusLabels = { draft: "草稿", ready: "已就绪", waiting_for_executor: "等待执行", claimed: "已领取", running: "执行中", requires_action: "需要处理", succeeded: "已完成", failed: "失败", cancel_requested: "取消中", cancelled: "已取消" };
+  const packageLabels = { generating: "生成中", ready: "可下载", generation_failed: "生成未完成", superseded: "已由新版本替代", expired: "下载权限已过期", revoked: "已停用" };
   const planLabels = { frozen: "已批准方案", draft: "草稿方案", superseded: "已被替代" };
   const gateLabels = { approved_plan_missing: "视频方案尚未通过人工审核，不能创建工单", plan_review_not_approved: "视频方案尚未通过人工审核，不能创建工单", preflight_not_reviewable: "视频方案预检尚未达到可生产条件，不能创建工单", preflight_invalidated: "方案批准已失效，请返回视频方案重新确认", upstream_changed: "方案引用的商品、文案或人物信息已变化，请创建新方案版本", capability_snapshot_changed: "方案能力配置已变化，请返回视频方案重新确认", plan_not_current: "当前方案已不是有效版本，请返回视频方案查看最新版本", plan_not_frozen: "视频方案尚未固定，不能创建工单" };
 
   async function request(url, options = {}) {
-    const headers = new Headers(options.headers || {}); if (options.method && options.method !== "GET") headers.set("x-identity-csrf", csrf());
-    const response = await fetch(url, { credentials: "same-origin", ...options, headers });
+    const method = String(options.method || "GET").toUpperCase();
+    const headers = new Headers(options.headers || {});
+    if (method !== "GET") {
+      headers.set("x-identity-csrf", csrf());
+      if (!headers.has("content-type")) headers.set("content-type", "application/json");
+    }
+    const fetchOptions = { credentials: "same-origin", ...options, method, headers };
+    if (method !== "GET" && fetchOptions.body == null && headers.get("content-type") === "application/json") fetchOptions.body = "{}";
+    const response = await fetch(url, fetchOptions);
     if (response.status === 401) { location.replace("/login.html"); throw new Error("AUTH_REQUIRED"); }
     const body = await response.json(); if (!response.ok) throw Object.assign(new Error(body.error), { status: response.status, body }); return body;
   }
@@ -40,7 +49,7 @@
     element("#contextSummary").textContent = plan ? `方案 v${plan.version_number} · ${workspace.gate.can_create ? "已批准" : "批准已失效"}` : "请先完成方案审核";
     const summary = plan ? `文案 ${short(plan.upstream_snapshot?.copy_version_id)} · 人物 ${short(plan.upstream_snapshot?.avatar_selection_id)}` : "等待当前有效已批准方案";
     element("#planContextLink").textContent = plan ? "查看方案 →" : "返回视频方案 →"; element("#contextSummary").title = summary;
-    if (workspace.execution_environment.online === false) notice(element("#executorNotice"), "当前没有可用的执行环境，工单将等待人工执行；不影响创建工单。", "blocked"); else notice(element("#executorNotice"));
+    if (workspace.execution_environment.online === false) notice(element("#executorNotice"), "当前没有可用的执行环境，工单将等待人工执行；不影响创建工单与交接包。", "blocked"); else notice(element("#executorNotice"));
     const createDisabled = !workspace.gate.can_create;
     for (const selector of ["#createOrderButton", "#createOrderEmpty"]) { const button = element(selector); button.disabled = createDisabled; button.title = createDisabled ? (gateLabels[reasons[0]] || "当前条件不满足，无法创建工单") : ""; }
     if (createDisabled) notice(element("#pageNotice"), reasons.map((reason) => gateLabels[reason] || "当前方案不可创建工单").join("；") + "。请返回视频方案处理。", "blocked"); else if (!element("#pageNotice").textContent || element("#pageNotice").classList.contains("blocked")) notice(element("#pageNotice"));
@@ -49,8 +58,8 @@
   function orderRow(order, mobile = false) {
     const button = document.createElement("button"); button.type = "button"; button.className = "order-row"; button.dataset.orderId = order.id; button.setAttribute("aria-current", String(order.id === selectedOrderId));
     const title = document.createElement("span"); title.className = "order-row-title"; const name = document.createElement("strong"); name.textContent = purposeLabels[order.execution_purpose] || "生产工单"; const state = document.createElement("span"); badge(state, order.status); title.append(name, state);
-    const meta = document.createElement("span"); meta.className = "order-row-meta"; const time = document.createElement("span"); time.textContent = formatTime(order.created_at); const packageState = document.createElement("span"); packageState.textContent = "交接包：尚未生成"; meta.append(time, packageState); button.append(title, meta);
-    button.addEventListener("click", () => { selectedOrderId = order.id; render(); if (mobile) element("#orderDrawer").close(); }); return button;
+    const meta = document.createElement("span"); meta.className = "order-row-meta"; const time = document.createElement("span"); time.textContent = formatTime(order.created_at); const packageState = document.createElement("span"); packageState.textContent = order.id === selectedOrderId ? `交接包：${packageLabels[packages[0]?.status] || "未生成"}` : "交接包：打开查看"; meta.append(time, packageState); button.append(title, meta);
+    button.addEventListener("click", () => { selectedOrderId = order.id; loadWorkspace().catch(() => notice(element("#pageNotice"), "工单状态读取失败，请刷新重试。", "error")); if (mobile) element("#orderDrawer").close(); }); return button;
   }
   function renderOrders() {
     const orders = workspace.orders || []; if (!selectedOrderId || !orders.some((order) => order.id === selectedOrderId)) selectedOrderId = orders.at(-1)?.id || null;
@@ -73,9 +82,54 @@
     element("#orderCreatedMeta").textContent = `创建于 ${formatTime(order.created_at)} · 工单输入只读固定。`;
     notice(element("#orderDetailNotice"), order.status === "waiting_for_executor" ? "工单将等待人工执行，不会自动开始生产。" : "");
   }
-  function renderPackagePlaceholder() { element("#packagePlaceholder").textContent = workspace.selected_order ? "当前工单尚未生成交接包。交接包生成能力将在后续阶段开放。" : "创建生产工单后，可在后续阶段生成人工交接包。"; }
-  function render() { renderContext(); renderGate(); renderOrders(); renderDetail(); renderPackagePlaceholder(); element("#productionWorkspace").hidden = false; }
-  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); render(); }
+  function packageStateClass(status) { return status === "ready" ? "ready" : status === "generating" ? "waiting_for_executor" : status === "generation_failed" ? "failure" : status === "expired" ? "blocked" : status === "superseded" || status === "revoked" ? "superseded" : ""; }
+  function currentPackage() { return packages[0] || null; }
+  function packageSummaryRows(summary) {
+    const rows = [
+      ["执行步骤", summary.execution_steps],
+      ["业务约束", summary.business_constraints],
+      ["预期行为", summary.expected_behavior],
+      ["输出要求", summary.output_requirements ? [`数量：${summary.output_requirements.expected_quantity}`, `命名：${summary.output_requirements.file_naming_rule}`, `类型：${summary.output_requirements.accepted_media_types.join("、")}`, ...summary.output_requirements.minimum_validation_requirements] : []],
+      ["素材", summary.assets?.map((asset) => `${asset.display_name}：${asset.retrieval_mode === "embedded" ? "已随包附带" : asset.retrieval_mode === "short_lived_fetch" ? "使用时短时获取" : "执行环境已有素材"}`) || []]
+    ];
+    return rows.filter(([, values]) => values?.length).map(([label, values]) => { const row = document.createElement("div"); row.className = "package-summary-row"; const title = document.createElement("strong"); title.textContent = label; const list = document.createElement("ul"); for (const value of values) { const item = document.createElement("li"); item.textContent = value; list.append(item); } row.append(title, list); return row; });
+  }
+  function renderPackage() {
+    const panel = element("#packagePanel"), title = element("#packageTitle"), status = element("#packageStatus"), meta = element("#packageMeta"), integrity = element("#packageIntegrity"), failure = element("#packageFailure"), content = element("#packageContent"), actions = element("#packageActions"), history = element("#packageHistory"), historyList = element("#packageHistoryList"), future = element(".future-stage-card");
+    if (!runtime?.manualHandoffEnabled) {
+      panel.dataset.feature = "disabled"; title.textContent = "尚未生成交接包"; status.textContent = "未生成"; status.className = "state"; meta.textContent = "创建生产工单后，可在后续阶段生成人工交接包。当前阶段不会自动开始生产。"; integrity.textContent = ""; notice(failure); notice(element("#packageNotice")); content.hidden = true; actions.hidden = true; history.hidden = true; future.hidden = true; return;
+    }
+    panel.dataset.feature = "enabled"; future.hidden = false;
+    const value = currentPackage();
+    if (!workspace?.selected_order || !selectedOrderId) {
+      title.textContent = "尚未生成交接包"; status.textContent = "未生成"; status.className = "state"; meta.textContent = "创建生产工单后，可以生成一份供人工执行的交接包。"; integrity.textContent = ""; notice(failure); content.hidden = true; actions.hidden = true; history.hidden = true; return;
+    }
+    if (!value) {
+      title.textContent = "尚未生成交接包"; status.textContent = "未生成"; status.className = "state"; meta.textContent = "当前工单还没有交接包；生成后可在此查看内容摘要与下载。"; integrity.textContent = ""; notice(failure); content.hidden = true; actions.hidden = false; history.hidden = true; element("#generatePackageButton").hidden = false; element("#retryPackageButton").hidden = true; element("#authorizePackageButton").hidden = true; element("#downloadPackageButton").hidden = true; for (const button of actions.querySelectorAll("button")) button.disabled = packageBusy; notice(element("#packageNotice"), "生成交接包不会开始执行。", ""); return;
+    }
+    title.textContent = value.status === "ready" ? "交接包已准备好" : value.status === "generating" ? "正在生成交接包" : "交接包历史状态";
+    status.textContent = packageLabels[value.status] || "状态待确认"; status.className = `state ${packageStateClass(value.status)}`;
+    meta.textContent = `包版本 v${value.package_version} · ${formatTime(value.created_at)}${value.supersedes_package_id ? " · 已替代上一版本" : ""}`;
+    integrity.textContent = value.integrity_summary ? `完整性摘要：${value.integrity_summary}` : "生成完成后显示完整性摘要";
+    if (value.failure_reason) notice(failure, value.failure_reason, "error"); else notice(failure);
+    const summary = value.content_summary;
+    content.hidden = !summary; if (summary) element("#packageContentSummary").replaceChildren(...packageSummaryRows(summary));
+    actions.hidden = !["ready", "generation_failed", "expired"].includes(value.status);
+    element("#generatePackageButton").hidden = true; element("#retryPackageButton").hidden = value.status !== "generation_failed"; element("#authorizePackageButton").hidden = value.status !== "expired"; element("#downloadPackageButton").hidden = value.status !== "ready";
+    for (const button of actions.querySelectorAll("button")) button.disabled = packageBusy;
+    if (value.status === "generating") notice(element("#packageNotice"), "正在生成；离开或刷新页面后，可从当前工单继续查看。", "");
+    else if (value.status === "ready") notice(element("#packageNotice"), "下载不代表开始执行。", "");
+    else if (value.status === "expired") notice(element("#packageNotice"), "下载权限已过期；重新获取权限不会创建新的包版本。", "blocked");
+    else notice(element("#packageNotice"));
+    const previous = packages.slice(1); history.hidden = previous.length === 0; historyList.replaceChildren(...previous.map((item) => { const row = document.createElement("div"); row.className = "package-history-row"; const name = document.createElement("strong"); name.textContent = `v${item.package_version} · ${packageLabels[item.status] || "状态待确认"}`; const date = document.createElement("span"); date.textContent = formatTime(item.updated_at || item.created_at); row.append(name, date); return row; }));
+  }
+  function schedulePackagePoll() { if (packagePoll) { clearTimeout(packagePoll); packagePoll = null; } if (runtime?.manualHandoffEnabled && currentPackage()?.status === "generating") packagePoll = setTimeout(() => loadPackages().catch(() => undefined), 2500); }
+  async function loadPackages({ render = true } = {}) {
+    if (!runtime?.manualHandoffEnabled || !selectedOrderId) { packages = []; if (render) renderPackage(); return; }
+    const body = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/manual-handoff-packages`); packages = body.packages || []; if (render) renderPackage(); schedulePackagePoll();
+  }
+  function render() { renderContext(); renderGate(); renderOrders(); renderDetail(); renderPackage(); element("#productionWorkspace").hidden = false; }
+  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadPackages({ render: false }); render(); }
   function openCreateOrder() { if (!workspace.gate.can_create || creating) return; pendingCreateKey = null; element("#createOrderError").textContent = ""; element("#createOrderForm").reset(); renderDialogSnapshot(); element("#createOrderDialog").showModal(); }
   function renderDialogSnapshot() { const plan = workspace.current_plan, upstream = plan?.upstream_snapshot || {}; element("#dialogSnapshot").replaceChildren(...[["商品快照", short(upstream.product_revision_id)], ["已批准文案", short(upstream.copy_version_id)], ["已确认人物", short(upstream.avatar_selection_id)], ["视频方案", plan ? `v${plan.version_number}` : "未就绪"]].map(([label, value]) => { const row = document.createElement("div"); row.className = "dialog-snapshot-row"; const name = document.createElement("strong"); name.textContent = label; const meta = document.createElement("span"); meta.textContent = value; row.append(name, meta); return row; })); }
   async function submitCreate(event) { event.preventDefault(); if (creating || !workspace.gate.can_create) return; const selected = document.querySelector("input[name=executionPurpose]:checked"); if (!selected) return; creating = true; const button = element("#confirmCreateOrder"); button.disabled = true; pendingCreateKey ||= crypto.randomUUID(); element("#createOrderError").textContent = "";
@@ -83,8 +137,14 @@
     catch (error) { if (error.status === 409) element("#createOrderError").textContent = "创建信息已变化或请求已冲突，请刷新后重新确认。"; else if (error.status === 422) element("#createOrderError").textContent = (error.body?.reasons || []).map((reason) => gateLabels[reason] || "当前方案不可创建工单").join("；") || "当前方案不可创建工单，请返回视频方案处理。"; else element("#createOrderError").textContent = "创建未完成（技术原因），你的操作未生效；可以使用同一目的重试。"; }
     finally { creating = false; button.disabled = !document.querySelector("input[name=executionPurpose]:checked"); }
   }
+  function packageError(error) { if (error.status === 403 || error.body?.error === "MANUAL_HANDOFF_FORBIDDEN") return "你没有权限操作当前交接包。"; if (error.status === 404) return "当前工单或交接包不存在，请刷新后重试。"; if (error.status === 409) return "请求信息已变化，请刷新后重试。"; if (error.body?.error === "MANUAL_HANDOFF_PACKAGE_NOT_READY") return "交接包仍在生成，请稍后查看。"; return "交接包操作未完成，请稍后重试。"; }
+  async function generatePackage() { if (packageBusy || !selectedOrderId) return; packageBusy = true; pendingPackageKey ||= crypto.randomUUID(); renderPackage(); try { const result = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/manual-handoff-packages`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": pendingPackageKey }, body: JSON.stringify({ generation_request_id: pendingPackageKey }) }); pendingPackageKey = null; await loadPackages(); notice(element("#packageNotice"), result.replayed ? "已恢复同一次生成请求；离开或刷新页面后仍可继续查看。" : "生成请求已受理；离开或刷新页面后仍可继续查看。", ""); } catch (error) { notice(element("#packageNotice"), packageError(error), "error"); } finally { packageBusy = false; renderPackage(); } }
+  async function retryPackage() { const value = currentPackage(); if (packageBusy || !value) return; packageBusy = true; pendingRetryKey ||= crypto.randomUUID(); renderPackage(); try { const result = await request(`/api/manual-handoff-packages/${encodeURIComponent(value.id)}/retry`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": pendingRetryKey }, body: JSON.stringify({ generation_request_id: pendingRetryKey }) }); pendingRetryKey = null; await loadPackages(); notice(element("#packageNotice"), result.replayed ? "已恢复同一次重试请求。" : "重试请求已受理；不会创建新的包版本。", ""); } catch (error) { notice(element("#packageNotice"), packageError(error), "error"); } finally { packageBusy = false; renderPackage(); } }
+  async function authorizePackage() { const value = currentPackage(); if (packageBusy || !value) return; packageBusy = true; renderPackage(); try { await request(`/api/manual-handoff-packages/${encodeURIComponent(value.id)}/download-authorizations`, { method: "POST" }); await loadPackages(); notice(element("#packageNotice"), "下载权限已重新获取；包版本未改变。", ""); } catch (error) { notice(element("#packageNotice"), packageError(error), "error"); } finally { packageBusy = false; renderPackage(); } }
+  async function downloadPackage() { const value = currentPackage(); if (packageBusy || !value) return; packageBusy = true; renderPackage(); try { await request(`/api/manual-handoff-packages/${encodeURIComponent(value.id)}/download-authorizations`, { method: "POST" }); await loadPackages(); const link = document.createElement("a"); link.href = `/api/manual-handoff-packages/${encodeURIComponent(value.id)}/download`; link.download = `manual-handoff-${value.id}.zip`; link.style.position = "fixed"; link.style.left = "-10000px"; link.style.top = "-10000px"; document.body.append(link); link.click(); setTimeout(() => link.remove(), 1000); } catch (error) { notice(element("#packageNotice"), packageError(error), "error"); } finally { packageBusy = false; renderPackage(); } }
   element("#createOrderButton").addEventListener("click", openCreateOrder); element("#createOrderEmpty").addEventListener("click", openCreateOrder); element("#createOrderForm").addEventListener("submit", submitCreate); element("#cancelCreateOrder").addEventListener("click", () => element("#createOrderDialog").close()); element("#closeCreateOrder").addEventListener("click", () => element("#createOrderDialog").close());
   document.querySelectorAll("input[name=executionPurpose]").forEach((input) => input.addEventListener("change", () => { if (!creating) element("#confirmCreateOrder").disabled = false; }));
+  element("#generatePackageButton").addEventListener("click", generatePackage); element("#retryPackageButton").addEventListener("click", retryPackage); element("#authorizePackageButton").addEventListener("click", authorizePackage); element("#downloadPackageButton").addEventListener("click", downloadPackage);
   element("#mobileOrderTrigger").addEventListener("click", () => element("#orderDrawer").showModal()); element("#closeOrderDrawer").addEventListener("click", () => element("#orderDrawer").close()); element("#refreshProduction").addEventListener("click", () => loadWorkspace().catch(() => notice(element("#pageNotice"), "工单状态读取失败，请刷新重试。", "error")));
   element("#productSelector").addEventListener("change", async (event) => { product = project.products.find((item) => item.id === event.currentTarget.value); selectedOrderId = null; await loadWorkspace(); });
   if (!projectId) { notice(element("#pageNotice"), "缺少项目上下文，请从项目页面重新进入。", "error"); return; }
