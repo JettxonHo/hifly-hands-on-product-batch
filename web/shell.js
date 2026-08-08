@@ -24,7 +24,8 @@
         if (nav.querySelector('[data-feature="works"]')) continue;
         const link = document.createElement("a"); link.href = "/works.html"; link.dataset.page = "works"; link.dataset.feature = "works"; link.textContent = "作品库";
         if (currentPage === "works") link.setAttribute("aria-current", "page");
-        nav.append(link);
+        const firstAdminLink = nav.querySelector('[data-role="admin"]');
+        if (firstAdminLink) nav.insertBefore(link, firstAdminLink); else nav.append(link);
       }
     }
     for (const link of document.querySelectorAll('[data-role="admin"]')) link.hidden = context.membership.role !== "admin";

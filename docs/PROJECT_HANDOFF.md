@@ -6,10 +6,11 @@
 ## 2026-08-09 VSA-A13 作品检查与交付记录（luna-worker；未访问飞影、未消耗积分）
 
 - Issue #69 已在隔离 worktree `/private/tmp/hifly-vsa-a13`、分支 `codex/vsa-a13-work-delivery`、基线 `e0b99414fd0ad7f070fc18860b2382502c5d48f7` 完成；已创建本地 commit。未 push、建 PR、批准/合并或关闭 Issue；根工作区及 `gui/visual-refresh` 脏文件未触碰。
-- 已实现 `src/work-delivery/` 的 Work 检查/交付服务、memory/PostgreSQL repository、migration、审计/状态账本与 API；复用 A12 正式 Work，不重建或覆盖 Work。检查历史 superseded 投影保留旧记录，返工不会伪造后续工单/Work；passed 是交付门禁，DeliveryRecord 与 Work 分离，下载不登记交付。
+- 已实现 `src/work-delivery/` 的 Work 检查/交付服务、memory/PostgreSQL repository、migration、审计/状态账本与 API；复用 A12 正式 Work，不重建或覆盖 Work。pending/passed 可按当前版本前提创建新检查并保留 superseded 旧记录；当前 rework_required 的原 Work 禁止再次通过或再次返工，必须由上游新周期/新工单产生新作品（不在本 Slice 创建）；passed 是交付门禁，DeliveryRecord 与 Work 分离，下载不登记交付。
 - Sol Review 的 Important 修复：migration CHECK 显式允许 pending/passed 空字段、rework_required 三项完整、superseded 保留原字段；pass/rework/delivery 服务与 route 强制 inspection identity+revision，缺失 400、stale 409、原 receipt 可在状态变化后回放；memory ledger 在更新 superseded projection 前保存原 `from_status`，与 PG 一致。未增加哈希或无关防御。
+- Final review follow-up 已补：作品库导航按项目/素材中心/作品库/成员管理插入；pending 通过先展示选中作品摘要与“确认此作品通过检查，可交付”轻确认 Dialog；rework_required 禁用两项检查按钮，移动主操作只打开作品抽屉；有 project/product 上下文时提供对应上游页面链接，无上下文不造链接；交付 Dialog 提供默认当前时间的可编辑字段并保存 ISO 时间。
 - 已实现同幂等键回放/冲突、显式版本前提、多个真实交付、事务与并发锁、Organization/角色隔离、跨组织拒绝和下载授权；UI 为新 `works.html/css/js`，作品库默认关闭，开启后动态导航，A12 production 摘要按 flag 动态入口，业务语言不暴露内部实现词。
-- 已执行：A13 service/API/PG 定向 9 pass/1 skip；A13 系统 Chrome 本地 fake 1 pass（1440/390、检查/交付/返工、无横滚、吸底操作）；A12 service/API/worker 3 pass；A12 系统 Chrome 回归 1 pass；`npm run check` 178 JS 通过；`npm test` 800/756 pass/0 fail/44 skip；`git diff --check` 通过。PG skip 原因是本机没有 `TEST_DATABASE_URL` 或 `IDENTITY_TEST_DATABASE_URL`，未声称 PG 通过。
+- 已执行：A13 service/API/PG 定向 10 pass/1 skip；A13 系统 Chrome 本地 fake 1 pass（1440/390、导航顺序、通过确认、交付时间、检查/交付/返工、上游链接、无横滚、移动吸底操作）；A12 service/API/worker 3 pass；A12 系统 Chrome 回归 1 pass；`npm run check` 178 JS 通过；`npm test` 801/757 pass/0 fail/44 skip；`git diff --check` 通过。PG skip 原因是本机没有 `TEST_DATABASE_URL` 或 `IDENTITY_TEST_DATABASE_URL`，未声称 PG 通过。
 - 模型路由：准确自定义 Agent `luna-worker`，`~/.codex/agents/luna-worker.toml` 已核验 `gpt-5.6-luna` / Max，`CONFIG_VERIFIED`；运行时模型不可见，`UNVERIFIED_RUNTIME_MODEL`；禁止 Terra 回退。
 - 当前阶段与主要剩余项：A13 实现与本地验证完成，剩余上游 Review/CI、带 PostgreSQL 连接的 clean migration/integration；CI 通过后停止，不开始 A14。当前关键批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f` 与 `batch-ec174f28-e9b8-4541-b2e7-c60b10e22474` 均未触碰。
 

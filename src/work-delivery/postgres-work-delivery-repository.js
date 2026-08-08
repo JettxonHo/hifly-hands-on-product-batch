@@ -112,6 +112,7 @@ export function createPostgresWorkDeliveryRepository({ pool, ownsPool = false } 
         const prior = await currentInspection(client, inspection.organization_id, inspection.work_id, true);
         if (expectedInspectionId && prior?.id !== expectedInspectionId) throw failure("WORK_DELIVERY_INSPECTION_CONFLICT");
         if (expectedRevision != null && (!prior || Number(prior.revision) !== Number(expectedRevision))) throw failure("WORK_DELIVERY_INSPECTION_CONFLICT");
+        if (prior?.status === "rework_required") throw failure("WORK_DELIVERY_REWORK_BLOCKED");
         const next = { ...inspection, revision: (prior?.revision || 0) + 1 };
         const saved = inspectionProjection(one(await client.query(
           `INSERT INTO work_inspections

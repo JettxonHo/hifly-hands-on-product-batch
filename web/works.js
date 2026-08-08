@@ -5,6 +5,7 @@
   const inspectionLabels = { pending: "待检查", passed: "已通过", rework_required: "需要返工", superseded: "已替代" };
   const categoryLabels = { content_not_as_planned: "内容与方案不一致", visual_quality: "画面质量", audio_or_avatar: "声音或人物", file_or_format: "文件或格式", other: "其他" };
   const stageLabels = { video_plan: "视频方案", copy_review: "文案审核", avatar_selection: "人物选择", project_content: "商品资料" };
+  const upstreamPaths = { video_plan: "/plan.html", copy_review: "/copy.html", avatar_selection: "/avatar.html", project_content: "/project.html" };
   const deliveryLabels = { manual_transfer: "人工转交", email: "邮件", enterprise_drive: "企业云盘", other: "其他" };
   const deliveryFilter = el("#deliveryFilter"), projectFilter = el("#projectFilter");
 
@@ -58,6 +59,14 @@
   }
 
   function currentInspection() { return selected?.current_inspection || null; }
+
+  function upstreamHref(inspection) {
+    if (inspection?.status !== "rework_required" || !selected?.project_id || !selected?.product_id) return "";
+    const project = encodeURIComponent(selected.project_id), product = encodeURIComponent(selected.product_id);
+    const path = upstreamPaths[inspection.target_upstream_stage];
+    if (!path) return "";
+    return path === "/project.html" ? `/project.html?id=${project}` : `${path}?project=${project}&product=${product}`;
+  }
 
   function filteredWorks() {
     return works.filter((work) => (projectFilter.value === "all" || work.project_id === projectFilter.value) &&
@@ -142,9 +151,9 @@
   function actionExplanation() {
     if (!selected) return "选择作品后，这里会显示下一步。";
     const inspection = currentInspection();
+    if (inspection?.status === "rework_required") return `当前作品需要返工：新的上游生产周期和新工单会产生新的作品，原作品与检查历史会保留。请由${stageLabels[inspection.target_upstream_stage] || "上游负责人"}处理“${inspection.reason || "检查提出的问题"}”。`;
     if (selected.delivery_status === "delivered") return `已登记 ${selected.delivery_count} 次交付。再次交付需要新的明确登记，由交付负责人处理。`;
     if (inspection?.status === "pending") return "检查尚未完成。请由内容审核人先确认作品，下一步可标记为通过或登记返工。";
-    if (inspection?.status === "rework_required") return `当前作品需要返工，请由${stageLabels[inspection.target_upstream_stage] || "上游负责人"}处理“${inspection.reason || "检查提出的问题"}”，完成后重新检查。`;
     if (inspection?.status === "passed") return "作品已通过检查，可以登记一次真实交付；交付记录会保留在历史中。";
     return "请先完成检查，再进行交付登记。";
   }
@@ -154,13 +163,18 @@
     state(el("#actionState"), selected ? (selected.delivery_status === "delivered" ? "delivered" : inspection?.status) : "", selected ? (selected.delivery_status === "delivered" ? statusLabels : inspectionLabels) : statusLabels);
     el("#actionExplanation").textContent = actionExplanation();
     const pass = el("#passInspection"), rework = el("#requestRework"), delivery = el("#recordDelivery"), blocked = el("#deliveryBlockedReason");
-    pass.disabled = !selected || busy; pass.textContent = inspection?.status === "rework_required" ? "完成处理并通过检查" : "标记为通过";
-    rework.disabled = !selected || busy;
+    const reworkBlocked = inspection?.status === "rework_required";
+    pass.disabled = !selected || busy || reworkBlocked; pass.textContent = reworkBlocked ? "无法再次通过检查" : "标记为通过";
+    rework.disabled = !selected || busy || reworkBlocked;
     delivery.disabled = !ready || busy;
-    blocked.textContent = ready ? "" : selected ? "交付登记需先通过检查；由内容审核人处理检查状态。" : "选择作品后可查看交付条件。";
+    blocked.textContent = ready ? "" : selected ? reworkBlocked ? "当前作品需要返工；请按提示创建新的上游生产周期和新工单。" : "交付登记需先通过检查；由内容审核人处理检查状态。" : "选择作品后可查看交付条件。";
+    const upstream = el("#upstreamActionLink"), href = upstreamHref(inspection);
+    if (href) { upstream.href = href; upstream.textContent = `返回${stageLabels[inspection.target_upstream_stage] || "上游阶段"} →`; upstream.hidden = false; }
+    else { upstream.hidden = true; upstream.removeAttribute("href"); }
     const mobile = el("#mobilePrimaryAction"); mobile.disabled = busy;
     if (!selected) { mobile.textContent = "选择作品"; mobile.disabled = false; }
     else if (ready) mobile.textContent = "登记一次交付";
+    else if (reworkBlocked) mobile.textContent = "选择其他作品";
     else mobile.textContent = pass.textContent;
   }
 
@@ -199,6 +213,7 @@
   function operationError(error, action) {
     if (error.status === 403) return { text: `当前账号没有${action}权限，请联系组织管理员。`, tone: "blocked" };
     if (error.status === 409) return { text: "作品状态已被更新，请刷新后使用最新检查记录重试。", tone: "blocked" };
+    if (error.status === 422 && error.body?.error === "WORK_DELIVERY_REWORK_BLOCKED") return { text: "当前作品已登记返工：需要新的上游生产周期和新工单，原作品与检查历史会保留。", tone: "blocked" };
     if (error.status === 422) return { text: "当前条件不满足，先完成检查或处理返工提示后再继续。", tone: "blocked" };
     if (error.status === 400) return { text: "请补齐必填信息后重试。", tone: "error" };
     return { text: `${action}未完成（技术原因），你的操作未生效；可以稍后重试。`, tone: "error" };
@@ -212,9 +227,17 @@
     finally { busy = false; renderActions(); }
   }
 
-  async function passInspection() {
-    if (!selected) return;
+  function openPassDialog() {
+    if (!selected || busy || currentInspection()?.status === "rework_required") return;
+    el("#passWorkSummary").textContent = `作品：${workTitle(selected)} · 项目：${selected.project_name || "来源项目已固定"}`;
+    el("#passDialog").showModal();
+  }
+
+  async function submitPass(event) {
+    event.preventDefault();
+    if (!selected || currentInspection()?.status === "rework_required") return;
     const inspection = currentInspection();
+    el("#passDialog").close();
     await runCommand("检查", () => request(`/api/works/${encodeURIComponent(selected.id)}/inspections/pass`, { method: "POST", body: JSON.stringify({ idempotency_key: crypto.randomUUID(), expected_inspection_id: inspection?.id, expected_revision: inspection?.revision }) }));
   }
 
@@ -233,9 +256,13 @@
     event.preventDefault();
     if (!selected) return;
     const method = el("#deliveryMethod").value, recipient = el("#deliveryRecipient").value.trim(), noteText = el("#deliveryNote").value.trim();
+    const deliveredAt = new Date(el("#deliveryTime").value);
+    const deliveredAtIso = Number.isNaN(deliveredAt.valueOf()) ? null : deliveredAt.toISOString();
     busy = true; el("#submitDelivery").disabled = true;
     const inspection = currentInspection();
-    try { await request(`/api/works/${encodeURIComponent(selected.id)}/deliveries`, { method: "POST", body: JSON.stringify({ idempotency_key: crypto.randomUUID(), delivery_method: method, recipient_reference: recipient || null, note: noteText || null, expected_inspection_id: inspection?.id, expected_revision: inspection?.revision }) }); el("#deliveryDialog").close(); await loadWorks(); notice(el("#actionNotice"), "交付已登记；这次记录已保留。", "success"); }
+    const payload = { idempotency_key: crypto.randomUUID(), delivery_method: method, recipient_reference: recipient || null, note: noteText || null, expected_inspection_id: inspection?.id, expected_revision: inspection?.revision };
+    if (deliveredAtIso) payload.delivered_at = deliveredAtIso;
+    try { await request(`/api/works/${encodeURIComponent(selected.id)}/deliveries`, { method: "POST", body: JSON.stringify(payload) }); el("#deliveryDialog").close(); await loadWorks(); notice(el("#actionNotice"), "交付已登记；这次记录已保留。", "success"); }
     catch (error) { el("#deliveryError").textContent = operationError(error, "交付登记").text; }
     finally { busy = false; el("#submitDelivery").disabled = false; renderActions(); }
   }
@@ -254,17 +281,20 @@
   }
 
   function resetDialog(form, error) { form.reset(); error.textContent = ""; }
+  function localDateTimeValue() { const now = new Date(), local = new Date(now.getTime() - now.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 16); }
+  function openDeliveryDialog() { resetDialog(el("#deliveryForm"), el("#deliveryError")); el("#deliveryTime").value = localDateTimeValue(); el("#deliveryDialog").showModal(); }
 
   el("#refreshWorks").addEventListener("click", () => loadWorks({ preserveSelection: true }));
   projectFilter.addEventListener("change", renderList); deliveryFilter.addEventListener("change", renderList);
   el("#openWorkDrawer").addEventListener("click", () => el("#workDrawer").showModal()); el("#closeWorkDrawer").addEventListener("click", () => el("#workDrawer").close());
-  el("#passInspection").addEventListener("click", passInspection); el("#requestRework").addEventListener("click", () => { resetDialog(el("#reworkForm"), el("#reworkError")); el("#reworkDialog").showModal(); });
+  el("#passInspection").addEventListener("click", openPassDialog); el("#passForm").addEventListener("submit", submitPass); el("#cancelPass").addEventListener("click", () => el("#passDialog").close()); el("#closePass").addEventListener("click", () => el("#passDialog").close());
+  el("#requestRework").addEventListener("click", () => { resetDialog(el("#reworkForm"), el("#reworkError")); el("#reworkDialog").showModal(); });
   el("#cancelRework").addEventListener("click", () => el("#reworkDialog").close()); el("#closeRework").addEventListener("click", () => el("#reworkDialog").close()); el("#reworkForm").addEventListener("submit", submitRework);
-  el("#recordDelivery").addEventListener("click", () => { resetDialog(el("#deliveryForm"), el("#deliveryError")); el("#deliveryDialog").showModal(); });
+  el("#recordDelivery").addEventListener("click", openDeliveryDialog);
   el("#cancelDelivery").addEventListener("click", () => el("#deliveryDialog").close()); el("#closeDelivery").addEventListener("click", () => el("#deliveryDialog").close()); el("#deliveryForm").addEventListener("submit", submitDelivery);
   el("#previewWork").addEventListener("click", preview);
   el("#workVideo").addEventListener("error", () => notice(el("#previewNotice"), "预览暂不可用（技术原因），可以下载文件后查看。", "blocked"));
-  el("#mobilePrimaryAction").addEventListener("click", () => { if (!selected) return el("#openWorkDrawer").click(); if (currentInspection()?.status === "passed") return el("#recordDelivery").click(); return passInspection(); });
+  el("#mobilePrimaryAction").addEventListener("click", () => { if (!selected) return el("#openWorkDrawer").click(); const status = currentInspection()?.status; if (status === "rework_required") return el("#workDrawer").showModal(); if (status === "passed") return el("#recordDelivery").click(); return openPassDialog(); });
 
   try {
     runtime = await request("/api/runtime");

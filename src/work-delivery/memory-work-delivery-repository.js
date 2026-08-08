@@ -67,6 +67,7 @@ export function createMemoryWorkDeliveryRepository() {
       const prior = current(inspection.organization_id, inspection.work_id);
       if (expectedInspectionId && prior?.id !== expectedInspectionId) throw failure("WORK_DELIVERY_INSPECTION_CONFLICT");
       if (expectedRevision != null && (!prior || Number(prior.revision) !== Number(expectedRevision))) throw failure("WORK_DELIVERY_INSPECTION_CONFLICT");
+      if (prior?.status === "rework_required") throw failure("WORK_DELIVERY_REWORK_BLOCKED");
       const priorStatus = prior?.status || null;
       const next = { ...clone(inspection), revision: (prior?.revision || 0) + 1 };
       inspections.set(next.id, next);

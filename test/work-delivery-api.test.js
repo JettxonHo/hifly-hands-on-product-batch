@@ -108,6 +108,17 @@ test("works API enforces stale inspection preconditions and replays the same com
   const replay = await enabled.app.inject({ method: "POST", url: "/api/works/work-api-real/inspections/pass", headers: { ...mutation, "idempotency-key": payload.idempotency_key }, payload });
   assert.equal(replay.statusCode, 200);
   assert.equal(replay.json().replayed, true);
+  const passed = first.json().inspection;
+  const rework = await enabled.app.inject({ method: "POST", url: "/api/works/work-api-real/inspections/rework", headers: { ...mutation, "idempotency-key": "api-rework" },
+    payload: { category: "visual_quality", reason: "需要上游重新制作", target_upstream_stage: "video_plan", expected_inspection_id: passed.id, expected_revision: passed.revision } });
+  assert.equal(rework.statusCode, 201);
+  const blockedPass = await enabled.app.inject({ method: "POST", url: "/api/works/work-api-real/inspections/pass", headers: { ...mutation, "idempotency-key": "api-pass-after-rework" },
+    payload: { expected_inspection_id: rework.json().inspection.id, expected_revision: rework.json().inspection.revision } });
+  assert.equal(blockedPass.statusCode, 422);
+  assert.equal(blockedPass.json().error, "WORK_DELIVERY_REWORK_BLOCKED");
+  const unchanged = await enabled.app.inject({ method: "GET", url: "/api/works/work-api-real", headers: read });
+  assert.equal(unchanged.json().work.current_inspection.status, "rework_required");
+  assert.equal(unchanged.json().work.inspection_history.length, 3);
   const stale = await enabled.app.inject({ method: "POST", url: "/api/works/work-api-real/inspections/rework", headers: { ...mutation, "idempotency-key": "api-stale" },
     payload: { category: "visual_quality", reason: "过期检查", target_upstream_stage: "video_plan", expected_inspection_id: pending.id, expected_revision: pending.revision } });
   assert.equal(stale.statusCode, 409);

@@ -70,6 +70,33 @@ test("rework creates a new inspection, supersedes only the prior status projecti
   assert.equal(transitions.find((entry) => entry.to_status === "rework_required").from_status, "passed");
 });
 
+test("rework blocks another inspection and preserves the original work history", async () => {
+  const { service, repository } = world();
+  const pending = (await service.listWorks(actor))[0].current_inspection;
+  const passed = await service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "blocked-pass-source",
+    expectedInspectionId: pending.id, expectedRevision: pending.revision });
+  const rework = await service.requestRework({ ...actor, workId: "work-a", idempotencyKey: "blocked-rework-source",
+    category: "visual_quality", reason: "需要上游重新制作", targetUpstreamStage: "video_plan",
+    expectedInspectionId: passed.inspection.id, expectedRevision: passed.inspection.revision });
+
+  await assert.rejects(
+    service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "blocked-pass-after-rework",
+      expectedInspectionId: rework.inspection.id, expectedRevision: rework.inspection.revision }),
+    (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED"
+  );
+  await assert.rejects(
+    service.requestRework({ ...actor, workId: "work-a", idempotencyKey: "blocked-rework-after-rework",
+      category: "file_or_format", reason: "不能绕过上游周期", targetUpstreamStage: "project_content",
+      expectedInspectionId: rework.inspection.id, expectedRevision: rework.inspection.revision }),
+    (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED"
+  );
+  const current = await service.getWork({ ...actor, workId: "work-a" });
+  assert.equal(repository._records.inspections.size, 3);
+  assert.equal(current.current_inspection.status, "rework_required");
+  assert.equal(current.current_inspection.reason, "需要上游重新制作");
+  assert.equal(current.inspection_history.length, 3);
+});
+
 test("inspection and delivery commands require the current inspection identity and revision", async () => {
   const { service } = world();
 
@@ -107,7 +134,7 @@ test("delivery is gated by the current passed inspection and duplicate requests 
   );
   const passed = await service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "pass-delivery",
     expectedInspectionId: pending.id, expectedRevision: pending.revision });
-  const input = { ...actor, workId: "work-a", deliveryMethod: "email", note: "发送给运营团队", idempotencyKey: "delivery-one",
+  const input = { ...actor, workId: "work-a", deliveryMethod: "email", note: "发送给运营团队", deliveredAt: "2026-08-09T09:15:00+08:00", idempotencyKey: "delivery-one",
     expectedInspectionId: passed.inspection.id, expectedRevision: passed.inspection.revision };
   const first = await service.createDelivery(input);
   const replay = await service.createDelivery(input);
@@ -118,6 +145,7 @@ test("delivery is gated by the current passed inspection and duplicate requests 
   assert.equal(replay.delivery.id, first.delivery.id);
   assert.notEqual(second.delivery.id, first.delivery.id);
   assert.equal(second.work.delivery_count, 2);
+  assert.equal((await service.getWork({ ...actor, workId: "work-a" })).deliveries[0].delivered_at, "2026-08-09T01:15:00.000Z");
   await assert.rejects(service.createDelivery({ ...input, note: "不同载荷" }), (error) => error.code === "IDEMPOTENCY_CONFLICT");
   await service.requestRework({ ...actor, workId: "work-a", idempotencyKey: "rework-after-delivery", category: "visual_quality", reason: "重新检查画面", targetUpstreamStage: "video_plan",
     expectedInspectionId: passed.inspection.id, expectedRevision: passed.inspection.revision });

@@ -135,25 +135,24 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   assert.equal(rework.inspection.target_upstream_stage, "video_plan");
   assert.equal((await service.createDelivery(deliveryInputs[0])).replayed, true);
 
-  const passedAgain = await service.markDeliverable({ ...actor, workId: ids.work, idempotencyKey: "a13-pass-after-rework",
-    expectedInspectionId: rework.inspection.id, expectedRevision: rework.inspection.revision });
-  const stateAfterSupersede = await repository.getInspectionState(organizationId, ids.work);
-  const supersededRework = stateAfterSupersede.history.find((entry) => entry.id === rework.inspection.id);
-  assert.equal(supersededRework.status, "superseded");
-  assert.equal(supersededRework.category, "visual_quality");
-  assert.equal(supersededRework.reason, "画面需要重新检查");
-  assert.equal(supersededRework.target_upstream_stage, "video_plan");
-
-  const reworkAgain = await service.requestRework({ ...actor, workId: ids.work, category: "file_or_format", reason: "格式需要重新检查", targetUpstreamStage: "project_content", idempotencyKey: "a13-rework-again",
-    expectedInspectionId: passedAgain.inspection.id, expectedRevision: passedAgain.inspection.revision });
+  await assert.rejects(service.markDeliverable({ ...actor, workId: ids.work, idempotencyKey: "a13-pass-after-rework",
+    expectedInspectionId: rework.inspection.id, expectedRevision: rework.inspection.revision }), (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED");
+  await assert.rejects(service.requestRework({ ...actor, workId: ids.work, category: "file_or_format", reason: "格式需要重新检查", targetUpstreamStage: "project_content", idempotencyKey: "a13-rework-again",
+    expectedInspectionId: rework.inspection.id, expectedRevision: rework.inspection.revision }), (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED");
+  const stateAfterBlocked = await repository.getInspectionState(organizationId, ids.work);
+  const retainedRework = stateAfterBlocked.history.find((entry) => entry.id === rework.inspection.id);
+  assert.equal(retainedRework.status, "rework_required");
+  assert.equal(retainedRework.category, "visual_quality");
+  assert.equal(retainedRework.reason, "画面需要重新检查");
+  assert.equal(retainedRework.target_upstream_stage, "video_plan");
   await assert.rejects(pool.query("UPDATE work_inspections SET reason='篡改' WHERE id=$1", [pending.id]));
   await assert.rejects(service.createDelivery({ ...actor, workId: ids.work, deliveryMethod: "email", idempotencyKey: "a13-blocked",
-    expectedInspectionId: reworkAgain.inspection.id, expectedRevision: reworkAgain.inspection.revision }), (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED");
+    expectedInspectionId: rework.inspection.id, expectedRevision: rework.inspection.revision }), (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED");
   assert.equal((await service.getWork({ ...actor, workId: ids.work })).id, ids.work);
   await assert.rejects(service.getWork({ ...actor, organizationId: "org-other", workId: ids.work }), (error) => error.code === "WORK_DELIVERY_WORK_NOT_FOUND");
   assert.ok((await repository.listAuditEvents(organizationId)).length >= 4);
   const transitions = await repository.listStatusTransitions(organizationId);
   assert.equal(transitions.find((entry) => entry.to_status === "passed" && entry.from_status === "pending").to_status, "passed");
   assert.equal(transitions.find((entry) => entry.to_status === "rework_required" && entry.from_status === "passed").from_status, "passed");
-  assert.ok(transitions.length >= 5);
+  assert.ok(transitions.length >= 3);
 });
