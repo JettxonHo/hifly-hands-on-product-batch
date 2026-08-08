@@ -67,6 +67,12 @@
     element("#avatarStageLink").href = avatarHref;
     element("#mobileAvatarStageLink").href = avatarHref;
     element("#nextStageLink").href = avatarHref;
+    const productionHref = `/production.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(currentProduct()?.id || "")}`;
+    for (const selector of ["#productionStageLink", "#mobileProductionStageLink"]) {
+      const link = element(selector);
+      if (runtime?.productionOrdersEnabled === true) { link.href = productionHref; link.removeAttribute("aria-disabled"); }
+      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); }
+    }
   }
 
   function updateLocation() {

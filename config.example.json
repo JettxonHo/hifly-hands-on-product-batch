@@ -97,6 +97,9 @@
         "pollIntervalMs": 1000
       }
     },
+    "productionOrders": {
+      "enabled": false
+    },
     "openBrowser": true
   },
   "uploadLimits": {

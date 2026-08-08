@@ -1,24 +1,46 @@
 # 项目当前状态
 
 > 最后更新：2026-08-08
-> 当前远端 main：`dae4c33`（VSA-A08 已通过 PR #84 合并）
+> 当前远端 main：`1afac0b`（VSA-A09-A10 页面设计已通过 PR #85 合并）
 > 当前 Goal：Vertical Slice A
+
+## VSA-A09 当前实现与独立验收（Issue #65，2026-08-08）
+
+- A09 已在独立 worktree `/private/tmp/hifly-vsa-a09`、分支 `codex/vsa-a09-production-order` 从基准
+  `1afac0b56b740d41cb9b0d5c0b1363b2f3e57a08` 实现，未 commit/push/PR/merge；根工作区未触碰。
+- 已实现 ProductionOrder memory/PostgreSQL repository、独立 migration/ledger、服务端正式的当前有效已批准
+  VideoPlan port、创建/列表/详情/工作区 API、组织隔离、成员权限、幂等回放/冲突、新意图新工单、输入快照、
+  `draft → ready → waiting_for_executor` 状态链、同事务 AuditEvent/Outbox，以及 Local Agent 离线非阻断投影。
+- `/production.html/css/js` 遵循 A09 三栏/390 单列设计；右栏仅保留真实「尚未生成交接包」占位，没有 A10 生成按钮或
+  A11 领取入口。A08 `plan.html` 批准后在 productionOrders feature 开启时展示真实入口；默认 feature off 保持旧路径。
+- Sol 首轮 Review 的 3 项修复已完成：outbox 允许唯一受控的 `published_at` 首次写入并保护其余字段；
+  Video Planning 服务端按 feature/head/frozen/approved/preflight gate 投影生产可用性，API 与 `plan.js` 均消费该投影；
+  A07 copy-quality 浏览器断言已更新为真实「进入人物与素材」链接并校验 href。
+- targeted：ProductionOrder/Video Planning service/API 共 25 pass；PostgreSQL 迁移集成 1 skipped（未设置
+  `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL`，未声称通过）；`npm run check` 通过（149 JS 文件）。
+- `npm test`：739 tests / 703 pass / 0 fail / 36 skipped。Sol 已使用系统 Chrome 实跑 A09/A08/A07 targeted 3/3，
+  并对 A09 1440px/390px 临时截图完成视觉验收；无横向滚动、文字遮挡、按钮溢出或状态语义误用。
+- Sol 独立代码与视觉复审未发现剩余 Critical/Important。PostgreSQL 集成因本机没有测试数据库连接而 skipped，
+  待 PR CI 数据库任务验证。
+- Kimi 长期规则已记录：固定 `kimi-code/k3`、1M context（`max_context_size=1048576`）、thinking 显式 `max`；
+  当前默认 `high` 不得误报，wire/session 无法验证时标 `UNVERIFIED_RUNTIME_MODEL`。
+- 本轮未访问 Hifly、未发送真实 Provider 请求、未运行任何批次、未消耗飞影积分。
 
 ## Agent 路由迁移与 A09-A10 设计（2026-08-08）
 
 - A08 已通过 PR #84 合并并关闭 Issue #64；Ubuntu、Windows、identity/PostgreSQL CI 全绿。
 - Kimi Code 已使用 `kimi-code/k3` 完成 `docs/frontend/VSA-A09-A10_UIUX_DESIGN.md`；主控已复核并修正
   ProductionOrder 幂等边界与较早工单状态表达。只包含设计文档，不修改生产代码。
-- Owner 指示设计完成后暂停 Goal。当前状态为 `PAUSED_BY_OWNER`；在 Owner 明确说“恢复执行”前，
-  不启动 A09/A10 实现、不创建实现 Agent、不推进 A11-A13 设计。
+- Owner 已于 2026-08-08 明确恢复 Goal；当前从 main `1afac0b` 建立 A09 独立 worktree
+  `/private/tmp/hifly-vsa-a09`、分支 `codex/vsa-a09-production-order`，准备实现 Issue #65。
 - Owner 已纠正实现模型路由：后续边界明确的实现任务必须使用自定义 Agent `luna-worker`，配置为
   `~/.codex/agents/luna-worker.toml`、`gpt-5.6-luna`、Max；不再自动回退 Terra。
-- 配置文件已核验，状态 `CONFIG_VERIFIED`。当前会话的 Agent 工具只暴露模型覆盖，未暴露按自定义
-  Agent 名称启动的入口；在恢复前状态为 `BLOCKED_LUNA_WORKER_UNAVAILABLE / UNVERIFIED_RUNTIME_MODEL`。
+- 配置文件已核验，状态 `CONFIG_VERIFIED`。恢复后的当前会话已明确暴露
+  `agent_type: "luna-worker"`；派发前运行时状态仍为 `UNVERIFIED_RUNTIME_MODEL`，派发后按工具可见证据更新。
 - 当前无 Active Terra Agent。已完成的 Terra Review/修复结果全部保留并已进入 A07/A08 合并历史；
   Socrates 与 Tesla 的已完成会话已关闭，不删除其成果。
-- A09 实现尚未开始；即使设计已合并，也必须同时满足 Owner 明确恢复和 `luna-worker` 可按名称启动，
-  才能创建实现 Agent；不得回退 Terra。
+- A09 实现、Review 修复和独立验收已在上方独立 worktree 完成，等待 PR/CI；不得回退 Terra，也不要在本 worktree
+  执行 A10/A11+。
 - 本轮未访问 Hifly、未发送真实 Provider 请求、未运行 `MULTI-002`、未消耗积分。
 
 ## VSA-A08 当前本地实现（Issue #64）

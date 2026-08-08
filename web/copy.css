@@ -4,6 +4,7 @@
 .stage-strip > :first-child { border-left: 0; }
 .stage-strip span span, .stage-strip strong span, .stage-strip b { display: grid; width: 22px; height: 22px; flex: 0 0 22px; place-items: center; border: 1px solid var(--n-300); border-radius: 50%; font-size: 12px; font-weight: 600; }
 .stage-strip a { color: var(--success); }
+.stage-strip a[aria-disabled="true"] { color: var(--n-500); cursor: default; }
 .stage-strip a span { border-color: var(--success-border); background: var(--success-bg); }
 .stage-strip strong { color: var(--brand); background: var(--brand-tint); }
 .stage-strip strong span { border-color: var(--brand); color: var(--n-0); background: var(--brand); }

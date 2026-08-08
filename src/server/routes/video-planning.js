@@ -28,7 +28,7 @@ function workspace(value) {
     preflight: { current_run: run(value.preflight.current_run), current_result: result(value.preflight.current_result),
       history: value.preflight.history.map((item) => ({ ...run(item), result: result(item.result) })) },
     review: { current_review: review(value.review.current_review), history: value.review.history.map(review), gate: value.review.gate },
-    production_order_available: false, production_order_notice: value.production_order_notice };
+    production_order_available: value.production_order_available === true, production_order_notice: value.production_order_notice };
 }
 
 export async function registerVideoPlanningRoutes(app, { service }) {

@@ -8,7 +8,7 @@ import { createPreflightWorker } from "../src/video-planning/preflight-worker.js
 
 const actor = { organizationId: "org-a", actorMemberId: "member-a", actorRole: "member", productId: "product-a" };
 
-function world({ agentOnline = false, evaluate, upstreamOverrides = {} } = {}) {
+function world({ agentOnline = false, productionOrdersEnabled = false, evaluate, upstreamOverrides = {} } = {}) {
   const upstream = {
     product_revision_id: "revision-a",
     copy_version_id: "copy-a",
@@ -24,6 +24,7 @@ function world({ agentOnline = false, evaluate, upstreamOverrides = {} } = {}) {
     upstreamPort: { async resolveCurrent() { return structuredClone(upstream); } },
     capabilitySnapshotPort: { async resolve() { return structuredClone(capability); } },
     agentReadinessPort: { async isOnline() { return agentOnline; } },
+    productionOrdersEnabled,
     now: () => Date.parse("2026-08-07T12:00:00.000Z") });
   const worker = createPreflightWorker({ service, evaluator: createControlledPreflightEvaluator({ evaluate }) });
   return { repository, service, worker, upstream, capability };
@@ -87,6 +88,34 @@ test("preflight warning remains reviewable when Local Agent is offline and passe
     expectedRevision: 1, idempotencyKey: "approve-review" });
   assert.equal(workspace.review.current_review.status, "approved");
   assert.equal(workspace.production_order_available, false);
+});
+
+test("production order availability is projected only for an enabled current approved valid plan", async () => {
+  const state = world({ productionOrdersEnabled: true });
+  let workspace = await createAndPreflight(state, "production-available");
+  assert.equal(workspace.production_order_available, false);
+  assert.equal(workspace.production_order_notice, "当前方案尚未满足生产工单创建条件。");
+
+  workspace = await state.service.submitReview({ ...actor, planId: workspace.current_plan.id, idempotencyKey: "production-submit" });
+  workspace = await state.service.approveReview({ ...actor, reviewId: workspace.review.current_review.id,
+    expectedRevision: 1, idempotencyKey: "production-approve" });
+  assert.equal(workspace.production_order_available, true);
+  assert.equal(workspace.production_order_notice, "当前方案已批准，可以进入生产工单。");
+
+  const historicalState = world({ productionOrdersEnabled: true });
+  let historical = await createAndPreflight(historicalState, "production-history");
+  historical = await historicalState.service.submitReview({ ...actor, planId: historical.current_plan.id, idempotencyKey: "history-submit" });
+  historical = await historicalState.service.approveReview({ ...actor, reviewId: historical.review.current_review.id,
+    expectedRevision: 1, idempotencyKey: "history-approve" });
+  await historicalState.service.deriveDraft({ ...actor, planId: historical.current_plan.id,
+    outputInstructions: "基于已批准方案创建新版本", expectedHeadRevision: historical.head_revision, idempotencyKey: "history-derive" });
+  const historicalWorkspace = await historicalState.service.getWorkspace({ ...actor, planId: historical.current_plan.id });
+  assert.equal(historicalWorkspace.production_order_available, false);
+
+  state.upstream.copy_version_id = "copy-invalidated";
+  const invalidated = await state.service.getWorkspace(actor);
+  assert.equal(invalidated.preflight.current_result.status, "invalidated");
+  assert.equal(invalidated.production_order_available, false);
 });
 
 test("technical preflight failure does not create a blocked business result", async () => {
@@ -226,4 +255,25 @@ test("draft optimistic concurrency and organization scope reject silent or cross
     outputInstructions: "静默覆盖", expectedRevision: 1 }), { code: "VIDEO_PLAN_CONFLICT" });
   await assert.rejects(state.service.getWorkspace({ ...actor, organizationId: "org-other", planId: created.current_plan.id }),
   { code: "VIDEO_PLAN_NOT_FOUND" });
+});
+
+test("exposes a formal current approved plan port for downstream production commands", async () => {
+  const state = world({ agentOnline: false });
+  let workspace = await createAndPreflight(state, "production-port");
+  workspace = await state.service.submitReview({ ...actor, planId: workspace.current_plan.id,
+    idempotencyKey: "production-port-submit" });
+  workspace = await state.service.approveReview({ ...actor, reviewId: workspace.review.current_review.id,
+    expectedRevision: 1, idempotencyKey: "production-port-approve" });
+
+  const resolved = await state.service.resolveCurrentApprovedPlan(actor);
+  assert.equal(resolved.current_valid, true);
+  assert.equal(resolved.plan.id, workspace.current_plan.id);
+  assert.equal(resolved.plan_review.id, workspace.review.current_review.id);
+  assert.equal(resolved.preflight_result.status, "warning");
+  assert.equal(resolved.gate.can_create, true);
+
+  state.upstream.copy_version_id = "copy-invalidated";
+  const invalidated = await state.service.resolveCurrentApprovedPlan(actor);
+  assert.equal(invalidated.current_valid, false);
+  assert.deepEqual(invalidated.gate.reasons, ["plan_review_not_approved", "preflight_invalidated", "upstream_changed"]);
 });

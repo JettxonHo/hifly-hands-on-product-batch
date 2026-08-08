@@ -137,7 +137,9 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   await approveDialog.getByText("本人审核（self_review）").waitFor();
   await approveDialog.getByRole("button", { name: "确认批准" }).click();
   await page.getByText("文案已批准 · 本人审核").waitFor();
-  await page.getByRole("button", { name: "人物与素材尚未开放" }).waitFor();
+  const nextStageLink = page.getByRole("link", { name: "进入人物与素材" });
+  await nextStageLink.waitFor();
+  assert.match(await nextStageLink.getAttribute("href"), /\/avatar\.html\?project=/);
   await page.reload();
   await page.getByRole("tab", { name: "审核" }).click();
   await page.getByText("文案已批准 · 本人审核").waitFor();
