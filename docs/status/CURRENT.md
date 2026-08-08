@@ -1,8 +1,21 @@
 # 项目当前状态
 
 > 最后更新：2026-08-08
-> 当前远端 main：`fd6a206`（VSA-A09 已通过 PR #86 合并）
+> 当前远端 main：`0ca9600`（VSA-A10 已通过 PR #87 合并）
 > 当前 Goal：Vertical Slice A
+
+## VSA-A11-A13 页面设计完成（Issues #67-#69，2026-08-08）
+
+- A10 已通过 PR #87 合并，Issue #66 已关闭；合并提交为 `0ca96009d94dd3d5e65f7b179366804246fe9bd6`。
+- Kimi Code 已使用显式模型 `kimi-code/k3` 产出 `docs/frontend/VSA-A11-A13_UIUX_DESIGN.md`，唯一设计改动；
+  配置证据为 `max_context_size=1048576`、`default_effort=max`、thinking enabled。CLI 未暴露实际服务端运行模型，
+  因此运行时验证状态为 `UNVERIFIED_RUNTIME_MODEL`，配置状态为 `CONFIG_VERIFIED`。
+- 主控独立复核未发现 DESIGN_BLOCKER：A11/A12 增量复用 `production.html`，A13 新建权威作品库
+  `works.html`；报告完成、上传完成、核验通过、工单完成与交付登记保持独立业务事实。
+- 本轮只生成设计文档，没有修改 `web/`、`src/`、`test/`、API、数据库或 migration；没有访问 Hifly、
+  没有发送真实 Provider/Capture HTTP、没有运行批次、没有消耗积分。
+- 下一步：设计 PR 合并后，使用准确自定义 Agent `luna-worker` 按 A11 → A12 → A13 顺序逐项实现、测试、
+  独立 Review、CI 和合并；不自动回退 Terra，不开始 A14。
 
 ## VSA-A10 当前实现与独立验收（Issue #66，2026-08-08）
 
