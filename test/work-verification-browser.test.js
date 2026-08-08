@@ -18,15 +18,16 @@ import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { buildApp } from "../src/server/app.js";
 import { findAvailablePort } from "../src/server/start.js";
 
-test("A12 browser flow restores queued and passed verification state at 1440/390 without a works.html entry", async (t) => {
+test("A12 browser flow restores an initial read failure, queued and passed verification state at 1440/390 without a works.html entry", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-a12-browser-"));
   const port = await findAvailablePort(58240), host = `127.0.0.1:${port}`, origin = `http://${host}`;
   const identityRepository = createMemoryIdentityRepository();
   const seeded = await seedInitialAdmin(identityRepository, { organizationId: "org-a12-browser", organizationName: "A12 浏览器", adminEmail: "a12-browser@example.test", adminDisplayName: "A12 浏览器", adminTempPassword: "Temporary-A12-Browser-9!" });
   const productionRepository = createMemoryProductionOrderRepository();
-  const verification = { job: null, work: null, failNextRead: false, nextOutcome: "requires_action" };
+  const verification = { job: null, work: null, failInitialRead: true, failNextRead: false, nextOutcome: "requires_action" };
   const verificationService = {
     async getVerificationWorkspace({ productionOrderId, organizationId }) {
+      if (verification.failInitialRead) { verification.failInitialRead = false; throw new Error("temporary initial read failure"); }
       if (verification.failNextRead) { verification.failNextRead = false; throw new Error("temporary read failure"); }
       return { order: { id: productionOrderId, organization_id: organizationId, status: verification.work ? "succeeded" : "running", input_snapshot: { secret: "server-only" } }, job: verification.job, work: verification.work, works: verification.work ? [verification.work] : [] };
     },
@@ -84,7 +85,10 @@ test("A12 browser flow restores queued and passed verification state at 1440/390
     executionProjection.reports = [{ ...executionProjection.reports[0], id: body.report_id, report_version: 2, submitted_at: "2026-08-09T00:02:00.000Z", supersedes_report_id: body.supersedes_report_id, deviations: [] }];
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ report: executionProjection.reports[0] }) });
   });
+  const initialVerificationRecovery = page.waitForResponse((response) => response.url().endsWith(`/api/production-orders/${order.order.id}/work-verification`) && response.status() === 200, { timeout: 10000 });
   await page.goto(`${origin}/production.html?project=${project.id}&product=${product.id}&orderId=${order.order.id}`);
+  await initialVerificationRecovery;
+  await page.getByRole("button", { name: "发起核验", exact: true }).waitFor();
   await page.getByText("执行完成不等于工单完成", { exact: false }).waitFor();
   await page.getByRole("button", { name: "发起核验", exact: true }).click();
   await page.getByText("核验请求已受理", { exact: false }).waitFor();

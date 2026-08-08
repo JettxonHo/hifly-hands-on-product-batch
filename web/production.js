@@ -215,9 +215,9 @@
     if (job?.failure_reason) return job.failure_reason;
     return job?.failure_kind === "technical" ? "系统暂未完成文件检查，请重新核验。" : "候选文件未通过检查，请提交更正报告。";
   }
-  function scheduleVerificationPoll(delayMs = 2000) {
+  function scheduleVerificationPoll(delayMs = 2000, { force = false } = {}) {
     if (verificationPoll) { clearTimeout(verificationPoll); verificationPoll = null; }
-    if (runtime?.artifactVerificationEnabled && ["queued", "running"].includes(verification?.job?.verification_status)) {
+    if (runtime?.artifactVerificationEnabled && selectedOrderId && (force || ["queued", "running"].includes(verification?.job?.verification_status))) {
       verificationPoll = setTimeout(() => loadVerification().catch(() => undefined), delayMs);
     }
   }
@@ -271,7 +271,7 @@
     } catch (error) {
       verificationReadError = "核验状态暂时无法读取，正在继续自动更新。";
       renderVerification();
-      scheduleVerificationPoll(3000);
+      scheduleVerificationPoll(3000, { force: true });
       throw error;
     }
   }
@@ -342,7 +342,7 @@
   function cancelManualOrder() { if (manualBusy || !selectedOrderId) return; element("#cancelManualError").textContent = ""; element("#cancelManualDialog").showModal(); }
   async function submitCancelManual(event) { event.preventDefault(); if (manualBusy || !selectedOrderId) return; manualBusy = true; element("#confirmCancelManualButton").disabled = true; try { await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/cancel`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: "{}" }); element("#cancelManualDialog").close(); await loadWorkspace(); } catch (error) { element("#cancelManualError").textContent = manualError(error); } finally { manualBusy = false; element("#confirmCancelManualButton").disabled = false; renderManualExecution(); } }
   function render() { renderContext(); renderGate(); renderOrders(); renderDetail(); renderPackage(); renderManualExecution(); renderVerification(); element("#productionWorkspace").hidden = false; }
-  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadPackages({ render: false }); await loadExecution({ render: false }); await loadVerification({ render: false }); render(); }
+  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadPackages({ render: false }); await loadExecution({ render: false }); try { await loadVerification({ render: false }); } catch (_error) { if (!runtime?.artifactVerificationEnabled || !selectedOrderId) throw _error; } render(); }
   function openCreateOrder() { if (!workspace.gate.can_create || creating) return; pendingCreateKey = null; element("#createOrderError").textContent = ""; element("#createOrderForm").reset(); renderDialogSnapshot(); element("#createOrderDialog").showModal(); }
   function renderDialogSnapshot() { const plan = workspace.current_plan, upstream = plan?.upstream_snapshot || {}; element("#dialogSnapshot").replaceChildren(...[["商品快照", short(upstream.product_revision_id)], ["已批准文案", short(upstream.copy_version_id)], ["已确认人物", short(upstream.avatar_selection_id)], ["视频方案", plan ? `v${plan.version_number}` : "未就绪"]].map(([label, value]) => { const row = document.createElement("div"); row.className = "dialog-snapshot-row"; const name = document.createElement("strong"); name.textContent = label; const meta = document.createElement("span"); meta.textContent = value; row.append(name, meta); return row; })); }
   async function submitCreate(event) { event.preventDefault(); if (creating || !workspace.gate.can_create) return; const selected = document.querySelector("input[name=executionPurpose]:checked"); if (!selected) return; creating = true; const button = element("#confirmCreateOrder"); button.disabled = true; pendingCreateKey ||= crypto.randomUUID(); element("#createOrderError").textContent = "";
