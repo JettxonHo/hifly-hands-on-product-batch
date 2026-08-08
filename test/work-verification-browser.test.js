@@ -87,6 +87,7 @@ test("A12 browser flow restores an initial read failure, queued and passed verif
   });
   const initialVerificationRecovery = page.waitForResponse((response) => response.url().endsWith(`/api/production-orders/${order.order.id}/work-verification`) && response.status() === 200, { timeout: 10000 });
   await page.goto(`${origin}/production.html?project=${project.id}&product=${product.id}&orderId=${order.order.id}`);
+  await page.getByText("核验状态暂时无法读取", { exact: false }).waitFor();
   await initialVerificationRecovery;
   await page.getByRole("button", { name: "发起核验", exact: true }).waitFor();
   await page.getByText("执行完成不等于工单完成", { exact: false }).waitFor();

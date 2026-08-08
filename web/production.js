@@ -257,7 +257,7 @@
       element("#workChecksum").textContent = "文件内容已核对";
     }
     element("#worksLibraryDisabled").hidden = false;
-    scheduleVerificationPoll();
+    scheduleVerificationPoll(verificationReadError ? 3000 : 2000, { force: Boolean(verificationReadError) });
   }
   async function loadVerification({ render = true } = {}) {
     if (verificationPoll) { clearTimeout(verificationPoll); verificationPoll = null; }
