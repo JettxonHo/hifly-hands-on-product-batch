@@ -74,7 +74,7 @@ function gateFromResolved(resolved, input) {
 }
 
 export function createProductionOrderService({ repository, planPort, inputSnapshotPort, agentReadinessPort = { async isOnline() { return false; } }, now = Date.now } = {}) {
-  if (!repository?.getReceipt || !repository?.createOrder || !repository?.listOrders || !repository?.getOrder) {
+  if (!repository?.getReceipt || !repository?.createOrder || !repository?.listOrders || !repository?.getOrder || !repository?.transitionOrder) {
     throw new TypeError("production order repository is required");
   }
   if (!planPort?.resolveCurrentApprovedPlan) throw new TypeError("current approved plan port is required");
@@ -164,6 +164,22 @@ export function createProductionOrderService({ repository, planPort, inputSnapsh
     return order;
   }
 
+  async function transitionOrder(input) {
+    validateActor(input);
+    if (!clean(input.orderId) || !clean(input.toStatus) || !Array.isArray(input.fromStatuses) || !input.fromStatuses.length) {
+      throw failure("PRODUCTION_ORDER_CONTEXT_REQUIRED");
+    }
+    const order = await repository.getOrder(input.organizationId, input.orderId);
+    if (!order) throw failure("PRODUCTION_ORDER_NOT_FOUND");
+    const transitioned = await repository.transitionOrder({
+      organizationId: input.organizationId, orderId: input.orderId, expectedRevision: input.expectedRevision,
+      fromStatuses: input.fromStatuses, toStatus: input.toStatus, at: input.at || timestamp(),
+      actorMemberId: input.actorMemberId, reason: input.reason || null
+    });
+    if (!transitioned) throw failure("PRODUCTION_ORDER_CONFLICT");
+    return transitioned;
+  }
+
   async function getWorkspace(input) {
     validateContext(input);
     const [{ resolved, gate }, orders, executionEnvironment] = await Promise.all([
@@ -183,5 +199,5 @@ export function createProductionOrderService({ repository, planPort, inputSnapsh
     };
   }
 
-  return { createProductionOrder, listOrders, getOrder, getWorkspace, resolveCurrentApprovedPlan: resolveGate };
+  return { createProductionOrder, listOrders, getOrder, transitionOrder, getWorkspace, resolveCurrentApprovedPlan: resolveGate };
 }

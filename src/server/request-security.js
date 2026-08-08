@@ -40,7 +40,8 @@ function validMutationContentType(request) {
   if (validContentType(request.headers["content-type"])) return true;
   const type = String(request.headers["content-type"] || "").split(";", 1)[0].toLowerCase();
   const path = request.url.split("?", 1)[0];
-  return request.method === "PUT" && path.startsWith("/api/assets/uploads/") && ["image/jpeg", "image/png", "image/webp"].includes(type);
+  return request.method === "PUT" && (path.startsWith("/api/assets/uploads/") && ["image/jpeg", "image/png", "image/webp"].includes(type)
+    || path.startsWith("/api/manual-execution-candidate-uploads/") && ["video/mp4", "video/webm", "application/octet-stream"].includes(type));
 }
 
 function normalizedStringSet(values, label) {

@@ -35,6 +35,9 @@ import { createPostgresProductionOrderRepository } from "../production-orders/po
 import { createManualHandoffPackageService } from "../manual-handoff/manual-handoff-package-service.js";
 import { createManualHandoffPackageWorker } from "../manual-handoff/manual-handoff-package-worker.js";
 import { createPostgresManualHandoffRepository } from "../manual-handoff/postgres-manual-handoff-repository.js";
+import { createManualExecutionService } from "../manual-execution/manual-execution-service.js";
+import { createPostgresManualExecutionRepository } from "../manual-execution/postgres-manual-execution-repository.js";
+import { registerManualExecutionRoutes } from "./routes/manual-execution.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
@@ -143,6 +146,7 @@ function apiError(error) {
     return { statusCode: 422, code: error.code, reasons: error.details || [] };
   }
   if (["PRODUCTION_ORDER_NOT_FOUND", "PRODUCTION_ORDER_PLAN_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
+  if (["PRODUCTION_ORDER_CONFLICT", "PRODUCTION_ORDER_TRANSITION_INVALID"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (["PRODUCTION_ORDER_CONTEXT_REQUIRED", "PRODUCTION_ORDER_PURPOSE_INVALID"].includes(error?.code)) {
     return { statusCode: 400, code: error.code };
   }
@@ -161,6 +165,18 @@ function apiError(error) {
   if (["MANUAL_HANDOFF_PACKAGE_VERSION_CONFLICT", "MANUAL_HANDOFF_RETRY_BLOCKED", "MANUAL_HANDOFF_LEASE_LOST", "MANUAL_HANDOFF_PACKAGE_TRANSITION_INVALID", "MANUAL_HANDOFF_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (error?.code === "MANUAL_HANDOFF_DOWNLOAD_AUTHORIZATION_EXPIRED") return { statusCode: 410, code: error.code };
   if (["MANUAL_HANDOFF_PACKAGE_NOT_READY", "MANUAL_HANDOFF_PACKAGE_NOT_DOWNLOADABLE", "MANUAL_HANDOFF_CROSS_ORGANIZATION_DATA", "MANUAL_HANDOFF_INPUT_SNAPSHOT_REQUIRED", "MANUAL_HANDOFF_ASSET_UNAVAILABLE"].includes(error?.code)) return { statusCode: 422, code: error.code };
+  if (["MANUAL_EXECUTION_ATTEMPT_NOT_FOUND", "MANUAL_EXECUTION_CANDIDATE_NOT_FOUND", "MANUAL_EXECUTION_REPORT_NOT_FOUND", "MANUAL_EXECUTION_PACKAGE_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
+  if (["MANUAL_EXECUTION_CONTEXT_REQUIRED", "MANUAL_EXECUTION_REPORT_ID_REQUIRED", "MANUAL_EXECUTION_REPORT_OUTCOME_INVALID", "MANUAL_EXECUTION_REPORT_INVALID",
+    "MANUAL_EXECUTION_CANDIDATE_INVALID", "MANUAL_EXECUTION_CANDIDATE_ROLE_INVALID", "MANUAL_EXECUTION_CANDIDATE_MEDIA_TYPE_INVALID",
+    "MANUAL_EXECUTION_REQUIRES_ACTION_REASON_REQUIRED", "MANUAL_EXECUTION_FAILURE_CONTEXT_REQUIRED", "MANUAL_EXECUTION_CANCEL_NOT_REQUESTED",
+    "MANUAL_EXECUTION_UPLOAD_AUTHORIZATION_REQUIRED",
+    "MANUAL_EXECUTION_ORDER_NOT_CLAIMABLE", "MANUAL_EXECUTION_RECHECK_BLOCKED", "MANUAL_EXECUTION_REENTRY_BLOCKED"].includes(error?.code)) return { statusCode: 400, code: error.code };
+  if (["MANUAL_EXECUTION_FORBIDDEN"].includes(error?.code)) return { statusCode: 403, code: error.code };
+  if (["MANUAL_EXECUTION_ATTEMPT_ACTIVE", "MANUAL_EXECUTION_ATTEMPT_CONFLICT", "MANUAL_EXECUTION_ORDER_CONFLICT", "MANUAL_EXECUTION_REPORT_BLOCKED", "MANUAL_EXECUTION_REPORT_CONFLICT", "MANUAL_EXECUTION_CANDIDATE_CONFLICT",
+    "MANUAL_EXECUTION_PRIMARY_OUTPUT_EXISTS", "MANUAL_EXECUTION_CANDIDATE_MISMATCH", "MANUAL_EXECUTION_PACKAGE_MISMATCH", "MANUAL_EXECUTION_REPORT_MISMATCH", "MANUAL_EXECUTION_CANCEL_BLOCKED",
+    "MANUAL_EXECUTION_CANCEL_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (["MANUAL_EXECUTION_PRIMARY_OUTPUT_REQUIRED", "MANUAL_EXECUTION_CANDIDATE_NOT_READY", "MANUAL_EXECUTION_UPLOAD_BLOCKED",
+    "MANUAL_EXECUTION_CANDIDATE_INTEGRITY_MISMATCH", "MANUAL_EXECUTION_PACKAGE_NOT_READY"].includes(error?.code)) return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
@@ -226,6 +242,7 @@ export async function buildApp({
   videoPlanning: videoPlanningOptions = null,
   productionOrders: productionOrdersOptions = null,
   manualHandoff: manualHandoffOptions = null,
+  manualExecution: manualExecutionOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -244,6 +261,7 @@ export async function buildApp({
   const videoPlanningEnabled = videoPlanningOptions?.enabled === true;
   const productionOrdersEnabled = productionOrdersOptions?.enabled === true;
   const manualHandoffEnabled = manualHandoffOptions?.enabled === true;
+  const manualExecutionEnabled = manualExecutionOptions?.enabled === true;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
   if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
@@ -256,6 +274,9 @@ export async function buildApp({
   if (productionOrdersEnabled && !videoPlanningEnabled) throw Object.assign(new Error("PRODUCTION_ORDERS_REQUIRE_VIDEO_PLANNING"), { code: "PRODUCTION_ORDERS_REQUIRE_VIDEO_PLANNING" });
   if (manualHandoffEnabled && !identityEnabled) throw Object.assign(new Error("MANUAL_HANDOFF_REQUIRE_IDENTITY"), { code: "MANUAL_HANDOFF_REQUIRE_IDENTITY" });
   if (manualHandoffEnabled && !productionOrdersEnabled) throw Object.assign(new Error("MANUAL_HANDOFF_REQUIRE_PRODUCTION_ORDERS"), { code: "MANUAL_HANDOFF_REQUIRE_PRODUCTION_ORDERS" });
+  if (manualExecutionEnabled && !identityEnabled) throw Object.assign(new Error("MANUAL_EXECUTION_REQUIRE_IDENTITY"), { code: "MANUAL_EXECUTION_REQUIRE_IDENTITY" });
+  if (manualExecutionEnabled && !productionOrdersEnabled) throw Object.assign(new Error("MANUAL_EXECUTION_REQUIRE_PRODUCTION_ORDERS"), { code: "MANUAL_EXECUTION_REQUIRE_PRODUCTION_ORDERS" });
+  if (manualExecutionEnabled && !manualHandoffEnabled) throw Object.assign(new Error("MANUAL_EXECUTION_REQUIRE_MANUAL_HANDOFF"), { code: "MANUAL_EXECUTION_REQUIRE_MANUAL_HANDOFF" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -323,7 +344,7 @@ export async function buildApp({
   await app.register(multipart, {
     limits: { files: 500, fileSize: 20 * 1024 * 1024, fields: 8, parts: 508 }
   });
-  for (const contentType of ["image/jpeg", "image/png", "image/webp"]) {
+  for (const contentType of ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "application/octet-stream"]) {
     app.addContentTypeParser(contentType, { parseAs: "buffer" }, (_request, body, done) => done(null, body));
   }
 
@@ -341,6 +362,7 @@ export async function buildApp({
       videoPlanningEnabled,
       productionOrdersEnabled,
       manualHandoffEnabled,
+      manualExecutionEnabled,
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -538,6 +560,28 @@ export async function buildApp({
     app.addHook("onClose", async () => { worker.stop(); await repository.close?.(); await packageStore.close?.(); });
     await registerManualHandoffRoutes(app, { service });
     if (manualHandoffOptions.worker?.autoStart !== false) worker.start();
+  }
+
+  if (manualExecutionEnabled) {
+    const repository = manualExecutionOptions.repository || (sharedPool ? createPostgresManualExecutionRepository({ pool: sharedPool }) : null);
+    if (!repository) throw Object.assign(new Error("MANUAL_EXECUTION_REPOSITORY_REQUIRED"), { code: "MANUAL_EXECUTION_REPOSITORY_REQUIRED" });
+    const candidateStore = manualExecutionOptions.candidateStore || app.assets?.objectStore || createLocalObjectStore({
+      root: path.resolve(root, manualExecutionOptions.localRoot || ".manual-execution-candidates")
+    });
+    await repository.initialize();
+    await candidateStore.initialize?.();
+    const orderPort = manualExecutionOptions.orderPort || {
+      getOrder: app.productionOrders.service.getOrder,
+      transitionOrder: app.productionOrders.service.transitionOrder
+    };
+    const packagePort = manualExecutionOptions.packagePort || {
+      getPackage: app.manualHandoff.service.getPackage,
+      listPackages: app.manualHandoff.service.listPackages
+    };
+    const service = createManualExecutionService({ repository, orderPort, packagePort, candidateStore, now });
+    app.decorate("manualExecution", { repository, candidateStore, service });
+    app.addHook("onClose", async () => { await repository.close?.(); await candidateStore.close?.(); });
+    await registerManualExecutionRoutes(app, { service });
   }
 
   await registerBatchRoutes(app, { store });
