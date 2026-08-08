@@ -36,6 +36,9 @@
 - `npm test`：739 tests / 703 pass / 0 fail / 36 skipped。
 - `git diff --check`：通过。
 - Sol 独立代码与视觉复审：无剩余 Critical/Important。PostgreSQL 集成因本机未配置测试数据库，待 PR CI 验证。
+- ready PR #86 首轮和一次失败重跑的 `identity-postgres` 均在既有 identity browser smoke 的匿名 cookie 断言失败；
+  根因是退出后只等待登录页 URL，未等待登录页异步 `/api/auth/intent` 完成。`luna-worker` 以单文件最小补丁在退出前
+  注册 response wait，Sol 使用系统 Chrome 强制运行该 smoke 1/1 通过。生产认证代码与语义未修改。
 
 ## 成本与后续
 

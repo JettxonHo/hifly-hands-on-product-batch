@@ -65,6 +65,7 @@ test("real browser completes login, forced password change, and logout", { skip:
   const authenticatedCookies = await page.context().cookies();
   const authenticatedToken = authenticatedCookies.find((cookie) => cookie.name === "hifly_identity")?.value;
   assert.ok(authenticatedToken);
+  const anonymousIntentResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/auth/intent"));
   const logoutResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/auth/logout"));
   await page.getByRole("button", { name: "退出" }).click();
   const logoutResponse = await logoutResponsePromise;
@@ -73,6 +74,7 @@ test("real browser completes login, forced password change, and logout", { skip:
   assert.equal(logoutSetCookies.length, 2, JSON.stringify(await logoutResponse.allHeaders()));
   assert.ok(logoutSetCookies.every((value) => value.includes("Max-Age=0")), JSON.stringify(logoutSetCookies));
   await page.waitForURL(`${origin}/login.html`);
+  await anonymousIntentResponsePromise;
 
   const cookies = await page.context().cookies();
   const anonymousToken = cookies.find((cookie) => cookie.name === "hifly_identity")?.value;

@@ -12,6 +12,9 @@
   `git diff --check` 通过。Sol 已使用系统 Chrome 实跑 A09/A08/A07 targeted 3/3；A09 桌面与 390px 截图验收通过，截图仅保存在
   `/tmp/hifly-a09-visual/`，不进入仓库。
 - Sol 独立代码与视觉复审未发现剩余 Critical/Important；PostgreSQL 集成仍需由 PR CI 的数据库任务完成验证。
+- A09 ready PR #86 已创建。首轮及一次重跑的 `identity-postgres` 均暴露既有 browser smoke 时序断言：退出后只等待
+  `/login.html` URL，未等待页面异步创建匿名 intent，因而过早读取 cookie。`luna-worker` 仅在
+  `test/identity-browser.test.js` 增加对 `/api/auth/intent` 响应的确定性等待；Sol 使用系统 Chrome 实跑 1/1 通过。
 - Kimi 长期规则：固定 `kimi-code/k3`；`max_context_size=1048576`；thinking 显式 `max`（默认 `high` 不得误报）；wire/session 无法验证时标记
   `UNVERIFIED_RUNTIME_MODEL`。
 
