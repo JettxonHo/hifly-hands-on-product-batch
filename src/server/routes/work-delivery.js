@@ -7,6 +7,16 @@ function idempotency(request, body = {}) {
   return body.idempotency_key || body.idempotencyKey || request.headers["idempotency-key"];
 }
 
+function precondition(body) {
+  const expectedInspectionId = body.expected_inspection_id || body.expectedInspectionId;
+  const rawRevision = body.expected_revision ?? body.expectedRevision;
+  const expectedRevision = typeof rawRevision === "number" || (typeof rawRevision === "string" && rawRevision.trim() !== "") ? Number(rawRevision) : NaN;
+  if (typeof expectedInspectionId !== "string" || expectedInspectionId.trim() === "" || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
+    throw Object.assign(new Error("WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED"), { code: "WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED" });
+  }
+  return { expectedInspectionId: expectedInspectionId.trim(), expectedRevision };
+}
+
 function commandStatus(result) { return result.replayed ? 200 : 201; }
 
 export async function registerWorkDeliveryRoutes(app, { service }) {
@@ -18,30 +28,30 @@ export async function registerWorkDeliveryRoutes(app, { service }) {
 
   app.post("/api/works/:workId/inspections/pass", async (request, reply) => {
     const body = request.body || {};
+    const expected = precondition(body);
     const result = await service.markDeliverable({ ...actor(request), workId: request.params.workId,
-      expectedInspectionId: body.expected_inspection_id || body.expectedInspectionId || null,
-      expectedRevision: body.expected_revision ?? body.expectedRevision ?? null,
+      ...expected,
       idempotencyKey: idempotency(request, body) });
     reply.code(commandStatus(result)).send(result);
   });
 
   app.post("/api/works/:workId/inspections/rework", async (request, reply) => {
     const body = request.body || {};
+    const expected = precondition(body);
     const result = await service.requestRework({ ...actor(request), workId: request.params.workId,
       category: body.category, reason: body.reason, targetUpstreamStage: body.target_upstream_stage || body.targetUpstreamStage,
-      expectedInspectionId: body.expected_inspection_id || body.expectedInspectionId || null,
-      expectedRevision: body.expected_revision ?? body.expectedRevision ?? null,
+      ...expected,
       idempotencyKey: idempotency(request, body) });
     reply.code(commandStatus(result)).send(result);
   });
 
   app.post("/api/works/:workId/deliveries", async (request, reply) => {
     const body = request.body || {};
+    const expected = precondition(body);
     const result = await service.createDelivery({ ...actor(request), workId: request.params.workId,
       deliveryMethod: body.delivery_method || body.deliveryMethod, note: body.note,
       deliveredAt: body.delivered_at || body.deliveredAt, recipientReference: body.recipient_reference || body.recipientReference,
-      expectedInspectionId: body.expected_inspection_id || body.expectedInspectionId || null,
-      expectedRevision: body.expected_revision ?? body.expectedRevision ?? null,
+      ...expected,
       idempotencyKey: idempotency(request, body) });
     reply.code(commandStatus(result)).send(result);
   });

@@ -35,7 +35,9 @@ test("listing a formal work creates a pending inspection projection", async () =
 test("passing a work creates an inspection and unlocks delivery", async () => {
   const { service } = world();
 
-  const result = await service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "pass-1" });
+  const pending = (await service.listWorks(actor))[0].current_inspection;
+  const result = await service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "pass-1",
+    expectedInspectionId: pending.id, expectedRevision: pending.revision });
 
   assert.equal(result.inspection.status, "passed");
   assert.equal(result.work.current_inspection.status, "passed");
@@ -46,9 +48,12 @@ test("passing a work creates an inspection and unlocks delivery", async () => {
 test("rework creates a new inspection, supersedes only the prior status projection, and keeps the work", async () => {
   const { service, repository, work } = world();
 
-  const first = await service.markDeliverable({ ...actor, workId: work.id, idempotencyKey: "pass-history" });
+  const pending = (await service.listWorks(actor))[0].current_inspection;
+  const first = await service.markDeliverable({ ...actor, workId: work.id, idempotencyKey: "pass-history",
+    expectedInspectionId: pending.id, expectedRevision: pending.revision });
   const rework = await service.requestRework({ ...actor, workId: work.id, idempotencyKey: "rework-history",
-    category: "visual_quality", reason: "画面主体不清晰，需要重新检查。", targetUpstreamStage: "video_plan" });
+    category: "visual_quality", reason: "画面主体不清晰，需要重新检查。", targetUpstreamStage: "video_plan",
+    expectedInspectionId: first.inspection.id, expectedRevision: first.inspection.revision });
 
   assert.notEqual(rework.inspection.id, first.inspection.id);
   assert.equal(rework.inspection.status, "rework_required");
@@ -60,17 +65,50 @@ test("rework creates a new inspection, supersedes only the prior status projecti
   assert.equal(rework.work.inspection_history[0].status, "superseded");
   assert.equal(rework.work.inspection_history[0].reason, null);
   assert.equal(repository._records.inspections.size, 3);
+  const transitions = await repository.listStatusTransitions(actor.organizationId);
+  assert.equal(transitions.find((entry) => entry.to_status === "passed").from_status, "pending");
+  assert.equal(transitions.find((entry) => entry.to_status === "rework_required").from_status, "passed");
+});
+
+test("inspection and delivery commands require the current inspection identity and revision", async () => {
+  const { service } = world();
+
+  await assert.rejects(
+    service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "missing-pass-precondition" }),
+    (error) => error.code === "WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED"
+  );
+  const pending = (await service.listWorks(actor))[0].current_inspection;
+  const passed = await service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "precondition-pass",
+    expectedInspectionId: pending.id, expectedRevision: pending.revision });
+  await assert.rejects(
+    service.requestRework({ ...actor, workId: "work-a", idempotencyKey: "missing-rework-precondition",
+      category: "visual_quality", reason: "需要返工", targetUpstreamStage: "video_plan" }),
+    (error) => error.code === "WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED"
+  );
+  await assert.rejects(
+    service.createDelivery({ ...actor, workId: "work-a", deliveryMethod: "email", idempotencyKey: "missing-delivery-precondition" }),
+    (error) => error.code === "WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED"
+  );
+  await assert.rejects(
+    service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "stale-precondition", expectedInspectionId: pending.id, expectedRevision: pending.revision }),
+    (error) => error.code === "WORK_DELIVERY_INSPECTION_CONFLICT"
+  );
+  assert.equal(passed.inspection.status, "passed");
 });
 
 test("delivery is gated by the current passed inspection and duplicate requests are idempotent", async () => {
   const { service } = world();
 
+  const pending = (await service.listWorks(actor))[0].current_inspection;
   await assert.rejects(
-    service.createDelivery({ ...actor, workId: "work-a", deliveryMethod: "email", idempotencyKey: "delivery-before-pass" }),
+    service.createDelivery({ ...actor, workId: "work-a", deliveryMethod: "email", idempotencyKey: "delivery-before-pass",
+      expectedInspectionId: pending.id, expectedRevision: pending.revision }),
     (error) => error.code === "WORK_DELIVERY_INSPECTION_REQUIRED"
   );
-  await service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "pass-delivery" });
-  const input = { ...actor, workId: "work-a", deliveryMethod: "email", note: "发送给运营团队", idempotencyKey: "delivery-one" };
+  const passed = await service.markDeliverable({ ...actor, workId: "work-a", idempotencyKey: "pass-delivery",
+    expectedInspectionId: pending.id, expectedRevision: pending.revision });
+  const input = { ...actor, workId: "work-a", deliveryMethod: "email", note: "发送给运营团队", idempotencyKey: "delivery-one",
+    expectedInspectionId: passed.inspection.id, expectedRevision: passed.inspection.revision };
   const first = await service.createDelivery(input);
   const replay = await service.createDelivery(input);
   const second = await service.createDelivery({ ...input, idempotencyKey: "delivery-two" });
@@ -81,7 +119,8 @@ test("delivery is gated by the current passed inspection and duplicate requests 
   assert.notEqual(second.delivery.id, first.delivery.id);
   assert.equal(second.work.delivery_count, 2);
   await assert.rejects(service.createDelivery({ ...input, note: "不同载荷" }), (error) => error.code === "IDEMPOTENCY_CONFLICT");
-  await service.requestRework({ ...actor, workId: "work-a", idempotencyKey: "rework-after-delivery", category: "visual_quality", reason: "重新检查画面", targetUpstreamStage: "video_plan" });
+  await service.requestRework({ ...actor, workId: "work-a", idempotencyKey: "rework-after-delivery", category: "visual_quality", reason: "重新检查画面", targetUpstreamStage: "video_plan",
+    expectedInspectionId: passed.inspection.id, expectedRevision: passed.inspection.revision });
   const replayAfterStateChange = await service.createDelivery(input);
   assert.equal(replayAfterStateChange.replayed, true);
 });
@@ -92,6 +131,6 @@ test("cross-organization work IDs and stale inspection revisions are rejected", 
   await assert.rejects(service.listWorks({ ...actor, actorRole: "viewer" }), (error) => error.code === "WORK_DELIVERY_FORBIDDEN");
   await assert.rejects(service.getWork({ ...actor, workId: "work-from-other-org" }), (error) => error.code === "WORK_DELIVERY_WORK_NOT_FOUND");
   const pending = (await service.listWorks(actor))[0].current_inspection;
-  await assert.rejects(service.markDeliverable({ ...actor, workId: "work-a", expectedRevision: pending.revision + 1, idempotencyKey: "stale-pass" }),
+  await assert.rejects(service.markDeliverable({ ...actor, workId: "work-a", expectedInspectionId: pending.id, expectedRevision: pending.revision + 1, idempotencyKey: "stale-pass" }),
     (error) => error.code === "WORK_DELIVERY_INSPECTION_CONFLICT");
 });

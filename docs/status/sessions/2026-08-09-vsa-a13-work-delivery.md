@@ -12,6 +12,12 @@ Agent：`luna-worker`（配置 `gpt-5.6-luna` / Max，`CONFIG_VERIFIED`；运行
 - 本地 commit：已创建（最终 hash 以 `git log -1` 为准）
 - 不触碰根工作区 `gui/visual-refresh` 脏文件；不 push、建 PR、批准/合并或关闭 Issue。
 
+## Sol Review 修复
+
+- 修复 migration 四态 CHECK：pending/passed 的 category/reason/target 为空，rework_required 三项完整，superseded 保留被替代记录原字段；PG 集成测试现在显式验证 rework 可写、随后 supersede 后原因/分类/返回阶段仍保留。
+- pass、rework、delivery 的服务与 API route 现在都要求当前 inspection identity+revision；缺失返回 `WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED`/HTTP 400，stale 仍为 409，receipt replay 不因之后的检查状态变化而失败。
+- memory repository 在 supersede 前保存 prior status，ledger 的 pending→passed 与 passed→rework 与 PostgreSQL 语义一致。没有增加哈希或无关防御。
+
 ## 已完成
 
 - 新增 Work 检查与交付服务、memory/PostgreSQL repository、clean migration、API 路由、审计/状态账本。
@@ -22,13 +28,13 @@ Agent：`luna-worker`（配置 `gpt-5.6-luna` / Max，`CONFIG_VERIFIED`；运行
 ## 验证与卡点
 
 - `npm run check`：178 个 JavaScript 文件通过。
-- `npm test`：798 tests / 754 pass / 0 fail / 44 skipped。
-- A13 service/API/PG：7 pass、1 skip；PG skip 因没有 `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL`，待 CI。
+- `npm test`：800 tests / 756 pass / 0 fail / 44 skipped。
+- A13 service/API/PG：9 pass、1 skip；PG skip 因没有 `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL`，待 CI。
 - A13 系统 Chrome 本地 fake：1 pass；A12 系统 Chrome 回归：1 pass；覆盖 1440/390 与无横向滚动。
 - `git diff --check`：通过。
 - `npm audit --omit=dev --audit-level=high` 在官方 registry 可执行，但报告仓库既有 7 项依赖风险（5 high、2 moderate）；修复需要破坏性升级，A13 未新增依赖，按边界不升级，作为上游依赖风险保留。
 
 ## 下一步
 
-- 完成官方 registry 的审计检查、最终定向复核、写回本地 commit hash，并交付上游 Review/CI。
+- 交付上游 Review/CI，并在带 PostgreSQL 连接的 clean DB 环境执行 A13 migration/integration；本地验证已完成。
 - 不开始 A14，不执行任何真实 Hifly/积分操作。

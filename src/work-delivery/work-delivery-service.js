@@ -19,6 +19,14 @@ function validateKey(value) {
   return value.trim();
 }
 
+function validateInspectionPrecondition(input) {
+  const expectedInspectionId = clean(input.expectedInspectionId);
+  const rawRevision = input.expectedRevision;
+  const expectedRevision = typeof rawRevision === "number" || (typeof rawRevision === "string" && rawRevision.trim() !== "") ? Number(rawRevision) : NaN;
+  if (!expectedInspectionId || !Number.isInteger(expectedRevision) || expectedRevision < 1) throw failure("WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED");
+  return { expectedInspectionId, expectedRevision };
+}
+
 function publicInspection(value) {
   if (!value) return null;
   const { organization_id: _organizationId, ...safe } = value;
@@ -95,6 +103,7 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
 
   async function createInspection(input, status, fields = {}) {
     const work = await getWorkOrThrow(input);
+    const precondition = validateInspectionPrecondition(input);
     if (work.status !== "available") throw failure("WORK_DELIVERY_WORK_UNAVAILABLE");
     const state = await repository.getInspectionState(input.organizationId, work.id);
     const current = state.current || await repository.ensurePendingInspection({ organizationId: input.organizationId, workId: work.id, now: at() });
@@ -110,10 +119,10 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
       target_upstream_stage: status === "rework_required" ? fields.targetUpstreamStage : null,
       inspected_by_member_id: input.actorMemberId, inspected_at: at(), superseded_by_inspection_id: null, created_at: at(), updated_at: at() };
     const fingerprint = stableJson({ operation: status, work_id: work.id, category: inspection.category, reason: inspection.reason,
-      target_upstream_stage: inspection.target_upstream_stage, expected_inspection_id: input.expectedInspectionId || null,
-      expected_revision: input.expectedRevision ?? null });
+      target_upstream_stage: inspection.target_upstream_stage, expected_inspection_id: precondition.expectedInspectionId,
+      expected_revision: precondition.expectedRevision });
     const saved = await repository.createInspection({ receiptKey: `${input.organizationId}:work-inspection:${key}`, fingerprint, inspection,
-      expectedInspectionId: input.expectedInspectionId || null, expectedRevision: input.expectedRevision ?? null,
+      expectedInspectionId: precondition.expectedInspectionId, expectedRevision: precondition.expectedRevision,
       audit: { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId, work_id: work.id,
         event_type: status === "passed" ? "work_inspection.passed" : "work_inspection.rework_required",
         metadata: { category: inspection.category, target_upstream_stage: inspection.target_upstream_stage }, created_at: inspection.inspected_at } });
@@ -127,6 +136,7 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
 
   async function createDelivery(input) {
     const work = await getWorkOrThrow(input);
+    const precondition = validateInspectionPrecondition(input);
     if (work.status !== "available") throw failure("WORK_DELIVERY_WORK_UNAVAILABLE");
     if (!DELIVERY_METHODS.includes(input.deliveryMethod)) throw failure("WORK_DELIVERY_METHOD_INVALID");
     const note = input.note == null ? null : clean(input.note);
@@ -139,9 +149,9 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
       delivered_at: deliveredAt, delivery_method: input.deliveryMethod, note, recipient_reference: recipientReference, created_at: at() };
     const fingerprint = stableJson({ operation: "delivery", work_id: work.id, delivered_at: input.deliveredAt || null, delivery_method: input.deliveryMethod,
       note, recipient_reference: recipientReference,
-      expected_inspection_id: input.expectedInspectionId || null, expected_revision: input.expectedRevision ?? null });
+      expected_inspection_id: precondition.expectedInspectionId, expected_revision: precondition.expectedRevision });
     const saved = await repository.createDelivery({ receiptKey: `${input.organizationId}:work-delivery:${key}`, fingerprint, delivery,
-      expectedInspectionId: input.expectedInspectionId || null, expectedRevision: input.expectedRevision ?? null,
+      expectedInspectionId: precondition.expectedInspectionId, expectedRevision: precondition.expectedRevision,
       audit: { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId, work_id: work.id,
         event_type: "delivery_record.created", metadata: { delivery_method: input.deliveryMethod }, created_at: at() } });
     return { delivery: publicDelivery(saved.delivery), work: await enrichWork(work, input), replayed: saved.replayed };

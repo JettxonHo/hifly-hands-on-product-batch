@@ -110,8 +110,10 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   assert.equal(passed.work.delivery_status, "deliverable");
 
   const deliveryInputs = [
-    { ...actor, workId: ids.work, deliveryMethod: "email", note: "同一请求 A", idempotencyKey: "a13-concurrent" },
-    { ...actor, workId: ids.work, deliveryMethod: "email", note: "同一请求 B", idempotencyKey: "a13-concurrent" }
+    { ...actor, workId: ids.work, deliveryMethod: "email", note: "同一请求 A", idempotencyKey: "a13-concurrent",
+      expectedInspectionId: passed.inspection.id, expectedRevision: passed.inspection.revision },
+    { ...actor, workId: ids.work, deliveryMethod: "email", note: "同一请求 B", idempotencyKey: "a13-concurrent",
+      expectedInspectionId: passed.inspection.id, expectedRevision: passed.inspection.revision }
   ];
   const concurrent = await Promise.allSettled(deliveryInputs.map((input) => service.createDelivery(input)));
   assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
@@ -124,14 +126,34 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   assert.notEqual(second.delivery.id, winner.delivery.id);
   assert.equal((await repository.listDeliveries(organizationId, ids.work)).length, 2);
 
-  const rework = await service.requestRework({ ...actor, workId: ids.work, category: "visual_quality", reason: "画面需要重新检查", targetUpstreamStage: "video_plan", idempotencyKey: "a13-rework" });
+  const rework = await service.requestRework({ ...actor, workId: ids.work, category: "visual_quality", reason: "画面需要重新检查", targetUpstreamStage: "video_plan", idempotencyKey: "a13-rework",
+    expectedInspectionId: passed.inspection.id, expectedRevision: passed.inspection.revision });
   assert.equal(rework.work.current_inspection.status, "rework_required");
   assert.equal(rework.work.inspection_history.length, 3);
+  assert.equal(rework.inspection.category, "visual_quality");
+  assert.equal(rework.inspection.reason, "画面需要重新检查");
+  assert.equal(rework.inspection.target_upstream_stage, "video_plan");
   assert.equal((await service.createDelivery(deliveryInputs[0])).replayed, true);
+
+  const passedAgain = await service.markDeliverable({ ...actor, workId: ids.work, idempotencyKey: "a13-pass-after-rework",
+    expectedInspectionId: rework.inspection.id, expectedRevision: rework.inspection.revision });
+  const stateAfterSupersede = await repository.getInspectionState(organizationId, ids.work);
+  const supersededRework = stateAfterSupersede.history.find((entry) => entry.id === rework.inspection.id);
+  assert.equal(supersededRework.status, "superseded");
+  assert.equal(supersededRework.category, "visual_quality");
+  assert.equal(supersededRework.reason, "画面需要重新检查");
+  assert.equal(supersededRework.target_upstream_stage, "video_plan");
+
+  const reworkAgain = await service.requestRework({ ...actor, workId: ids.work, category: "file_or_format", reason: "格式需要重新检查", targetUpstreamStage: "project_content", idempotencyKey: "a13-rework-again",
+    expectedInspectionId: passedAgain.inspection.id, expectedRevision: passedAgain.inspection.revision });
   await assert.rejects(pool.query("UPDATE work_inspections SET reason='篡改' WHERE id=$1", [pending.id]));
-  await assert.rejects(service.createDelivery({ ...actor, workId: ids.work, deliveryMethod: "email", idempotencyKey: "a13-blocked" }), (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED");
+  await assert.rejects(service.createDelivery({ ...actor, workId: ids.work, deliveryMethod: "email", idempotencyKey: "a13-blocked",
+    expectedInspectionId: reworkAgain.inspection.id, expectedRevision: reworkAgain.inspection.revision }), (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED");
   assert.equal((await service.getWork({ ...actor, workId: ids.work })).id, ids.work);
   await assert.rejects(service.getWork({ ...actor, organizationId: "org-other", workId: ids.work }), (error) => error.code === "WORK_DELIVERY_WORK_NOT_FOUND");
   assert.ok((await repository.listAuditEvents(organizationId)).length >= 4);
-  assert.ok((await repository.listStatusTransitions(organizationId)).length >= 3);
+  const transitions = await repository.listStatusTransitions(organizationId);
+  assert.equal(transitions.find((entry) => entry.to_status === "passed" && entry.from_status === "pending").to_status, "passed");
+  assert.equal(transitions.find((entry) => entry.to_status === "rework_required" && entry.from_status === "passed").from_status, "passed");
+  assert.ok(transitions.length >= 5);
 });

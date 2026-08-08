@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { activateAdmin, identityApp, identityHeaders } from "./helpers/identity-world.js";
+import { createMemoryWorkDeliveryRepository } from "../src/work-delivery/memory-work-delivery-repository.js";
+import { createWorkDeliveryService } from "../src/work-delivery/work-delivery-service.js";
 
 function serviceDouble() {
   const calls = [];
@@ -41,19 +43,28 @@ test("works routes are unavailable by default and enabled routes pass only serve
   assert.equal(list.json().works[0].id, "work-api");
   assert.equal(service.calls[0].input.organizationId, "org_test");
 
+  const missingPrecondition = await enabled.app.inject({ method: "POST", url: "/api/works/work-api/inspections/pass",
+    headers: { ...mutation, "idempotency-key": "missing-precondition-api" }, payload: {} });
+  assert.equal(missingPrecondition.statusCode, 400);
+  assert.equal(missingPrecondition.json().error, "WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED");
+  const invalidPrecondition = await enabled.app.inject({ method: "POST", url: "/api/works/work-api/inspections/pass",
+    headers: { ...mutation, "idempotency-key": "invalid-precondition-api" }, payload: { expected_inspection_id: " ", expected_revision: 0 } });
+  assert.equal(invalidPrecondition.statusCode, 400);
+  assert.equal(invalidPrecondition.json().error, "WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED");
+
   const passed = await enabled.app.inject({ method: "POST", url: "/api/works/work-api/inspections/pass",
-    headers: { ...mutation, "idempotency-key": "pass-api" }, payload: { expected_inspection_id: "client-inspection" } });
+    headers: { ...mutation, "idempotency-key": "pass-api" }, payload: { expected_inspection_id: "client-inspection", expected_revision: 1 } });
   assert.equal(passed.statusCode, 201);
   assert.equal(service.calls.at(-1).input.actorMemberId, auth.body.member.id);
   assert.equal("expectedInspectionId" in service.calls.at(-1).input, true);
 
   const rework = await enabled.app.inject({ method: "POST", url: "/api/works/work-api/inspections/rework",
-    headers: { ...mutation, "idempotency-key": "rework-api" }, payload: { category: "visual_quality", reason: "需要返工", target_upstream_stage: "video_plan" } });
+    headers: { ...mutation, "idempotency-key": "rework-api" }, payload: { category: "visual_quality", reason: "需要返工", target_upstream_stage: "video_plan", expected_inspection_id: "client-inspection", expected_revision: 1 } });
   assert.equal(rework.statusCode, 201);
   assert.equal(service.calls.at(-1).input.targetUpstreamStage, "video_plan");
 
   const delivery = await enabled.app.inject({ method: "POST", url: "/api/works/work-api/deliveries",
-    headers: { ...mutation, "idempotency-key": "delivery-api" }, payload: { delivery_method: "email", note: "发送" } });
+    headers: { ...mutation, "idempotency-key": "delivery-api" }, payload: { delivery_method: "email", note: "发送", expected_inspection_id: "client-inspection", expected_revision: 1 } });
   assert.equal(delivery.statusCode, 201);
   assert.equal(service.calls.at(-1).input.deliveryMethod, "email");
 
@@ -72,7 +83,33 @@ test("works routes keep validation and conflict errors distinguishable", async (
   const auth = await activateAdmin(enabled.app);
   const mutation = identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true });
   const response = await enabled.app.inject({ method: "POST", url: "/api/works/work-api/inspections/rework",
-    headers: { ...mutation, "idempotency-key": "rework-invalid" }, payload: { category: "visual_quality", target_upstream_stage: "video_plan" } });
+    headers: { ...mutation, "idempotency-key": "rework-invalid" }, payload: { category: "visual_quality", target_upstream_stage: "video_plan", expected_inspection_id: "client-inspection", expected_revision: 1 } });
   assert.equal(response.statusCode, 400);
   assert.equal(response.json().error, "WORK_DELIVERY_REWORK_REASON_REQUIRED");
+});
+
+test("works API enforces stale inspection preconditions and replays the same command", async (t) => {
+  const work = { id: "work-api-real", organization_id: "org_test", status: "available", production_order_id: "order-api-real",
+    primary_output_media_type: "video/mp4", primary_output_size: 42 };
+  const workPort = {
+    async listWorks(organizationId) { return organizationId === work.organization_id ? [structuredClone(work)] : []; },
+    async getWork(organizationId, workId) { return organizationId === work.organization_id && workId === work.id ? structuredClone(work) : null; }
+  };
+  const service = createWorkDeliveryService({ repository: createMemoryWorkDeliveryRepository(), workPort, now: () => Date.parse("2026-08-09T01:00:00.000Z") });
+  const enabled = await identityApp(t, { workDelivery: { enabled: true, service } });
+  const auth = await activateAdmin(enabled.app);
+  const read = identityHeaders({ cookies: auth.cookies });
+  const mutation = identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true });
+  const list = await enabled.app.inject({ method: "GET", url: "/api/works", headers: read });
+  const pending = list.json().works[0].current_inspection;
+  const payload = { idempotency_key: "api-replay", expected_inspection_id: pending.id, expected_revision: pending.revision };
+  const first = await enabled.app.inject({ method: "POST", url: "/api/works/work-api-real/inspections/pass", headers: { ...mutation, "idempotency-key": payload.idempotency_key }, payload });
+  assert.equal(first.statusCode, 201);
+  const replay = await enabled.app.inject({ method: "POST", url: "/api/works/work-api-real/inspections/pass", headers: { ...mutation, "idempotency-key": payload.idempotency_key }, payload });
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.json().replayed, true);
+  const stale = await enabled.app.inject({ method: "POST", url: "/api/works/work-api-real/inspections/rework", headers: { ...mutation, "idempotency-key": "api-stale" },
+    payload: { category: "visual_quality", reason: "过期检查", target_upstream_stage: "video_plan", expected_inspection_id: pending.id, expected_revision: pending.revision } });
+  assert.equal(stale.statusCode, 409);
+  assert.equal(stale.json().error, "WORK_DELIVERY_INSPECTION_CONFLICT");
 });

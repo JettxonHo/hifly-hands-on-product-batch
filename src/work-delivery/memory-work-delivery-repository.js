@@ -67,6 +67,7 @@ export function createMemoryWorkDeliveryRepository() {
       const prior = current(inspection.organization_id, inspection.work_id);
       if (expectedInspectionId && prior?.id !== expectedInspectionId) throw failure("WORK_DELIVERY_INSPECTION_CONFLICT");
       if (expectedRevision != null && (!prior || Number(prior.revision) !== Number(expectedRevision))) throw failure("WORK_DELIVERY_INSPECTION_CONFLICT");
+      const priorStatus = prior?.status || null;
       const next = { ...clone(inspection), revision: (prior?.revision || 0) + 1 };
       inspections.set(next.id, next);
       if (prior) {
@@ -75,7 +76,7 @@ export function createMemoryWorkDeliveryRepository() {
         prior.updated_at = next.inspected_at;
       }
       receipts.set(receiptKey, { fingerprint, operation: "inspection", result_id: next.id, work_id: next.work_id });
-      appendLedger(next, prior?.status || null, next.status);
+      appendLedger(next, priorStatus, next.status);
       if (audit) audits.push(clone({ ...audit, inspection_id: next.id }));
       return { inspection: clone(next), replayed: false };
     },

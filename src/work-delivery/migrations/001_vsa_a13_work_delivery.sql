@@ -19,10 +19,14 @@ CREATE TABLE work_inspections (
   CHECK (category IS NULL OR category IN ('content_not_as_planned','visual_quality','audio_or_avatar','file_or_format','other')),
   CHECK (target_upstream_stage IS NULL OR target_upstream_stage IN ('video_plan','copy_review','avatar_selection','project_content')),
   CHECK (reason IS NULL OR length(reason) <= 2000),
-  CHECK (status = 'superseded' OR (category IS NULL AND reason IS NULL AND target_upstream_stage IS NULL)),
   CHECK ((status = 'superseded' AND superseded_by_inspection_id IS NOT NULL) OR
          (status <> 'superseded' AND superseded_by_inspection_id IS NULL)),
-  CHECK (status <> 'rework_required' OR (category IS NOT NULL AND reason IS NOT NULL AND length(btrim(reason)) > 0 AND target_upstream_stage IS NOT NULL))
+  CHECK (
+    (status IN ('pending','passed') AND category IS NULL AND reason IS NULL AND target_upstream_stage IS NULL)
+    OR
+    (status = 'rework_required' AND category IS NOT NULL AND reason IS NOT NULL AND length(btrim(reason)) > 0 AND target_upstream_stage IS NOT NULL)
+    OR status = 'superseded'
+  )
 );
 
 CREATE TABLE work_delivery_records (
