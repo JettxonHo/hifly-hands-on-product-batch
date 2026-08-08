@@ -174,7 +174,7 @@ export function createProductionOrderService({ repository, planPort, inputSnapsh
     const transitioned = await repository.transitionOrder({
       organizationId: input.organizationId, orderId: input.orderId, expectedRevision: input.expectedRevision,
       fromStatuses: input.fromStatuses, toStatus: input.toStatus, at: input.at || timestamp(),
-      actorMemberId: input.actorMemberId, reason: input.reason || null
+      actorMemberId: input.actorMemberId, reason: input.reason || null, transactionClient: input.transactionClient || null
     });
     if (!transitioned) throw failure("PRODUCTION_ORDER_CONFLICT");
     return transitioned;

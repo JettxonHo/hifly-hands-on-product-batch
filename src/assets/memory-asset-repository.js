@@ -95,6 +95,33 @@ export function createMemoryAssetRepository() {
             .map(clone)
         }));
     },
+    async registerVerifiedOutput({ organizationId, actorMemberId = null, candidate, now, transactionClient = null }) {
+      const existing = [...versions.values()].find((version) => version.organization_id === organizationId && version.object_key === candidate.object_key);
+      if (existing) {
+        if (existing.status !== "available" || existing.expected_checksum_sha256 !== candidate.checksum || existing.expected_size !== candidate.size) {
+          throw failure("WORK_VERIFICATION_ASSET_CONFLICT");
+        }
+        return { asset: clone(assets.get(existing.asset_id)), asset_version: clone(existing) };
+      }
+      const asset = {
+        id: randomUUID(), organization_id: organizationId, kind: "work_video", display_name: candidate.original_filename || "已核验作品",
+        status: "active", revision_number: 1, created_by_member_id: actorMemberId, created_at: now, updated_at: now
+      };
+      const version = {
+        id: randomUUID(), asset_id: asset.id, organization_id: organizationId, version_number: 1, status: "available",
+        object_key: candidate.object_key, original_filename: candidate.original_filename, expected_content_type: candidate.media_type,
+        expected_size: candidate.size, expected_checksum_sha256: candidate.checksum, verified_content_type: candidate.media_type,
+        verified_size: candidate.size, verified_checksum_sha256: candidate.checksum, verified_at: now, failure_code: null,
+        created_at: now, updated_at: now
+      };
+      assets.set(asset.id, clone(asset));
+      versions.set(version.id, clone(version));
+      if (transactionClient?.onRollback) transactionClient.onRollback(() => { assets.delete(asset.id); versions.delete(version.id); });
+      audits.push({ id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId, event_type: "asset.work_video_available",
+        asset_id: asset.id, asset_version_id: version.id, metadata: { candidate_id: candidate.id }, created_at: now });
+      if (transactionClient?.onRollback) transactionClient.onRollback(() => audits.pop());
+      return { asset: clone(asset), asset_version: clone(version) };
+    },
     async listPendingVerificationJobs() { return [...jobs.values()].filter((job) => ["queued", "running"].includes(job.status)).map(clone); },
     async claimNextVerificationJob(now) {
       const job = [...jobs.values()].find((value) => ["queued", "running"].includes(value.status));

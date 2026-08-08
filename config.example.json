@@ -100,6 +100,26 @@
     "productionOrders": {
       "enabled": false
     },
+    "manualExecution": {
+      "enabled": false,
+      "maxCandidateBytes": 268435456,
+      "worker": {
+        "autoStart": true,
+        "pollIntervalMs": 1000,
+        "leaseMs": 30000,
+        "maxAttempts": 3
+      }
+    },
+    "artifactVerification": {
+      "enabled": false,
+      "worker": {
+        "autoStart": true,
+        "pollIntervalMs": 1000,
+        "leaseMs": 30000,
+        "heartbeatIntervalMs": 10000,
+        "maxAttempts": 3
+      }
+    },
     "openBrowser": true
   },
   "uploadLimits": {

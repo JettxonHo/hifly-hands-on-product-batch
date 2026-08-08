@@ -5,8 +5,8 @@ import { assertProductionOrderSchemaCurrent } from "./postgres.js";
 const failure = (code) => Object.assign(new Error(code), { code });
 const allowedTransitions = {
   draft: ["ready"], ready: ["waiting_for_executor"], waiting_for_executor: ["claimed", "cancelled"],
-  claimed: ["running", "requires_action", "cancel_requested", "failed"], running: ["requires_action", "failed", "cancel_requested"],
-  requires_action: ["running", "waiting_for_executor", "failed", "cancelled"], failed: ["waiting_for_executor", "cancelled"],
+  claimed: ["running", "requires_action", "cancel_requested", "failed"], running: ["requires_action", "failed", "cancel_requested", "succeeded"],
+  requires_action: ["running", "waiting_for_executor", "failed", "cancelled", "succeeded"], failed: ["waiting_for_executor", "cancelled"],
   cancel_requested: ["cancelled"], succeeded: [], cancelled: []
 };
 const one = (result) => result.rows[0] || null;
@@ -64,8 +64,8 @@ export function createPostgresProductionOrderRepository({ pool, ownsPool = false
       return order(one(await pool.query("SELECT * FROM production_orders WHERE organization_id=$1 AND id=$2", [organizationId, orderId])));
     },
 
-    async transitionOrder({ organizationId, orderId, expectedRevision, fromStatuses = [], toStatus, at, actorMemberId = null, reason = null }) {
-      return withTransaction(pool, async (client) => {
+    async transitionOrder({ organizationId, orderId, expectedRevision, fromStatuses = [], toStatus, at, actorMemberId = null, reason = null, transactionClient = null }) {
+      const work = async (client) => {
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`production-order-transition:${organizationId}:${orderId}`]);
         const current = order(one(await client.query("SELECT * FROM production_orders WHERE organization_id=$1 AND id=$2 FOR UPDATE", [organizationId, orderId])));
         if (!current || current.row_version !== expectedRevision || !fromStatuses.includes(current.status)) return null;
@@ -79,7 +79,8 @@ export function createPostgresProductionOrderRepository({ pool, ownsPool = false
           VALUES ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), organizationId, actorMemberId, orderId,
           `production_order.${toStatus}`, JSON.stringify({ from_status: current.status, to_status: toStatus, reason }), at]);
         return updated;
-      });
+      };
+      return transactionClient ? work(transactionClient) : withTransaction(pool, work);
     },
 
     async listAuditEvents(organizationId = null) {

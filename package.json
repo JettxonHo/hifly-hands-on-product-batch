@@ -18,6 +18,7 @@
     "migrate:video-planning": "node scripts/migrate-video-planning.mjs",
     "migrate:production-orders": "node scripts/migrate-production-orders.mjs",
     "migrate:manual-handoff": "node scripts/migrate-manual-handoff.mjs",
+    "migrate:work-verification": "node scripts/migrate-work-verification.mjs",
     "validate": "node src/validate-products.js",
     "run": "node src/run-batch.js",
     "prepare-standard": "node scripts/generate-standard-assets.mjs",

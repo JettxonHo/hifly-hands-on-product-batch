@@ -37,6 +37,10 @@ import { createManualHandoffPackageWorker } from "../manual-handoff/manual-hando
 import { createPostgresManualHandoffRepository } from "../manual-handoff/postgres-manual-handoff-repository.js";
 import { createManualExecutionService } from "../manual-execution/manual-execution-service.js";
 import { createPostgresManualExecutionRepository } from "../manual-execution/postgres-manual-execution-repository.js";
+import { createWorkVerificationService } from "../work-verification/work-verification-service.js";
+import { createWorkVerificationWorker } from "../work-verification/work-verification-worker.js";
+import { createPostgresWorkVerificationRepository } from "../work-verification/postgres-work-verification-repository.js";
+import { runWorkVerificationMigrations } from "../work-verification/postgres.js";
 import { registerManualExecutionRoutes } from "./routes/manual-execution.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
@@ -61,6 +65,7 @@ import { registerAvatarSelectionRoutes } from "./routes/avatar-selection.js";
 import { registerVideoPlanningRoutes } from "./routes/video-planning.js";
 import { registerProductionOrderRoutes } from "./routes/production-orders.js";
 import { registerManualHandoffRoutes } from "./routes/manual-handoff.js";
+import { registerWorkVerificationRoutes } from "./routes/work-verification.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -183,6 +188,19 @@ function apiError(error, request = null) {
   if (["MANUAL_EXECUTION_PRIMARY_OUTPUT_REQUIRED", "MANUAL_EXECUTION_CANDIDATE_NOT_READY", "MANUAL_EXECUTION_UPLOAD_BLOCKED",
     "MANUAL_EXECUTION_CANDIDATE_INTEGRITY_MISMATCH", "MANUAL_EXECUTION_UPLOAD_NOT_COMPLETED", "MANUAL_EXECUTION_PACKAGE_NOT_READY"].includes(error?.code)) return { statusCode: 422, code: error.code };
   if (error?.code === "MANUAL_EXECUTION_CANDIDATE_SIZE_INVALID") return { statusCode: 413, code: error.code };
+  if (["WORK_VERIFICATION_JOB_NOT_FOUND", "WORK_VERIFICATION_CANDIDATE_NOT_FOUND", "WORK_VERIFICATION_ORDER_NOT_FOUND"].includes(error?.code)) {
+    return { statusCode: 404, code: error.code };
+  }
+  if (["WORK_VERIFICATION_CONTEXT_REQUIRED", "WORK_VERIFICATION_SOURCE_SNAPSHOT_REQUIRED", "WORK_VERIFICATION_RECOVERY_NOTE_REQUIRED", "WORK_VERIFICATION_RECOVERY_NOTE_INVALID"].includes(error?.code)) {
+    return { statusCode: 400, code: error.code };
+  }
+  if (error?.code === "WORK_VERIFICATION_FORBIDDEN") return { statusCode: 403, code: error.code };
+  if (["WORK_VERIFICATION_CONFLICT", "WORK_VERIFICATION_PRIMARY_WORK_EXISTS", "WORK_VERIFICATION_REPORT_NOT_LATEST", "WORK_VERIFICATION_PRIMARY_OUTPUT_REQUIRED",
+    "WORK_VERIFICATION_CORRECTION_REQUIRED", "WORK_VERIFICATION_RETRY_BLOCKED", "WORK_VERIFICATION_RETRY_EXHAUSTED", "WORK_VERIFICATION_RECOVERY_BLOCKED", "WORK_VERIFICATION_LEASE_LOST",
+    "WORK_VERIFICATION_ASSET_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) {
+    return { statusCode: 409, code: error.code };
+  }
+  if (error?.code === "WORK_VERIFICATION_SCHEMA_NOT_READY") return { statusCode: 503, code: error.code };
   if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
@@ -249,6 +267,7 @@ export async function buildApp({
   productionOrders: productionOrdersOptions = null,
   manualHandoff: manualHandoffOptions = null,
   manualExecution: manualExecutionOptions = null,
+  artifactVerification: artifactVerificationOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -268,6 +287,7 @@ export async function buildApp({
   const productionOrdersEnabled = productionOrdersOptions?.enabled === true;
   const manualHandoffEnabled = manualHandoffOptions?.enabled === true;
   const manualExecutionEnabled = manualExecutionOptions?.enabled === true;
+  const artifactVerificationEnabled = artifactVerificationOptions?.enabled === true;
   const manualExecutionMaxCandidateBytes = manualExecutionOptions?.maxCandidateBytes ?? DEFAULT_MANUAL_EXECUTION_MAX_CANDIDATE_BYTES;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
@@ -284,6 +304,11 @@ export async function buildApp({
   if (manualExecutionEnabled && !identityEnabled) throw Object.assign(new Error("MANUAL_EXECUTION_REQUIRE_IDENTITY"), { code: "MANUAL_EXECUTION_REQUIRE_IDENTITY" });
   if (manualExecutionEnabled && !productionOrdersEnabled) throw Object.assign(new Error("MANUAL_EXECUTION_REQUIRE_PRODUCTION_ORDERS"), { code: "MANUAL_EXECUTION_REQUIRE_PRODUCTION_ORDERS" });
   if (manualExecutionEnabled && !manualHandoffEnabled) throw Object.assign(new Error("MANUAL_EXECUTION_REQUIRE_MANUAL_HANDOFF"), { code: "MANUAL_EXECUTION_REQUIRE_MANUAL_HANDOFF" });
+  if (artifactVerificationEnabled && !identityEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_IDENTITY"), { code: "ARTIFACT_VERIFICATION_REQUIRE_IDENTITY" });
+  if (artifactVerificationEnabled && !artifactVerificationOptions.service && !assetsEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_ASSETS"), { code: "ARTIFACT_VERIFICATION_REQUIRE_ASSETS" });
+  if (artifactVerificationEnabled && !artifactVerificationOptions.service && !productionOrdersEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_PRODUCTION_ORDERS"), { code: "ARTIFACT_VERIFICATION_REQUIRE_PRODUCTION_ORDERS" });
+  if (artifactVerificationEnabled && !artifactVerificationOptions.service && !manualHandoffEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_MANUAL_HANDOFF"), { code: "ARTIFACT_VERIFICATION_REQUIRE_MANUAL_HANDOFF" });
+  if (artifactVerificationEnabled && !artifactVerificationOptions.service && !manualExecutionEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_MANUAL_EXECUTION"), { code: "ARTIFACT_VERIFICATION_REQUIRE_MANUAL_EXECUTION" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -370,6 +395,7 @@ export async function buildApp({
       productionOrdersEnabled,
       manualHandoffEnabled,
       manualExecutionEnabled,
+      artifactVerificationEnabled,
       ...(manualExecutionEnabled ? { manualExecutionMaxCandidateBytes } : {}),
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
@@ -590,6 +616,38 @@ export async function buildApp({
     app.decorate("manualExecution", { repository, candidateStore, service });
     app.addHook("onClose", async () => { await repository.close?.(); await candidateStore.close?.(); });
     await registerManualExecutionRoutes(app, { service, maxCandidateBytes: manualExecutionMaxCandidateBytes });
+  }
+
+  if (artifactVerificationEnabled) {
+    let repository = artifactVerificationOptions.repository || null;
+    let service = artifactVerificationOptions.service || null;
+    if (!service) {
+      repository = repository || (sharedPool ? createPostgresWorkVerificationRepository({ pool: sharedPool }) : null);
+      if (!repository) throw Object.assign(new Error("WORK_VERIFICATION_REPOSITORY_REQUIRED"), { code: "WORK_VERIFICATION_REPOSITORY_REQUIRED" });
+      if (sharedPool && !artifactVerificationOptions.repository) await runWorkVerificationMigrations(sharedPool);
+      await repository.initialize();
+      const orderPort = artifactVerificationOptions.orderPort || {
+        getOrder: app.productionOrders.service.getOrder,
+        transitionOrder: app.productionOrders.service.transitionOrder
+      };
+      const executionPort = artifactVerificationOptions.executionPort || app.manualExecution.repository;
+      const packagePort = artifactVerificationOptions.packagePort || { getPackage: app.manualHandoff.service.getPackage };
+      const objectStore = artifactVerificationOptions.objectStore || app.manualExecution.candidateStore || app.assets.objectStore;
+      const verifiedOutputAssetPort = artifactVerificationOptions.verifiedOutputAssetPort || app.assets.service.verifiedOutputAssetPort;
+      service = createWorkVerificationService({ repository, orderPort, executionPort, packagePort, objectStore,
+        verifiedOutputAssetPort, maxAttempts: artifactVerificationOptions.worker?.maxAttempts, now });
+    }
+    const worker = artifactVerificationOptions.workerInstance || createWorkVerificationWorker({
+      service,
+      pollIntervalMs: artifactVerificationOptions.worker?.pollIntervalMs,
+      leaseMs: artifactVerificationOptions.worker?.leaseMs,
+      heartbeatIntervalMs: artifactVerificationOptions.worker?.heartbeatIntervalMs,
+      onError: artifactVerificationOptions.worker?.onError || ((error) => console.error("Work verification worker error:", error?.code || "UNEXPECTED_ERROR"))
+    });
+    app.decorate("artifactVerification", { repository, service, worker });
+    app.addHook("onClose", async () => { worker.stop(); await repository?.close?.(); });
+    await registerWorkVerificationRoutes(app, { service });
+    if (artifactVerificationOptions.worker?.autoStart !== false) worker.start();
   }
 
   await registerBatchRoutes(app, { store });

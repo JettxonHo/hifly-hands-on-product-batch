@@ -1,7 +1,7 @@
 (async () => {
   const params = new URLSearchParams(location.search), projectId = params.get("project"), requestedProductId = params.get("product");
-  let project, product, runtime, workspace, execution = null, packages = [], creating = false, packageBusy = false, packagePoll = null,
-    manualBusy = false, manualUploadBusy = false, manualCorrectionReportId = null, selectedOrderId = params.get("orderId") || null, pendingCreateKey = null, pendingPackageKey = null, pendingRetryKey = null;
+  let project, product, runtime, workspace, execution = null, verification = null, packages = [], creating = false, packageBusy = false, packagePoll = null, verificationPoll = null, verificationReadError = "",
+    manualBusy = false, manualUploadBusy = false, verificationBusy = false, manualCorrectionReportId = null, selectedOrderId = params.get("orderId") || null, pendingCreateKey = null, pendingPackageKey = null, pendingRetryKey = null;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const purposeLabels = { first_production: "首次生产", rework: "返工重做", supplemental_version: "补充版本", reproduction: "再次生产" };
@@ -13,6 +13,7 @@
   const packageLabels = { generating: "生成中", ready: "可下载", generation_failed: "生成未完成", superseded: "已由新版本替代", expired: "下载权限已过期", revoked: "已停用" };
   const planLabels = { frozen: "已批准方案", draft: "草稿方案", superseded: "已被替代" };
   const outcomeLabels = { completed: "已完成，等待核验", requires_action: "需要处理", failed: "执行失败", cancelled: "已取消" };
+  const verificationLabels = { queued: "等待核验", running: "核验中", passed: "核验通过", failed: "核验未完成", requires_action: "需要处理" };
   const gateLabels = { approved_plan_missing: "视频方案尚未通过人工审核，不能创建工单", plan_review_not_approved: "视频方案尚未通过人工审核，不能创建工单", preflight_not_reviewable: "视频方案预检尚未达到可生产条件，不能创建工单", preflight_invalidated: "方案批准已失效，请返回视频方案重新确认", upstream_changed: "方案引用的商品、文案或人物信息已变化，请创建新方案版本", capability_snapshot_changed: "方案能力配置已变化，请返回视频方案重新确认", plan_not_current: "当前方案已不是有效版本，请返回视频方案查看最新版本", plan_not_frozen: "视频方案尚未固定，不能创建工单" };
 
   async function request(url, options = {}) {
@@ -101,7 +102,7 @@
     if (!runtime?.manualHandoffEnabled) {
       panel.dataset.feature = "disabled"; title.textContent = "尚未生成交接包"; status.textContent = "未生成"; status.className = "state"; meta.textContent = "创建生产工单后，可在后续阶段生成人工交接包。当前阶段不会自动开始生产。"; integrity.textContent = ""; notice(failure); notice(element("#packageNotice")); content.hidden = true; actions.hidden = true; history.hidden = true; future.hidden = true; element("#manualExecutionPanel").hidden = true; return;
     }
-    panel.dataset.feature = "enabled"; future.hidden = Boolean(runtime?.manualExecutionEnabled); element("#manualExecutionPanel").hidden = !runtime?.manualExecutionEnabled;
+    panel.dataset.feature = "enabled"; future.hidden = Boolean(runtime?.manualExecutionEnabled || runtime?.artifactVerificationEnabled); element("#manualExecutionPanel").hidden = !runtime?.manualExecutionEnabled;
     const value = currentPackage();
     if (!workspace?.selected_order || !selectedOrderId) {
       title.textContent = "尚未生成交接包"; status.textContent = "未生成"; status.className = "state"; meta.textContent = "创建生产工单后，可以生成一份供人工执行的交接包。"; integrity.textContent = ""; notice(failure); content.hidden = true; actions.hidden = true; history.hidden = true; return;
@@ -164,7 +165,7 @@
     if (!attempt) meta.textContent = packageReady ? "交接包已准备好。领取后确认开始，上传候选作品并提交执行结果。" : "请先生成并准备好当前工单的交接包。";
     else if (status === "claimed") meta.textContent = "任务已领取；确认开始后才会记录执行已开始。";
     else if (status === "running") meta.textContent = "执行中。候选作品上传完成后仍需提交执行结果。";
-    else if (status === "succeeded") meta.textContent = "执行结果已提交；产物核验将在后续阶段开放，当前工单尚未完成。";
+    else if (status === "succeeded") meta.textContent = runtime?.artifactVerificationEnabled ? "执行结果已提交；执行完成不等于工单完成，候选产物仍需服务端核验。" : "执行结果已提交；产物核验将在后续阶段开放，当前工单尚未完成。";
     else if (status === "requires_action") meta.textContent = "当前结果需要处理；完成处理后可以重新检查。";
     else if (status === "failed") meta.textContent = execution?.reports?.at(-1)?.retryability === "retryable" ? "本次执行失败；该问题可重试，可以重新领取。" : "本次执行失败；该问题不可在当前工单重试，请返回上游处理。";
     else if (status === "cancel_requested") meta.textContent = "工单正在取消；请提交已取消结果完成本次记录。";
@@ -183,7 +184,7 @@
     const candidates = execution?.candidates || [], primary = candidates.find((item) => item.role === "primary_video");
     element("#manualCandidateLimit").textContent = runtime.manualExecutionMaxCandidateBytes ? `单个候选视频上限：${formatBytes(runtime.manualExecutionMaxCandidateBytes)}` : "候选视频大小限制由服务端控制。";
     element("#uploadManualCandidate").disabled = status !== "running" || manualUploadBusy || !file.files?.[0] || Boolean(primary && primary.status !== "removed");
-    element("#manualCandidateList").replaceChildren(...candidates.map((item) => { const row = document.createElement("div"); row.className = "manual-candidate-row"; const name = document.createElement("strong"); name.textContent = item.original_filename || "候选作品"; const state = document.createElement("span"); state.textContent = `${item.role === "primary_video" ? "主要视频" : "辅助作品"} · ${candidateStatusLabel(item.status)}`; row.append(name, state); return row; }));
+    element("#manualCandidateList").replaceChildren(...candidates.map((item) => { const row = document.createElement("div"); row.className = "manual-candidate-row"; const name = document.createElement("strong"); name.textContent = item.original_filename || "候选作品"; const state = document.createElement("span"); const verificationState = item.verification_status ? ` · ${verificationLabels[item.verification_status] || "核验状态待确认"}` : ""; state.textContent = `${item.role === "primary_video" ? "主要视频" : "辅助作品"} · ${candidateStatusLabel(item.status)}${verificationState}`; row.append(name, state); return row; }));
     const canReport = ["running", "cancel_requested"].includes(status);
     element("#submitManualReport").hidden = !canReport; element("#submitManualReport").disabled = manualBusy;
     const reportOutcome = element("#manualReportOutcome"), cancelledOption = reportOutcome?.querySelector("option[value=cancelled]");
@@ -195,6 +196,118 @@
   async function loadExecution({ render = true } = {}) {
     if (!runtime?.manualExecutionEnabled || !selectedOrderId) { execution = null; if (render) renderManualExecution(); return; }
     execution = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/manual-execution`); if (render) renderManualExecution();
+  }
+  function verificationError(error) { if (error.status === 403) return "你没有权限处理当前候选产物。"; if (error.status === 404) return "当前核验任务或工单不存在，请刷新后重试。"; if (error.status === 409) return "核验输入已更新，请使用最新更正报告重新核验。"; return "候选产物核验操作未完成，请稍后重试。"; }
+  function latestExecutionReport() {
+    return (execution?.reports || []).filter(Boolean).slice().sort((left, right) =>
+      (left.report_version || 0) - (right.report_version || 0) || String(left.submitted_at || "").localeCompare(String(right.submitted_at || "")) || String(left.id || "").localeCompare(String(right.id || ""))).at(-1) || null;
+  }
+  function verificationInput() {
+    const report = latestExecutionReport(), primaryId = report?.primary_output?.upload_reference;
+    const primary = execution?.candidates?.find((item) => item.id === primaryId && item.role === "primary_video");
+    return { report, primary, ready: report?.outcome === "completed" && Boolean(primary) };
+  }
+  function jobMatchesVerificationInput(job, report, primary) {
+    return Boolean(job && report && primary && job.report_id === report.id && job.candidate_id === primary.id &&
+      String(job.primary_output_checksum || "").toLowerCase() === String(primary.checksum || "").toLowerCase());
+  }
+  function verificationFailureReason(job) {
+    if (job?.failure_reason) return job.failure_reason;
+    return job?.failure_kind === "technical" ? "系统暂未完成文件检查，请重新核验。" : "候选文件未通过检查，请提交更正报告。";
+  }
+  function scheduleVerificationPoll(delayMs = 2000, { force = false } = {}) {
+    if (verificationPoll) { clearTimeout(verificationPoll); verificationPoll = null; }
+    if (runtime?.artifactVerificationEnabled && selectedOrderId && (force || ["queued", "running"].includes(verification?.job?.verification_status))) {
+      verificationPoll = setTimeout(() => loadVerification().catch(() => undefined), delayMs);
+    }
+  }
+  function renderVerification() {
+    const panel = element("#workVerificationPanel");
+    if (!runtime?.artifactVerificationEnabled) { panel.hidden = true; return; }
+    panel.hidden = false;
+    const job = verification?.job || null, work = verification?.work || null, order = workspace?.orders?.find((item) => item.id === selectedOrderId);
+    const { report, primary, ready } = verificationInput();
+    const currentJob = jobMatchesVerificationInput(job, report, primary), status = currentJob ? job.verification_status : job ? "stale" : "queued";
+    const badgeTarget = element("#workVerificationStatus"); badgeTarget.textContent = status === "stale" ? "待重新核验" : job ? (verificationLabels[status] || "状态待确认") : "未发起"; badgeTarget.className = `state ${job && status !== "stale" ? stateClass(status) : ""}`;
+    const meta = element("#workVerificationMeta");
+    if (!job) meta.textContent = "执行结果提交后，服务端会读取固定报告与候选对象，核对归属、关联、类型、大小和文件完整性。";
+    else if (!currentJob && ready) meta.textContent = "已提交新的更正报告，请使用最新报告重新核验。";
+    else if (status === "queued") meta.textContent = "核验已排队；刷新或离开页面不会丢失，状态会自动更新。";
+    else if (status === "running") meta.textContent = "正在读取真实候选对象并检查文件完整性，请等待结果。";
+    else if (status === "passed") meta.textContent = "候选产物已通过检查并登记作品；正式文件版本已固定。";
+    else if (status === "requires_action") meta.textContent = "当前核验需要处理；请先提交更正报告，提交后再重新核验，不会自动登记作品。";
+    else if (job.failure_kind === "technical") meta.textContent = "文件检查暂未完成；可以在有限次数内重新核验。技术问题不等于业务失败。";
+    else meta.textContent = "候选产物未通过检查；请根据提示处理后提交更正报告。";
+    const summary = element("#workVerificationSummary");
+    const rows = [];
+    if (job) rows.push(["更新时间", formatTime(job.updated_at || job.created_at)]);
+    if (currentJob && ["failed", "requires_action"].includes(status)) rows.push(["处理提示", verificationFailureReason(job)]);
+    if (!currentJob && ready) rows.push(["处理提示", "请使用最新的更正报告重新核验。"]);
+    if (verificationReadError) rows.push(["读取提示", verificationReadError]);
+    if (job?.attempts != null) rows.push(["尝试次数", `${job.attempts}/${job.max_attempts}`]);
+    if (order?.status === "succeeded" && status !== "passed") rows.push(["工单提醒", "执行完成不等于工单完成"]);
+    summary.replaceChildren(...rows.map(([label, text]) => { const row = document.createElement("div"); row.className = "verification-check-row"; const title = document.createElement("strong"); title.textContent = label; const value = document.createElement("span"); value.textContent = text; row.append(title, value); return row; }));
+    const requestButton = element("#requestWorkVerification"); requestButton.hidden = !ready || (Boolean(job) && currentJob); requestButton.textContent = job ? "重新核验" : "发起核验"; requestButton.disabled = verificationBusy;
+    const retryButton = element("#retryWorkVerification"); retryButton.hidden = !currentJob || job.status !== "failed" || job.failure_kind !== "technical"; retryButton.textContent = "重新核验"; retryButton.disabled = verificationBusy;
+    const recoverButton = element("#recoverWorkVerification"); recoverButton.hidden = true; recoverButton.disabled = verificationBusy;
+    const workCard = element("#workCard"); workCard.hidden = !work;
+    if (work) {
+      element("#workCardSummary").textContent = `工单已固定主要视频 · ${work.primary_output_media_type || "视频"} · ${formatBytes(work.primary_output_size)}`;
+      element("#workAssetVersion").textContent = "正式文件版本已固定";
+      element("#workChecksum").textContent = "文件内容已核对";
+    }
+    element("#worksLibraryDisabled").hidden = false;
+    scheduleVerificationPoll(verificationReadError ? 3000 : 2000, { force: Boolean(verificationReadError) });
+  }
+  async function loadVerification({ render = true } = {}) {
+    if (verificationPoll) { clearTimeout(verificationPoll); verificationPoll = null; }
+    if (!runtime?.artifactVerificationEnabled || !selectedOrderId) { verification = null; verificationReadError = ""; if (render) renderVerification(); return; }
+    try {
+      verification = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/work-verification`);
+      verificationReadError = "";
+      if (render) renderVerification();
+      scheduleVerificationPoll();
+      return verification;
+    } catch (error) {
+      verificationReadError = "核验状态暂时无法读取，正在继续自动更新。";
+      renderVerification();
+      scheduleVerificationPoll(3000, { force: true });
+      throw error;
+    }
+  }
+  async function requestWorkVerification() {
+    const latestReport = latestExecutionReport(), primaryId = latestReport?.primary_output?.upload_reference;
+    if (verificationBusy || !selectedOrderId || latestReport?.outcome !== "completed" || !primaryId) return;
+    verificationBusy = true; renderVerification();
+    try {
+      const accepted = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/work-verification`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({
+        execution_attempt_id: execution.current_attempt.id, report_id: latestReport.id, candidate_id: primaryId
+      }) });
+      verification = { job: accepted.job, work: accepted.work };
+      verificationReadError = "";
+      renderVerification();
+      notice(element("#workVerificationNotice"), "核验请求已受理；执行完成不等于工单完成。", "success");
+      try { await loadVerification({ render: false }); }
+      catch (_error) { return; }
+      renderVerification();
+      notice(element("#workVerificationNotice"), "核验请求已受理；执行完成不等于工单完成。", "success");
+    } catch (error) { notice(element("#workVerificationNotice"), verificationError(error), "error"); }
+    finally { verificationBusy = false; renderVerification(); }
+  }
+  async function retryWorkVerification() {
+    if (verificationBusy || !verification?.job?.id) return;
+    verificationBusy = true; renderVerification();
+    try { await request(`/api/work-verification-jobs/${encodeURIComponent(verification.job.id)}/retry`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: "{}" }); await loadVerification(); notice(element("#workVerificationNotice"), "技术核验重试已排队。", "success"); }
+    catch (error) { notice(element("#workVerificationNotice"), verificationError(error), "error"); }
+    finally { verificationBusy = false; renderVerification(); }
+  }
+  async function recoverWorkVerification() {
+    if (verificationBusy || !verification?.job?.id) return;
+    const note = window.prompt("请说明已处理的事项与重新核验依据：", "已人工确认候选产物与固定输入一致"); if (!note?.trim()) return;
+    verificationBusy = true; renderVerification();
+    try { await request(`/api/work-verification-jobs/${encodeURIComponent(verification.job.id)}/recover`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ resolution_note: note.trim() }) }); await loadVerification(); notice(element("#workVerificationNotice"), "核验恢复请求已排队。", "success"); }
+    catch (error) { notice(element("#workVerificationNotice"), verificationError(error), "error"); }
+    finally { verificationBusy = false; renderVerification(); }
   }
   async function claimManualExecution() { if (manualBusy || !selectedOrderId || currentPackage()?.status !== "ready") return; manualBusy = true; renderManualExecution(); const key = crypto.randomUUID(); try { const result = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/manual-execution/claim`, { method: "POST", headers: { "idempotency-key": key }, body: JSON.stringify({ package_id: currentPackageId() }) }); await loadExecution({ render: false }); renderManualExecution(); notice(element("#manualExecutionNotice"), result.replayed ? "已恢复同一次领取请求。" : "任务已领取，请确认开始。", "success"); } catch (error) { notice(element("#manualExecutionNotice"), manualError(error), "error"); } finally { manualBusy = false; renderManualExecution(); } }
   function openStartManual() { if (manualBusy || !execution?.current_attempt) return; element("#startManualError").textContent = ""; renderStartPackageMeta(); element("#startManualDialog").showModal(); }
@@ -228,8 +341,8 @@
   async function reenterManualExecution() { const attempt = execution?.current_attempt; if (manualBusy || !attempt) return; manualBusy = true; renderManualExecution(); try { await request(`/api/manual-execution-attempts/${encodeURIComponent(attempt.id)}/reenter`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: "{}" }); await loadWorkspace(); } catch (error) { notice(element("#manualExecutionNotice"), manualError(error), "error"); } finally { manualBusy = false; renderManualExecution(); } }
   function cancelManualOrder() { if (manualBusy || !selectedOrderId) return; element("#cancelManualError").textContent = ""; element("#cancelManualDialog").showModal(); }
   async function submitCancelManual(event) { event.preventDefault(); if (manualBusy || !selectedOrderId) return; manualBusy = true; element("#confirmCancelManualButton").disabled = true; try { await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/cancel`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: "{}" }); element("#cancelManualDialog").close(); await loadWorkspace(); } catch (error) { element("#cancelManualError").textContent = manualError(error); } finally { manualBusy = false; element("#confirmCancelManualButton").disabled = false; renderManualExecution(); } }
-  function render() { renderContext(); renderGate(); renderOrders(); renderDetail(); renderPackage(); renderManualExecution(); element("#productionWorkspace").hidden = false; }
-  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadPackages({ render: false }); await loadExecution({ render: false }); render(); }
+  function render() { renderContext(); renderGate(); renderOrders(); renderDetail(); renderPackage(); renderManualExecution(); renderVerification(); element("#productionWorkspace").hidden = false; }
+  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadPackages({ render: false }); await loadExecution({ render: false }); try { await loadVerification({ render: false }); } catch (_error) { if (!runtime?.artifactVerificationEnabled || !selectedOrderId) throw _error; } render(); }
   function openCreateOrder() { if (!workspace.gate.can_create || creating) return; pendingCreateKey = null; element("#createOrderError").textContent = ""; element("#createOrderForm").reset(); renderDialogSnapshot(); element("#createOrderDialog").showModal(); }
   function renderDialogSnapshot() { const plan = workspace.current_plan, upstream = plan?.upstream_snapshot || {}; element("#dialogSnapshot").replaceChildren(...[["商品快照", short(upstream.product_revision_id)], ["已批准文案", short(upstream.copy_version_id)], ["已确认人物", short(upstream.avatar_selection_id)], ["视频方案", plan ? `v${plan.version_number}` : "未就绪"]].map(([label, value]) => { const row = document.createElement("div"); row.className = "dialog-snapshot-row"; const name = document.createElement("strong"); name.textContent = label; const meta = document.createElement("span"); meta.textContent = value; row.append(name, meta); return row; })); }
   async function submitCreate(event) { event.preventDefault(); if (creating || !workspace.gate.can_create) return; const selected = document.querySelector("input[name=executionPurpose]:checked"); if (!selected) return; creating = true; const button = element("#confirmCreateOrder"); button.disabled = true; pendingCreateKey ||= crypto.randomUUID(); element("#createOrderError").textContent = "";
@@ -245,6 +358,7 @@
   element("#createOrderButton").addEventListener("click", openCreateOrder); element("#createOrderEmpty").addEventListener("click", openCreateOrder); element("#createOrderForm").addEventListener("submit", submitCreate); element("#cancelCreateOrder").addEventListener("click", () => element("#createOrderDialog").close()); element("#closeCreateOrder").addEventListener("click", () => element("#createOrderDialog").close());
   document.querySelectorAll("input[name=executionPurpose]").forEach((input) => input.addEventListener("change", () => { if (!creating) element("#confirmCreateOrder").disabled = false; }));
   element("#generatePackageButton").addEventListener("click", generatePackage); element("#retryPackageButton").addEventListener("click", retryPackage); element("#authorizePackageButton").addEventListener("click", authorizePackage); element("#downloadPackageButton").addEventListener("click", downloadPackage);
+  element("#requestWorkVerification").addEventListener("click", requestWorkVerification); element("#retryWorkVerification").addEventListener("click", retryWorkVerification); element("#recoverWorkVerification").addEventListener("click", recoverWorkVerification);
   element("#claimManualExecution").addEventListener("click", claimManualExecution); element("#confirmManualStart").addEventListener("click", openStartManual); element("#startManualForm").addEventListener("submit", submitStartManual); element("#uploadManualCandidate").addEventListener("click", uploadManualCandidate); element("#manualCandidateFile").addEventListener("change", renderManualExecution); element("#submitManualReport").addEventListener("click", openManualReport); element("#reportManualForm").addEventListener("submit", submitManualReport); element("#recheckManualExecution").addEventListener("click", recheckManualExecution); element("#recheckManualForm").addEventListener("submit", submitRecheckManual); element("#reenterManualExecution").addEventListener("click", reenterManualExecution); element("#cancelManualOrder").addEventListener("click", cancelManualOrder); element("#cancelManualForm").addEventListener("submit", submitCancelManual);
   element("#manualReportOutcome").addEventListener("change", syncReportFields); element("#manualDeviationType").addEventListener("change", syncReportFields); element("#manualRecheckReason").addEventListener("input", () => { element("#confirmRecheckManualButton").disabled = !element("#manualRecheckReason").value.trim(); });
   element("#reportManualDialog").addEventListener("close", () => { manualCorrectionReportId = null; element("#reportManualDialogTitle").textContent = "记录本次结果"; element("#manualReportCorrectionHint").hidden = true; syncReportFields(); });
