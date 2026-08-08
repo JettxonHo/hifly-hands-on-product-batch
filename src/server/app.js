@@ -29,6 +29,8 @@ import { createVideoPlanningService } from "../video-planning/video-planning-ser
 import { createPostgresVideoPlanningRepository } from "../video-planning/postgres-video-planning-repository.js";
 import { createControlledPreflightEvaluator } from "../video-planning/controlled-preflight-evaluator.js";
 import { createPreflightWorker } from "../video-planning/preflight-worker.js";
+import { createProductionOrderService } from "../production-orders/production-order-service.js";
+import { createPostgresProductionOrderRepository } from "../production-orders/postgres-production-order-repository.js";
 import { createBatchStore } from "../core/batch-store.js";
 import { createAuthService } from "../identity/auth-service.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
@@ -50,6 +52,7 @@ import { registerCopyQualityRoutes } from "./routes/copy-quality.js";
 import { registerCopyReviewRoutes } from "./routes/copy-review.js";
 import { registerAvatarSelectionRoutes } from "./routes/avatar-selection.js";
 import { registerVideoPlanningRoutes } from "./routes/video-planning.js";
+import { registerProductionOrderRoutes } from "./routes/production-orders.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -134,6 +137,14 @@ function apiError(error) {
   if (["VIDEO_PLAN_UPSTREAM_BLOCKED", "VIDEO_PLAN_PREFLIGHT_BLOCKED", "VIDEO_PLAN_REVIEW_GATE_BLOCKED"].includes(error?.code)) {
     return { statusCode: 422, code: error.code, reasons: error.details || [] };
   }
+  if (["PRODUCTION_ORDER_NOT_FOUND", "PRODUCTION_ORDER_PLAN_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
+  if (["PRODUCTION_ORDER_CONTEXT_REQUIRED", "PRODUCTION_ORDER_PURPOSE_INVALID"].includes(error?.code)) {
+    return { statusCode: 400, code: error.code };
+  }
+  if (error?.code === "PRODUCTION_ORDER_FORBIDDEN") return { statusCode: 403, code: error.code };
+  if (error?.code === "PRODUCTION_ORDER_PLAN_GATE_BLOCKED") {
+    return { statusCode: 422, code: error.code, reasons: error.details || [] };
+  }
   if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
@@ -197,6 +208,7 @@ export async function buildApp({
   copyReview: copyReviewOptions = null,
   avatarSelection: avatarSelectionOptions = null,
   videoPlanning: videoPlanningOptions = null,
+  productionOrders: productionOrdersOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -213,6 +225,7 @@ export async function buildApp({
   const copyReviewEnabled = copyReviewOptions?.enabled === true;
   const avatarSelectionEnabled = avatarSelectionOptions?.enabled === true;
   const videoPlanningEnabled = videoPlanningOptions?.enabled === true;
+  const productionOrdersEnabled = productionOrdersOptions?.enabled === true;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
   if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
@@ -221,6 +234,8 @@ export async function buildApp({
   if (avatarSelectionEnabled && !identityEnabled) throw Object.assign(new Error("AVATAR_SELECTION_REQUIRES_IDENTITY"), { code: "AVATAR_SELECTION_REQUIRES_IDENTITY" });
   if (avatarSelectionEnabled && !avatarSelectionOptions.copyApprovalPort && !copyReviewEnabled) throw Object.assign(new Error("AVATAR_SELECTION_REQUIRES_COPY_REVIEW"), { code: "AVATAR_SELECTION_REQUIRES_COPY_REVIEW" });
   if (videoPlanningEnabled && !avatarSelectionEnabled && !videoPlanningOptions.upstreamPort) throw Object.assign(new Error("VIDEO_PLANNING_REQUIRES_AVATAR_SELECTION"), { code: "VIDEO_PLANNING_REQUIRES_AVATAR_SELECTION" });
+  if (productionOrdersEnabled && !identityEnabled) throw Object.assign(new Error("PRODUCTION_ORDERS_REQUIRE_IDENTITY"), { code: "PRODUCTION_ORDERS_REQUIRE_IDENTITY" });
+  if (productionOrdersEnabled && !videoPlanningEnabled) throw Object.assign(new Error("PRODUCTION_ORDERS_REQUIRE_VIDEO_PLANNING"), { code: "PRODUCTION_ORDERS_REQUIRE_VIDEO_PLANNING" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -304,6 +319,7 @@ export async function buildApp({
       copyReviewEnabled,
       avatarSelectionEnabled,
       videoPlanningEnabled,
+      productionOrdersEnabled,
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -438,7 +454,8 @@ export async function buildApp({
       async resolve(input) { return (await app.avatarSelection.service.getPlanningInput(input))?.capability_config_snapshot || null; }
     };
     const agentReadinessPort = videoPlanningOptions.agentReadinessPort || { async isOnline() { return false; } };
-    const service = createVideoPlanningService({ repository, upstreamPort, capabilitySnapshotPort, agentReadinessPort, now });
+    const service = createVideoPlanningService({ repository, upstreamPort, capabilitySnapshotPort, agentReadinessPort,
+      productionOrdersEnabled, now });
     const evaluator = videoPlanningOptions.evaluator || createControlledPreflightEvaluator();
     const worker = createPreflightWorker({ service, evaluator, pollIntervalMs: videoPlanningOptions.worker?.pollIntervalMs,
       onError: videoPlanningOptions.worker?.onError || ((error) => console.error("Video preflight worker error:", error?.code || "UNEXPECTED_ERROR")) });
@@ -446,6 +463,19 @@ export async function buildApp({
     app.addHook("onClose", async () => { worker.stop(); await repository.close?.(); });
     await registerVideoPlanningRoutes(app, { service });
     if (videoPlanningOptions.worker?.autoStart !== false) worker.start();
+  }
+  if (productionOrdersEnabled) {
+    const repository = productionOrdersOptions.repository || (sharedPool ? createPostgresProductionOrderRepository({ pool: sharedPool }) : null);
+    if (!repository) throw Object.assign(new Error("PRODUCTION_ORDER_REPOSITORY_REQUIRED"), { code: "PRODUCTION_ORDER_REPOSITORY_REQUIRED" });
+    await repository.initialize();
+    const planPort = productionOrdersOptions.planPort || {
+      async resolveCurrentApprovedPlan(input) { return app.videoPlanning.service.resolveCurrentApprovedPlan(input); }
+    };
+    const agentReadinessPort = productionOrdersOptions.agentReadinessPort || videoPlanningOptions.agentReadinessPort || { async isOnline() { return false; } };
+    const service = createProductionOrderService({ repository, planPort, agentReadinessPort, now });
+    app.decorate("productionOrders", { repository, service });
+    app.addHook("onClose", async () => repository.close?.());
+    await registerProductionOrderRoutes(app, { service });
   }
 
   await registerBatchRoutes(app, { store });

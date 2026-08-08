@@ -19,6 +19,13 @@
 时，不得自动回退 Terra，也不得启动新的实现任务；应报告 `STATUS: BLOCKED_LUNA_WORKER_UNAVAILABLE`，
 保留已完成成果并等待重启 Codex、重新打开任务或 Owner 明确决定。
 
+### Kimi Code 长期规则（Owner 2026-08-08 确认）
+
+- 后续 Kimi 设计固定使用 `kimi-code/k3`。
+- Context 按 1M 处理；当前已核验 `max_context_size=1048576`。
+- thinking effort 必须显式设为 `max`；当前默认值为 `high`，不得误报为 `max`。
+- 运行时若无法从 wire/session 元数据验证实际模型，必须标记 `UNVERIFIED_RUNTIME_MODEL`。
+
 ## 2. 权威事实与恢复顺序
 
 ```text
@@ -84,12 +91,12 @@ Agent 不可用时记录配置与运行时核验结果；未经 Owner 明确许�
 
 ```text
 当前 Goal：Vertical Slice A
-当前里程碑：Wave 7 / A09-A10 页面设计
-当前 Issues：#65、#66
-设计分支：codex/vsa-a09-a10-uiux-design
+当前里程碑：Wave 7 / A09 ProductionOrder 实现
+当前 Issues：#65（首轮 Review 的 3 项修复完成，等待复审）、#66（未开始）
+实现分支：codex/vsa-a09-production-order
 实现 Agent 请求配置：自定义 Agent luna-worker / gpt-5.6-luna / Max
 实现 Agent 配置状态：CONFIG_VERIFIED
-实现 Agent 运行时状态：BLOCKED_LUNA_WORKER_UNAVAILABLE（当前会话未暴露按自定义 Agent 名称启动的接口）
+实现 Agent 运行时状态：UNVERIFIED_RUNTIME_MODEL（当前工具未暴露实际运行模型元数据）
 最终审查配置：主控 ORCHESTRATOR_REVIEWER；实现者不得批准或合并自己的 PR
-后续：先完成并合并 A09-A10 Kimi K3 设计；恢复 luna-worker 可用性后再依次实现 A09、A10
+后续：Sol 独立 Review A09；A09 合并后再按独立边界实现 A10，不进入 A11+
 ```

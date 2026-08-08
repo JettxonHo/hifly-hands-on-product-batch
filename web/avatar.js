@@ -58,6 +58,12 @@
       else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); }
     }
     element("#nextPlanLink").textContent = runtime.videoPlanningEnabled ? "进入视频方案" : "视频方案尚未开放";
+    const productionHref = `/production.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
+    for (const selector of ["#productionStageLink", "#mobileProductionStageLink"]) {
+      const link = element(selector);
+      if (runtime.productionOrdersEnabled) { link.href = productionHref; link.removeAttribute("aria-disabled"); }
+      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); }
+    }
     const selector = element("#productSelector");
     selector.replaceChildren(...project.products.map((item) => {
       const option = document.createElement("option"); option.value = item.id;

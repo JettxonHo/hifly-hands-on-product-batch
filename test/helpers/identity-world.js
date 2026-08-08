@@ -42,7 +42,7 @@ export function identityHeaders({ cookies = "", csrf = "", mutation = false } = 
   };
 }
 
-export async function identityApp(t, { repository = null, seed = true, cookieSecure = false, assets = null, projectContent = null, copyGeneration = null, copyQuality = null, copyReview = null, avatarSelection = null, videoPlanning = null } = {}) {
+export async function identityApp(t, { repository = null, seed = true, cookieSecure = false, assets = null, projectContent = null, copyGeneration = null, copyQuality = null, copyReview = null, avatarSelection = null, videoPlanning = null, productionOrders = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-identity-api-"));
   const repo = repository || createMemoryIdentityRepository();
   const app = await buildApp({
@@ -55,6 +55,7 @@ export async function identityApp(t, { repository = null, seed = true, cookieSec
     copyReview,
     avatarSelection,
     videoPlanning,
+    productionOrders,
     identity: {
       enabled: true,
       repository: repo,

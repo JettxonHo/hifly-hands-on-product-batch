@@ -33,11 +33,11 @@
 
 ## 恢复顺序
 
-Owner 已在 Kimi 设计完成后暂停 Goal。恢复前只允许完成设计 PR/CI/合并收尾，不得开始实现。
+Owner 已在 Kimi 设计完成后暂停 Goal，并于 2026-08-08 本会话明确恢复。恢复后的 Agent 工具已暴露
+`agent_type: "luna-worker"`，配置状态为 `CONFIG_VERIFIED`，派发前运行时状态为
+`UNVERIFIED_RUNTIME_MODEL`。
 
-1. 等待 Owner 明确说“恢复执行”。
-2. 重启 Codex 或重新打开任务，确认 Agent 创建入口能准确选择 `luna-worker`。
-3. 记录 IMPLEMENTER、`luna-worker`、配置文件、模型、推理强度及运行时验证状态。
-4. 从最新 main 创建 A09 独立 worktree，附 Issue #65 合同与本检查点后派发实现。
-5. A09 完成后由 Sol 独立 Review；实现者不得批准或合并自己的 PR。
-6. 按相同边界完成 A10，再进入 Kimi A11-A13 设计批次。
+1. 从最新 main 创建 A09 独立 worktree，附 Issue #65 合同与本检查点后派发 `luna-worker`。
+2. 记录 IMPLEMENTER、`luna-worker`、配置文件、模型、推理强度及运行时验证状态。
+3. A09 完成后由 Sol 独立 Review；实现者不得批准或合并自己的 PR。
+4. 按相同边界完成 A10，再进入 Kimi A11-A13 设计批次。

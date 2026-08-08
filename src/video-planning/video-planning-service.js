@@ -37,7 +37,7 @@ function audit({ input, type, planId, reviewId = null, runId = null, at, metadat
 }
 
 export function createVideoPlanningService({ repository, upstreamPort, capabilitySnapshotPort, agentReadinessPort,
-  now = Date.now } = {}) {
+  productionOrdersEnabled = false, now = Date.now } = {}) {
   if (!repository || !upstreamPort?.resolveCurrent || !capabilitySnapshotPort?.resolve || !agentReadinessPort?.isOnline) {
     throw new TypeError("repository and video planning ports are required");
   }
@@ -80,14 +80,49 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
     const currentReview = reviews.at(-1) || null;
     const result = preflight.current_result;
     const canSubmit = plan?.status === "frozen" && ["passed", "warning"].includes(result?.status) && !currentReview;
+    const productionOrderAvailable = productionOrdersEnabled === true && plan?.id === head?.current_plan_id &&
+      plan.status === "frozen" && currentReview?.status === "approved" && ["passed", "warning"].includes(result?.status);
+    const productionOrderNotice = productionOrdersEnabled === true
+      ? productionOrderAvailable ? "当前方案已批准，可以进入生产工单。" : "当前方案尚未满足生产工单创建条件。"
+      : "创建生产工单尚未开放。";
     return { current_plan: plan, head_revision: head?.row_version || 0, versions, preflight,
       review: { current_review: currentReview, history: reviews,
         gate: { can_submit: canSubmit, can_decide: currentReview?.status === "pending",
           reasons: canSubmit ? [] : [!plan ? "plan_missing" : plan.status !== "frozen" ? "plan_not_frozen" :
             !["passed", "warning"].includes(result?.status) ? "preflight_not_reviewable" :
               currentReview?.status === "pending" ? "review_pending" : currentReview?.status === "approved" ? "review_approved" : "review_unavailable"] } },
-      production_order_available: false,
-      production_order_notice: "创建生产工单尚未开放。" };
+      production_order_available: productionOrderAvailable,
+      production_order_notice: productionOrderNotice };
+  }
+
+  async function resolveCurrentApprovedPlan(input) {
+    context(input);
+    const head = await repository.getHead(input.organizationId, input.productId);
+    const requestedPlanId = clean(input.videoPlanVersionId || input.planId);
+    const planId = requestedPlanId || head?.current_plan_id || null;
+    if (!planId) return { current_valid: false, plan: null, plan_review: null, preflight_result: null,
+      gate: { can_create: false, reasons: ["approved_plan_missing"] } };
+    const currentWorkspace = await workspace(input, planId, { reconcile: true });
+    const plan = currentWorkspace.current_plan;
+    if (!plan) return { current_valid: false, plan: null, plan_review: null, preflight_result: null,
+      gate: { can_create: false, reasons: ["approved_plan_missing"] } };
+    const reasons = [];
+    if (requestedPlanId && head?.current_plan_id !== requestedPlanId) reasons.push("plan_not_current");
+    if (plan.status !== "frozen") reasons.push("plan_not_frozen");
+    if (currentWorkspace.review.current_review?.status !== "approved") reasons.push("plan_review_not_approved");
+    const preflightResult = currentWorkspace.preflight.current_result;
+    if (preflightResult?.status === "invalidated") reasons.push("preflight_invalidated");
+    else if (!["passed", "warning"].includes(preflightResult?.status)) reasons.push("preflight_not_reviewable");
+    const currentUpstream = await upstreamPort.resolveCurrent(input);
+    if (!sameUpstream(plan.upstream_snapshot, currentUpstream)) reasons.push("upstream_changed");
+    else {
+      const capability = await capabilitySnapshotPort.resolve({ ...input, upstream: currentUpstream });
+      if (!sameCapability(plan.capability_config_snapshot, capability)) reasons.push("capability_snapshot_changed");
+    }
+    const uniqueReasons = [...new Set(reasons)];
+    return { current_valid: uniqueReasons.length === 0, plan, plan_review: currentWorkspace.review.current_review,
+      preflight_result: preflightResult, upstream: currentUpstream,
+      gate: { can_create: uniqueReasons.length === 0, reasons: uniqueReasons } };
   }
 
   async function replay(input, command, fingerprint) {
@@ -237,6 +272,7 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
     approveReview(input) { return decide(input, "approved"); },
     requestChanges(input) { return decide(input, "changes_requested"); },
     async getWorkspace(input) { return workspace(input, input.planId || null); },
+    resolveCurrentApprovedPlan,
     async claimNextPreflight() {
       const at = timestamp(), leaseToken = randomUUID();
       const run = await repository.claimNextRun({ now: at, leaseToken });

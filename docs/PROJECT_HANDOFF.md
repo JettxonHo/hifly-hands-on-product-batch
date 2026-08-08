@@ -3,6 +3,29 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-08 VSA-A09 独立验收通过，待提交 PR（Issue #65；未访问飞影、未消耗积分）
+
+- 保持 worktree `/private/tmp/hifly-vsa-a09`、分支 `codex/vsa-a09-production-order`、未 commit/push/PR/merge。
+- 已修复 Sol 指出的 3 项：outbox 受控首次发布时间更新及不可变字段测试；Video Planning 服务端生产可用性投影、API 与
+  `plan.js` 消费；A07 真实阶段入口链接断言。
+- 验证：A09/Video Planning targeted 25 pass、PostgreSQL 1 skip、`npm run check` 149 文件通过、`npm test` 739/703 pass/0 fail/36 skip、
+  `git diff --check` 通过。Sol 已使用系统 Chrome 实跑 A09/A08/A07 targeted 3/3；A09 桌面与 390px 截图验收通过，截图仅保存在
+  `/tmp/hifly-a09-visual/`，不进入仓库。
+- Sol 独立代码与视觉复审未发现剩余 Critical/Important；PostgreSQL 集成仍需由 PR CI 的数据库任务完成验证。
+- Kimi 长期规则：固定 `kimi-code/k3`；`max_context_size=1048576`；thinking 显式 `max`（默认 `high` 不得误报）；wire/session 无法验证时标记
+  `UNVERIFIED_RUNTIME_MODEL`。
+
+- worktree `/private/tmp/hifly-vsa-a09`、分支 `codex/vsa-a09-production-order`，基准与当前 HEAD 均为
+  `1afac0b56b740d41cb9b0d5c0b1363b2f3e57a08`；实现未 commit/push/PR/merge，根工作区保持不变。
+- A09 已完成 ProductionOrder memory/PostgreSQL repository、migration/ledger、Video Planning 当前有效已批准方案
+  port、服务/API/UI、组织隔离、权限、幂等、快照、状态链、AuditEvent/Outbox 事务边界及离线执行环境提示。
+- A09 右栏只有「尚未生成交接包」真实占位；未实现 A10 ManualHandoffPackage、A11+ 领取/执行路径，也未修改 Capture HTTP、
+  Playwright 执行链或默认生产语义。A08 方案页 feature 开启后有真实生产工单入口，默认关闭不破坏旧路径。
+- 验证已执行：A09 service/API、A08 formal port、A09/A08 系统 Chrome 浏览器、`npm run check`；PostgreSQL 集成测试因
+  未设置测试数据库连接明确 skipped。`npm test` 有 1 个基线 `copy-quality-browser` 页面文案/角色断言失败，见
+  `docs/status/CURRENT.md`，A09/A08 targeted 测试通过。
+- 模型路由按请求使用 `agent_type=luna-worker`；实际运行时模型不可见，记录为 `UNVERIFIED_RUNTIME_MODEL`。
+
 ## 2026-08-08 Agent 路由纠偏与 A09-A10 设计检查点（未访问飞影、未消耗积分）
 
 - A04-A08 已全部合并并关闭对应 Issues；当前 main 为 `dae4c33`，A08 PR #84 已完成三组 CI。
@@ -15,10 +38,10 @@
   `BLOCKED_LUNA_WORKER_UNAVAILABLE / UNVERIFIED_RUNTIME_MODEL`；在重启 Codex 或重新打开任务恢复发现前，
   不启动 A09 实现。
 - 迁移时没有 Active Terra。Socrates 与 Tesla 已完成的 A08 结果包均已保留并进入合并历史，完成会话已关闭。
-- Kimi 设计已完成，主控已修正幂等与工单列表领域口径。Owner 随后要求在设计收尾后暂停 Goal；
-  当前为 `PAUSED_BY_OWNER`，必须等 Owner 明确说“恢复执行”后才可开发 A09-A10。
-- 详细迁移记录见 `docs/status/sessions/2026-08-08-agent-model-routing-migration.md`；恢复后还必须先确认
-  `luna-worker` 能按准确自定义 Agent 名称启动，再按 A09、A10 独立边界继续。
+- Kimi 设计已完成，主控已修正幂等与工单列表领域口径。Owner 已于 2026-08-08 明确恢复 Goal。
+- 恢复后的当前会话已发现准确自定义 Agent 类型 `luna-worker`。A09 在独立 worktree/分支从 main
+  `1afac0b` 开始，按 Issue #65 合同实现；不得回退 Terra。详细迁移记录见
+  `docs/status/sessions/2026-08-08-agent-model-routing-migration.md`。
 
 ## 2026-08-07 VSA-A07 本地实现完成（未访问飞影、未消耗积分）
 

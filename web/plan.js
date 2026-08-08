@@ -1,6 +1,6 @@
 (async () => {
   const params = new URLSearchParams(location.search), projectId = params.get("project"), requestedProductId = params.get("product");
-  let project, product, workspace, dirty = false, polling, reviewAction = "submit", pendingReload = null;
+  let project, product, workspace, runtime, dirty = false, polling, reviewAction = "submit", pendingReload = null;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const planLabels = { draft: "草稿", frozen: "已冻结", superseded: "已被替代" };
@@ -23,6 +23,15 @@
     const next = new URL(location.href); next.searchParams.set("project", project.id); next.searchParams.set("product", product.id);
     if (planId) next.searchParams.set("plan", planId); else next.searchParams.delete("plan"); history.replaceState(null, "", next);
   }
+  function productionHref() { return `/production.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`; }
+  function configureProductionLinks() {
+    const href = productionHref();
+    for (const id of ["#productionStageLink", "#mobileProductionStageLink"]) {
+      const link = element(id);
+      if (runtime?.productionOrdersEnabled === true) { link.href = href; link.removeAttribute("aria-disabled"); }
+      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); }
+    }
+  }
   function links() {
     element("#projectBreadcrumb").textContent = project.name; element("#projectBreadcrumb").href = `/project.html?id=${encodeURIComponent(project.id)}`;
     const facts = `/project.html?id=${encodeURIComponent(project.id)}`, copy = `/copy.html?project=${encodeURIComponent(project.id)}&revision=${encodeURIComponent(product.revision.id)}`;
@@ -30,6 +39,7 @@
     for (const id of ["#factsStageLink","#mobileFactsStageLink"]) element(id).href = facts;
     for (const id of ["#copyStageLink","#mobileCopyStageLink"]) element(id).href = copy;
     for (const id of ["#avatarStageLink","#mobileAvatarStageLink"]) element(id).href = avatar;
+    configureProductionLinks();
     const selector = element("#productSelector"); selector.replaceChildren(...project.products.map((item) => {
       const option = document.createElement("option"); option.value = item.id; option.textContent = item.revision.product_name || "未命名商品"; option.selected = item.id === product.id; return option;
     }));
@@ -82,10 +92,16 @@
   }
   function renderReview() {
     const review = workspace.review.current_review, status = review?.status || "not_submitted"; badge(element("#reviewBadge"), reviewLabels[status], status);
-    element("#reviewSummary").textContent = status === "not_submitted" ? "方案尚未提交人工审核。" : status === "pending" ? "方案审核中。审核人与提交人可以是同一成员，但会记录本人审核。" : status === "approved" ? "方案已经人工批准；后续生产工单功能尚未开放。" : status === "changes_requested" ? "审核要求修改，请创建新方案版本后重新预检。" : "方案批准已撤销，不可恢复；请创建新版本和新的审核记录。";
+    const productionAvailable = runtime?.productionOrdersEnabled === true && workspace.production_order_available === true;
+    const productionNotice = workspace.production_order_notice || "创建生产工单尚未开放。";
+    element("#reviewSummary").textContent = status === "not_submitted" ? "方案尚未提交人工审核。" : status === "pending" ? "方案审核中。审核人与提交人可以是同一成员，但会记录本人审核。" : status === "approved" ? productionNotice : status === "changes_requested" ? "审核要求修改，请创建新方案版本后重新预检。" : "方案批准已撤销，不可恢复；请创建新版本和新的审核记录。";
     notice(element("#reviewReason"), review?.decision_reason || (status === "revoked" ? "上游内容已变化，原批准不再有效。" : ""), status === "approved" ? "success" : "blocked");
     element("#submitReview").hidden = status !== "not_submitted" && !["changes_requested","revoked"].includes(status); element("#submitReview").disabled = !workspace.review.gate.can_submit;
     element("#approveReview").hidden = status !== "pending"; element("#requestChanges").hidden = status !== "pending";
+    element("#createOrderDisabled").textContent = productionNotice;
+    element("#createOrderDisabled").hidden = productionAvailable;
+    element("#createOrderLink").hidden = !productionAvailable;
+    element("#createOrderLink").href = productionHref();
     element("#reviewHistorySummary").textContent = `审核历史（${workspace.review.history.length}）`;
     element("#reviewHistory").replaceChildren(...workspace.review.history.map((item) => { const row = document.createElement("div"); row.className = "history-row"; const title = document.createElement("strong"), meta = document.createElement("span"); title.textContent = reviewLabels[item.status]; meta.textContent = `${new Date(item.created_at).toLocaleString("zh-CN")}${item.review_mode === "self_review" ? " · 本人审核" : ""}`; row.append(title,meta); return row; }));
   }
@@ -168,6 +184,6 @@
   element("#saveUnsaved").addEventListener("click", () => finishGuardedReload("save"));
   addEventListener("beforeunload", (event) => { if (dirty) event.preventDefault(); });
   if (!projectId) return notice(element("#pageNotice"), "缺少项目上下文，请从项目页面重新进入。", "error");
-  try { project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project; product = project.products.find((item) => item.id === requestedProductId) || project.products[0]; if (!product) return location.replace(`/project.html?id=${project.id}`); await loadWorkspace(params.get("plan")); }
+  try { runtime = await request("/api/runtime"); project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project; product = project.products.find((item) => item.id === requestedProductId) || project.products[0]; if (!product) return location.replace(`/project.html?id=${project.id}`); await loadWorkspace(params.get("plan")); }
   catch (_error) { notice(element("#pageNotice"), "视频方案工作区加载失败，请刷新重试。", "error"); }
 })();
