@@ -1,8 +1,25 @@
 # 项目当前状态
 
 > 最后更新：2026-08-08
-> 当前远端 main：`78cf74d`（VSA-A07 已通过 PR #83 合并）
+> 当前远端 main：`dae4c33`（VSA-A08 已通过 PR #84 合并）
 > 当前 Goal：Vertical Slice A
+
+## Agent 路由迁移与 A09-A10 设计（2026-08-08）
+
+- A08 已通过 PR #84 合并并关闭 Issue #64；Ubuntu、Windows、identity/PostgreSQL CI 全绿。
+- Kimi Code 已使用 `kimi-code/k3` 完成 `docs/frontend/VSA-A09-A10_UIUX_DESIGN.md`；主控已复核并修正
+  ProductionOrder 幂等边界与较早工单状态表达。只包含设计文档，不修改生产代码。
+- Owner 指示设计完成后暂停 Goal。当前状态为 `PAUSED_BY_OWNER`；在 Owner 明确说“恢复执行”前，
+  不启动 A09/A10 实现、不创建实现 Agent、不推进 A11-A13 设计。
+- Owner 已纠正实现模型路由：后续边界明确的实现任务必须使用自定义 Agent `luna-worker`，配置为
+  `~/.codex/agents/luna-worker.toml`、`gpt-5.6-luna`、Max；不再自动回退 Terra。
+- 配置文件已核验，状态 `CONFIG_VERIFIED`。当前会话的 Agent 工具只暴露模型覆盖，未暴露按自定义
+  Agent 名称启动的入口；在恢复前状态为 `BLOCKED_LUNA_WORKER_UNAVAILABLE / UNVERIFIED_RUNTIME_MODEL`。
+- 当前无 Active Terra Agent。已完成的 Terra Review/修复结果全部保留并已进入 A07/A08 合并历史；
+  Socrates 与 Tesla 的已完成会话已关闭，不删除其成果。
+- A09 实现尚未开始；即使设计已合并，也必须同时满足 Owner 明确恢复和 `luna-worker` 可按名称启动，
+  才能创建实现 Agent；不得回退 Terra。
+- 本轮未访问 Hifly、未发送真实 Provider 请求、未运行 `MULTI-002`、未消耗积分。
 
 ## VSA-A08 当前本地实现（Issue #64）
 

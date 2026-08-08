@@ -3,6 +3,23 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-08 Agent 路由纠偏与 A09-A10 设计检查点（未访问飞影、未消耗积分）
+
+- A04-A08 已全部合并并关闭对应 Issues；当前 main 为 `dae4c33`，A08 PR #84 已完成三组 CI。
+- 当前独立 worktree `/private/tmp/hifly-vsa-a09-a10-design`、分支
+  `codex/vsa-a09-a10-uiux-design` 正由 Kimi Code `kimi-code/k3` 生成 A09-A10 页面设计；生产代码未开始。
+- Owner 已纠正实现路由：后续实现任务必须按准确自定义 Agent 名称 `luna-worker` 启动，配置文件
+  `~/.codex/agents/luna-worker.toml` 已核验为 `gpt-5.6-luna` / Max（`CONFIG_VERIFIED`）。不得只传模型
+  字符串冒充该 Agent，不得自动回退 Terra。
+- 当前会话的 Agent 接口未暴露自定义 Agent 名称选择，故状态为
+  `BLOCKED_LUNA_WORKER_UNAVAILABLE / UNVERIFIED_RUNTIME_MODEL`；在重启 Codex 或重新打开任务恢复发现前，
+  不启动 A09 实现。
+- 迁移时没有 Active Terra。Socrates 与 Tesla 已完成的 A08 结果包均已保留并进入合并历史，完成会话已关闭。
+- Kimi 设计已完成，主控已修正幂等与工单列表领域口径。Owner 随后要求在设计收尾后暂停 Goal；
+  当前为 `PAUSED_BY_OWNER`，必须等 Owner 明确说“恢复执行”后才可开发 A09-A10。
+- 详细迁移记录见 `docs/status/sessions/2026-08-08-agent-model-routing-migration.md`；恢复后还必须先确认
+  `luna-worker` 能按准确自定义 Agent 名称启动，再按 A09、A10 独立边界继续。
+
 ## 2026-08-07 VSA-A07 本地实现完成（未访问飞影、未消耗积分）
 
 - 实际 `origin/main` 为 `ca47ec9`；A06 已通过 PR #81 合并，A07/A08 设计已通过 PR #82 合并。旧 A06 “未 PR/merge”记录保留为历史，不再代表当前状态。
