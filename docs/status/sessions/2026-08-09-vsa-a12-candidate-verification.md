@@ -32,4 +32,4 @@
 
 - 未访问 Hifly，未发送真实 Provider/Capture HTTP，未运行批次，未消耗积分。
 - 未提交 config.local、凭据、batches、outputs、视频、HAR、log、screenshots 或 node_modules。
-- A12 已在当前 branch 提交为 `ed3ba29`；后续由上游进行 CI/Review，不 push、PR、merge 或关闭 Issue。A13/A14 不在本切片实现范围内。
+- A12 已在当前 branch 提交为 `f20a979`；后续由上游进行 CI/Review，不 push、PR、merge 或关闭 Issue。A13/A14 不在本切片实现范围内。

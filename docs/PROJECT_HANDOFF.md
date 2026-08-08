@@ -12,7 +12,7 @@
 - API/app/start feature wiring 默认 `artifactVerificationEnabled=false`；`production.html/css/js` 仅增量加入真实核验状态、摘要、中文业务恢复提示、作品登记卡和作品检查/交付暂未开放说明，未创建 `works.html`，旧 GUI/Playwright/Capture HTTP 默认行为未改。已修复首次进入/刷新首条核验 GET 瞬时失败（含 POST 受理后的读取失败）的自动轮询恢复，终态清除读取失败提示。
 - 已保留并纳入提交的红测为 `test/work-verification-service.test.js`；新增 A12 service/API/worker/browser/PG integration tests，覆盖 AssetVersion 引用、三处事务失败注入、业务/技术失败、不可变更正报告、retry/recover、lease、并发/幂等、组织隔离和 UI 恢复。PG migration 002 按约束列集合动态删除 001 旧唯一约束，集成探针验证迁移顺序及同 checksum 不同报告可创建 job；create request 保留 receipt→natural 双 advisory lock。
 - 当前验证/限制：A12 service/API/worker 定向测试 15 pass；`npm run check` 检查 172 个 JavaScript 文件通过；最终 `npm test` 为 789 tests / 747 pass / 0 fail / 42 skipped；`git diff --check` 通过。PG integration 在没有 `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL` 时明确 skip，不能把 skip 记成通过；本机系统 Chrome 因 `MachPortRendezvous ... Permission denied` skip。Sol 已在沙箱外用系统 Chrome 实跑 A12 browser 1/1，覆盖 1440/390 与更正报告恢复，属于独立外部证据。
-- A12 已在当前 branch 提交为 `ed3ba29`；后续由上游进行 CI/Review，本 agent 不 push、PR、merge、close Issue。A11 已通过 PR #89 合并并关闭 Issue #67，当前 `origin/main=9af3f5e`；A12 不存在等待 A11 合并的阻塞。
+- A12 已在当前 branch 提交为 `f20a979`；后续由上游进行 CI/Review，本 agent 不 push、PR、merge、close Issue。A11 已通过 PR #89 合并并关闭 Issue #67，当前 `origin/main=9af3f5e`；A12 不存在等待 A11 合并的阻塞。
 - 本轮没有访问 Hifly、没有 Capture HTTP、没有真实 Provider/批次执行、没有消耗飞影积分；没有提交凭据、config.local、batches、outputs、视频、HAR、log、截图或 node_modules。
 
 ## 2026-08-09 VSA-A11 Sol 独立复审通过，PR #89 已合并（未访问飞影、未消耗积分）
