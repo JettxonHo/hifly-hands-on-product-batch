@@ -3,6 +3,18 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-09 VSA-A12 候选产物核验与 Work 创建（luna-worker；未访问飞影、未消耗积分）
+
+- 当前 worktree 为 `/private/tmp/hifly-vsa-a12`，分支 `codex/vsa-a12-candidate-verification`，基线/起点为 `9af3f5e20fa264ea562a015fbb6bbbd4e4043ee5`；角色严格为 `luna-worker`，未使用 Terra。
+- 已实现 `src/work-verification/` 的 service、worker、memory/PG repository、canonical verified-output asset port、独立 migration/ledger；A03 asset repository 现在可注册 `work_video` Asset + available AssetVersion，Work 固定引用 `primary_asset_version_id`。
+- 成功事务固定来源快照：VideoPlan/Copy/Avatar/production config、package/version/manifest、attempt/report、candidate/checksum 与输出媒体摘要；PG 使用同一 transaction client 创建 AssetVersion、Work、candidate passed projection、ProductionOrder succeeded、AuditEvent 和 ledger。memory 对 Work/AssetVersion/candidate/order/receipt/audit/ledger 提供回滚。
+- 已实现 AsyncJob 状态与业务结论分离、技术失败 retry、requires_action recover、maxAttempts、lease heartbeat/过期 reclaim、组织/角色隔离、幂等与并发单 Work；权威核验读取 server-side report/candidate/package/object，不信任客户端快照。
+- API/app/start feature wiring 默认 `artifactVerificationEnabled=false`；`production.html/css/js` 仅增量加入真实核验状态、摘要、恢复动作、Work/AssetVersion 卡片和 A13 作品库禁用说明，未创建 `works.html`，旧 GUI/Playwright/Capture HTTP 默认行为未改。
+- 已保留并纳入提交的红测为 `test/work-verification-service.test.js`；新增 A12 service/API/worker/browser/PG integration tests，覆盖 AssetVersion 引用、三处事务失败注入、业务/技术失败、retry/recover、lease、并发/幂等、组织隔离和 UI 恢复。
+- 当前验证/限制：A12 service/API/worker 定向测试 15 pass；`npm run check` 检查 172 个 JavaScript 文件通过；最终 `npm test` 为 789 tests / 747 pass / 0 fail / 42 skipped；`git diff --check` 通过。没有 `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL` 时 PG integration 明确 skip；本机系统 Chrome 因 `MachPortRendezvous ... Permission denied` skip；不得把 skip 记录成通过。
+- 下一步：确认只提交 A12 相关文件后 commit 当前 branch；不 push、PR、merge、close Issue。A11 的旧“等待合并”描述仅保留为历史背景，A11 已是当前分支基线，不阻塞 A12。
+- 本轮没有访问 Hifly、没有 Capture HTTP、没有真实 Provider/批次执行、没有消耗飞影积分；没有提交凭据、config.local、batches、outputs、视频、HAR、log、截图或 node_modules。
+
 ## 2026-08-09 VSA-A11 Sol 独立复审通过，待 PR/CI（未访问飞影、未消耗积分）
 
 - `luna-worker` 已在隔离分支完成 A11 实现与首轮 Important 修复；Sol 独立复核结论为 `APPROVED`，
@@ -14,10 +26,8 @@
   requires_action、失败重试语义、无横向滚动）；`npm run check` 164 个 JS；`npm test` 772 tests / 732 pass /
   0 fail / 40 environment skips；`git diff --check` 通过。PostgreSQL clean integration 因本机无测试数据库连接
   明确 skipped，等待 PR 的 identity/PostgreSQL CI 实跑。
-- A12 核验/Work 与 A13 作品库没有提前实现；默认旧 GUI/Playwright 路径未改。本轮未访问 Hifly、
-  未发送真实 Provider/Capture HTTP、未运行批次、未消耗积分。
-- 下一步：推送 `codex/vsa-a11-manual-execution`，创建 ready PR（关闭 Issue #67），等待 Ubuntu、Windows、
-  identity/PostgreSQL CI 全绿后由 Sol 合并；随后从新 main 开始 A12。
+- A12 核验/Work 与 A13 作品库在该历史检查点尚未实现；当前 A12 已在本分支继续完成，不应把此段的“等待合并”视为当前事实。
+- A11 的 PR/CI/合并由上游流程单独处理；当前分支基线已包含 A11 提交 `9af3f5e`，A12 不等待该流程才可继续。
 
 ## 2026-08-08 VSA-A11 实现完成，待 Sol Review（未访问飞影、未消耗积分）
 

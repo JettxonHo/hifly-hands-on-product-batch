@@ -9,8 +9,8 @@ const iso = (value) => value instanceof Date ? value.toISOString() : value;
 const json = (value) => JSON.stringify(value == null ? null : value);
 const allowedTransitions = {
   draft: ["ready"], ready: ["waiting_for_executor"], waiting_for_executor: ["claimed", "cancelled"],
-  claimed: ["running", "requires_action", "cancel_requested", "failed"], running: ["requires_action", "failed", "cancel_requested"],
-  requires_action: ["running", "waiting_for_executor", "failed", "cancelled"], failed: ["waiting_for_executor", "cancelled"],
+  claimed: ["running", "requires_action", "cancel_requested", "failed"], running: ["requires_action", "failed", "cancel_requested", "succeeded"],
+  requires_action: ["running", "waiting_for_executor", "failed", "cancelled", "succeeded"], failed: ["waiting_for_executor", "cancelled"],
   cancel_requested: ["cancelled"], succeeded: [], cancelled: []
 };
 
@@ -210,6 +210,22 @@ export function createPostgresManualExecutionRepository({ pool, ownsPool = false
         await appendAudit(client, audit);
         return { candidate: updated, replayed: false };
       });
+    },
+
+    async markCandidateVerification({ organizationId, candidateId, verificationStatus, verificationJobId = null, failureKind = null, failureCode = null, now, transactionClient = null }) {
+      const work = async (client) => {
+        const updated = candidate(one(await client.query(
+          `UPDATE manual_execution_candidates
+              SET verification_status=$3, verification_job_id=$4, verification_failure_kind=$5,
+                  verification_failure_code=$6, verification_updated_at=$7, updated_at=$7, row_version=row_version+1
+            WHERE organization_id=$1 AND id=$2 RETURNING *`,
+          [organizationId, candidateId, verificationStatus, verificationJobId, failureKind, failureCode, now]
+        )));
+        if (!updated) throw failure("MANUAL_EXECUTION_CANDIDATE_NOT_FOUND");
+        return updated;
+      };
+      if (transactionClient) return work(transactionClient);
+      return withTransaction(pool, work);
     },
 
     async saveReport({ receiptKey, fingerprint, report: value, attemptId, organizationId, expectedRevision, patchAttempt, candidatePatches = [], orderTransition, transitionOrder: externalTransition, audit }) {

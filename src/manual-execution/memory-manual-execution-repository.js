@@ -112,6 +112,17 @@ export function createMemoryManualExecutionRepository() {
       return { candidate: clone(candidate), replayed: false };
     },
 
+    async markCandidateVerification({ organizationId, candidateId, verificationStatus, verificationJobId = null, failureKind = null, failureCode = null, now, transactionClient = null }) {
+      const candidate = scoped(candidates, organizationId, candidateId);
+      if (!candidate) throw failure("MANUAL_EXECUTION_CANDIDATE_NOT_FOUND");
+      const previous = clone(candidate);
+      Object.assign(candidate, { verification_status: verificationStatus, verification_job_id: verificationJobId,
+        verification_failure_kind: failureKind, verification_failure_code: failureCode, verification_updated_at: now,
+        updated_at: now, row_version: candidate.row_version + 1 });
+      transactionClient?.onRollback?.(() => candidates.set(candidate.id, previous));
+      return clone(candidate);
+    },
+
     async saveReport({ receiptKey, fingerprint, report, attemptId, organizationId, expectedRevision, patchAttempt, candidatePatches = [], transitionOrder, audit }) {
       const replay = readReceipt(receiptKey, fingerprint);
       if (replay) return { report: clone(reports.get(replay.report_id)), attempt: clone(attempts.get(replay.attempt_id)), replayed: true };

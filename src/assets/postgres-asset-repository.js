@@ -158,6 +158,41 @@ export function createPostgresAssetRepository({ pool, ownsPool = false } = {}) {
       const versionRows = (await pool.query("SELECT * FROM asset_versions WHERE organization_id = $1 ORDER BY version_number DESC", [organizationId])).rows.map(versionProjection);
       return assetRows.map((row) => ({ ...assetProjection(row), versions: versionRows.filter((version) => version.asset_id === row.id) }));
     },
+    async registerVerifiedOutput({ organizationId, actorMemberId = null, candidate, now, transactionClient = null }) {
+      const work = async (client) => {
+        const existing = one(await client.query(
+          `SELECT av.*, aa.organization_id AS asset_organization_id, aa.kind, aa.display_name, aa.status AS asset_status,
+                  aa.row_version, aa.created_by_member_id, aa.created_at AS asset_created_at, aa.updated_at AS asset_updated_at
+             FROM asset_versions av JOIN asset_assets aa ON aa.id = av.asset_id
+            WHERE av.object_key=$1 FOR UPDATE`, [candidate.object_key]
+        ));
+        if (existing) {
+          if (existing.asset_organization_id !== organizationId || existing.kind !== "work_video" || existing.status !== "available" ||
+            existing.expected_checksum_sha256 !== candidate.checksum || Number(existing.expected_size) !== Number(candidate.size)) throw failure("WORK_VERIFICATION_ASSET_CONFLICT");
+          return { asset: assetProjection({ id: existing.asset_id, organization_id: existing.asset_organization_id, kind: existing.kind,
+            display_name: existing.display_name, status: existing.asset_status, row_version: existing.row_version,
+            created_by_member_id: existing.created_by_member_id, created_at: existing.asset_created_at, updated_at: existing.asset_updated_at }),
+          asset_version: versionProjection(existing) };
+        }
+        const assetId = randomUUID(), versionId = randomUUID(), displayName = String(candidate.original_filename || "已核验作品").slice(0, 120) || "已核验作品";
+        const asset = assetProjection(one(await client.query(
+          `INSERT INTO asset_assets(id,organization_id,kind,display_name,status,row_version,created_by_member_id,created_at,updated_at)
+           VALUES ($1,$2,'work_video',$3,'active',1,$4,$5,$5) RETURNING *`, [assetId, organizationId, displayName, actorMemberId, now]
+        )));
+        const version = versionProjection(one(await client.query(
+          `INSERT INTO asset_versions(id,asset_id,organization_id,version_number,status,object_key,original_filename,expected_content_type,
+             expected_size,expected_checksum_sha256,verified_content_type,verified_size,verified_checksum_sha256,verified_at,created_at,updated_at)
+           VALUES ($1,$2,$3,1,'available',$4,$5,$6,$7,$8,$6,$7,$8,$9,$9,$9) RETURNING *`,
+          [versionId, assetId, organizationId, candidate.object_key, candidate.original_filename, candidate.media_type, candidate.size, candidate.checksum, now]
+        )));
+        await appendAudit(client, { id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId,
+          event_type: "asset.work_video_available", asset_id: asset.id, asset_version_id: version.id,
+          metadata: { candidate_id: candidate.id }, created_at: now });
+        return { asset, asset_version: version };
+      };
+      if (transactionClient) return work(transactionClient);
+      return withTransaction(pool, work);
+    },
     async listPendingVerificationJobs() {
       return (await pool.query("SELECT * FROM asset_async_jobs WHERE status IN ('queued','running') ORDER BY created_at")).rows.map(jobProjection);
     },

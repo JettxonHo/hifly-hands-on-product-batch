@@ -126,6 +126,9 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
       };
     }
   };
+  const verifiedOutputAssetPort = {
+    registerVerifiedOutput: (input) => repository.registerVerifiedOutput(input)
+  };
 
   return {
     createUploadAuthorization, uploadObject, completeUpload, runNextVerificationJob, recoverVerificationJobs,
@@ -149,6 +152,6 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
       if (!body) fail("OBJECT_MISSING");
       return { body, contentType: grant.contentType };
     },
-    assetReferencePort
+    assetReferencePort, verifiedOutputAssetPort
   };
 }

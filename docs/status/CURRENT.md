@@ -2,13 +2,24 @@
 
 > 最后更新：2026-08-09
 > 当前远端 main：`e935202`（VSA-A11-A13 设计已通过 PR #88 合并）
+> 当前 A12 worktree：`/private/tmp/hifly-vsa-a12`，分支 `codex/vsa-a12-candidate-verification`，基线/当前起点 `9af3f5e`
 > 当前 Goal：Vertical Slice A
+
+## VSA-A12 候选产物核验与 Work 创建（Issue #68，2026-08-09）
+
+- 状态：核心服务、worker、memory/PG repository、独立 migration/ledger、API wiring 与 production 页面增量已实现，已完成最终代码审查、全量回归并准备提交。本 worktree 以 A11 提交 `9af3f5e` 为基线，A11 的“等待合并”不再是本切片的当前阻塞事实；不声称该提交已进入远端 main。
+- 核验服务端只读取同 Organization/order 的最新有效 completed ManualExecutionReport、其 primary candidate、固定 attempt/package；重新核对对象存在/归属/关联、唯一主要视频、媒体类型、大小与 SHA-256 checksum。Work 不只保存 candidate ID：成功时复用 A03 canonical asset repository 注册 `work_video` Asset + available AssetVersion，并在 Work 保存 `primary_asset_version_id`。
+- Work 固定保存 ProductionOrder 输入快照中的 VideoPlan/Copy/Avatar/production config，以及 package/version/manifest、attempt/report、candidate/checksum 和输出媒体摘要；客户端不能提交或替换这些权威事实。
+- 成功路径在 PG 同一 transaction client 中完成 canonical AssetVersion、Work、candidate passed projection、ProductionOrder succeeded、ProductionOrder AuditEvent、A12 AuditEvent、AsyncJob 与 ledger；memory transaction 覆盖 AssetVersion、Work、candidate、order transition、receipt/audit/ledger 回滚。技术 failed 与业务 failed/requires_action 分开，retry/recover 有 maxAttempts、lease heartbeat 和过期恢复。
+- A12 还覆盖组织/角色隔离、幂等/并发单 Work、服务 API、刷新恢复 UI、执行完成不等于工单完成、A13 作品库禁用说明；未创建 `works.html`，旧 GUI/Playwright/Capture HTTP 默认路径保持不变。
+- 验证状态：A12 service/API/worker 定向测试 15 pass；`npm run check` 检查 172 个 JavaScript 文件通过；`npm test` 为 789 tests / 747 pass / 0 fail / 42 skipped；`git diff --check` 通过。PG integration 因本机未设置 `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL` skipped；browser 因系统 Chrome `MachPortRendezvous ... Permission denied` skipped，均未声称通过。
+- 本轮使用准确自定义 Agent `luna-worker`，未使用 Terra；没有访问 Hifly、没有运行真实 Provider/Capture HTTP、没有运行批次、没有消耗飞影积分。
 
 ## VSA-A11 Manual ExecutionAttempt 与结果登记实现（Issue #67，2026-08-09）
 
 - 状态：A11 首轮 Review 的 Important 修复、TDD、静态检查、全量回归和 Sol 独立复审均已完成，结论 `APPROVED`，
-  无剩余 Blocker/Important。实现位于隔离 worktree `/private/tmp/hifly-vsa-a11`、分支
-  `codex/vsa-a11-manual-execution`，基准为 `origin/main=e935202`；等待 PR/CI/合并，Issue #67 仍保持 open。
+  无剩余 Blocker/Important。A11 实现已作为当前 A12 分支基线 `9af3f5e`；其 PR/CI/合并仍由上游流程单独处理，
+  不再把“等待合并”写作 A12 当前阻塞。
 - 已实现领取与确认开始两步命令；领取时绑定精确 `package_id`、`package_version`、`manifest_hash`、package 完整性摘要和 `executor_type=manual`。
   交接包生成/下载路径不创建 attempt；同订单 `claimed/running` 只有一个有效 attempt；包 revoked 后不能开始新的执行。
 - 已实现候选产物受控上传授权、组织/attempt/package 完整性重验、checksum/大小/媒体类型校验、上传完成回调和 pending-verification 投影；不创建 A12 核验任务或 Work。
