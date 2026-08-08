@@ -1,6 +1,6 @@
 # 当前 Goal：Vertical Slice A 企业内容生产人工闭环
 
-> 状态：IN_PROGRESS（A13 实现与 Sol 独立 Review 已完成，待 PR CI）
+> 状态：PAUSED_AFTER_A13（A01～A13 已合并；等待 Owner 明确恢复 A14）
 > Owner：JettxonHo
 > 最后更新：2026-08-09
 > 权威规划：`docs/product/VERTICAL_SLICE_A_DELIVERY_PLAN.md`（D-030）
@@ -18,10 +18,9 @@
 ## 当前范围与非目标
 
 - 当前范围：D-030 的 VSA-A01～A14，对应 GitHub Issues #57～#70。
-- 当前阶段：A11-A12 正式实现已在本工作基线中；A13（Issue #69）已在
-  `/private/tmp/hifly-vsa-a13` 的 `codex/vsa-a13-work-delivery` 分支、基线
-  `e0b99414fd0ad7f070fc18860b2382502c5d48f7` 完成实现、测试、Sol 独立 Review 和本地提交，等待 PR CI。
-  A14 不在当前执行范围内。
+- 当前阶段：A01～A13 均已合并并关闭对应 Issue；A13 通过 PR #91 合并，merge commit
+  `75dfe96ec50fe06e24396c4ca8e47aef9e5135c2`，Ubuntu、Windows 与 PostgreSQL CI 全绿。
+  A14 不在本轮执行范围内，等待 Owner 明确恢复后另行开展。
 - 非目标：真实 Hifly 接入、Local Agent 自动执行、Playwright/影刀作为新 SaaS 主流程、SSO/MFA、多 Organization 切换、完整 RBAC、自动发布和客户计费。
 - 旧本地 GUI/Playwright 链路保持兼容，不作为 Slice A 完成条件。
 - Q-018、HIFLY-001、SPK-018 继续按 Evidence 管理，不因 Slice A 测试替身而关闭。
@@ -34,8 +33,8 @@
 | 2 | A02 / #58 ‖ A03 / #59 | 商品权威快照 ‖ 素材上传核验 | 已合并，Issues 已关闭，Wave 2 验收通过 |
 | 3-5 | A04 / #60、A05 / #61、A06 / #62、A07 / #63 | 文案生成、质检、批准与已有人物选择 | 已合并，Issues 已关闭 |
 | 6-8 | A08 / #64、A09 / #65、A10 / #66 | 方案、工单与人工交接包 | 已合并，Issues 已关闭 |
-| 9-11 | A11 / #67、A12 / #68、A13 / #69 | 人工执行、产物核验、作品交付 | A11-A12 已合并；A13 实现与 Sol Review 通过，待 PR CI |
-| 12 | A14 / #70 | Slice A 端到端验收与加固 | 等待 A01～A13 |
+| 9-11 | A11 / #67、A12 / #68、A13 / #69 | 人工执行、产物核验、作品交付 | 已合并，Issues 已关闭；A13 PR #91 CI 全绿 |
+| 12 | A14 / #70 | Slice A 端到端验收与加固 | 未开始；等待 Owner 恢复 |
 
 详细依赖、对象边界和每项 DoD 以 D-030 与对应 GitHub Issue 为准；本文件只维护 Goal 级快照，不复制全部规范。
 
@@ -56,8 +55,8 @@
 
 ## 下一步
 
-Owner 已明确恢复执行。A10 已通过 PR #87 合并并关闭 Issue #66；A11-A13 Kimi 页面设计已通过 PR #88 合并。
+本轮 A04～A13 自主开发 Goal 已完成并停止。A13 PR #91 已合并、Issue #69 已关闭，PostgreSQL clean migration/integration 已由 CI 验证通过。
 
-1. A13 已完成本地实现、定向/全量测试、浏览器 fake smoke、文档、Sol 独立 Review 和本地 commit；下一步推送并创建 PR。
-2. PostgreSQL clean migration/integration 在 CI 或带连接的受控环境补跑；本地无数据库连接时不得声称通过。
-3. PR CI 全绿且 PostgreSQL 集成通过后按 Owner 既有授权合并并关闭 Issue #69，然后停止，不开始 A14；任何真实 Hifly/Provider/Capture HTTP 与积分执行仍不在本任务内。
+1. 不开始 A14，等待 Owner 明确发出恢复指令。
+2. 恢复后先做 A14 全链路 UX Audit 与 Goal 级端到端验收，不重复已验收的 A01～A13。
+3. 任何真实 Hifly/Provider/Capture HTTP 与积分执行仍需单独明确授权。
