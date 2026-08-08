@@ -10,7 +10,7 @@ Agent：`luna-worker`（配置 `gpt-5.6-luna` / Max，`CONFIG_VERIFIED`；运行
 - 分支：`codex/vsa-a13-work-delivery`
 - 基线：`e0b99414fd0ad7f070fc18860b2382502c5d48f7`
 - 本地 commit：已创建（最终 hash 以 `git log -1` 为准）
-- 不触碰根工作区 `gui/visual-refresh` 脏文件；不 push、建 PR、批准/合并或关闭 Issue。
+- 不触碰根工作区 `gui/visual-refresh` 脏文件；当前实现与 Sol Review 已完成，下一步推送并创建 PR，尚未合并或关闭 Issue。
 
 ## Sol Review 修复
 
@@ -41,5 +41,5 @@ Agent：`luna-worker`（配置 `gpt-5.6-luna` / Max，`CONFIG_VERIFIED`；运行
 
 ## 下一步
 
-- 交付上游 Review/CI，并在带 PostgreSQL 连接的 clean DB 环境执行 A13 migration/integration；本地验证已完成。
+- Sol 独立 Review 已完成且无 Blocker/Important；推送并创建 PR，在带 PostgreSQL 连接的 clean DB CI 环境执行 A13 migration/integration。
 - 不开始 A14，不执行任何真实 Hifly/积分操作。
