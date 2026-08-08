@@ -21,7 +21,7 @@ function contentType(request) {
   return String(request.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
 }
 
-export async function registerManualExecutionRoutes(app, { service }) {
+export async function registerManualExecutionRoutes(app, { service, maxCandidateBytes }) {
   app.get("/api/production-orders/:orderId/manual-execution", async (request) => safeWorkspace(await service.getExecutionWorkspace({
     ...actor(request), productionOrderId: request.params.orderId
   })));
@@ -46,7 +46,7 @@ export async function registerManualExecutionRoutes(app, { service }) {
     reply.code(result.replayed ? 200 : 201).send(result);
   });
 
-  app.put("/api/manual-execution-candidate-uploads/:candidateId", async (request) => service.uploadCandidateObject({
+  app.put("/api/manual-execution-candidate-uploads/:candidateId", { bodyLimit: maxCandidateBytes }, async (request) => service.uploadCandidateObject({
     ...actor(request), candidateId: request.params.candidateId,
     uploadToken: request.headers["x-manual-upload-token"] || request.query?.upload_token || request.query?.uploadToken,
     body: request.body, contentType: contentType(request)
@@ -65,6 +65,7 @@ export async function registerManualExecutionRoutes(app, { service }) {
       primaryCandidateId: body.primary_candidate_id || body.primaryCandidateId,
       supportingCandidateIds: body.supporting_candidate_ids || body.supportingCandidateIds,
       supersedesReportId: body.supersedes_report_id || body.supersedesReportId,
+      completedAt: body.completed_at ?? body.completedAt,
       requiresActionReason: body.requires_action_reason || body.requiresActionReason,
       errorCategory: body.error_category || body.errorCategory, failureStage: body.failure_stage || body.failureStage,
       operatorNote: body.operator_note || body.operatorNote, upstreamReturnTarget: body.upstream_return_target || body.upstreamReturnTarget });
@@ -77,7 +78,11 @@ export async function registerManualExecutionRoutes(app, { service }) {
       reportId: body.report_id || body.reportId, idempotencyKey: idempotency(request, body), supersedesReportId: request.params.reportId,
       requiresActionReason: body.requires_action_reason || body.requiresActionReason,
       primaryCandidateId: body.primary_candidate_id || body.primaryCandidateId,
-      supportingCandidateIds: body.supporting_candidate_ids || body.supportingCandidateIds });
+      supportingCandidateIds: body.supporting_candidate_ids || body.supportingCandidateIds,
+      completedAt: body.completed_at ?? body.completedAt,
+      errorCategory: body.error_category || body.errorCategory, failureStage: body.failure_stage || body.failureStage,
+      retryability: body.retryability, operatorNote: body.operator_note || body.operatorNote,
+      upstreamReturnTarget: body.upstream_return_target || body.upstreamReturnTarget });
     reply.code(result.replayed ? 200 : 201).send(result);
   });
 

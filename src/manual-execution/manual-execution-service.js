@@ -8,6 +8,8 @@ const sha256 = (value) => createHash("sha256").update(Buffer.isBuffer(value) ? v
 const tokenDigest = (value) => sha256(value);
 const CANDIDATE_ROLES = ["primary_video", "supporting_output"];
 const REPORT_OUTCOMES = ["completed", "requires_action", "failed", "cancelled"];
+const DEFAULT_MAX_CANDIDATE_BYTES = 256 * 1024 * 1024;
+const MAX_CANDIDATE_BYTES = 512 * 1024 * 1024;
 
 function validateActor(input) {
   if (!clean(input.organizationId) || !clean(input.actorMemberId)) throw failure("MANUAL_EXECUTION_CONTEXT_REQUIRED");
@@ -51,13 +53,16 @@ function normalizeDeviations(value) {
   });
 }
 
-export function createManualExecutionService({ repository, orderPort, packagePort, candidateStore, now = Date.now } = {}) {
+export function createManualExecutionService({ repository, orderPort, packagePort, candidateStore, maxCandidateBytes = DEFAULT_MAX_CANDIDATE_BYTES, now = Date.now } = {}) {
   if (!repository?.getReceipt || !repository?.claimAttempt || !repository?.startAttempt || !repository?.getAttempt || !repository?.getReport || !repository?.cancelWaitingOrder || !repository?.listAttempts) {
     throw new TypeError("manual execution repository is required");
   }
   if (!orderPort?.getOrder || !orderPort?.transitionOrder) throw new TypeError("production order transition port is required");
   if (!packagePort?.getPackage || !packagePort?.listPackages) throw new TypeError("manual handoff package port is required");
   if (!candidateStore?.put || !candidateStore?.head || !candidateStore?.get) throw new TypeError("candidate upload store is required");
+  if (!Number.isSafeInteger(maxCandidateBytes) || maxCandidateBytes < 1 || maxCandidateBytes > MAX_CANDIDATE_BYTES) {
+    throw new TypeError("maxCandidateBytes must be a positive bounded byte count");
+  }
   const timestamp = () => new Date(now()).toISOString();
 
   async function scopedOrder(input) {
@@ -160,7 +165,8 @@ export function createManualExecutionService({ repository, orderPort, packagePor
     const originalFilename = clean(input.originalFilename);
     const mediaType = clean(input.mediaType);
     if (!originalFilename || originalFilename.length > 255 || originalFilename.includes("/") || originalFilename.includes("\\") ||
-      !mediaType || !Number.isInteger(input.size) || input.size < 1 || !/^[a-f0-9]{64}$/i.test(input.checksum || "")) {
+      !mediaType || !Number.isSafeInteger(input.size) || input.size < 1 || input.size > maxCandidateBytes || !/^[a-f0-9]{64}$/i.test(input.checksum || "")) {
+      if (Number.isSafeInteger(input.size) && input.size > maxCandidateBytes) throw failure("MANUAL_EXECUTION_CANDIDATE_SIZE_INVALID");
       throw failure("MANUAL_EXECUTION_CANDIDATE_INVALID");
     }
     const packageRecord = await packagePort.getPackage({ ...input, packageId: attempt.package_id });
@@ -263,33 +269,38 @@ export function createManualExecutionService({ repository, orderPort, packagePor
     const idempotencyKey = validateKey(input.idempotencyKey || reportId);
     if (!clean(reportId)) throw failure("MANUAL_EXECUTION_REPORT_ID_REQUIRED");
     if (!REPORT_OUTCOMES.includes(input.outcome)) throw failure("MANUAL_EXECUTION_REPORT_OUTCOME_INVALID");
-    if (input.outcome === "cancelled" && attempt.status !== "cancel_requested") throw failure("MANUAL_EXECUTION_CANCEL_NOT_REQUESTED");
-    if (attempt.status === "claimed") throw failure("MANUAL_EXECUTION_REPORT_BLOCKED");
-    if (attempt.status === "cancel_requested" && input.outcome !== "cancelled") throw failure("MANUAL_EXECUTION_CANCEL_CONFLICT");
     const deviations = normalizeDeviations(input.deviations);
     if (deviations.length && !deviations.every((item) => item.note || item.code)) throw failure("MANUAL_EXECUTION_REPORT_INVALID");
-    if (input.outcome === "requires_action" && !clean(input.requiresActionReason)) throw failure("MANUAL_EXECUTION_REQUIRES_ACTION_REASON_REQUIRED");
-    if (input.outcome === "failed" && (!clean(input.errorCategory) || !clean(input.failureStage))) throw failure("MANUAL_EXECUTION_FAILURE_CONTEXT_REQUIRED");
+    const requiresActionReason = clean(input.requiresActionReason) || null;
+    const errorCategory = clean(input.errorCategory) || null;
+    const failureStage = clean(input.failureStage) || null;
+    const retryability = clean(input.retryability) || null;
+    if (input.outcome === "requires_action" && !requiresActionReason) throw failure("MANUAL_EXECUTION_REQUIRES_ACTION_REASON_REQUIRED");
+    if (input.outcome === "failed" && (!errorCategory || !failureStage || !["retryable", "not_retryable"].includes(retryability))) {
+      throw failure("MANUAL_EXECUTION_FAILURE_CONTEXT_REQUIRED");
+    }
+    const completedAtInput = ["completed", "cancelled"].includes(input.outcome) ? clean(input.completedAt) || null : null;
+    if (completedAtInput && Number.isNaN(Date.parse(completedAtInput))) throw failure("MANUAL_EXECUTION_REPORT_INVALID");
     const supersedesReportId = clean(input.supersedesReportId) || null;
     const priorReports = await repository.listReports(input.organizationId, attempt.id);
     const superseded = supersedesReportId ? priorReports.find((report) => report.id === supersedesReportId) : null;
     if (supersedesReportId && !superseded) throw failure("MANUAL_EXECUTION_REPORT_NOT_FOUND");
     if (superseded && superseded.execution_attempt_id !== attempt.id) throw failure("MANUAL_EXECUTION_REPORT_MISMATCH");
-    const primaryCandidate = input.primaryCandidateId ? await repository.getCandidate(input.organizationId, input.primaryCandidateId) : null;
-    const supportingIds = Array.isArray(input.supportingCandidateIds) ? input.supportingCandidateIds : [];
+    const primaryCandidateId = clean(input.primaryCandidateId) || null;
+    const primaryCandidate = primaryCandidateId ? await repository.getCandidate(input.organizationId, primaryCandidateId) : null;
+    const supportingIds = input.supportingCandidateIds == null ? [] : input.supportingCandidateIds;
+    if (!Array.isArray(supportingIds)) throw failure("MANUAL_EXECUTION_REPORT_INVALID");
     const supportingCandidates = [];
     for (const candidateId of supportingIds) {
       const candidate = await repository.getCandidate(input.organizationId, candidateId);
       if (!candidate) throw failure("MANUAL_EXECUTION_CANDIDATE_NOT_FOUND");
       if (candidate.execution_attempt_id !== attempt.id || candidate.package_id !== attempt.package_id || candidate.package_version !== attempt.package_version || candidate.manifest_hash !== attempt.manifest_hash) throw failure("MANUAL_EXECUTION_CANDIDATE_MISMATCH");
       if (candidate.role !== "supporting_output") throw failure("MANUAL_EXECUTION_CANDIDATE_MISMATCH");
-      if (candidate.status !== "uploaded") throw failure("MANUAL_EXECUTION_CANDIDATE_NOT_READY");
       supportingCandidates.push(candidate);
     }
     if (primaryCandidate && (primaryCandidate.execution_attempt_id !== attempt.id || primaryCandidate.package_id !== attempt.package_id || primaryCandidate.package_version !== attempt.package_version || primaryCandidate.manifest_hash !== attempt.manifest_hash)) throw failure("MANUAL_EXECUTION_CANDIDATE_MISMATCH");
     if (primaryCandidate && primaryCandidate.role !== "primary_video") throw failure("MANUAL_EXECUTION_CANDIDATE_MISMATCH");
     const at = timestamp();
-    const retryability = clean(input.retryability) || (input.outcome === "failed" ? "not_retryable" : null);
     const output = (candidate) => candidate ? { upload_reference: candidate.id, original_filename: candidate.original_filename,
       media_type: candidate.media_type, size: candidate.size, checksum: candidate.checksum, role: candidate.role } : null;
     const report = {
@@ -297,16 +308,19 @@ export function createManualExecutionService({ repository, orderPort, packagePor
       production_order_id: attempt.production_order_id, execution_attempt_id: attempt.id, package_id: attempt.package_id,
       package_version: attempt.package_version, manifest_hash: attempt.manifest_hash, submitted_by: input.actorMemberId,
       submitted_at: at, supersedes_report_id: supersedesReportId, outcome: input.outcome, started_at: attempt.started_at,
-      completed_at: input.outcome === "completed" || input.outcome === "cancelled" ? (input.completedAt || at) : null,
+      completed_at: ["completed", "cancelled"].includes(input.outcome) ? (completedAtInput || at) : null,
       operator_note: clean(input.operatorNote), deviations, primary_output: output(primaryCandidate),
-      supporting_outputs: supportingCandidates.map(output), error_category: clean(input.errorCategory) || null,
-      failure_stage: clean(input.failureStage) || null, requires_action_reason: clean(input.requiresActionReason) || null,
-      retryability, upstream_return_target: clean(input.upstreamReturnTarget) || null
+      supporting_outputs: supportingCandidates.map(output), error_category: errorCategory,
+      failure_stage: failureStage, requires_action_reason: requiresActionReason,
+      retryability: input.outcome === "failed" ? retryability : null, upstream_return_target: clean(input.upstreamReturnTarget) || null
     };
-    const fingerprint = stableJson({ report_id: report.id, attempt_id: attempt.id, outcome: report.outcome, supersedes_report_id: report.supersedes_report_id,
-      deviations: report.deviations, operator_note: report.operator_note, primary_candidate_id: primaryCandidate?.id || null,
-      supporting_candidate_ids: supportingCandidates.map((candidate) => candidate.id), error_category: report.error_category,
-      failure_stage: report.failure_stage, requires_action_reason: report.requires_action_reason, retryability: report.retryability,
+    const fingerprint = stableJson({ report_id: report.id, organization_id: report.organization_id, attempt_id: attempt.id,
+      production_order_id: report.production_order_id, package_id: report.package_id, package_version: report.package_version,
+      manifest_hash: report.manifest_hash, submitted_by: report.submitted_by, outcome: report.outcome,
+      started_at: report.started_at, completed_at: completedAtInput, supersedes_report_id: report.supersedes_report_id,
+      operator_note: report.operator_note, deviations: report.deviations, primary_output: report.primary_output,
+      supporting_outputs: report.supporting_outputs, error_category: report.error_category, failure_stage: report.failure_stage,
+      requires_action_reason: report.requires_action_reason, retryability: report.retryability,
       upstream_return_target: report.upstream_return_target });
     const receiptKey = `${input.organizationId}:manual-execution:report:${report.id}`;
     const prior = await repository.getReceipt(receiptKey, fingerprint);
@@ -314,23 +328,52 @@ export function createManualExecutionService({ repository, orderPort, packagePor
       return { report: publicReport(await repository.getReport(input.organizationId, prior.report_id)),
         attempt: publicAttempt(await repository.getAttempt(input.organizationId, prior.attempt_id)), replayed: true };
     }
-    // Idempotent replays must be decided before checking the current candidate
-    // state: a completed report moves its candidate to pending_verification.
-    if (input.outcome === "completed" && (!primaryCandidate || primaryCandidate.status !== "uploaded")) throw failure("MANUAL_EXECUTION_PRIMARY_OUTPUT_REQUIRED");
+
+    const latestReport = priorReports.at(-1) || null;
+    if (latestReport) {
+      if (!supersedesReportId) throw failure("MANUAL_EXECUTION_REPORT_CORRECTION_REQUIRED");
+      if (supersedesReportId !== latestReport.id) throw failure("MANUAL_EXECUTION_REPORT_NOT_LATEST");
+      if (["claimed", "cancelled", "superseded"].includes(attempt.status)) throw failure("MANUAL_EXECUTION_REPORT_CORRECTION_BLOCKED");
+      if (attempt.status === "cancel_requested" && input.outcome !== "cancelled") throw failure("MANUAL_EXECUTION_CANCEL_CONFLICT");
+      const allowedCorrection = (attempt.status === "running" && input.outcome !== "cancelled") ||
+        (attempt.status === "requires_action" && input.outcome === "requires_action") ||
+        (attempt.status === "failed" && input.outcome === "failed") ||
+        (attempt.status === "succeeded" && ["completed", "requires_action"].includes(input.outcome)) ||
+        (attempt.status === "cancel_requested" && input.outcome === "cancelled");
+      if (!allowedCorrection) throw failure("MANUAL_EXECUTION_REPORT_CORRECTION_BLOCKED");
+      if (attempt.status === "failed" && latestReport.retryability === "not_retryable" && retryability === "retryable") {
+        throw failure("MANUAL_EXECUTION_REPORT_CORRECTION_BLOCKED");
+      }
+    } else if (input.outcome === "cancelled") {
+      if (attempt.status !== "cancel_requested") throw failure("MANUAL_EXECUTION_CANCEL_NOT_REQUESTED");
+    } else if (attempt.status === "claimed") {
+      throw failure("MANUAL_EXECUTION_REPORT_BLOCKED");
+    } else if (attempt.status !== "running") {
+      throw failure("MANUAL_EXECUTION_REPORT_CORRECTION_BLOCKED");
+    }
+
+    // Idempotent replays are decided before this current-state gate: a
+    // completed report moves its candidate to pending_verification.
+    const candidateReadyStatuses = new Set(["uploaded", ...(latestReport ? ["pending_verification"] : [])]);
+    if (input.outcome === "completed" && (!primaryCandidate || !candidateReadyStatuses.has(primaryCandidate.status))) throw failure("MANUAL_EXECUTION_PRIMARY_OUTPUT_REQUIRED");
+    for (const candidate of supportingCandidates) {
+      if (!candidateReadyStatuses.has(candidate.status)) throw failure("MANUAL_EXECUTION_CANDIDATE_NOT_READY");
+    }
     if (input.outcome === "cancelled" && (await scopedOrder({ ...input, productionOrderId: attempt.production_order_id })).status !== "cancel_requested") throw failure("MANUAL_EXECUTION_CANCEL_NOT_REQUESTED");
     const targetStatus = input.outcome === "completed" ? "succeeded" : input.outcome === "requires_action" ? "requires_action" : input.outcome === "failed" ? "failed" : "cancelled";
     const order = await scopedOrder({ ...input, productionOrderId: attempt.production_order_id });
     const orderTarget = input.outcome === "requires_action" ? "requires_action" : input.outcome === "failed" ? (retryability === "retryable" ? "requires_action" : "failed") : input.outcome === "cancelled" ? "cancelled" : null;
-    const candidatePatches = input.outcome === "completed" ? [primaryCandidate, ...supportingCandidates].filter(Boolean).map((candidate) => ({ id: candidate.id, values: { status: "pending_verification" } })) : [];
+    const candidatePatches = input.outcome === "completed" ? [primaryCandidate, ...supportingCandidates].filter((candidate) => candidate?.status === "uploaded").map((candidate) => ({ id: candidate.id, values: { status: "pending_verification" } })) : [];
+    const effectiveOrderTarget = orderTarget && order.status !== orderTarget ? orderTarget : null;
     const saved = await repository.saveReport({ receiptKey, fingerprint, report, attemptId: attempt.id, organizationId: input.organizationId,
-      orderTransition: orderTarget ? { organizationId: input.organizationId, orderId: order.id, expectedRevision: order.row_version,
-        fromStatuses: orderTarget === "cancelled" ? ["cancel_requested"] : ["running", "claimed", "requires_action", "failed"],
-        toStatus: orderTarget, at, actorMemberId: input.actorMemberId, reason: `人工执行报告：${input.outcome}` } : null,
+      orderTransition: effectiveOrderTarget ? { organizationId: input.organizationId, orderId: order.id, expectedRevision: order.row_version,
+        fromStatuses: effectiveOrderTarget === "cancelled" ? ["cancel_requested"] : ["running", "claimed", "requires_action", "failed"],
+        toStatus: effectiveOrderTarget, at, actorMemberId: input.actorMemberId, reason: `人工执行报告：${input.outcome}` } : null,
       expectedRevision: attempt.row_version, patchAttempt: { previous_status: attempt.status, status: targetStatus,
         completed_at: report.completed_at, updated_at: at, status_history: [...attempt.status_history, { status: targetStatus, at, actor_member_id: input.actorMemberId }] },
-      candidatePatches, transitionOrder: orderTarget ? () => orderPort.transitionOrder({ organizationId: input.organizationId, actorRole: input.actorRole, orderId: order.id,
-        expectedRevision: order.row_version, fromStatuses: orderTarget === "cancelled" ? ["cancel_requested"] : ["running", "claimed", "requires_action", "failed"],
-        toStatus: orderTarget, at, actorMemberId: input.actorMemberId, reason: `人工执行报告：${input.outcome}` }) : null,
+      candidatePatches, transitionOrder: effectiveOrderTarget ? () => orderPort.transitionOrder({ organizationId: input.organizationId, actorRole: input.actorRole, orderId: order.id,
+        expectedRevision: order.row_version, fromStatuses: effectiveOrderTarget === "cancelled" ? ["cancel_requested"] : ["running", "claimed", "requires_action", "failed"],
+        toStatus: effectiveOrderTarget, at, actorMemberId: input.actorMemberId, reason: `人工执行报告：${input.outcome}` }) : null,
       audit: { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId, attempt_id: attempt.id,
         production_order_id: attempt.production_order_id, package_id: attempt.package_id, event_type: "manual_execution.report_submitted",
         metadata: { report_id: report.id, report_version: report.report_version, outcome: report.outcome }, created_at: at } });
@@ -350,7 +393,8 @@ export function createManualExecutionService({ repository, orderPort, packagePor
   async function getExecutionWorkspace(input) {
     const order = await scopedOrder(input);
     const attempts = await repository.listAttempts(input.organizationId, order.id);
-    const currentAttempt = attempts.find((item) => ["claimed", "running", "requires_action", "failed", "cancel_requested"].includes(item.status)) || attempts.at(-1) || null;
+    const currentAttempt = attempts.find((item) => ["claimed", "running", "requires_action", "failed", "cancel_requested"].includes(item.status)) ||
+      attempts.slice().reverse().find((item) => item.status !== "superseded") || null;
     const [candidates, reports] = currentAttempt
       ? await Promise.all([repository.listCandidates(input.organizationId, currentAttempt.id), repository.listReports(input.organizationId, currentAttempt.id)])
       : [[], []];

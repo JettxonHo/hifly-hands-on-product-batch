@@ -8,7 +8,7 @@ import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 
 const actor = { organizationId: "org-a", actorMemberId: "member-a", actorRole: "member" };
 
-function world() {
+function world({ maxCandidateBytes } = {}) {
   const repository = createMemoryManualExecutionRepository();
   const order = {
     id: "order-a", organization_id: "org-a", product_id: "product-a", status: "waiting_for_executor",
@@ -44,8 +44,27 @@ function world() {
         ? [structuredClone(packageRecord)] : [];
     }
   };
-  const service = createManualExecutionService({ repository, orderPort, packagePort, candidateStore: createMemoryObjectStore(), now: () => Date.parse("2026-08-08T10:00:00.000Z") });
+  const service = createManualExecutionService({ repository, orderPort, packagePort, candidateStore: createMemoryObjectStore(), maxCandidateBytes,
+    now: () => Date.parse("2026-08-08T10:00:00.000Z") });
   return { repository, service, order, packageRecord };
+}
+
+async function runningWorld(options = {}) {
+  const state = world(options);
+  const claimed = await state.service.claimManualTask({ ...actor, productionOrderId: state.order.id, packageId: state.packageRecord.id, idempotencyKey: "claim-running" });
+  const started = await state.service.confirmStart({ ...actor, attemptId: claimed.attempt.id, idempotencyKey: "start-running" });
+  return { ...state, attempt: started.attempt };
+}
+
+async function primaryCandidate(state, suffix = "candidate") {
+  const body = Buffer.from(`${suffix}-video`);
+  const checksum = createHash("sha256").update(body).digest("hex");
+  const authorization = await state.service.createCandidateUploadAuthorization({ ...actor, attemptId: state.attempt.id, role: "primary_video",
+    originalFilename: `${suffix}.mp4`, mediaType: "video/mp4", size: body.length, checksum, idempotencyKey: `upload-${suffix}` });
+  await state.service.uploadCandidateObject({ ...actor, uploadToken: authorization.upload_token, body, contentType: "video/mp4" });
+  const completed = await state.service.completeCandidateUpload({ ...actor, attemptId: state.attempt.id, candidateId: authorization.candidate.id,
+    uploadToken: authorization.upload_token, idempotencyKey: `complete-${suffix}` });
+  return completed.candidate;
 }
 
 test("claim creates a manual attempt bound to the exact ready package, and start is a separate step", async () => {
@@ -152,13 +171,14 @@ test("requires_action can be rechecked, retryable failure re-enters through a ne
   assert.equal(recovered.attempt.status, "running");
   assert.equal(order.status, "running");
   const failed = await service.submitReport({ ...actor, attemptId: started.attempt.id, reportId: "report-failed", idempotencyKey: "report-failed-key",
-    outcome: "failed", errorCategory: "technical", failureStage: "人工制作", retryability: "retryable", operatorNote: "外部页面暂时不可用" });
+    supersedesReportId: action.report.id, outcome: "failed", errorCategory: "technical", failureStage: "人工制作", retryability: "retryable", operatorNote: "外部页面暂时不可用" });
   assert.equal(failed.attempt.status, "failed");
   assert.equal(order.status, "requires_action");
 
   const reentered = await service.reenterFailedAttempt({ ...actor, attemptId: started.attempt.id, idempotencyKey: "reenter-failed" });
   assert.equal(reentered.attempt.status, "superseded");
   assert.equal(order.status, "waiting_for_executor");
+  assert.equal((await service.getExecutionWorkspace({ ...actor, productionOrderId: order.id })).current_attempt, null);
   const next = await service.claimManualTask({ ...actor, productionOrderId: order.id, packageId: packageRecord.id, idempotencyKey: "claim-reentry-next" });
   assert.notEqual(next.attempt.id, started.attempt.id);
 
@@ -198,4 +218,83 @@ test("waiting order cancellation is idempotent and leaves no attempt behind", as
   const replay = await service.requestOrderCancellation({ ...actor, productionOrderId: order.id, idempotencyKey: "cancel-waiting" });
   assert.equal(replay.replayed, true);
   assert.equal(replay.order.status, "cancelled");
+});
+
+test("report replay is checked before terminal state gates, while new reports require the latest correction", async () => {
+  const state = await runningWorld();
+  const candidate = await primaryCandidate(state, "report-gate");
+  const first = await state.service.submitReport({ ...actor, attemptId: state.attempt.id, reportId: "report-gate-1", idempotencyKey: "report-gate-1-key",
+    outcome: "completed", completedAt: "2026-08-08T10:01:00.000Z", primaryCandidateId: candidate.id, deviations: [] });
+  const replay = await state.service.submitReport({ ...actor, attemptId: state.attempt.id, reportId: first.report.id, idempotencyKey: "report-gate-1-key",
+    outcome: "completed", completedAt: "2026-08-08T10:01:00.000Z", primaryCandidateId: candidate.id, deviations: [] });
+  assert.equal(replay.replayed, true);
+  await assert.rejects(state.service.submitReport({ ...actor, attemptId: state.attempt.id, reportId: "report-gate-missing", idempotencyKey: "report-gate-missing-key",
+    outcome: "requires_action", requiresActionReason: "后续核验发现需要处理" }), { code: "MANUAL_EXECUTION_REPORT_CORRECTION_REQUIRED" });
+
+  const correction = await state.service.submitReport({ ...actor, attemptId: state.attempt.id, reportId: "report-gate-2", idempotencyKey: "report-gate-2-key",
+    supersedesReportId: first.report.id, outcome: "requires_action", requiresActionReason: "后续核验发现需要处理" });
+  assert.equal(correction.report.report_version, 2);
+  await assert.rejects(state.service.submitReport({ ...actor, attemptId: state.attempt.id, reportId: "report-gate-old", idempotencyKey: "report-gate-old-key",
+    supersedesReportId: first.report.id, outcome: "requires_action", requiresActionReason: "再次处理" }), { code: "MANUAL_EXECUTION_REPORT_NOT_LATEST" });
+  await assert.rejects(state.service.submitReport({ ...actor, attemptId: state.attempt.id, reportId: "report-gate-3", idempotencyKey: "report-gate-3-key",
+    outcome: "requires_action", requiresActionReason: "没有声明更正来源" }), { code: "MANUAL_EXECUTION_REPORT_CORRECTION_REQUIRED" });
+  const latestCorrection = await state.service.submitReport({ ...actor, attemptId: state.attempt.id, reportId: "report-gate-3", idempotencyKey: "report-gate-3-key",
+    supersedesReportId: correction.report.id, outcome: "requires_action", requiresActionReason: "已补充处理说明" });
+  assert.equal(latestCorrection.report.report_version, 3);
+});
+
+test("report corrections cannot write cancelled or superseded attempts, and terminal failures require explicit correction", async () => {
+  const cancelled = await runningWorld();
+  await cancelled.service.requestOrderCancellation({ ...actor, productionOrderId: cancelled.order.id, idempotencyKey: "cancel-report-state" });
+  const stopped = await cancelled.service.submitReport({ ...actor, attemptId: cancelled.attempt.id, reportId: "cancel-report-state-1", idempotencyKey: "cancel-report-state-1-key", outcome: "cancelled" });
+  assert.equal(stopped.attempt.status, "cancelled");
+  await assert.rejects(cancelled.service.submitReport({ ...actor, attemptId: cancelled.attempt.id, reportId: "cancel-report-state-2", idempotencyKey: "cancel-report-state-2-key", outcome: "completed" }), { code: "MANUAL_EXECUTION_REPORT_CORRECTION_REQUIRED" });
+  await assert.rejects(cancelled.service.submitReport({ ...actor, attemptId: cancelled.attempt.id, reportId: "cancel-report-state-3", idempotencyKey: "cancel-report-state-3-key", supersedesReportId: stopped.report.id, outcome: "completed" }), { code: "MANUAL_EXECUTION_REPORT_CORRECTION_BLOCKED" });
+
+  const failed = await runningWorld();
+  const failedReport = await failed.service.submitReport({ ...actor, attemptId: failed.attempt.id, reportId: "failed-report-state-1", idempotencyKey: "failed-report-state-1-key",
+    outcome: "failed", errorCategory: "input_or_business", failureStage: "人工制作", retryability: "not_retryable" });
+  await assert.rejects(failed.service.submitReport({ ...actor, attemptId: failed.attempt.id, reportId: "failed-report-state-2", idempotencyKey: "failed-report-state-2-key",
+    outcome: "failed", errorCategory: "input_or_business", failureStage: "人工制作", retryability: "not_retryable" }), { code: "MANUAL_EXECUTION_REPORT_CORRECTION_REQUIRED" });
+  const failedCorrection = await failed.service.submitReport({ ...actor, attemptId: failed.attempt.id, reportId: "failed-report-state-2", idempotencyKey: "failed-report-state-2-key",
+    supersedesReportId: failedReport.report.id, outcome: "failed", errorCategory: "input_or_business", failureStage: "人工制作（补充）", retryability: "not_retryable" });
+  assert.equal(failedCorrection.attempt.status, "failed");
+
+  const superseded = await runningWorld();
+  await superseded.service.submitReport({ ...actor, attemptId: superseded.attempt.id, reportId: "superseded-report-state-1", idempotencyKey: "superseded-report-state-1-key",
+    outcome: "failed", errorCategory: "technical", failureStage: "人工制作", retryability: "retryable" });
+  await superseded.service.reenterFailedAttempt({ ...actor, attemptId: superseded.attempt.id, idempotencyKey: "superseded-reentry" });
+  await assert.rejects(superseded.service.submitReport({ ...actor, attemptId: superseded.attempt.id, reportId: "superseded-report-state-2", idempotencyKey: "superseded-report-state-2-key",
+    supersedesReportId: "superseded-report-state-1", outcome: "failed", errorCategory: "technical", failureStage: "人工制作", retryability: "retryable" }), { code: "MANUAL_EXECUTION_REPORT_CORRECTION_BLOCKED" });
+});
+
+test("report fingerprint includes completedAt and permission boundaries remain explicit", async () => {
+  const state = await runningWorld();
+  const candidate = await primaryCandidate(state, "fingerprint");
+  const first = await state.service.submitReport({ ...actor, attemptId: state.attempt.id, reportId: "fingerprint-report", idempotencyKey: "fingerprint-key",
+    outcome: "completed", completedAt: "2026-08-08T10:02:00.000Z", primaryCandidateId: candidate.id, deviations: [] });
+  await assert.rejects(state.service.submitReport({ ...actor, attemptId: state.attempt.id, reportId: first.report.id, idempotencyKey: "fingerprint-key",
+    outcome: "completed", completedAt: "2026-08-08T10:02:01.000Z", primaryCandidateId: candidate.id, deviations: [] }), { code: "IDEMPOTENCY_CONFLICT" });
+
+  const permission = await runningWorld();
+  const otherMember = { organizationId: actor.organizationId, actorMemberId: "member-b", actorRole: "member" };
+  await assert.rejects(permission.service.confirmStart({ ...otherMember, attemptId: permission.attempt.id, idempotencyKey: "other-member-start" }), { code: "MANUAL_EXECUTION_FORBIDDEN" });
+  await assert.rejects(permission.service.createCandidateUploadAuthorization({ ...otherMember, attemptId: permission.attempt.id, role: "primary_video",
+    originalFilename: "other.mp4", mediaType: "video/mp4", size: 3, checksum: "a".repeat(64), idempotencyKey: "other-member-upload" }), { code: "MANUAL_EXECUTION_FORBIDDEN" });
+  await assert.rejects(permission.service.submitReport({ ...otherMember, attemptId: permission.attempt.id, reportId: "other-member-report", idempotencyKey: "other-member-report-key",
+    outcome: "requires_action", requiresActionReason: "越权提交" }), { code: "MANUAL_EXECUTION_FORBIDDEN" });
+  const admin = { organizationId: actor.organizationId, actorMemberId: "admin-a", actorRole: "admin" };
+  const adminCandidate = await permission.service.createCandidateUploadAuthorization({ ...admin, attemptId: permission.attempt.id, role: "primary_video",
+    originalFilename: "admin.mp4", mediaType: "video/mp4", size: 3, checksum: "b".repeat(64), idempotencyKey: "admin-upload" });
+  assert.equal(adminCandidate.candidate.uploaded_by_member_id, admin.actorMemberId);
+  const adminReport = await permission.service.submitReport({ ...admin, attemptId: permission.attempt.id, reportId: "admin-report", idempotencyKey: "admin-report-key",
+    outcome: "requires_action", requiresActionReason: "管理员记录待处理事项" });
+  assert.equal(adminReport.attempt.status, "requires_action");
+  await assert.rejects(permission.service.getExecutionWorkspace({ organizationId: "org-b", actorMemberId: "member-b", actorRole: "member", productionOrderId: permission.order.id }), { code: "PRODUCTION_ORDER_NOT_FOUND" });
+});
+
+test("candidate authorization enforces the configured bounded size", async () => {
+  const state = await runningWorld({ maxCandidateBytes: 1024 });
+  await assert.rejects(state.service.createCandidateUploadAuthorization({ ...actor, attemptId: state.attempt.id, role: "primary_video",
+    originalFilename: "too-large.mp4", mediaType: "video/mp4", size: 1025, checksum: "c".repeat(64), idempotencyKey: "too-large" }), { code: "MANUAL_EXECUTION_CANDIDATE_SIZE_INVALID" });
 });

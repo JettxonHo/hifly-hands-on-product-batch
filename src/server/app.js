@@ -114,8 +114,12 @@ const CLIENT_ERROR_CODES = new Set([
   "UNSUPPORTED_UPLOAD_TYPE",
   "UPLOAD_TOO_LARGE"
 ]);
+const DEFAULT_MANUAL_EXECUTION_MAX_CANDIDATE_BYTES = 256 * 1024 * 1024;
 
-function apiError(error) {
+function apiError(error, request = null) {
+  if (error?.code === "FST_ERR_CTP_BODY_TOO_LARGE" && request?.url?.startsWith("/api/manual-execution-candidate-uploads/")) {
+    return { statusCode: 413, code: "MANUAL_EXECUTION_CANDIDATE_SIZE_INVALID" };
+  }
   if (["PROJECT_NOT_FOUND", "PRODUCT_REVISION_NOT_FOUND", "SELLING_POINT_NOT_FOUND"].includes(error?.code)) {
     return { statusCode: 404, code: error.code };
   }
@@ -169,14 +173,16 @@ function apiError(error) {
   if (["MANUAL_EXECUTION_CONTEXT_REQUIRED", "MANUAL_EXECUTION_REPORT_ID_REQUIRED", "MANUAL_EXECUTION_REPORT_OUTCOME_INVALID", "MANUAL_EXECUTION_REPORT_INVALID",
     "MANUAL_EXECUTION_CANDIDATE_INVALID", "MANUAL_EXECUTION_CANDIDATE_ROLE_INVALID", "MANUAL_EXECUTION_CANDIDATE_MEDIA_TYPE_INVALID",
     "MANUAL_EXECUTION_REQUIRES_ACTION_REASON_REQUIRED", "MANUAL_EXECUTION_FAILURE_CONTEXT_REQUIRED", "MANUAL_EXECUTION_CANCEL_NOT_REQUESTED",
+    "MANUAL_EXECUTION_REPORT_CORRECTION_REQUIRED", "MANUAL_EXECUTION_RETRYABILITY_INVALID",
     "MANUAL_EXECUTION_UPLOAD_AUTHORIZATION_REQUIRED",
     "MANUAL_EXECUTION_ORDER_NOT_CLAIMABLE", "MANUAL_EXECUTION_RECHECK_BLOCKED", "MANUAL_EXECUTION_REENTRY_BLOCKED"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (["MANUAL_EXECUTION_FORBIDDEN"].includes(error?.code)) return { statusCode: 403, code: error.code };
   if (["MANUAL_EXECUTION_ATTEMPT_ACTIVE", "MANUAL_EXECUTION_ATTEMPT_CONFLICT", "MANUAL_EXECUTION_ORDER_CONFLICT", "MANUAL_EXECUTION_REPORT_BLOCKED", "MANUAL_EXECUTION_REPORT_CONFLICT", "MANUAL_EXECUTION_CANDIDATE_CONFLICT",
     "MANUAL_EXECUTION_PRIMARY_OUTPUT_EXISTS", "MANUAL_EXECUTION_CANDIDATE_MISMATCH", "MANUAL_EXECUTION_PACKAGE_MISMATCH", "MANUAL_EXECUTION_REPORT_MISMATCH", "MANUAL_EXECUTION_CANCEL_BLOCKED",
-    "MANUAL_EXECUTION_CANCEL_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
+    "MANUAL_EXECUTION_CANCEL_CONFLICT", "MANUAL_EXECUTION_REPORT_NOT_LATEST", "MANUAL_EXECUTION_REPORT_CORRECTION_BLOCKED", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (["MANUAL_EXECUTION_PRIMARY_OUTPUT_REQUIRED", "MANUAL_EXECUTION_CANDIDATE_NOT_READY", "MANUAL_EXECUTION_UPLOAD_BLOCKED",
-    "MANUAL_EXECUTION_CANDIDATE_INTEGRITY_MISMATCH", "MANUAL_EXECUTION_PACKAGE_NOT_READY"].includes(error?.code)) return { statusCode: 422, code: error.code };
+    "MANUAL_EXECUTION_CANDIDATE_INTEGRITY_MISMATCH", "MANUAL_EXECUTION_UPLOAD_NOT_COMPLETED", "MANUAL_EXECUTION_PACKAGE_NOT_READY"].includes(error?.code)) return { statusCode: 422, code: error.code };
+  if (error?.code === "MANUAL_EXECUTION_CANDIDATE_SIZE_INVALID") return { statusCode: 413, code: error.code };
   if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
@@ -262,6 +268,7 @@ export async function buildApp({
   const productionOrdersEnabled = productionOrdersOptions?.enabled === true;
   const manualHandoffEnabled = manualHandoffOptions?.enabled === true;
   const manualExecutionEnabled = manualExecutionOptions?.enabled === true;
+  const manualExecutionMaxCandidateBytes = manualExecutionOptions?.maxCandidateBytes ?? DEFAULT_MANUAL_EXECUTION_MAX_CANDIDATE_BYTES;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
   if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
@@ -338,7 +345,7 @@ export async function buildApp({
   app.addHook("onRequest", security.onRequest);
   if (identityService) app.addHook("preHandler", createIdentityGuard(identityService));
   app.setErrorHandler((error, request, reply) => {
-    const result = apiError(error);
+    const result = apiError(error, request);
     reply.code(result.statusCode).send({ error: result.code, ...(result.reasons ? { reasons: result.reasons } : {}) });
   });
   await app.register(multipart, {
@@ -363,6 +370,7 @@ export async function buildApp({
       productionOrdersEnabled,
       manualHandoffEnabled,
       manualExecutionEnabled,
+      ...(manualExecutionEnabled ? { manualExecutionMaxCandidateBytes } : {}),
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
     };
@@ -578,10 +586,10 @@ export async function buildApp({
       getPackage: app.manualHandoff.service.getPackage,
       listPackages: app.manualHandoff.service.listPackages
     };
-    const service = createManualExecutionService({ repository, orderPort, packagePort, candidateStore, now });
+    const service = createManualExecutionService({ repository, orderPort, packagePort, candidateStore, maxCandidateBytes: manualExecutionMaxCandidateBytes, now });
     app.decorate("manualExecution", { repository, candidateStore, service });
     app.addHook("onClose", async () => { await repository.close?.(); await candidateStore.close?.(); });
-    await registerManualExecutionRoutes(app, { service });
+    await registerManualExecutionRoutes(app, { service, maxCandidateBytes: manualExecutionMaxCandidateBytes });
   }
 
   await registerBatchRoutes(app, { store });

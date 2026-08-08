@@ -59,13 +59,47 @@ test("A11 browser flow claims, confirms, uploads, reports, refreshes, and stays 
   await page.goto(`${origin}/production.html?project=${project.id}&product=${product.id}&orderId=${order.order.id}`);
   await page.getByRole("button", { name: "领取人工任务", exact: true }).waitFor();
   await page.getByRole("button", { name: "领取人工任务", exact: true }).click(); await page.getByText("任务已领取，请确认开始。", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "确认开始", exact: true }).click(); await page.getByRole("button", { name: "确认开始", exact: true }).waitFor({ state: "hidden" });
+  await page.locator("#confirmManualStart").click(); await page.getByText("交接包版本", { exact: true }).waitFor(); await page.getByText("v1", { exact: true }).waitFor(); await page.getByText("MANIFEST-PACKAGE", { exact: true }).waitFor();
+  await page.locator("#confirmStartManualButton").click(); await page.locator("#confirmManualStart").waitFor({ state: "hidden" });
   await page.locator("#manualCandidateFile").setInputFiles({ name: "browser-clip.mp4", mimeType: "video/mp4", buffer: Buffer.from("browser-candidate") });
   await page.getByRole("button", { name: "上传候选作品", exact: true }).click(); await page.getByText("候选作品已上传，等待提交结果。", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "提交执行结果", exact: true }).click(); await page.getByRole("button", { name: "提交结果", exact: true }).click(); await page.getByText("执行结果已提交，候选作品等待后续核验。", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "提交执行结果", exact: true }).click(); await page.locator("#manualReportOutcome").waitFor(); assert.equal(await page.locator("#manualReportOutcome").inputValue(), "");
+  await page.locator("#manualReportOutcome").selectOption("completed"); await page.getByRole("button", { name: "提交结果", exact: true }).click(); await page.getByText("执行结果已提交，候选作品等待后续核验。", { exact: true }).waitFor();
   assert.match(await page.locator("#manualExecutionMeta").textContent(), /后续核验|后续阶段开放/);
   await page.reload(); await page.getByText("执行结果已提交，候选作品等待后续核验。", { exact: false }).waitFor().catch(() => undefined); assert.match(await page.locator("#manualExecutionMeta").textContent(), /后续核验|后续阶段开放/);
   await page.setViewportSize({ width: 390, height: 844 }); await page.reload(); await page.getByText("人工执行", { exact: true }).last().waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
   assert.equal(await page.locator("#manualExecutionPanel").isVisible(), true);
+  assert.match(await page.locator("#manualCandidateLimit").textContent(), /256 MB/);
+
+  const executionUrl = `/api/production-orders/${order.order.id}/manual-execution`;
+  let mockedExecution = await page.evaluate((url) => fetch(url).then((response) => response.json()), executionUrl);
+  const actionProjection = structuredClone(mockedExecution);
+  actionProjection.order.status = "requires_action";
+  actionProjection.current_attempt.status = "requires_action";
+  actionProjection.reports = [{ ...actionProjection.reports.at(-1), outcome: "requires_action", requires_action_reason: "需要确认实际输出与交接包要求" }];
+  let mockMode = "requires_action";
+  await page.route(new RegExp(`/api/manual-execution-attempts/${actionProjection.current_attempt.id}/recheck$`), async (route) => {
+    mockMode = "running";
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ attempt: { ...actionProjection.current_attempt, status: "running" }, replayed: false }) });
+  });
+  await page.route(new RegExp(`/api/production-orders/${order.order.id}/manual-execution(?:/.*)?$`), async (route) => {
+    if (route.request().method() !== "GET") {
+      return route.continue();
+    }
+    const projection = structuredClone(actionProjection);
+    if (mockMode === "running") { projection.order.status = "running"; projection.current_attempt.status = "running"; }
+    if (mockMode === "failed_retryable" || mockMode === "failed_not_retryable") {
+      projection.order.status = "requires_action"; projection.current_attempt.status = "failed";
+      projection.reports = [{ ...actionProjection.reports[0], outcome: "failed", requires_action_reason: null, error_category: "technical", failure_stage: "人工制作", retryability: mockMode === "failed_retryable" ? "retryable" : "not_retryable" }];
+    }
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projection) });
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 }); await page.reload(); await page.locator("#manualExecutionStatus").filter({ hasText: "需要处理" }).waitFor();
+  assert.match(await page.locator("#manualExecutionStatus").getAttribute("class"), /blocked/);
+  await page.locator("#recheckManualExecution").click(); await page.locator("#recheckManualDialog").waitFor({ state: "visible" }); await page.locator("#manualRecheckReason").fill("已确认输出并完成处理"); await page.locator("#confirmRecheckManualButton").click(); await page.locator("#manualExecutionStatus").filter({ hasText: "执行中" }).waitFor();
+  await page.locator("#submitManualReport").click(); await page.locator("#reportManualDialog").waitFor({ state: "visible" }); assert.equal(await page.locator("#reportManualDialogTitle").textContent(), "提交更正报告"); assert.equal(await page.locator("#manualReportCorrectionHint").isVisible(), true); await page.locator("#reportManualDialog").getByRole("button", { name: "返回", exact: true }).click();
+  mockMode = "failed_retryable"; await page.reload(); await page.locator("#manualExecutionStatus").filter({ hasText: "失败" }).waitFor(); await page.locator("#reenterManualExecution").waitFor({ state: "visible" }); assert.match(await page.locator("#manualExecutionMeta").textContent(), /可重试/);
+  mockMode = "failed_not_retryable"; await page.reload(); await page.locator("#manualExecutionStatus").filter({ hasText: "失败" }).waitFor(); await page.locator("#reenterManualExecution").waitFor({ state: "hidden" }); assert.match(await page.locator("#manualExecutionMeta").textContent(), /不可.*重试/);
+  await page.setViewportSize({ width: 390, height: 844 }); await page.reload(); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
 });

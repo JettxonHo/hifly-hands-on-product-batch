@@ -82,6 +82,15 @@
 .dialog-snapshot > div { display: grid; gap: 5px; color: var(--n-600); font-size: 13px; }
 .dialog-snapshot-row { display: flex; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
 .dialog-snapshot-row strong { color: var(--n-800); }
+.manual-report-fields { display: grid; gap: 8px; margin-top: 12px; padding: 12px; border: 1px solid var(--n-200); border-radius: var(--radius-control); background: var(--n-50); }
+.manual-report-fields[hidden] { display: none; }
+.manual-report-fields label { margin-top: 2px; }
+#manualCandidateLimit { margin: 0; overflow-wrap: anywhere; }
+#manualDeviationNoteLabel { margin-top: 8px; }
+#manualReportCorrectionHint { margin: 0 0 12px; }
+#startManualPackageMeta { margin: 12px 0; }
+#startManualPackageMeta > div { display: grid; gap: 5px; }
+#startManualPackageMeta .dialog-snapshot-row { color: var(--n-600); font-size: 13px; }
 
 @media (max-width: 1120px) and (min-width: 761px) {
   .production-workspace { grid-template-columns: 220px minmax(0, 1fr); }
