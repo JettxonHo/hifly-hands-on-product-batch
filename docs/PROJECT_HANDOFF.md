@@ -3,6 +3,32 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-09 VSA-A11 Sol 独立复审通过，待 PR/CI（未访问飞影、未消耗积分）
+
+- `luna-worker` 已在隔离分支完成 A11 实现与首轮 Important 修复；Sol 独立复核结论为 `APPROVED`，
+  无剩余 Blocker/Important。实现者没有批准或合并自己的成果。
+- 关键修复已验证：报告幂等回放先于当前状态门；首次/更正报告状态链受控；`completed_at` 进入幂等指纹；
+  候选视频默认上限 256 MiB 且只覆盖 A11 上传；未完成上传为 422、超限为 413；确认开始、报告、更正、
+  `requires_action` 恢复与取消均使用正式 Dialog，不再使用浏览器原生 prompt/confirm。
+- 独立验证：A11 service/API 定向 14/14；系统 Chrome A11 browser 1/1（1440、390、刷新恢复、
+  requires_action、失败重试语义、无横向滚动）；`npm run check` 164 个 JS；`npm test` 772 tests / 732 pass /
+  0 fail / 40 environment skips；`git diff --check` 通过。PostgreSQL clean integration 因本机无测试数据库连接
+  明确 skipped，等待 PR 的 identity/PostgreSQL CI 实跑。
+- A12 核验/Work 与 A13 作品库没有提前实现；默认旧 GUI/Playwright 路径未改。本轮未访问 Hifly、
+  未发送真实 Provider/Capture HTTP、未运行批次、未消耗积分。
+- 下一步：推送 `codex/vsa-a11-manual-execution`，创建 ready PR（关闭 Issue #67），等待 Ubuntu、Windows、
+  identity/PostgreSQL CI 全绿后由 Sol 合并；随后从新 main 开始 A12。
+
+## 2026-08-08 VSA-A11 实现完成，待 Sol Review（未访问飞影、未消耗积分）
+
+- Issue #67 已在隔离 worktree `/private/tmp/hifly-vsa-a11`、分支 `codex/vsa-a11-manual-execution`，从 `origin/main=e935202` 完成实现并提交；当前提交 hash 由本次结果包提供，未创建 PR、未 merge、未关闭 Issue。
+- 已交付 manual ExecutionAttempt 领取→确认开始两步、精确交接包绑定、单订单有效 attempt 锁、候选作品受控上传/幂等完成、不可变 ManualExecutionReport、报告更正、requires_action 重检查、失败重入和取消确认；报告完成/attempt succeeded 不推进 ProductionOrder succeeded。
+- 新增 A11 memory/PostgreSQL repository、独立 migration、status ledger、audit 和 API；复用受控对象上传边界，不实现 A12 核验/Work 或 A13 作品库；不伪造 Local Agent、Playwright、影刀、Provider 或飞影事实。
+- `production.html/css/js` 增量实现人工执行面板、报告/更正、上传、刷新恢复、状态错误和 390px 布局；A10 feature-off 占位回归保留。新增候选本地存储目录已加入 `.gitignore`。
+- 验证：A11 core/API/PG/browser 10 tests / 8 pass / 0 fail / 2 skip；扩展 A09/A10 兼容性定向 31 / 29 pass / 0 fail / 2 skip；`npm run check` 164 JS 通过；全量 `npm test` 766 / 726 pass / 0 fail / 40 skip；`git diff --check` 通过。PG 因无连接串 skipped；Playwright 因本机 Chrome 沙箱 Mach port 权限 skipped。
+- 本轮未访问 Hifly、未调用 Capture HTTP、未运行任何真实批次、未消耗积分。当前关键批次 `batch-bdbf3cec-24d1-4bef-b1db-95775b357f1f`、`batch-ec174f28-e9b8-4541-b2e7-c60b10e22474` 均未触碰。
+- 下一步：只交给 Sol 做独立代码/数据库/视觉 Review；若 Review 需要修复，继续在本 worktree/分支按 TDD 修复。实现者不得批准或合并自己的成果。
+
 ## 2026-08-08 VSA-A10 已合并，A11-A13 Kimi 页面设计完成（未访问飞影、未消耗积分）
 
 - A10 已通过 PR #87 合并并关闭 Issue #66；main 合并提交为

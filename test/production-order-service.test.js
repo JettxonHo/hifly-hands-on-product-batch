@@ -223,3 +223,14 @@ test("cross-organization order reads are not exposed", async () => {
     code: "PRODUCTION_ORDER_NOT_FOUND"
   });
 });
+
+test("transitionOrder uses the expected revision and records an append-only status event", async () => {
+  const { service } = world();
+  const created = await service.createProductionOrder({ ...actor, executionPurpose: "first_production", idempotencyKey: "transition-order" });
+  const transitioned = await service.transitionOrder({ ...actor, orderId: created.order.id, expectedRevision: created.order.row_version,
+    fromStatuses: ["waiting_for_executor"], toStatus: "claimed", at: "2026-08-08T09:01:00.000Z", reason: "领取" });
+  assert.equal(transitioned.status, "claimed");
+  assert.equal(transitioned.row_version, 2);
+  await assert.rejects(service.transitionOrder({ ...actor, orderId: created.order.id, expectedRevision: 1,
+    fromStatuses: ["claimed"], toStatus: "running", reason: "过期版本" }), { code: "PRODUCTION_ORDER_CONFLICT" });
+});

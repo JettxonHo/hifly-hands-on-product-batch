@@ -1,5 +1,11 @@
 const clone = (value) => value == null ? value : structuredClone(value);
 const failure = (code) => Object.assign(new Error(code), { code });
+const allowedTransitions = {
+  draft: ["ready"], ready: ["waiting_for_executor"], waiting_for_executor: ["claimed", "cancelled"],
+  claimed: ["running", "requires_action", "cancel_requested", "failed"], running: ["requires_action", "failed", "cancel_requested"],
+  requires_action: ["running", "waiting_for_executor", "failed", "cancelled"], failed: ["waiting_for_executor", "cancelled"],
+  cancel_requested: ["cancelled"], succeeded: [], cancelled: []
+};
 
 export function createMemoryProductionOrderRepository() {
   const orders = new Map();
@@ -46,6 +52,20 @@ export function createMemoryProductionOrderRepository() {
     async getOrder(organizationId, orderId) {
       const order = orders.get(orderId);
       return clone(order?.organization_id === organizationId ? order : null);
+    },
+
+    async transitionOrder({ organizationId, orderId, expectedRevision, fromStatuses = [], toStatus, at, actorMemberId = null, reason = null }) {
+      const value = orders.get(orderId);
+      if (!value || value.organization_id !== organizationId) return null;
+      if (value.row_version !== expectedRevision || !fromStatuses.includes(value.status)) return null;
+      const fromStatus = value.status;
+      if (fromStatus !== toStatus && !allowedTransitions[fromStatus]?.includes(toStatus)) throw failure("PRODUCTION_ORDER_TRANSITION_INVALID");
+      Object.assign(value, { status: toStatus, row_version: value.row_version + 1, updated_at: at });
+      value.status_history = [...(value.status_history || []), { from_status: fromStatus, to_status: toStatus, at, actor_member_id: actorMemberId, reason }];
+      audits.push({ id: `${value.id}-transition-${value.row_version}`, organization_id: organizationId, actor_member_id: actorMemberId,
+        event_type: `production_order.${toStatus}`, production_order_id: value.id,
+        metadata: { from_status: fromStatus, to_status: toStatus, reason }, created_at: at });
+      return clone(value);
     },
 
     async listAuditEvents(organizationId = null) {

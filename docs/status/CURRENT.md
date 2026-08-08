@@ -1,8 +1,26 @@
 # 项目当前状态
 
-> 最后更新：2026-08-08
-> 当前远端 main：`0ca9600`（VSA-A10 已通过 PR #87 合并）
+> 最后更新：2026-08-09
+> 当前远端 main：`e935202`（VSA-A11-A13 设计已通过 PR #88 合并）
 > 当前 Goal：Vertical Slice A
+
+## VSA-A11 Manual ExecutionAttempt 与结果登记实现（Issue #67，2026-08-09）
+
+- 状态：A11 首轮 Review 的 Important 修复、TDD、静态检查、全量回归和 Sol 独立复审均已完成，结论 `APPROVED`，
+  无剩余 Blocker/Important。实现位于隔离 worktree `/private/tmp/hifly-vsa-a11`、分支
+  `codex/vsa-a11-manual-execution`，基准为 `origin/main=e935202`；等待 PR/CI/合并，Issue #67 仍保持 open。
+- 已实现领取与确认开始两步命令；领取时绑定精确 `package_id`、`package_version`、`manifest_hash`、package 完整性摘要和 `executor_type=manual`。
+  交接包生成/下载路径不创建 attempt；同订单 `claimed/running` 只有一个有效 attempt；包 revoked 后不能开始新的执行。
+- 已实现候选产物受控上传授权、组织/attempt/package 完整性重验、checksum/大小/媒体类型校验、上传完成回调和 pending-verification 投影；不创建 A12 核验任务或 Work。
+- 已收紧报告状态机：幂等回放先于状态门禁；首次报告只接受 `running`（取消只接受 `cancel_requested`）；已有报告必须 supersede 当前最新有效报告；终态、非最新 supersede、状态倒退和不可重试失败改写均受控拒绝。`completed_at`/`completedAt` 纳入受控报告 fingerprint，route 显式规范映射；memory/PG 共用同一服务合同。
+- 候选视频新增有界 `manualExecution.maxCandidateBytes`（默认 256 MiB，上限 512 MiB），服务授权与 PUT route 均限流；A03 图片仍为原 20 MiB。未完成上传映射 422，超限映射 413。
+- 同组织非 operator member 不能 start/upload/submit；现有合同下 admin 可做 upload/submit 监督操作但不能代替 operator start；跨组织继续 404 且不泄漏。
+- production.html 按设计补齐包版本/完整性摘要、非默认 outcome、requires_action/failed/cancelled 约束、显式 deviation、重检查/取消 Dialog、失败可重试/不可重试重入与刷新恢复；A12 核验/Work、A13 作品库保持 gated；feature-off 旧 A10 占位保留。
+- A11 service 定向：10 pass；API 定向：4 pass；A11 service/API/PG 合并：15 tests / 14 pass / 0 fail / 1 skipped；系统 Chrome browser：1 pass / 0 fail / 0 skip，覆盖 1440、390、刷新恢复、requires_action amber+恢复、failed retryability 和无横向滚动；`npm run check`：164 个 JavaScript 文件通过；`npm test`：772 tests / 732 pass / 0 fail / 40 skipped；`git diff --check` 通过。
+- PostgreSQL clean migration/integration 因本机未设置 `TEST_DATABASE_URL` 或 `IDENTITY_TEST_DATABASE_URL` 明确 skipped，未声称通过；待 CI PostgreSQL 验证。系统 Chrome 使用本地受控 fake 数据，不访问外部服务，未生成仓库截图。
+- 本轮没有访问 Hifly、没有 Capture HTTP、没有运行真实批次、没有消耗飞影积分；配置模型为 `gpt-5.6-luna` / Max，配置状态 `CONFIG_VERIFIED`，运行时模型状态 `UNVERIFIED_RUNTIME_MODEL`。
+- Sol 已独立复核 PostgreSQL 事务边界、A09 order transition 兼容性、候选上传重试/授权旋转、报告状态链、
+  A11 feature gate 与生产页状态文案；系统 Chrome 真实复跑通过。实现 Agent 未批准、未 merge 自身成果。
 
 ## VSA-A11-A13 页面设计完成（Issues #67-#69，2026-08-08）
 
