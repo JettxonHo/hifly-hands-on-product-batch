@@ -66,6 +66,10 @@ import { registerVideoPlanningRoutes } from "./routes/video-planning.js";
 import { registerProductionOrderRoutes } from "./routes/production-orders.js";
 import { registerManualHandoffRoutes } from "./routes/manual-handoff.js";
 import { registerWorkVerificationRoutes } from "./routes/work-verification.js";
+import { createWorkDeliveryService } from "../work-delivery/work-delivery-service.js";
+import { createPostgresWorkDeliveryRepository } from "../work-delivery/postgres-work-delivery-repository.js";
+import { runWorkDeliveryMigrations } from "../work-delivery/postgres.js";
+import { registerWorkDeliveryRoutes } from "./routes/work-delivery.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -201,6 +205,14 @@ function apiError(error, request = null) {
     return { statusCode: 409, code: error.code };
   }
   if (error?.code === "WORK_VERIFICATION_SCHEMA_NOT_READY") return { statusCode: 503, code: error.code };
+  if (error?.code === "WORK_DELIVERY_WORK_NOT_FOUND") return { statusCode: 404, code: error.code };
+  if (["WORK_DELIVERY_CONTEXT_REQUIRED", "WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED", "WORK_DELIVERY_DATE_INVALID", "WORK_DELIVERY_REWORK_CATEGORY_INVALID", "WORK_DELIVERY_REWORK_REASON_REQUIRED",
+    "WORK_DELIVERY_REWORK_REASON_INVALID", "WORK_DELIVERY_REWORK_TARGET_INVALID", "WORK_DELIVERY_METHOD_INVALID", "WORK_DELIVERY_NOTE_INVALID",
+    "WORK_DELIVERY_RECIPIENT_INVALID", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) return { statusCode: 400, code: error.code };
+  if (error?.code === "WORK_DELIVERY_FORBIDDEN") return { statusCode: 403, code: error.code };
+  if (["WORK_DELIVERY_INSPECTION_CONFLICT", "WORK_DELIVERY_WORK_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (["WORK_DELIVERY_WORK_UNAVAILABLE", "WORK_DELIVERY_INSPECTION_REQUIRED", "WORK_DELIVERY_REWORK_BLOCKED", "WORK_DELIVERY_DOWNLOAD_UNAVAILABLE"].includes(error?.code)) return { statusCode: 422, code: error.code };
+  if (error?.code === "WORK_DELIVERY_SCHEMA_NOT_READY") return { statusCode: 503, code: error.code };
   if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {
@@ -268,6 +280,7 @@ export async function buildApp({
   manualHandoff: manualHandoffOptions = null,
   manualExecution: manualExecutionOptions = null,
   artifactVerification: artifactVerificationOptions = null,
+  workDelivery: workDeliveryOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -288,6 +301,7 @@ export async function buildApp({
   const manualHandoffEnabled = manualHandoffOptions?.enabled === true;
   const manualExecutionEnabled = manualExecutionOptions?.enabled === true;
   const artifactVerificationEnabled = artifactVerificationOptions?.enabled === true;
+  const worksEnabled = workDeliveryOptions?.enabled === true;
   const manualExecutionMaxCandidateBytes = manualExecutionOptions?.maxCandidateBytes ?? DEFAULT_MANUAL_EXECUTION_MAX_CANDIDATE_BYTES;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
@@ -309,6 +323,7 @@ export async function buildApp({
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !productionOrdersEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_PRODUCTION_ORDERS"), { code: "ARTIFACT_VERIFICATION_REQUIRE_PRODUCTION_ORDERS" });
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !manualHandoffEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_MANUAL_HANDOFF"), { code: "ARTIFACT_VERIFICATION_REQUIRE_MANUAL_HANDOFF" });
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !manualExecutionEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_MANUAL_EXECUTION"), { code: "ARTIFACT_VERIFICATION_REQUIRE_MANUAL_EXECUTION" });
+  if (worksEnabled && !identityEnabled) throw Object.assign(new Error("WORK_DELIVERY_REQUIRE_IDENTITY"), { code: "WORK_DELIVERY_REQUIRE_IDENTITY" });
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -396,6 +411,7 @@ export async function buildApp({
       manualHandoffEnabled,
       manualExecutionEnabled,
       artifactVerificationEnabled,
+      worksEnabled,
       ...(manualExecutionEnabled ? { manualExecutionMaxCandidateBytes } : {}),
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
@@ -648,6 +664,25 @@ export async function buildApp({
     app.addHook("onClose", async () => { worker.stop(); await repository?.close?.(); });
     await registerWorkVerificationRoutes(app, { service });
     if (artifactVerificationOptions.worker?.autoStart !== false) worker.start();
+  }
+
+  if (worksEnabled) {
+    let repository = workDeliveryOptions.repository || null;
+    let service = workDeliveryOptions.service || null;
+    if (!service) {
+      repository = repository || (sharedPool ? createPostgresWorkDeliveryRepository({ pool: sharedPool }) : null);
+      if (!repository) throw Object.assign(new Error("WORK_DELIVERY_REPOSITORY_REQUIRED"), { code: "WORK_DELIVERY_REPOSITORY_REQUIRED" });
+      if (sharedPool && !workDeliveryOptions.repository) await runWorkDeliveryMigrations(sharedPool);
+      await repository.initialize();
+      const workPort = workDeliveryOptions.workPort || app.artifactVerification?.repository;
+      if (!workPort?.listWorks || !workPort?.getWork) throw Object.assign(new Error("WORK_DELIVERY_WORK_PORT_REQUIRED"), { code: "WORK_DELIVERY_WORK_PORT_REQUIRED" });
+      service = createWorkDeliveryService({ repository, workPort,
+        orderPort: workDeliveryOptions.orderPort || app.productionOrders?.service || null,
+        assetPort: workDeliveryOptions.assetPort || app.assets?.service || null, now });
+    }
+    app.decorate("workDelivery", { repository, service });
+    app.addHook("onClose", async () => repository?.close?.());
+    await registerWorkDeliveryRoutes(app, { service });
   }
 
   await registerBatchRoutes(app, { store });

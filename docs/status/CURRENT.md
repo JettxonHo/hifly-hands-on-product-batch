@@ -1,9 +1,20 @@
 # 项目当前状态
 
 > 最后更新：2026-08-09
-> 当前远端 main：`9af3f5e`（A11 PR #89 已合并，Issue #67 已关闭；VSA-A11-A13 设计 PR #88 已合并）
-> 当前 A12 worktree：`/private/tmp/hifly-vsa-a12`，分支 `codex/vsa-a12-candidate-verification`，基线/当前起点为 `origin/main=9af3f5e`
+> 当前 A13 worktree：`/private/tmp/hifly-vsa-a13`，分支 `codex/vsa-a13-work-delivery`
+> 当前 A13 基线/当前起点：`e0b99414fd0ad7f070fc18860b2382502c5d48f7`（origin/main）
 > 当前 Goal：Vertical Slice A
+
+## VSA-A13 作品检查与交付记录（Issue #69，2026-08-09）
+
+- 状态：Sol 独立 Review 的 3 个 Important 与 final follow-up 已修复：PG 四态 CHECK、三个 editable command 的服务端 identity+revision 前置条件、memory ledger 原始 `from_status`、rework_required 原 Work 门禁、导航/确认/返工链接/交付时间 UX；实现、定向测试、全量回归、系统 Chrome 本地 fake smoke 与文档已完成。Sol 复审结论为无 Blocker/Important，下一步推送并创建 PR，等待 CI；尚未合并或关闭 Issue。
+- 后端正式 Work 检查与交付边界：检查状态为 pending/passed/rework_required/superseded；pending/passed 的返工字段保持为空，rework_required 三项字段完整，superseded 保留被替代记录原字段；pending/passed 可创建新检查并 supersede 旧记录，当前 rework_required 禁止同一 Work 新 pass/新 rework，原 Work/history 保留，未来上游新周期/新作品不在本 Slice 创建。只有当前 passed 才能交付；同一幂等键同载荷回放首次结果、异载荷冲突、新 key 支持多次真实交付；关键命令写入审计与状态账本。
+- Memory 与 PostgreSQL repository 共用同一服务合同；pass/rework/delivery 均必须携带当前 inspection identity+revision，缺失稳定返回 400，stale 返回 409，receipt replay 在状态变化后仍回放。新增 clean migration、事务写入、组织/角色隔离、跨组织拒绝、下载授权与交付登记分离。PostgreSQL 集成测试覆盖 clean migration、rework 可写且阻止后续检查并保留字段、并发幂等、回放、重复交付、返工门禁、历史 append-only、审计/账本；本机未设置 `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL`，因此明确 skip，待 CI 执行。
+- 新增 `web/works.html/css/js`：项目/交付状态筛选、列表、预览及降级说明、来源快照、检查/历史、下载、交付登记/历史；pending 通过先开选中作品摘要/明确结论的轻确认 Dialog；rework_required 禁用检查按钮并说明需新的上游生产周期/新工单，移动主操作只打开作品抽屉；上下文齐全时链接视频方案/文案/人物/商品页面，缺少权威 ID 时隐藏链接；交付时间默认现在且可编辑。1440 三栏、390 单栏作品抽屉与吸底唯一主操作。`worksEnabled` 默认 false，关闭时导航不出现、直接访问显示不可用；开启时 shell 按项目/素材中心/作品库/成员管理顺序插入入口。A12 production 摘要仅在 flag 开启且作品存在时动态显示入口。
+- 验证：A13 service/API/PG 定向为 10 pass、1 skip；A13 系统 Chrome browser 为 1 pass/0 fail/0 skip（本地 fake，覆盖 1440/390、导航顺序、通过确认、交付时间、检查/交付/返工、移动阻断、上游链接、无横向滚动/禁用 UI 词）；A12 service/API/worker 为 3 pass；A12 系统 Chrome browser 回归为 1 pass/0 fail/0 skip；`npm run check` 检查 178 个 JavaScript 文件通过；`npm test` 为 801 tests / 757 pass / 0 fail / 44 skipped；`git diff --check` 通过。
+- 本轮使用准确自定义 Agent `luna-worker`，配置 `~/.codex/agents/luna-worker.toml` 为 `gpt-5.6-luna` / Max，状态 `CONFIG_VERIFIED`；运行时模型不可见，记录 `UNVERIFIED_RUNTIME_MODEL`，未使用 Terra。
+- 官方 registry 的 `npm audit --omit=dev --audit-level=high` 报告仓库既有 7 项依赖风险（5 high、2 moderate）；A13 未新增依赖，修复涉及破坏性升级，按本任务边界不处理。
+- 没有访问 Hifly、没有发送真实 Provider/Capture HTTP、没有运行批次、没有消耗飞影积分；未触碰根工作区 `gui/visual-refresh` 的脏文件。剩余仅为 PR CI 与带 PostgreSQL 连接的集成验证；不开始 A14。
 
 ## VSA-A12 候选产物核验与 Work 创建（Issue #68，2026-08-09）
 

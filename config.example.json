@@ -120,6 +120,9 @@
         "maxAttempts": 3
       }
     },
+    "workDelivery": {
+      "enabled": false
+    },
     "openBrowser": true
   },
   "uploadLimits": {

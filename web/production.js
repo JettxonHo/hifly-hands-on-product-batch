@@ -256,7 +256,18 @@
       element("#workAssetVersion").textContent = "正式文件版本已固定";
       element("#workChecksum").textContent = "文件内容已核对";
     }
-    element("#worksLibraryDisabled").hidden = false;
+    let worksLink = element("#worksLibraryLink"), worksDisabled = element("#worksLibraryDisabled");
+    if (runtime?.worksEnabled && work) {
+      if (worksLink.tagName !== "A") {
+        const anchor = document.createElement("a"); anchor.id = "worksLibraryLink"; anchor.className = "button-link"; anchor.textContent = "进入作品库检查与交付 →";
+        worksLink.replaceWith(anchor); worksLink = anchor;
+      }
+      worksLink.href = `/works.html?work=${encodeURIComponent(work.id)}&project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
+      worksLink.hidden = false; worksDisabled.hidden = true;
+    } else {
+      worksLink.hidden = true; worksDisabled.hidden = false;
+      worksDisabled.textContent = runtime?.worksEnabled ? "作品登记完成后，可从作品库进行检查与交付登记。" : "作品检查与交付功能暂未开放；当前仅可在本工单查看已登记作品。";
+    }
     scheduleVerificationPoll(verificationReadError ? 3000 : 2000, { force: Boolean(verificationReadError) });
   }
   async function loadVerification({ render = true } = {}) {
