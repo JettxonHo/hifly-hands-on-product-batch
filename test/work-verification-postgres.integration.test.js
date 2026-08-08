@@ -50,6 +50,7 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
   await runManualHandoffMigrations(pool);
   await runManualExecutionMigrations(pool);
   await runWorkVerificationMigrations(pool);
+  assert.deepEqual((await pool.query("SELECT version FROM work_verification_schema_migrations ORDER BY version")).rows.map((row) => row.version), [1, 2]);
 
   const identity = createPostgresIdentityRepository({ pool });
   const seeded = await seedInitialAdmin(identity, {
@@ -131,6 +132,37 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
     [ids.candidate, organizationId, ids.order, ids.attempt, ids.package, body.length, checksum,
       createHash("sha256").update("a12-token").digest("hex"), "a12/candidate.mp4", seeded.member.id, at]);
 
+  const migrationProbeClient = await pool.connect();
+  try {
+    await migrationProbeClient.query("BEGIN");
+    const probeReportId = randomUUID(), probeJobA = randomUUID(), probeJobB = randomUUID();
+    await migrationProbeClient.query(`INSERT INTO manual_execution_reports
+      (id,organization_id,report_version,production_order_id,execution_attempt_id,package_id,package_version,manifest_hash,submitted_by,submitted_at,outcome,completed_at,deviations,primary_output)
+      VALUES ($1,$2,2,$3,$4,$5,2,'manifest-a12',$6,$7,'completed',$7,'[]',$8)`,
+      [probeReportId, organizationId, ids.order, ids.attempt, ids.package, seeded.member.id, "2026-08-09T00:00:01.000Z",
+        JSON.stringify({ upload_reference: ids.candidate, checksum, media_type: "video/mp4", size: body.length, role: "primary_video" })]);
+    const insertProbeJob = (jobId, reportId) => migrationProbeClient.query(`INSERT INTO work_verification_jobs
+      (id,organization_id,type,production_order_id,execution_attempt_id,report_id,candidate_id,primary_output_checksum,requested_by_member_id,requested_by_role,status,verification_status,attempts,max_attempts,receipt_key,checks,created_at,updated_at)
+      VALUES ($1,$2,'artifact_verification',$3,$4,$5,$6,$7,$8,'admin','queued','queued',0,3,$9,'[]',$10,$10)`,
+      [jobId, organizationId, ids.order, ids.attempt, reportId, ids.candidate, checksum, seeded.member.id, `migration-probe-${jobId}`, at]);
+    await insertProbeJob(probeJobA, ids.report);
+    await insertProbeJob(probeJobB, probeReportId);
+    assert.equal(Number((await migrationProbeClient.query("SELECT count(*) count FROM work_verification_jobs WHERE id IN ($1,$2)", [probeJobA, probeJobB])).rows[0].count), 2);
+    await migrationProbeClient.query("ROLLBACK");
+  } catch (error) {
+    await migrationProbeClient.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    migrationProbeClient.release();
+  }
+
+  const correctionReportId = randomUUID();
+  await pool.query(`INSERT INTO manual_execution_reports
+    (id,organization_id,report_version,production_order_id,execution_attempt_id,package_id,package_version,manifest_hash,submitted_by,submitted_at,supersedes_report_id,outcome,completed_at,deviations,primary_output)
+    VALUES ($1,$2,2,$3,$4,$5,2,'manifest-a12',$6,$7,$8,'completed',$7,'[]',$9)`,
+    [correctionReportId, organizationId, ids.order, ids.attempt, ids.package, seeded.member.id, "2026-08-09T00:01:00.000Z", ids.report,
+      JSON.stringify({ upload_reference: ids.candidate, checksum, media_type: "video/mp4", size: body.length, role: "primary_video" })]);
+
   const objectStore = createMemoryObjectStore();
   await objectStore.put({ key: "a12/candidate.mp4", body, contentType: "video/mp4", metadata: { organizationId, candidateOutputId: ids.candidate } });
   const assetRepository = createPostgresAssetRepository({ pool });
@@ -141,6 +173,25 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
   await executionRepository.initialize();
   await packageRepository.initialize();
   await workRepository.initialize();
+  const concurrentReceiptKey = `${organizationId}:work-verification:concurrent-receipt`;
+  const concurrentJobs = ["b", "c"].map((letter) => ({
+    id: randomUUID(), organization_id: organizationId, type: "artifact_verification", production_order_id: ids.order,
+    execution_attempt_id: ids.attempt, report_id: ids.report, candidate_id: ids.candidate, primary_output_checksum: letter.repeat(64),
+    requested_by_member_id: seeded.member.id, requested_by_role: "admin", status: "queued", verification_status: "queued",
+    failure_kind: null, failure_code: null, failure_reason: null, attempts: 0, max_attempts: 3, lease_token: null,
+    lease_expires_at: null, started_at: null, heartbeat_at: null, completed_at: null, work_id: null, receipt_key: concurrentReceiptKey,
+    checks: [], created_at: "2026-08-09T00:10:00.000Z", updated_at: "2026-08-09T00:10:00.000Z"
+  }));
+  const concurrentResults = await Promise.allSettled(concurrentJobs.map((job, index) => workRepository.createVerificationRequest({
+    receiptKey: concurrentReceiptKey, fingerprint: `concurrent-fingerprint-${index}`, job
+  })));
+  assert.equal(concurrentResults.filter((result) => result.status === "fulfilled").length, 1);
+  const conflict = concurrentResults.find((result) => result.status === "rejected");
+  assert.equal(conflict?.reason?.code, "IDEMPOTENCY_CONFLICT");
+  const winnerIndex = concurrentResults.findIndex((result) => result.status === "fulfilled");
+  const replay = await workRepository.createVerificationRequest({ receiptKey: concurrentReceiptKey,
+    fingerprint: `concurrent-fingerprint-${winnerIndex}`, job: concurrentJobs[winnerIndex] });
+  assert.equal(replay.replayed, true);
   const orderRepository = createPostgresProductionOrderRepository({ pool });
   const orderPort = {
     getOrder: ({ organizationId: requestedOrganizationId, orderId }) => orderRepository.getOrder(requestedOrganizationId, orderId),
@@ -160,7 +211,34 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
   });
   const actor = { organizationId, actorMemberId: seeded.member.id, actorRole: "admin" };
   const requested = await service.requestVerification({ ...actor, productionOrderId: ids.order, executionAttemptId: ids.attempt,
-    reportId: ids.report, candidateId: ids.candidate, idempotencyKey: "pg-verify" });
+    reportId: correctionReportId, candidateId: ids.candidate, idempotencyKey: "pg-verify" });
+  await pool.query(`
+    CREATE FUNCTION a12_fail_order_transition() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF NEW.id = '${ids.order}'::uuid AND NEW.status = 'succeeded' THEN
+        RAISE EXCEPTION 'A12 injected order transition failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+    CREATE TRIGGER a12_fail_order_transition_trigger
+      BEFORE UPDATE OF status ON production_orders
+      FOR EACH ROW EXECUTE FUNCTION a12_fail_order_transition();
+  `);
+  const failed = await service.runNextVerificationJob();
+  assert.equal(failed.job.status, "failed");
+  assert.equal(failed.job.failure_kind, "technical");
+  assert.equal(failed.job.verification_status, "failed");
+  assert.equal((await orderRepository.getOrder(organizationId, ids.order)).status, "running");
+  const failedCandidate = await executionRepository.getCandidate(organizationId, ids.candidate);
+  assert.equal(failedCandidate.verification_status, "failed");
+  assert.equal(failedCandidate.verification_failure_kind, "technical");
+  assert.equal(Number((await pool.query("SELECT count(*) count FROM asset_assets WHERE organization_id=$1 AND kind='work_video'", [organizationId])).rows[0].count), 0);
+  assert.equal(Number((await pool.query("SELECT count(*) count FROM asset_versions v JOIN asset_assets a ON a.id=v.asset_id WHERE a.organization_id=$1 AND a.kind='work_video'", [organizationId])).rows[0].count), 0);
+  assert.equal(Number((await pool.query("SELECT count(*) count FROM works WHERE organization_id=$1", [organizationId])).rows[0].count), 0);
+  await pool.query("DROP TRIGGER a12_fail_order_transition_trigger ON production_orders");
+  await pool.query("DROP FUNCTION a12_fail_order_transition()");
+  await service.retryVerification({ ...actor, jobId: failed.job.id, idempotencyKey: "pg-verify-retry" });
   const completed = await service.runNextVerificationJob();
   assert.equal(completed.job.verification_status, "passed");
   assert.equal(completed.work.primary_asset_version_id, (await pool.query("SELECT id FROM asset_versions WHERE object_key=$1", ["a12/candidate.mp4"])).rows[0].id);

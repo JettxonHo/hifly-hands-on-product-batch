@@ -106,6 +106,22 @@ export function createWorkVerificationService({ repository, orderPort, execution
     return order;
   }
 
+  async function latestRequestInput(input) {
+    const order = await scopedOrder(input);
+    const attempt = await executionPort.getAttempt(input.organizationId, input.executionAttemptId);
+    const reports = attempt ? await executionPort.listReports(input.organizationId, attempt.id) : [];
+    const report = latestReport(reports);
+    if (!attempt || attempt.organization_id !== input.organizationId || attempt.production_order_id !== order.id || attempt.status !== "succeeded" ||
+      !report || report.id !== input.reportId || report.organization_id !== input.organizationId || report.production_order_id !== order.id ||
+      report.execution_attempt_id !== attempt.id || report.outcome !== "completed") throw failure("WORK_VERIFICATION_REPORT_NOT_LATEST");
+    const candidateId = report.primary_output?.upload_reference;
+    if (!candidateId || candidateId !== input.candidateId) throw failure("WORK_VERIFICATION_PRIMARY_OUTPUT_REQUIRED");
+    const candidate = await executionPort.getCandidate(input.organizationId, candidateId);
+    if (!candidate || candidate.organization_id !== input.organizationId || candidate.production_order_id !== order.id || candidate.execution_attempt_id !== attempt.id ||
+      candidate.role !== "primary_video" || !["uploaded", "pending_verification"].includes(candidate.status)) throw failure("WORK_VERIFICATION_CANDIDATE_NOT_FOUND");
+    return { order, attempt, report, candidate };
+  }
+
   async function authoritativeInput(job) {
     const input = { organizationId: job.organization_id, actorMemberId: job.requested_by_member_id, actorRole: job.requested_by_role, productionOrderId: job.production_order_id };
     const order = await scopedOrder(input);
@@ -169,25 +185,27 @@ export function createWorkVerificationService({ repository, orderPort, execution
       ...input });
   }
 
-  async function requestVerification(input) {
+  async function requestVerification(input, { recoveryFromJobId = null, resolutionNote = null } = {}) {
     validateActor(input);
     const idempotencyKey = validateKey(input.idempotencyKey);
-    const order = await scopedOrder(input);
     if (!clean(input.executionAttemptId) || !clean(input.reportId) || !clean(input.candidateId)) throw failure("WORK_VERIFICATION_CONTEXT_REQUIRED");
-    const candidate = await executionPort.getCandidate(input.organizationId, input.candidateId);
-    if (!candidate || candidate.organization_id !== input.organizationId) throw failure("WORK_VERIFICATION_CANDIDATE_NOT_FOUND");
-    const fingerprint = stableJson({ production_order_id: order.id, execution_attempt_id: input.executionAttemptId, report_id: input.reportId, candidate_id: input.candidateId, checksum: candidate.checksum });
+    const source = await latestRequestInput(input);
+    const { order, attempt, report, candidate } = source;
+    const fingerprint = stableJson({ production_order_id: order.id, execution_attempt_id: attempt.id, report_id: report.id, candidate_id: candidate.id, checksum: candidate.checksum });
     const receiptKey = `${input.organizationId}:work-verification:${idempotencyKey}`;
     const at = timestamp(now);
     const job = {
       id: randomUUID(), organization_id: input.organizationId, type: "artifact_verification", production_order_id: order.id,
-      execution_attempt_id: input.executionAttemptId, report_id: input.reportId, candidate_id: input.candidateId,
+      execution_attempt_id: attempt.id, report_id: report.id, candidate_id: candidate.id,
       primary_output_checksum: String(candidate.checksum).toLowerCase(), requested_by_member_id: input.actorMemberId, requested_by_role: input.actorRole,
       status: "queued", verification_status: "queued", failure_kind: null, failure_code: null, failure_reason: null,
       attempts: 0, max_attempts: maxAttempts, lease_token: null, lease_expires_at: null, started_at: null, heartbeat_at: null,
       completed_at: null, work_id: null, checks: [], receipt_key: receiptKey, created_at: at, updated_at: at
     };
-    const saved = await repository.createVerificationRequest({ receiptKey, fingerprint, job });
+    const saved = await repository.createVerificationRequest({ receiptKey, fingerprint, job,
+      audit: recoveryFromJobId ? { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId,
+        production_order_id: order.id, event_type: "work_verification.recovery_requested",
+        metadata: { source_job_id: recoveryFromJobId, resolution_note: resolutionNote }, created_at: at } : null });
     if (!saved.replayed || saved.job?.verification_status === "queued") await candidateProjection(saved.job, { verificationStatus: "queued", failureKind: null, failureCode: null, now: at });
     return { job: publicJob(saved.job), work: publicWork(saved.work), replayed: saved.replayed };
   }
@@ -280,13 +298,19 @@ export function createWorkVerificationService({ repository, orderPort, execution
     const resolutionNote = validateResolutionNote(input.resolutionNote);
     const job = await repository.getVerificationJob(input.organizationId, input.jobId);
     if (!job) throw failure("WORK_VERIFICATION_JOB_NOT_FOUND");
-    const fingerprint = stableJson({ job_id: job.id, mode: "business_recovery", resolution_note: resolutionNote });
-    const saved = await repository.recoverVerificationJob({ organizationId: input.organizationId, jobId: job.id, receiptKey: `${input.organizationId}:work-verification:recover:${key}`, fingerprint, now: timestamp(now),
-      candidateProjection: ({ verificationStatus, failureKind, failureCode, now: projectionNow, transactionClient }) => candidateProjection(job,
-        { verificationStatus, failureKind, failureCode, now: projectionNow, transactionClient }),
-      audit: { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId, production_order_id: job.production_order_id,
-        job_id: job.id, candidate_id: job.candidate_id, event_type: "work_verification.recovery_requested", metadata: { resolution_note: resolutionNote }, created_at: timestamp(now) } });
-    return { job: publicJob(saved.job), replayed: saved.replayed };
+    if (job.status !== "succeeded" || !["requires_action", "failed"].includes(job.verification_status) ||
+      (job.verification_status === "failed" && job.failure_kind !== "business")) throw failure("WORK_VERIFICATION_RECOVERY_BLOCKED");
+    const order = await scopedOrder({ ...input, productionOrderId: job.production_order_id });
+    const attempt = await executionPort.getAttempt(input.organizationId, job.execution_attempt_id);
+    const report = latestReport(attempt ? await executionPort.listReports(input.organizationId, attempt.id) : []);
+    const candidateId = report?.primary_output?.upload_reference;
+    const candidate = candidateId ? await executionPort.getCandidate(input.organizationId, candidateId) : null;
+    const sameAuthoritativeInput = report?.id === job.report_id && candidate?.id === job.candidate_id &&
+      String(candidate?.checksum || "").toLowerCase() === String(job.primary_output_checksum || "").toLowerCase();
+    if (!report || report.outcome !== "completed" || !candidate || sameAuthoritativeInput) throw failure("WORK_VERIFICATION_CORRECTION_REQUIRED");
+    const saved = await requestVerification({ ...input, productionOrderId: order.id, executionAttemptId: attempt.id,
+      reportId: report.id, candidateId: candidate.id, idempotencyKey: `recovery:${key}` }, { recoveryFromJobId: job.id, resolutionNote });
+    return { job: saved.job, work: saved.work, replayed: saved.replayed };
   }
 
   async function getVerificationWorkspace(input) {

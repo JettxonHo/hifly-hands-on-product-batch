@@ -1,5 +1,7 @@
 # VSA-A11 Review Important 修复会话（2026-08-09）
 
+> 后续事实更新：A11 PR #89 已合并，Issue #67 已关闭；当前 `origin/main=9af3f5e`。下文“未创建 PR/未 merge”等表述均是本会话当时的过程记录，不代表当前状态。
+
 ## 基本信息
 
 - 执行者/工具：`luna-worker` / Codex

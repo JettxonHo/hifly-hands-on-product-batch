@@ -10,7 +10,7 @@ import { createWorkVerificationService } from "../src/work-verification/work-ver
 
 const actor = { organizationId: "org-a", actorMemberId: "member-a", actorRole: "member" };
 
-function makeWorld({ transitionOrder = null, executionPortPatch = {}, packagePortPatch = {} } = {}) {
+function makeWorld({ transitionOrder = null, executionPortPatch = {}, packagePortPatch = {}, reportDeviations = [] } = {}) {
   const body = Buffer.from("candidate-video");
   const checksum = createHash("sha256").update(body).digest("hex");
   const order = {
@@ -25,13 +25,15 @@ function makeWorld({ transitionOrder = null, executionPortPatch = {}, packagePor
     manifest_hash: "manifest-a", executor_type: "manual", operator_id: actor.actorMemberId, status: "succeeded", row_version: 2 };
   const report = { id: "report-a", organization_id: actor.organizationId, report_version: 1, production_order_id: order.id,
     execution_attempt_id: attempt.id, package_id: attempt.package_id, package_version: attempt.package_version, manifest_hash: attempt.manifest_hash,
-    outcome: "completed", primary_output: { upload_reference: "candidate-a", checksum, media_type: "video/mp4", size: body.length, role: "primary_video" }, deviations: [] };
+    outcome: "completed", submitted_at: "2026-08-09T00:00:00.000Z", primary_output: { upload_reference: "candidate-a", checksum, media_type: "video/mp4", size: body.length, role: "primary_video" }, deviations: structuredClone(reportDeviations) };
   const candidate = { id: "candidate-a", organization_id: actor.organizationId, production_order_id: order.id, execution_attempt_id: attempt.id,
     package_id: attempt.package_id, package_version: attempt.package_version, manifest_hash: attempt.manifest_hash, role: "primary_video",
     original_filename: "candidate.mp4", media_type: "video/mp4", size: body.length, checksum, status: "pending_verification", object_key: "candidate-a.mp4" };
   const packageRecord = { id: attempt.package_id, organization_id: actor.organizationId, production_order_id: order.id,
     package_version: attempt.package_version, manifest_hash: attempt.manifest_hash, manifest: { accepted_media_types: ["video/mp4"], expected_quantity: 1 } };
   const objectStore = createMemoryObjectStore();
+  const reports = [report];
+  const candidates = [candidate];
   const orderPort = {
     async getOrder({ organizationId, orderId }) { return organizationId === order.organization_id && orderId === order.id ? structuredClone(order) : null; },
     async transitionOrder(input) {
@@ -45,15 +47,15 @@ function makeWorld({ transitionOrder = null, executionPortPatch = {}, packagePor
   };
   const executionPort = {
     async getAttempt(organizationId, attemptId) { return organizationId === actor.organizationId && attemptId === attempt.id ? structuredClone(attempt) : null; },
-    async getReport(organizationId, reportId) { return organizationId === actor.organizationId && reportId === report.id ? structuredClone(report) : null; },
-    async listReports(organizationId, attemptId) { return organizationId === actor.organizationId && attemptId === attempt.id ? [structuredClone(report)] : []; },
-    async getCandidate(organizationId, candidateId) { return organizationId === actor.organizationId && candidateId === candidate.id ? structuredClone(candidate) : null; },
-    async listCandidates(organizationId, attemptId) { return organizationId === actor.organizationId && attemptId === attempt.id ? [structuredClone(candidate)] : []; },
+    async getReport(organizationId, reportId) { return organizationId === actor.organizationId && reports.find((value) => value.id === reportId)?.organization_id === actor.organizationId ? structuredClone(reports.find((value) => value.id === reportId)) : null; },
+    async listReports(organizationId, attemptId) { return organizationId === actor.organizationId && attemptId === attempt.id ? reports.map((value) => structuredClone(value)) : []; },
+    async getCandidate(organizationId, candidateId) { return organizationId === actor.organizationId && candidates.find((value) => value.id === candidateId)?.organization_id === actor.organizationId ? structuredClone(candidates.find((value) => value.id === candidateId)) : null; },
+    async listCandidates(organizationId, attemptId) { return organizationId === actor.organizationId && attemptId === attempt.id ? candidates.map((value) => structuredClone(value)) : []; },
     async markCandidateVerification() {},
     ...executionPortPatch
   };
   const packagePort = { async getPackage({ organizationId, packageId }) { return organizationId === actor.organizationId && packageId === packageRecord.id ? structuredClone(packageRecord) : null; }, ...packagePortPatch };
-  return { order, attempt, report, candidate, packageRecord, body, objectStore, orderPort, executionPort, packagePort };
+  return { order, attempt, report, candidate, reports, candidates, packageRecord, body, objectStore, orderPort, executionPort, packagePort };
 }
 
 async function setup(options = {}) {
@@ -131,9 +133,10 @@ test("memory transaction restores an order mutated before a transition failure",
   assert.equal((await state.assetRepository.listAssets(actor.organizationId)).length, 0);
 });
 
-test("business requires_action is projected separately and can be recovered with a bounded retry", async () => {
+test("business requires_action waits for an immutable correction report before a new verification job", async () => {
   const projections = [];
   const state = await setup({
+    reportDeviations: [{ code: "input_changed", message: "changed" }],
     executionPortPatch: {
       async markCandidateVerification(input) {
         projections.push({ status: input.verificationStatus, failureKind: input.failureKind, failureCode: input.failureCode });
@@ -145,9 +148,8 @@ test("business requires_action is projected separately and can be recovered with
       }
     }
   });
-  state.report.deviations = [{ code: "input_changed", message: "changed" }];
   await state.service.requestVerification({ ...actor, productionOrderId: state.order.id, executionAttemptId: state.attempt.id, reportId: state.report.id, candidateId: state.candidate.id, idempotencyKey: "requires-action" });
-  let result = await state.service.runNextVerificationJob();
+  const result = await state.service.runNextVerificationJob();
   assert.equal(result.job.status, "succeeded");
   assert.equal(result.job.verification_status, "requires_action");
   assert.equal(result.job.failure_kind, "business");
@@ -155,13 +157,27 @@ test("business requires_action is projected separately and can be recovered with
   assert.equal(state.order.status, "running");
   assert.equal(state.candidate.verification_status, "requires_action");
 
-  state.report.deviations = [];
-  await state.service.recoverVerification({ ...actor, jobId: result.job.id, resolutionNote: "人工确认输入仍以批准版本为准", idempotencyKey: "recover-requires-action" });
-  result = await state.service.runNextVerificationJob();
-  assert.equal(result.job.verification_status, "passed");
+  await assert.rejects(() => state.service.recoverVerification({ ...actor, jobId: result.job.id, resolutionNote: "尚未提交更正报告", idempotencyKey: "recover-without-correction" }), { code: "WORK_VERIFICATION_CORRECTION_REQUIRED" });
+  assert.equal((await state.repository.getVerificationJob(actor.organizationId, result.job.id)).verification_status, "requires_action");
+
+  const correction = { ...structuredClone(state.report), id: "report-b", report_version: 2, submitted_at: "2026-08-09T00:01:00.000Z",
+    supersedes_report_id: state.report.id, deviations: [] };
+  state.reports.push(correction);
+  const recovered = await state.service.recoverVerification({ ...actor, jobId: result.job.id, resolutionNote: "已提交更正报告并重新核对固定输入", idempotencyKey: "recover-with-correction" });
+  assert.notEqual(recovered.job.id, result.job.id);
+  const replay = await state.service.recoverVerification({ ...actor, jobId: result.job.id, resolutionNote: "已提交更正报告并重新核对固定输入", idempotencyKey: "recover-with-correction" });
+  assert.equal(replay.job.id, recovered.job.id);
+  const passed = await state.service.runNextVerificationJob();
+  assert.equal(passed.job.verification_status, "passed");
   assert.equal(state.order.status, "succeeded");
-  assert.deepEqual(projections.map((item) => item.status), ["queued", "running", "requires_action", "queued", "running", "passed"]);
+  assert.equal((await state.repository.listVerificationJobs(actor.organizationId, state.order.id)).length, 2);
+  assert.equal((await state.repository.getVerificationJob(actor.organizationId, result.job.id)).report_id, state.report.id);
+  assert.equal((await state.repository.getVerificationJob(actor.organizationId, result.job.id)).verification_status, "requires_action");
+  assert.equal(state.report.deviations[0].code, "input_changed");
+  assert.deepEqual(projections.slice(0, 3).map((item) => item.status), ["queued", "running", "requires_action"]);
+  assert.deepEqual(projections.slice(-3).map((item) => item.status), ["queued", "running", "passed"]);
   assert.ok((await state.repository.listAuditEvents(actor.organizationId)).some((event) => event.event_type === "work_verification.recovery_requested"));
+  assert.equal((await state.repository.listWorks(actor.organizationId)).length, 1);
 });
 
 test("authoritative report/package mismatch is a business failure, not a technical retry", async () => {
@@ -242,6 +258,9 @@ test("same candidate requests converge on one verification job and one Work", as
   assert.equal(runs.filter(Boolean).length, 1);
   assert.equal((await state.repository.listWorks(actor.organizationId)).length, 1);
   assert.equal((await state.assetRepository.listAssets(actor.organizationId)).flatMap((item) => item.versions).length, 1);
+  const correction = { ...structuredClone(state.report), id: "report-after-work", report_version: 2, submitted_at: "2026-08-09T00:01:00.000Z", deviations: [] };
+  state.reports.push(correction);
+  await assert.rejects(() => state.service.requestVerification({ ...input, reportId: correction.id, idempotencyKey: "after-work" }), { code: "WORK_VERIFICATION_PRIMARY_WORK_EXISTS" });
 });
 
 test("verification enforces organization scope and member/admin roles", async () => {

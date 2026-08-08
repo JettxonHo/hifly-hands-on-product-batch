@@ -1,25 +1,26 @@
 # 项目当前状态
 
 > 最后更新：2026-08-09
-> 当前远端 main：`e935202`（VSA-A11-A13 设计已通过 PR #88 合并）
-> 当前 A12 worktree：`/private/tmp/hifly-vsa-a12`，分支 `codex/vsa-a12-candidate-verification`，基线/当前起点 `9af3f5e`
+> 当前远端 main：`9af3f5e`（A11 PR #89 已合并，Issue #67 已关闭；VSA-A11-A13 设计 PR #88 已合并）
+> 当前 A12 worktree：`/private/tmp/hifly-vsa-a12`，分支 `codex/vsa-a12-candidate-verification`，基线/当前起点为 `origin/main=9af3f5e`
 > 当前 Goal：Vertical Slice A
 
 ## VSA-A12 候选产物核验与 Work 创建（Issue #68，2026-08-09）
 
-- 状态：核心服务、worker、memory/PG repository、独立 migration/ledger、API wiring 与 production 页面增量已实现，已完成最终代码审查、全量回归并准备提交。本 worktree 以 A11 提交 `9af3f5e` 为基线，A11 的“等待合并”不再是本切片的当前阻塞事实；不声称该提交已进入远端 main。
+- 状态：核心服务、worker、memory/PG repository、独立 migration/ledger、API wiring 与 production 页面增量已实现；Sol Review 的 Important 修复、定向/全量回归已完成，当前只待提交。本 worktree 基于已进入 `origin/main` 的 A11 提交 `9af3f5e`（PR #89，Issue #67 已关闭）。
 - 核验服务端只读取同 Organization/order 的最新有效 completed ManualExecutionReport、其 primary candidate、固定 attempt/package；重新核对对象存在/归属/关联、唯一主要视频、媒体类型、大小与 SHA-256 checksum。Work 不只保存 candidate ID：成功时复用 A03 canonical asset repository 注册 `work_video` Asset + available AssetVersion，并在 Work 保存 `primary_asset_version_id`。
 - Work 固定保存 ProductionOrder 输入快照中的 VideoPlan/Copy/Avatar/production config，以及 package/version/manifest、attempt/report、candidate/checksum 和输出媒体摘要；客户端不能提交或替换这些权威事实。
 - 成功路径在 PG 同一 transaction client 中完成 canonical AssetVersion、Work、candidate passed projection、ProductionOrder succeeded、ProductionOrder AuditEvent、A12 AuditEvent、AsyncJob 与 ledger；memory transaction 覆盖 AssetVersion、Work、candidate、order transition、receipt/audit/ledger 回滚。技术 failed 与业务 failed/requires_action 分开，retry/recover 有 maxAttempts、lease heartbeat 和过期恢复。
+- 更正报告遵循不可变历史：新 latest completed report + primary candidate 创建新 job，旧 report/job/audit 保留；相同 report/candidate/checksum 仍幂等，一工单最多一个 Work，且成功后任意新自然键核验请求均由 memory/PG 一致阻断（natural replay 仍优先返回）。PG migration 002 通过 `pg_constraint.conkey` 精确删除 001 的旧唯一约束并新增短名约束，runner 按数字文件名顺序应用；集成测试含不同报告同 checksum 探针及 receipt/natural 双锁并发回归。
+- UI 只显示中文业务投影（文件完整性、作品已登记、正式文件版本已固定），不显示内部任务/错误/版本编号；更正入口在新报告出现后可达，无新报告时引导先提交更正。POST 已受理与后续 GET 瞬时失败分离，queued/running 自动有限轮询，成功读取后清除失败提示。
 - A12 还覆盖组织/角色隔离、幂等/并发单 Work、服务 API、刷新恢复 UI、执行完成不等于工单完成、A13 作品库禁用说明；未创建 `works.html`，旧 GUI/Playwright/Capture HTTP 默认路径保持不变。
-- 验证状态：A12 service/API/worker 定向测试 15 pass；`npm run check` 检查 172 个 JavaScript 文件通过；`npm test` 为 789 tests / 747 pass / 0 fail / 42 skipped；`git diff --check` 通过。PG integration 因本机未设置 `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL` skipped；browser 因系统 Chrome `MachPortRendezvous ... Permission denied` skipped，均未声称通过。
+- 验证状态：A12 service/API/worker 定向测试 15 pass；`npm run check` 检查 172 个 JavaScript 文件通过；`npm test` 为 789 tests / 747 pass / 0 fail / 42 skipped；`git diff --check` 通过。PG integration 在本机无 `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL` 时 1 skip，未计为通过；本机 browser 1 skip（系统 Chrome `MachPortRendezvous ... Permission denied`）。Sol 已在沙箱外用系统 Chrome 实跑 A12 1/1，覆盖 1440/390、失败→更正报告→重新核验、恢复轮询与无内部术语；该外部实跑不与本机 skip 混记。
 - 本轮使用准确自定义 Agent `luna-worker`，未使用 Terra；没有访问 Hifly、没有运行真实 Provider/Capture HTTP、没有运行批次、没有消耗飞影积分。
 
-## VSA-A11 Manual ExecutionAttempt 与结果登记实现（Issue #67，2026-08-09）
+## VSA-A11 Manual ExecutionAttempt 与结果登记实现（Issue #67，PR #89 已合并，2026-08-09）
 
 - 状态：A11 首轮 Review 的 Important 修复、TDD、静态检查、全量回归和 Sol 独立复审均已完成，结论 `APPROVED`，
-  无剩余 Blocker/Important。A11 实现已作为当前 A12 分支基线 `9af3f5e`；其 PR/CI/合并仍由上游流程单独处理，
-  不再把“等待合并”写作 A12 当前阻塞。
+  无剩余 Blocker/Important。A11 已通过 PR #89 合并，Issue #67 已关闭；`9af3f5e` 是当前 `origin/main`，也是 A12 分支基线。
 - 已实现领取与确认开始两步命令；领取时绑定精确 `package_id`、`package_version`、`manifest_hash`、package 完整性摘要和 `executor_type=manual`。
   交接包生成/下载路径不创建 attempt；同订单 `claimed/running` 只有一个有效 attempt；包 revoked 后不能开始新的执行。
 - 已实现候选产物受控上传授权、组织/attempt/package 完整性重验、checksum/大小/媒体类型校验、上传完成回调和 pending-verification 投影；不创建 A12 核验任务或 Work。
@@ -31,7 +32,7 @@
 - PostgreSQL clean migration/integration 因本机未设置 `TEST_DATABASE_URL` 或 `IDENTITY_TEST_DATABASE_URL` 明确 skipped，未声称通过；待 CI PostgreSQL 验证。系统 Chrome 使用本地受控 fake 数据，不访问外部服务，未生成仓库截图。
 - 本轮没有访问 Hifly、没有 Capture HTTP、没有运行真实批次、没有消耗飞影积分；配置模型为 `gpt-5.6-luna` / Max，配置状态 `CONFIG_VERIFIED`，运行时模型状态 `UNVERIFIED_RUNTIME_MODEL`。
 - Sol 已独立复核 PostgreSQL 事务边界、A09 order transition 兼容性、候选上传重试/授权旋转、报告状态链、
-  A11 feature gate 与生产页状态文案；系统 Chrome 真实复跑通过。实现 Agent 未批准、未 merge 自身成果。
+  A11 feature gate 与生产页状态文案；系统 Chrome 真实复跑通过。实现 Agent 未自行批准或合并成果，PR #89 已由合并流程完成。
 
 ## VSA-A11-A13 页面设计完成（Issues #67-#69，2026-08-08）
 
@@ -43,7 +44,7 @@
   `works.html`；报告完成、上传完成、核验通过、工单完成与交付登记保持独立业务事实。
 - 本轮只生成设计文档，没有修改 `web/`、`src/`、`test/`、API、数据库或 migration；没有访问 Hifly、
   没有发送真实 Provider/Capture HTTP、没有运行批次、没有消耗积分。
-- 下一步：设计 PR 合并后，使用准确自定义 Agent `luna-worker` 按 A11 → A12 → A13 顺序逐项实现、测试、
+- 设计 PR #88 已合并；A11 PR #89 已合并。继续使用准确自定义 Agent `luna-worker` 按 A12 → A13 顺序逐项实现、测试、
   独立 Review、CI 和合并；不自动回退 Terra，不开始 A14。
 
 ## VSA-A10 当前实现与独立验收（Issue #66，2026-08-08）

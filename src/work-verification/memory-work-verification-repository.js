@@ -49,7 +49,14 @@ export function createMemoryWorkVerificationRepository({ failureInjector = null 
   function findNaturalJob(value) {
     return [...jobs.values()].find((job) => job.organization_id === value.organization_id &&
       job.production_order_id === value.production_order_id && job.execution_attempt_id === value.execution_attempt_id &&
+      job.report_id === value.report_id && job.candidate_id === value.candidate_id &&
       job.primary_output_checksum === value.primary_output_checksum) || null;
+  }
+
+  function findReportConflict(value) {
+    return [...jobs.values()].find((job) => job.organization_id === value.organization_id &&
+      job.production_order_id === value.production_order_id && job.execution_attempt_id === value.execution_attempt_id &&
+      job.report_id === value.report_id && (job.candidate_id !== value.candidate_id || job.primary_output_checksum !== value.primary_output_checksum)) || null;
   }
 
   async function inject(stage, value = null) {
@@ -72,21 +79,22 @@ export function createMemoryWorkVerificationRepository({ failureInjector = null 
 
     async getReceipt(receiptKey, fingerprint) { return readReceipt(receiptKey, fingerprint); },
 
-    async createVerificationRequest({ receiptKey, fingerprint, job }) {
+    async createVerificationRequest({ receiptKey, fingerprint, job, audit = null }) {
       const replay = readReceipt(receiptKey, fingerprint);
       if (replay) return { job: clone(jobs.get(replay.job_id)), work: clone(replay.work_id ? works.get(replay.work_id) : null), replayed: true };
       const existing = findNaturalJob(job);
       if (existing) {
-        if (existing.report_id !== job.report_id || existing.candidate_id !== job.candidate_id) throw failure("WORK_VERIFICATION_CONFLICT");
         const work = existing.work_id ? works.get(existing.work_id) : null;
         receipts.set(receiptKey, { fingerprint, job_id: existing.id, work_id: work?.id || null });
         return { job: clone(existing), work: clone(work), replayed: true };
       }
-      const conflicting = listScopedWorks(job.organization_id, job.production_order_id).find((work) => work.primary_output_checksum !== job.primary_output_checksum);
+      if (findReportConflict(job)) throw failure("WORK_VERIFICATION_CONFLICT");
+      const conflicting = listScopedWorks(job.organization_id, job.production_order_id)[0];
       if (conflicting) throw failure("WORK_VERIFICATION_PRIMARY_WORK_EXISTS");
       jobs.set(job.id, clone(job));
       receipts.set(receiptKey, { fingerprint, job_id: job.id, work_id: null });
       recordTransition(job, null, "queued", { createdAt: job.created_at });
+      if (audit) audits.push(clone({ ...audit, job_id: job.id, candidate_id: job.candidate_id }));
       return { job: clone(job), work: null, replayed: false };
     },
 
@@ -262,41 +270,7 @@ export function createMemoryWorkVerificationRepository({ failureInjector = null 
       }
     },
 
-    async recoverVerificationJob({ organizationId, jobId, receiptKey, fingerprint, now, candidateProjection = null, audit = null }) {
-      const replay = readReceipt(receiptKey, fingerprint);
-      if (replay) return { job: clone(jobs.get(replay.job_id)), replayed: true };
-      const job = scoped(jobs, organizationId, jobId);
-      if (!job) throw failure("WORK_VERIFICATION_JOB_NOT_FOUND");
-      if (job.status !== "succeeded" || job.verification_status !== "requires_action") throw failure("WORK_VERIFICATION_RECOVERY_BLOCKED");
-      if (job.attempts >= job.max_attempts) throw failure("WORK_VERIFICATION_RETRY_EXHAUSTED");
-      const previousJob = clone(job), previousReceipt = receipts.get(receiptKey) ? clone(receipts.get(receiptKey)) : undefined;
-      const tx = transaction();
-      try {
-        Object.assign(job, { status: "queued", verification_status: "queued", failure_kind: null, failure_code: null, failure_reason: null,
-          completed_at: null, lease_token: null, lease_expires_at: null, updated_at: now });
-        if (candidateProjection) await candidateProjection({ verificationStatus: "queued", failureKind: null, failureCode: null, now, transactionClient: tx });
-        if (audit) {
-          const event = clone(audit);
-          audits.push(event);
-          tx.onRollback(() => {
-            const index = audits.lastIndexOf(event);
-            if (index >= 0) audits.splice(index, 1);
-          });
-        }
-        recordTransition(job, "requires_action", "queued", { createdAt: now, transactionClient: tx });
-        receipts.set(receiptKey, { fingerprint, job_id: job.id, work_id: null });
-        tx.onRollback(() => {
-          if (previousReceipt) receipts.set(receiptKey, previousReceipt);
-          else receipts.delete(receiptKey);
-        });
-        await tx.commit();
-        return { job: clone(job), replayed: false };
-      } catch (error) {
-        await tx.rollback();
-        Object.assign(job, previousJob);
-        throw error;
-      }
-    },
+    async recoverVerificationJob() { throw failure("WORK_VERIFICATION_CORRECTION_REQUIRED"); },
 
     async getVerificationJob(organizationId, jobId) { return clone(scoped(jobs, organizationId, jobId)); },
     async getLatestVerificationJob(organizationId, productionOrderId) {

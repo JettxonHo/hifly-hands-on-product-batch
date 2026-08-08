@@ -1,5 +1,7 @@
 # VSA-A11 Manual ExecutionAttempt 实现接力记录
 
+> 后续事实更新：A11 PR #89 已合并，Issue #67 已关闭；当前 `origin/main=9af3f5e`。下文未创建 PR/merge 的表述属于本会话当时记录，不代表当前状态。
+
 日期：2026-08-08
 逻辑角色：IMPLEMENTER
 自定义 Agent：`luna-worker`

@@ -72,21 +72,29 @@ export function createPostgresWorkVerificationRepository({ pool, ownsPool = fals
 
     async getReceipt(receiptKey, fingerprint) { return readReceipt(pool, receiptKey, fingerprint); },
 
-    async createVerificationRequest({ receiptKey, fingerprint, job }) {
+    async createVerificationRequest({ receiptKey, fingerprint, job, audit = null }) {
       return withTransaction(pool, async (client) => {
-        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`work-verification-request:${receiptKey}`]);
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`work-verification-receipt:${receiptKey}`]);
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`work-verification-request:${job.organization_id}:${job.production_order_id}:${job.execution_attempt_id}:${job.report_id}:${job.candidate_id}:${job.primary_output_checksum}`]);
         const replay = await readReceipt(client, receiptKey, fingerprint);
         if (replay) return { job: jobProjection(one(await client.query("SELECT * FROM work_verification_jobs WHERE organization_id=$1 AND id=$2", [job.organization_id, replay.job_id]))), work: replay.work_id ? workProjection(one(await client.query("SELECT * FROM works WHERE organization_id=$1 AND id=$2", [job.organization_id, replay.work_id]))) : null, replayed: true };
         const existing = one(await client.query(
-          `SELECT * FROM work_verification_jobs WHERE organization_id=$1 AND production_order_id=$2 AND execution_attempt_id=$3 AND primary_output_checksum=$4 FOR UPDATE`,
-          [job.organization_id, job.production_order_id, job.execution_attempt_id, job.primary_output_checksum]
+          `SELECT * FROM work_verification_jobs WHERE organization_id=$1 AND production_order_id=$2 AND execution_attempt_id=$3 AND report_id=$4 AND candidate_id=$5 AND primary_output_checksum=$6 FOR UPDATE`,
+          [job.organization_id, job.production_order_id, job.execution_attempt_id, job.report_id, job.candidate_id, job.primary_output_checksum]
         ));
         if (existing) {
-          if (existing.report_id !== job.report_id || existing.candidate_id !== job.candidate_id) throw failure("WORK_VERIFICATION_CONFLICT");
           const existingWork = existing.work_id ? workProjection(one(await client.query("SELECT * FROM works WHERE organization_id=$1 AND id=$2", [job.organization_id, existing.work_id]))) : null;
           await client.query("INSERT INTO work_verification_idempotency_receipts(receipt_key,organization_id,payload_fingerprint,job_id,work_id,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [receiptKey, job.organization_id, fingerprint, existing.id, existing.work_id, job.created_at]);
           return { job: jobProjection(existing), work: existingWork, replayed: true };
         }
+        const reportConflict = one(await client.query(
+          `SELECT 1 FROM work_verification_jobs
+             WHERE organization_id=$1 AND production_order_id=$2 AND execution_attempt_id=$3 AND report_id=$4
+               AND (candidate_id IS DISTINCT FROM $5 OR primary_output_checksum IS DISTINCT FROM $6)
+             LIMIT 1 FOR UPDATE`,
+          [job.organization_id, job.production_order_id, job.execution_attempt_id, job.report_id, job.candidate_id, job.primary_output_checksum]
+        ));
+        if (reportConflict) throw failure("WORK_VERIFICATION_CONFLICT");
         const conflicting = one(await client.query("SELECT 1 FROM works WHERE organization_id=$1 AND production_order_id=$2 LIMIT 1 FOR UPDATE", [job.organization_id, job.production_order_id]));
         if (conflicting) throw failure("WORK_VERIFICATION_PRIMARY_WORK_EXISTS");
         await client.query(
@@ -101,8 +109,9 @@ export function createPostgresWorkVerificationRepository({ pool, ownsPool = fals
         );
         await client.query("INSERT INTO work_verification_idempotency_receipts(receipt_key,organization_id,payload_fingerprint,job_id,work_id,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [receiptKey, job.organization_id, fingerprint, job.id, null, job.created_at]);
         await appendLedger(client, { organizationId: job.organization_id, jobId: job.id, fromStatus: null, toStatus: "queued", createdAt: job.created_at });
-        await appendAudit(client, { organization_id: job.organization_id, actor_member_id: job.requested_by_member_id, production_order_id: job.production_order_id,
-          job_id: job.id, candidate_id: job.candidate_id, event_type: "work_verification.requested", metadata: { checksum: job.primary_output_checksum }, created_at: job.created_at });
+        await appendAudit(client, { ...audit, organization_id: job.organization_id, actor_member_id: audit?.actor_member_id || job.requested_by_member_id, production_order_id: job.production_order_id,
+          job_id: job.id, candidate_id: job.candidate_id, event_type: audit?.event_type || "work_verification.requested",
+          metadata: { checksum: job.primary_output_checksum, ...(audit?.metadata || {}) }, created_at: audit?.created_at || job.created_at });
         return { job: jobProjection(job), work: null, replayed: false };
       });
     },
@@ -224,23 +233,7 @@ export function createPostgresWorkVerificationRepository({ pool, ownsPool = fals
       });
     },
 
-    async recoverVerificationJob({ organizationId, jobId, receiptKey, fingerprint, now, candidateProjection = null, audit = null }) {
-      return withTransaction(pool, async (client) => {
-        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`work-verification-recover:${receiptKey}`]);
-        const replay = await readReceipt(client, receiptKey, fingerprint);
-        if (replay) return { job: jobProjection(one(await client.query("SELECT * FROM work_verification_jobs WHERE organization_id=$1 AND id=$2", [organizationId, replay.job_id]))), replayed: true };
-        const current = jobProjection(one(await client.query("SELECT * FROM work_verification_jobs WHERE organization_id=$1 AND id=$2 FOR UPDATE", [organizationId, jobId])));
-        if (!current) throw failure("WORK_VERIFICATION_JOB_NOT_FOUND");
-        if (current.status !== "succeeded" || current.verification_status !== "requires_action") throw failure("WORK_VERIFICATION_RECOVERY_BLOCKED");
-        if (current.attempts >= current.max_attempts) throw failure("WORK_VERIFICATION_RETRY_EXHAUSTED");
-        const updated = jobProjection(one(await client.query("UPDATE work_verification_jobs SET status='queued',verification_status='queued',failure_kind=NULL,failure_code=NULL,failure_reason=NULL,completed_at=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=$3 WHERE organization_id=$1 AND id=$2 RETURNING *", [organizationId, jobId, now])));
-        if (candidateProjection) await candidateProjection({ verificationStatus: "queued", failureKind: null, failureCode: null, now, transactionClient: client });
-        if (audit) await appendAudit(client, { ...audit, organization_id: organizationId, production_order_id: current.production_order_id, job_id: current.id, candidate_id: current.candidate_id, event_type: "work_verification.recovery_requested", created_at: now });
-        await client.query("INSERT INTO work_verification_idempotency_receipts(receipt_key,organization_id,payload_fingerprint,job_id,work_id,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [receiptKey, organizationId, fingerprint, jobId, null, now]);
-        await appendLedger(client, { organizationId, jobId, fromStatus: "requires_action", toStatus: "queued", createdAt: now });
-        return { job: updated, replayed: false };
-      });
-    },
+    async recoverVerificationJob() { throw failure("WORK_VERIFICATION_CORRECTION_REQUIRED"); },
 
     async getVerificationJob(organizationId, jobId) { return jobProjection(one(await pool.query("SELECT * FROM work_verification_jobs WHERE organization_id=$1 AND id=$2", [organizationId, jobId]))); },
     async getLatestVerificationJob(organizationId, productionOrderId) { return jobProjection(one(await pool.query("SELECT * FROM work_verification_jobs WHERE organization_id=$1 AND production_order_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1", [organizationId, productionOrderId]))); },
