@@ -6,8 +6,9 @@
 
 ## VSA-A11 Manual ExecutionAttempt 与结果登记实现（Issue #67，2026-08-09）
 
-- 状态：A11 首轮 Review 的 Important 修复、TDD、静态检查和全量回归已完成；待 Sol 独立 Review。实现位于隔离 worktree
-  `/private/tmp/hifly-vsa-a11`、分支 `codex/vsa-a11-manual-execution`，基准为 `origin/main=e935202`；未创建 PR、未 merge、未关闭 Issue。
+- 状态：A11 首轮 Review 的 Important 修复、TDD、静态检查、全量回归和 Sol 独立复审均已完成，结论 `APPROVED`，
+  无剩余 Blocker/Important。实现位于隔离 worktree `/private/tmp/hifly-vsa-a11`、分支
+  `codex/vsa-a11-manual-execution`，基准为 `origin/main=e935202`；等待 PR/CI/合并，Issue #67 仍保持 open。
 - 已实现领取与确认开始两步命令；领取时绑定精确 `package_id`、`package_version`、`manifest_hash`、package 完整性摘要和 `executor_type=manual`。
   交接包生成/下载路径不创建 attempt；同订单 `claimed/running` 只有一个有效 attempt；包 revoked 后不能开始新的执行。
 - 已实现候选产物受控上传授权、组织/attempt/package 完整性重验、checksum/大小/媒体类型校验、上传完成回调和 pending-verification 投影；不创建 A12 核验任务或 Work。
@@ -18,7 +19,8 @@
 - A11 service 定向：10 pass；API 定向：4 pass；A11 service/API/PG 合并：15 tests / 14 pass / 0 fail / 1 skipped；系统 Chrome browser：1 pass / 0 fail / 0 skip，覆盖 1440、390、刷新恢复、requires_action amber+恢复、failed retryability 和无横向滚动；`npm run check`：164 个 JavaScript 文件通过；`npm test`：772 tests / 732 pass / 0 fail / 40 skipped；`git diff --check` 通过。
 - PostgreSQL clean migration/integration 因本机未设置 `TEST_DATABASE_URL` 或 `IDENTITY_TEST_DATABASE_URL` 明确 skipped，未声称通过；待 CI PostgreSQL 验证。系统 Chrome 使用本地受控 fake 数据，不访问外部服务，未生成仓库截图。
 - 本轮没有访问 Hifly、没有 Capture HTTP、没有运行真实批次、没有消耗飞影积分；配置模型为 `gpt-5.6-luna` / Max，配置状态 `CONFIG_VERIFIED`，运行时模型状态 `UNVERIFIED_RUNTIME_MODEL`。
-- Sol Review 重点：PostgreSQL clean migration/事务与触发器、A09 order transition 兼容性、候选上传重试/授权旋转、A11 feature gate 与生产页状态文案；实现 Agent 不批准、不 merge 自身成果。
+- Sol 已独立复核 PostgreSQL 事务边界、A09 order transition 兼容性、候选上传重试/授权旋转、报告状态链、
+  A11 feature gate 与生产页状态文案；系统 Chrome 真实复跑通过。实现 Agent 未批准、未 merge 自身成果。
 
 ## VSA-A11-A13 页面设计完成（Issues #67-#69，2026-08-08）
 
