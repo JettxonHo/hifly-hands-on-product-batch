@@ -73,11 +73,12 @@ function gateFromResolved(resolved, input) {
   return { can_create: reasons.length === 0, reasons };
 }
 
-export function createProductionOrderService({ repository, planPort, agentReadinessPort = { async isOnline() { return false; } }, now = Date.now } = {}) {
+export function createProductionOrderService({ repository, planPort, inputSnapshotPort, agentReadinessPort = { async isOnline() { return false; } }, now = Date.now } = {}) {
   if (!repository?.getReceipt || !repository?.createOrder || !repository?.listOrders || !repository?.getOrder) {
     throw new TypeError("production order repository is required");
   }
   if (!planPort?.resolveCurrentApprovedPlan) throw new TypeError("current approved plan port is required");
+  if (!inputSnapshotPort?.freezeForOrder) throw new TypeError("production order input snapshot port is required");
   const timestamp = () => new Date(now()).toISOString();
   const receiptKey = (input) => `${input.organizationId}:${input.actorMemberId}:production-order:create:${input.idempotencyKey}`;
 
@@ -123,7 +124,7 @@ export function createProductionOrderService({ repository, planPort, agentReadin
       execution_purpose: input.executionPurpose,
       status: "waiting_for_executor",
       row_version: 1,
-      input_snapshot: snapshotForOrder(resolved),
+      input_snapshot: { ...snapshotForOrder(resolved), ...await inputSnapshotPort.freezeForOrder({ ...input, resolved }) },
       created_by_member_id: input.actorMemberId,
       created_at: at,
       updated_at: at,

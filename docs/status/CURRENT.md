@@ -1,13 +1,32 @@
 # 项目当前状态
 
 > 最后更新：2026-08-08
-> 当前远端 main：`1afac0b`（VSA-A09-A10 页面设计已通过 PR #85 合并）
+> 当前远端 main：`fd6a206`（VSA-A09 已通过 PR #86 合并）
 > 当前 Goal：Vertical Slice A
+
+## VSA-A10 当前实现与独立验收（Issue #66，2026-08-08）
+
+- 状态：本 worktree 的 A10 实现、Review 修复、定向测试和浏览器验收已完成；未 commit、push、创建 PR、合并或关闭 Issue。
+- worktree：`/private/tmp/hifly-vsa-a10`；分支：`codex/vsa-a10-manual-handoff`；基线：`fd6a2062c2329e66617ee35e028cc1ae4ffce4f2`（A09 PR #86 已合并）。
+- 已实现 ManualHandoffPackage、AsyncJob、memory/PostgreSQL repository、独立 migration/ledger、服务/API、Organization 隔离、权限、审计、短时下载授权、状态历史和默认关闭 feature flag。
+- ZIP 固定包含权威 `manifest.json` 与由 manifest 派生的 `README.md`，只按 embedded 模式写入受控 assets；实现 `manual_handoff` / `1.0`、package/manifest/package hash、幂等、失败脱敏重试、superseded/expired/revoked 历史投影。
+- README 的派生作业说明包含固定商品、完整批准文案、人物名称/来源/授权摘要、VideoPlan 输出说明，以及 manifest 中存在的预期行为、已知限制和人工确认点；不新增独立事实。
+- 生成与下载不创建 ExecutionAttempt，也不改变 ProductionOrder 状态；下载授权不向 public JSON、日志或 manifest 暴露 token、签名 URL、永久路径。
+- A09 创建 ProductionOrder 时新增深模块输入快照：冻结真实 A04 文案正文/版本/审核事实、A02 ProductRevision 产品事实与固定 AssetVersion 引用、A07 已选人物展示/来源/授权/能力事实；A10 仅按固定 asset version 读取字节。旧 order 缺少这些事实时以受控错误失败，不会生成空字段 ready 包。
+- 补充真实 A04-A09 服务/API 链路到 A10 ZIP/manifest 集成测试；移除二进制图片正文的 URL/token 正则扫描，含普通 URL 元数据的合法图片可随包写入，敏感边界仍由受控 asset version、组织/权限/用途和 manifest 投影保证。
+- 每个 embedded asset 入包前校验冻结 `size` 与实际 `Buffer.length`、冻结 `checksum` 与实际 SHA-256；错误字节、长度或 checksum 进入 `generation_failed`，不会写入 ready ZIP。相关测试 fixtures 使用真实一致的尺寸与 checksum。
+- `/production.html/css/js` 右栏增量覆盖生成、刷新恢复、重试、下载、重新授权、内容摘要、历史和 A11 禁用说明；A09 feature-off 浏览器回归保持无 A10 按钮，390px 无横向滚动验收已实跑。
+- 浏览器测试用受控 fake 实跑 generation_failed → 刷新恢复 → 重试 → ready → 下载，并覆盖 390px 无横向滚动与 A11 无可执行入口；不访问真实网络。
+- 定向验证：ManualHandoff service 10 pass；API 3 pass；真实 A04-A09→A10 链路 1 pass；A10 系统 Chrome/Playwright 1 pass；A09 production-order 系统 Chrome/Playwright 回归 1 pass；`npm run check` 通过（159 个 JavaScript 文件）。
+- 全量 `npm test`：755 tests / 717 pass / 0 fail / 38 environment skips。A10 PostgreSQL clean migration/integration 因未设置 `TEST_DATABASE_URL` 或 `IDENTITY_TEST_DATABASE_URL` 明确 skipped，未声称通过。
+- `git diff --check` 已通过；依赖仅新增成熟 server-side `archiver` 并更新 `package-lock.json`。
+- 本轮未访问 Hifly、未发送真实 Provider/Capture HTTP、未运行批次、未消耗飞影积分。配置模型为 `gpt-5.6-luna` / Max，配置状态 `CONFIG_VERIFIED`；实际运行时模型无法从环境验证，标记 `UNVERIFIED_RUNTIME_MODEL`。
 
 ## VSA-A09 当前实现与独立验收（Issue #65，2026-08-08）
 
 - A09 已在独立 worktree `/private/tmp/hifly-vsa-a09`、分支 `codex/vsa-a09-production-order` 从基准
-  `1afac0b56b740d41cb9b0d5c0b1363b2f3e57a08` 实现，未 commit/push/PR/merge；根工作区未触碰。
+  `1afac0b56b740d41cb9b0d5c0b1363b2f3e57a08` 实现，并已由 PR #86 合并；A10 当前 worktree 以合并提交
+  `fd6a2062c2329e66617ee35e028cc1ae4ffce4f2` 为基线，根工作区未触碰。
 - 已实现 ProductionOrder memory/PostgreSQL repository、独立 migration/ledger、服务端正式的当前有效已批准
   VideoPlan port、创建/列表/详情/工作区 API、组织隔离、成员权限、幂等回放/冲突、新意图新工单、输入快照、
   `draft → ready → waiting_for_executor` 状态链、同事务 AuditEvent/Outbox，以及 Local Agent 离线非阻断投影。
@@ -220,6 +239,6 @@
 
 ## 下一步
 
-1. 主控完成 A08 commit、PR、CI、合并并关闭 Issue #64。
-2. A08 合并并关闭 Issue #64 后，先由 Kimi K3 完成 A09-A10 页面设计，再开始 A09。
-3. 每个里程碑结束时更新本文件与 `GOAL.md`。
+1. 主控对 A10 worktree 做独立 Review，随后自行 commit、push、创建 PR 并等待 CI；实现者不批准或合并自己的 PR。
+2. PostgreSQL clean migration/integration 在带测试数据库的 CI 或受控环境执行；本地缺少连接时保持明确 skip。
+3. A10 合并后再按既有边界进入 A11-A13 设计与实现；本 worktree 不实现 A11+。
