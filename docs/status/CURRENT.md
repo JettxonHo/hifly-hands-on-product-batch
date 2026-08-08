@@ -7,7 +7,7 @@
 
 ## VSA-A12 候选产物核验与 Work 创建（Issue #68，2026-08-09）
 
-- 状态：核心服务、worker、memory/PG repository、独立 migration/ledger、API wiring 与 production 页面增量已实现；Sol Review 的 Important 修复、定向/全量回归已完成，当前只待提交。本 worktree 基于已进入 `origin/main` 的 A11 提交 `9af3f5e`（PR #89，Issue #67 已关闭）。
+- 状态：核心服务、worker、memory/PG repository、独立 migration/ledger、API wiring 与 production 页面增量已实现；Sol Review 的 Important 修复、定向/全量回归已完成，已提交为 `ed3ba29`。本 worktree 基于已进入 `origin/main` 的 A11 提交 `9af3f5e`（PR #89，Issue #67 已关闭）。
 - 核验服务端只读取同 Organization/order 的最新有效 completed ManualExecutionReport、其 primary candidate、固定 attempt/package；重新核对对象存在/归属/关联、唯一主要视频、媒体类型、大小与 SHA-256 checksum。Work 不只保存 candidate ID：成功时复用 A03 canonical asset repository 注册 `work_video` Asset + available AssetVersion，并在 Work 保存 `primary_asset_version_id`。
 - Work 固定保存 ProductionOrder 输入快照中的 VideoPlan/Copy/Avatar/production config，以及 package/version/manifest、attempt/report、candidate/checksum 和输出媒体摘要；客户端不能提交或替换这些权威事实。
 - 成功路径在 PG 同一 transaction client 中完成 canonical AssetVersion、Work、candidate passed projection、ProductionOrder succeeded、ProductionOrder AuditEvent、A12 AuditEvent、AsyncJob 与 ledger；memory transaction 覆盖 AssetVersion、Work、candidate、order transition、receipt/audit/ledger 回滚。技术 failed 与业务 failed/requires_action 分开，retry/recover 有 maxAttempts、lease heartbeat 和过期恢复。
