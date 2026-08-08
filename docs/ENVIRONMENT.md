@@ -83,17 +83,17 @@ DATABASE_URL=postgresql://hifly_test:local-test-only@127.0.0.1:55432/hifly_ident
 `DATABASE_URL` 注入连接信息。部署流程先显式执行 `npm run migrate:identity`；启用素材、项目内容与
 文案生成、质检与审核时，再依次执行 `npm run migrate:assets`、`npm run migrate:project-content`、
 `npm run migrate:copy-generation`、`npm run migrate:copy-quality`、`npm run migrate:copy-review` 与
-`npm run migrate:avatar-selection`。应用启动只检查 schema
+`npm run migrate:avatar-selection` 与 `npm run migrate:video-planning`。应用启动只检查 schema
 版本，不自动执行生产 migration。初始管理员 seed 只用于受控部署初始化，启用 seed
 时 `CHANGE_ME` 占位密码会被拒绝。
 
-项目内容、文案生成、质检、审核与人物选择默认关闭。启用 A07 时 `gui.identity.enabled`、`gui.assets.enabled`、
+项目内容、文案生成、质检、审核、人物选择与视频方案默认关闭。启用 A08 时 `gui.identity.enabled`、`gui.assets.enabled`、
 `gui.projectContent.enabled`、`gui.copyGeneration.enabled`、`gui.copyQuality.enabled` 和
-`gui.copyReview.enabled`、`gui.avatarSelection.enabled` 必须同时为 `true`。A01-A07 共用一个
+`gui.copyReview.enabled`、`gui.avatarSelection.enabled`、`gui.videoPlanning.enabled` 必须同时为 `true`。A01-A08 共用一个
 PostgreSQL pool，但分别使用 `identity_schema_migrations`、`asset_schema_migrations`、
 `project_content_schema_migrations`、`copy_generation_schema_migrations`、
 `copy_quality_schema_migrations`、`copy_review_schema_migrations` 和
-`avatar_selection_schema_migrations`。默认生成器、质检器和改写器的
+`avatar_selection_schema_migrations` 和 `video_planning_schema_migrations`。默认生成器、质检器、改写器和预检器的
 `phase1_controlled_test_double` 只用于 Slice A 本地验收，不访问真实模型或飞影。
 
 本地数据库验证完成后可清理：

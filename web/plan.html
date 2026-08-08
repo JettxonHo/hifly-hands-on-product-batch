@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>视频方案 · 飞影企业工作台</title>
+    <link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/base.css"><link rel="stylesheet" href="/shell.css">
+    <link rel="stylesheet" href="/copy.css"><link rel="stylesheet" href="/plan.css">
+    <script src="/shell.js" defer></script><script src="/plan.js" defer></script>
+  </head>
+  <body data-shell-page="projects">
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="app-sidebar"><a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a><nav class="app-nav" aria-label="主导航"><a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a><a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a><a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a></nav></aside>
+      <div class="app-frame"><header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
+        <main id="mainContent" class="page-content plan-page-content">
+          <div class="page-header"><div><p class="eyebrow"><a href="/projects.html">项目</a> / <a id="projectBreadcrumb" href="/projects.html">当前项目</a> / 视频方案</p><h1>视频方案</h1><p class="page-description">固定商品、已批准文案和已确认人物，完成预检后提交人工审核。</p></div><div class="page-actions"><button id="refreshPlan" class="secondary" type="button">刷新</button></div></div>
+          <nav class="stage-strip stage-desktop" aria-label="项目阶段"><a id="factsStageLink" href="/projects.html"><span>✓</span>商品与目标</a><a id="copyStageLink" href="/copy.html"><span>✓</span>文案与质检</a><a id="avatarStageLink" href="/avatar.html"><span>✓</span>人物与素材</a><strong aria-current="step"><span>4</span>视频方案</strong><span><b>5</b>生成与交付</span></nav>
+          <details class="stage-mobile"><summary>阶段 4/5 · 视频方案</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品与目标</a></li><li><a id="mobileCopyStageLink" href="/copy.html">文案与质检</a></li><li><a id="mobileAvatarStageLink" href="/avatar.html">人物与素材</a></li><li aria-current="step">视频方案</li><li>生成与交付</li></ol></details>
+          <section class="product-context"><label for="productSelector">当前商品</label><select id="productSelector" aria-label="切换商品"></select><div class="product-context-meta"><span id="planState" class="state">尚无方案</span><span id="contextSummary" class="muted">等待读取</span></div></section>
+          <p id="pageNotice" class="notice" role="status"></p>
+          <button id="openVersionDrawer" class="version-drawer-trigger secondary" type="button">方案版本</button>
+          <div id="emptyPlan" class="surface empty-state" hidden><h2>还没有视频方案</h2><p>人物确认完成后，填写制作说明并创建第一版方案。</p><label for="firstInstructions">制作说明<textarea id="firstInstructions" maxlength="4000" placeholder="例如：竖版商品种草口播，先展示使用场景，再突出核心卖点。"></textarea></label><button id="createPlan" type="button">创建视频方案</button></div>
+          <div id="planWorkspace" class="plan-workspace" hidden>
+            <aside class="surface version-panel"><div class="surface-header"><div><h2>方案版本</h2><p>历史版本只读保留</p></div></div><div id="versionList" class="version-list"></div></aside>
+            <section class="surface plan-editor"><div class="surface-header"><div><p class="eyebrow">当前版本</p><h2 id="planVersionTitle">方案 v1</h2></div><span id="planVersionState" class="state"></span></div>
+              <section class="upstream-section" aria-labelledby="upstreamTitle"><h3 id="upstreamTitle">上游引用（只读）</h3><div id="upstreamCards" class="upstream-grid"></div></section>
+              <label for="outputInstructions">制作说明<textarea id="outputInstructions" maxlength="4000"></textarea></label><p id="dirtyState" class="muted"></p>
+              <div class="editor-actions"><button id="saveDraft" class="secondary" type="button">保存草稿</button><button id="deriveDraft" class="secondary" type="button" hidden>基于此方案修改</button><button id="runPreflight" type="button">开始预检</button></div>
+              <p id="editorNotice" class="notice" role="status"></p>
+              <details class="history-details"><summary>能力配置快照</summary><div id="capabilitySnapshot" class="capability-snapshot"></div></details>
+            </section>
+            <aside class="surface decision-panel"><div class="status-pair"><span id="preflightBadge" class="state">未预检</span><span id="reviewBadge" class="state">未提交审核</span></div>
+              <div class="decision-tabs" role="tablist"><button id="showPreflight" class="text-button active" type="button">预检</button><button id="showReview" class="text-button" type="button">审核</button></div>
+              <section id="preflightPanel"><div id="preflightSummary" class="decision-summary"></div><div id="preflightGroups"></div><details><summary id="preflightHistorySummary">历史预检（0）</summary><div id="preflightHistory"></div></details></section>
+              <section id="reviewPanel" hidden><div id="reviewSummary" class="decision-summary"></div><p id="reviewReason" class="notice blocked"></p><div id="reviewActions" class="review-actions"><button id="submitReview" type="button">提交方案审核</button><button id="approveReview" type="button" hidden>批准方案</button><button id="requestChanges" class="secondary" type="button" hidden>要求修改</button></div><details><summary id="reviewHistorySummary">审核历史（0）</summary><div id="reviewHistory"></div></details></section>
+              <button id="createOrderDisabled" class="secondary downstream-disabled" type="button" disabled>创建生产工单尚未开放</button>
+            </aside>
+          </div>
+        </main>
+      </div>
+    </div>
+    <dialog id="versionDialog" aria-labelledby="versionDialogTitle"><div class="dialog-header"><h2 id="versionDialogTitle">方案版本</h2><button id="closeVersionDialog" class="dialog-close" type="button" aria-label="关闭方案版本">×</button></div><div id="mobileVersionList" class="dialog-body version-list"></div></dialog>
+    <dialog id="reviewDialog" aria-labelledby="reviewDialogTitle"><form id="reviewForm"><div class="dialog-header"><h2 id="reviewDialogTitle">提交方案审核</h2><button id="closeReviewDialog" class="dialog-close" type="button" aria-label="关闭审核对话框">×</button></div><div class="dialog-body"><p id="reviewDialogSummary"></p><label id="reviewReasonField" for="reviewReasonInput" hidden>修改意见<textarea id="reviewReasonInput" maxlength="1000"></textarea></label><p id="reviewDialogError" class="error" role="alert"></p><div class="actions"><button id="cancelReviewDialog" class="secondary" type="button">取消</button><button id="confirmReviewAction" type="submit">确认提交</button></div></div></form></dialog>
+    <dialog id="unsavedDialog" aria-labelledby="unsavedDialogTitle"><div class="dialog-header"><h2 id="unsavedDialogTitle">有未保存的修改</h2><button id="closeUnsavedDialog" class="dialog-close" type="button" aria-label="关闭未保存修改提示">×</button></div><div class="dialog-body"><p>继续操作前，请选择如何处理当前制作说明。</p><div class="actions"><button id="cancelUnsaved" class="secondary" type="button">取消</button><button id="discardUnsaved" class="secondary" type="button">放弃修改</button><button id="saveUnsaved" type="button">保存并继续</button></div></div></dialog>
+  </body>
+</html>

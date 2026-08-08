@@ -127,6 +127,24 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       const result = await selectionProjection(input);
       await repository.updateReceiptResult(receiptKey, result);
       return result;
+    },
+    async getPlanningInput(input) {
+      validateContext(input);
+      await repository.ensureControlledCatalog(input.organizationId, timestamp());
+      const approvedGate = await copyGate(input);
+      const resolvedCopyVersionId = approvedGate.copy?.copy_version_id || clean(input.copyVersionId) || null;
+      const selection = await selectionProjection({ ...input, copyVersionId: resolvedCopyVersionId }, approvedGate);
+      if (!selection.current_valid || !selection.current_selection) return null;
+      const entry = await repository.getCatalogVersion(input.organizationId, selection.current_selection.asset_version_id);
+      if (!entry) return null;
+      const verified = entry.capabilities.filter((item) => item.verification_status === "verified" && clean(item.evidence_reference));
+      return { product_revision_id: approvedGate.copy.product_revision_id,
+        copy_version_id: approvedGate.copy.copy_version_id,
+        avatar_selection_id: selection.current_selection.id,
+        avatar_asset_version_id: selection.current_selection.asset_version_id,
+        current_valid: true,
+        capability_config_snapshot: { snapshot_version: `avatar-${entry.asset_version.id}-v${entry.asset_version.version_number}`,
+          verified_capabilities: verified.map(({ code, evidence_reference }) => ({ code, evidence_reference })) } };
     }
   };
 }

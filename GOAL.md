@@ -2,7 +2,7 @@
 
 > 状态：IN_PROGRESS
 > Owner：JettxonHo
-> 最后更新：2026-08-07
+> 最后更新：2026-08-08
 > 权威规划：`docs/product/VERTICAL_SLICE_A_DELIVERY_PLAN.md`（D-030）
 
 ## 最终目标
@@ -18,9 +18,9 @@
 ## 当前范围与非目标
 
 - 当前范围：D-030 的 VSA-A01～A14，对应 GitHub Issues #57～#70。
-- 当前阶段：VSA-A04～A06 已合并并关闭（A06 PR #81）；VSA-A07 首轮 Review 两项 Important 已完成
-  TDD 修复，最终独立复审 `APPROVED`。无积分 service/API/PostgreSQL、全量测试和系统 Chrome
-  1440/390（含商品切换恢复）均通过，等待 Git/CI 交付。
+- 当前阶段：VSA-A04～A07 已合并并关闭（A07 PR #83）。VSA-A08 已在独立工作区完成本地实现、
+  PostgreSQL clean integration、系统 Chrome 1440/390 页面合同、无积分自动测试与独立 Review；
+  最终复审 `APPROVED`，尚待 Git 提交、PR、CI 或合并。
 - 非目标：真实 Hifly 接入、Local Agent 自动执行、Playwright/影刀作为新 SaaS 主流程、SSO/MFA、多 Organization 切换、完整 RBAC、自动发布和客户计费。
 - 旧本地 GUI/Playwright 链路保持兼容，不作为 Slice A 完成条件。
 - Q-018、HIFLY-001、SPK-018 继续按 Evidence 管理，不因 Slice A 测试替身而关闭。
@@ -31,8 +31,8 @@
 |---|---|---|---|
 | 1 | A01 / #57 | 企业身份与单 Organization 上下文 | 已合并，Issue 已关闭 |
 | 2 | A02 / #58 ‖ A03 / #59 | 商品权威快照 ‖ 素材上传核验 | 已合并，Issues 已关闭，Wave 2 验收通过 |
-| 3-5 | A04 / #60、A05 / #61、A06 / #62、A07 / #63 | 文案生成、质检、批准与已有人物选择 | A04～A06 已合并；A07 实现、验证与独立 Review 完成，待 Git/CI |
-| 6-8 | A08 / #64、A09 / #65、A10 / #66 | 方案、工单与人工交接包 | 等待前置 |
+| 3-5 | A04 / #60、A05 / #61、A06 / #62、A07 / #63 | 文案生成、质检、批准与已有人物选择 | 已合并，Issues 已关闭 |
+| 6-8 | A08 / #64、A09 / #65、A10 / #66 | 方案、工单与人工交接包 | A08 最终 Review 通过，尚待 PR/CI/合并；A09-A10 未开始 |
 | 9-11 | A11 / #67、A12 / #68、A13 / #69 | 人工执行、产物核验、作品交付 | 等待前置 |
 | 12 | A14 / #70 | Slice A 端到端验收与加固 | 等待 A01～A13 |
 
@@ -55,7 +55,7 @@
 
 ## 下一步
 
-1. 完成 A07 commit、PR、CI、合并并关闭 Issue #63。
-2. A07 合并后从最新 main 启动 A08 实现。
-3. A07 合并前不开始 A08 实现；A08 继续复用 PR #82 已批准的页面设计。
+1. 由主控完成 A08 commit、PR、CI、合并并关闭 Issue #64。
+2. A08 合并后由 Kimi K3 完成 A09-A10 页面设计，再启动 A09。
+3. A08 合并前不开始 A09 实现；A09-A10 需先完成对应 Kimi K3 页面设计批次。
 4. 每个里程碑结束时更新本文件与 `docs/status/CURRENT.md`。

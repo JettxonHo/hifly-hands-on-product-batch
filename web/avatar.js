@@ -1,7 +1,7 @@
 (async () => {
   const params = new URLSearchParams(location.search);
   const projectId = params.get("project"), requestedProductId = params.get("product");
-  let copyVersionId = params.get("copy") || "", project, product, workspace, selectedAvatar, submitting = false;
+  let copyVersionId = params.get("copy") || "", project, product, workspace, runtime, selectedAvatar, submitting = false;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const sourceLabels = { public: "公共数字人物", enterprise: "企业数字人物" };
@@ -51,6 +51,13 @@
     for (const selector of ["#factsStageLink", "#mobileFactsStageLink"]) element(selector).href = `/project.html?id=${encodeURIComponent(project.id)}`;
     const copyHref = `/copy.html?project=${encodeURIComponent(project.id)}&revision=${encodeURIComponent(product.revision.id)}`;
     for (const selector of ["#copyStageLink", "#mobileCopyStageLink", "#copyContextLink"]) element(selector).href = copyHref;
+    const planHref = `/plan.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
+    for (const selector of ["#planStageLink", "#mobilePlanStageLink", "#nextPlanLink"]) {
+      const link = element(selector);
+      if (runtime.videoPlanningEnabled) { link.href = planHref; link.removeAttribute("aria-disabled"); }
+      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); }
+    }
+    element("#nextPlanLink").textContent = runtime.videoPlanningEnabled ? "进入视频方案" : "视频方案尚未开放";
     const selector = element("#productSelector");
     selector.replaceChildren(...project.products.map((item) => {
       const option = document.createElement("option"); option.value = item.id;
@@ -225,7 +232,9 @@
 
   if (!projectId) return setNotice(element("#pageNotice"), "缺少项目上下文，请从项目页面重新进入。", "error");
   try {
-    project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project;
+    [project, runtime] = await Promise.all([
+      request(`/api/projects/${encodeURIComponent(projectId)}`).then((body) => body.project), request("/api/runtime")
+    ]);
     product = project.products.find((item) => item.id === requestedProductId) || project.products[0];
     if (!product) return location.replace(`/project.html?id=${encodeURIComponent(project.id)}`);
     await loadWorkspace();

@@ -15,6 +15,7 @@
     "migrate:copy-quality": "node scripts/migrate-copy-quality.mjs",
     "migrate:copy-review": "node scripts/migrate-copy-review.mjs",
     "migrate:avatar-selection": "node scripts/migrate-avatar-selection.mjs",
+    "migrate:video-planning": "node scripts/migrate-video-planning.mjs",
     "validate": "node src/validate-products.js",
     "run": "node src/run-batch.js",
     "prepare-standard": "node scripts/generate-standard-assets.mjs",
