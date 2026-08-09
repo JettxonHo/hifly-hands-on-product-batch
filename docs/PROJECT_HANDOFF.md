@@ -3,6 +3,15 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-09 A01-A14 一键本地演示入口完成实跑（未访问飞影、未消耗积分）
+
+- 独立 worktree `/private/tmp/hifly-vsa-full-demo`、分支 `codex/vsa-full-demo` 基于 `origin/main=3aa4cf0` 实现；根目录 `gui/visual-refresh` 的既有脏文件未触碰。
+- 新入口为 `npm run demo`：自动启动独立 PostgreSQL、按依赖顺序执行 A01-A14 全部 migration、启用完整企业 feature，并打开 `/login.html`。演示只使用 controlled provider/evaluator、fake executor 和 fail-closed capture transport，不读取 `config.local.json` 或飞影登录态。
+- 首次 Docker 验收发现 macOS Docker wildcard 端口代理未被 loopback-only 探测识别；已改为全接口占用探测并加回归测试。现有 55432～55434 被占用时，实跑正确选择 `127.0.0.1:55435`。
+- 独立验收完成：demo tests 10/10；静态检查 186 JS；全量 813 tests / 768 pass / 0 fail / 45 environment skips；Docker 13 组 migration 全通过；浏览器完成临时密码登录、强制改密并进入 `/projects.html`。
+- 验收后数据库已 reset 并重新启动为干净状态。当前可用入口 `http://127.0.0.1:4317/login.html`，账号 `demo-admin@demo.local`，临时密码见 README；首次登录需改密。停止用 `npm run demo:stop`，重置数据库用 `npm run demo:reset`。
+- 下一步：完成 Sol 最终 diff review，commit/push/PR/CI；未经 Owner 新授权不合并。当前关键飞影批次未触碰，积分消耗为 0。
+
 ## 2026-08-09 VSA-A14 已合并，Vertical Slice A Goal 完成（未访问飞影、未消耗积分）
 
 - A14 UX 审计文档已通过 PR #93 合并到 `main=ed6567c`。实现 worktree 为

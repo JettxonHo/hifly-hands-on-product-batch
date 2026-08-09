@@ -17,6 +17,7 @@ batches/
 config.local.json
 .manual-handoff-packages/
 .manual-execution-candidates/
+.local-demo/
 
 # 抓包原始产物：绝不入库（含 cookie/token/签名/登录态），仅本地暂存
 *.har
