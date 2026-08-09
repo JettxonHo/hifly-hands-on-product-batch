@@ -26,6 +26,27 @@ export function createMemoryManualExecutionRepository() {
       attempt.production_order_id === productionOrderId && ["claimed", "running"].includes(attempt.status)) || null;
   }
 
+  function validateAttemptIdentity(attempt) {
+    const member = attempt.operator_id ?? null;
+    const agent = attempt.executor_agent_id ?? null;
+    if ((attempt.executor_type === "manual" && (!member || agent !== null)) ||
+      (attempt.executor_type === "local_agent" && (member !== null || !agent))) {
+      throw failure("MANUAL_EXECUTION_ATTEMPT_IDENTITY_INVALID");
+    }
+  }
+
+  function validateCandidateIdentity(candidate) {
+    const member = candidate.uploaded_by_member_id ?? null;
+    const agent = candidate.uploaded_by_agent_id ?? null;
+    if ((member === null) === (agent === null)) throw failure("MANUAL_EXECUTION_CANDIDATE_IDENTITY_INVALID");
+  }
+
+  function validateReportIdentity(report) {
+    const member = report.submitted_by ?? null;
+    const agent = report.submitted_by_agent_id ?? null;
+    if ((member === null) === (agent === null)) throw failure("MANUAL_EXECUTION_REPORT_IDENTITY_INVALID");
+  }
+
   return {
     async initialize() {},
     async close() {},
@@ -37,6 +58,7 @@ export function createMemoryManualExecutionRepository() {
     async claimAttempt({ receiptKey, fingerprint, attempt, transitionOrder, audit }) {
       const replay = readReceipt(receiptKey, fingerprint);
       if (replay) return { attempt: clone(attempts.get(replay.attempt_id)), replayed: true };
+      validateAttemptIdentity(attempt);
       if (activeAttempt(attempt.organization_id, attempt.production_order_id)) throw failure("MANUAL_EXECUTION_ATTEMPT_ACTIVE");
       const order = await transitionOrder();
       if (!order) throw failure("PRODUCTION_ORDER_CONFLICT");
@@ -45,7 +67,8 @@ export function createMemoryManualExecutionRepository() {
       transitions.push(...attempt.status_history.map((entry, index) => ({
         id: `${attempt.id}-transition-${index}`, organization_id: attempt.organization_id, attempt_id: attempt.id,
         from_status: index === 0 ? null : attempt.status_history[index - 1].status, to_status: entry.status,
-        actor_member_id: attempt.operator_id, reason: entry.reason || null, created_at: entry.at
+        actor_member_id: attempt.operator_id || null, actor_agent_id: attempt.executor_agent_id || null,
+        reason: entry.reason || null, created_at: entry.at
       })));
       audits.push(clone(audit));
       return { attempt: clone(attempt), replayed: false };
@@ -63,15 +86,52 @@ export function createMemoryManualExecutionRepository() {
       attempts.set(current.id, current);
       receipts.set(receiptKey, { fingerprint, attempt_id: current.id });
       transitions.push({ id: `${current.id}-transition-${current.row_version}`, organization_id: current.organization_id,
-        attempt_id: current.id, from_status: "claimed", to_status: "running", actor_member_id: current.operator_id,
+        attempt_id: current.id, from_status: "claimed", to_status: "running", actor_member_id: current.operator_id || null,
+        actor_agent_id: current.executor_agent_id || null,
         reason: null, created_at: current.updated_at });
       audits.push(clone(audit));
+      return { attempt: clone(current), replayed: false };
+    },
+
+    async heartbeatAttempt({ receiptKey, fingerprint, attemptId, organizationId, agentId, expectedRevision, now, leaseExpiresAt, progressPhase, audit }) {
+      const replay = readReceipt(receiptKey, fingerprint);
+      if (replay) return { attempt: clone(attempts.get(replay.attempt_id)), replayed: true };
+      const current = scoped(attempts, organizationId, attemptId);
+      if (!current || current.executor_type !== "local_agent" || current.executor_agent_id !== agentId || current.operator_id != null) throw failure("LOCAL_AGENT_ATTEMPT_NOT_FOUND");
+      if (current.row_version !== expectedRevision || !["claimed", "running"].includes(current.status)) throw failure("LOCAL_AGENT_ATTEMPT_CONFLICT");
+      Object.assign(current, { heartbeat_at: now, lease_expires_at: leaseExpiresAt, progress_phase: progressPhase, updated_at: now, row_version: current.row_version + 1 });
+      receipts.set(receiptKey, { fingerprint, attempt_id: current.id });
+      if (audit) audits.push(clone(audit));
+      return { attempt: clone(current), replayed: false };
+    },
+
+    async expireAgentAttempt({ receiptKey, fingerprint, attemptId, organizationId, agentId, expectedRevision, now, patch, orderTransition, transitionOrder, audit }) {
+      if (receiptKey) {
+        const replay = readReceipt(receiptKey, fingerprint);
+        if (replay) return { attempt: clone(attempts.get(replay.attempt_id)), replayed: true };
+      }
+      const current = scoped(attempts, organizationId, attemptId);
+      if (!current || current.executor_type !== "local_agent" || current.executor_agent_id !== agentId || current.operator_id != null) throw failure("LOCAL_AGENT_ATTEMPT_NOT_FOUND");
+      if (current.row_version !== expectedRevision || !["claimed", "running"].includes(current.status)) throw failure("LOCAL_AGENT_ATTEMPT_CONFLICT");
+      if (orderTransition) {
+        const order = await transitionOrder();
+        if (!order) throw failure("PRODUCTION_ORDER_CONFLICT");
+      }
+      const previousStatus = current.status;
+      Object.assign(current, clone(patch), { row_version: current.row_version + 1 });
+      attempts.set(current.id, current);
+      if (receiptKey) receipts.set(receiptKey, { fingerprint, attempt_id: current.id });
+      transitions.push({ id: `${current.id}-transition-${current.row_version}`, organization_id: current.organization_id,
+        attempt_id: current.id, from_status: previousStatus, to_status: current.status, actor_member_id: null,
+        actor_agent_id: agentId, reason: "lease_expired", created_at: now });
+      if (audit) audits.push(clone(audit));
       return { attempt: clone(current), replayed: false };
     },
 
     async createCandidateUpload({ receiptKey, fingerprint, candidate }) {
       const replay = readReceipt(receiptKey, fingerprint);
       if (replay) return { candidate: clone(candidates.get(replay.candidate_id)), replayed: true };
+      validateCandidateIdentity(candidate);
       if (candidate.role === "primary_video" && [...candidates.values()].some((value) => value.organization_id === candidate.organization_id &&
         value.execution_attempt_id === candidate.execution_attempt_id && value.role === "primary_video" && value.status !== "removed")) {
         throw failure("MANUAL_EXECUTION_PRIMARY_OUTPUT_EXISTS");
@@ -112,6 +172,15 @@ export function createMemoryManualExecutionRepository() {
       return { candidate: clone(candidate), replayed: false };
     },
 
+    async recordCandidateUpload({ receiptKey, fingerprint, organizationId, candidateId, now }) {
+      const replay = readReceipt(receiptKey, fingerprint);
+      if (replay) return { candidate: clone(candidates.get(replay.candidate_id)), replayed: true };
+      const candidate = scoped(candidates, organizationId, candidateId);
+      if (!candidate) throw failure("MANUAL_EXECUTION_CANDIDATE_NOT_FOUND");
+      receipts.set(receiptKey, { fingerprint, candidate_id: candidate.id, created_at: now });
+      return { candidate: clone(candidate), replayed: false };
+    },
+
     async markCandidateVerification({ organizationId, candidateId, verificationStatus, verificationJobId = null, failureKind = null, failureCode = null, now, transactionClient = null }) {
       const candidate = scoped(candidates, organizationId, candidateId);
       if (!candidate) throw failure("MANUAL_EXECUTION_CANDIDATE_NOT_FOUND");
@@ -126,6 +195,7 @@ export function createMemoryManualExecutionRepository() {
     async saveReport({ receiptKey, fingerprint, report, attemptId, organizationId, expectedRevision, patchAttempt, candidatePatches = [], transitionOrder, audit }) {
       const replay = readReceipt(receiptKey, fingerprint);
       if (replay) return { report: clone(reports.get(replay.report_id)), attempt: clone(attempts.get(replay.attempt_id)), replayed: true };
+      validateReportIdentity(report);
       const attempt = scoped(attempts, organizationId, attemptId);
       if (!attempt) throw failure("MANUAL_EXECUTION_ATTEMPT_NOT_FOUND");
       if (attempt.row_version !== expectedRevision) throw failure("MANUAL_EXECUTION_ATTEMPT_CONFLICT");
@@ -145,7 +215,7 @@ export function createMemoryManualExecutionRepository() {
       receipts.set(receiptKey, { fingerprint, report_id: report.id, attempt_id: attempt.id });
       transitions.push({ id: `${attempt.id}-transition-${attempt.row_version}`, organization_id: attempt.organization_id,
         attempt_id: attempt.id, from_status: patchAttempt.previous_status, to_status: patchAttempt.status,
-        actor_member_id: report.submitted_by, reason: null, created_at: report.submitted_at });
+        actor_member_id: report.submitted_by ?? null, actor_agent_id: report.submitted_by_agent_id ?? null, reason: null, created_at: report.submitted_at });
       audits.push(clone(audit));
       return { report: clone(report), attempt: clone(attempt), replayed: false };
     },

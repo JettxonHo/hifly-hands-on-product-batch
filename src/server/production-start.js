@@ -50,10 +50,11 @@ function appOptions(config, projectRoot, pool, executor, hiflyFetch) {
     },
     copyReview: config.copyReview,
     avatarSelection: config.avatarSelection,
-    videoPlanning: { ...config.videoPlanning, evaluator: createControlledPreflightEvaluator(), agentReadinessPort: { async isOnline() { return false; } } },
+    videoPlanning: { ...config.videoPlanning, evaluator: createControlledPreflightEvaluator() },
     productionOrders: config.productionOrders,
     manualHandoff: config.manualHandoff,
     manualExecution: config.manualExecution,
+    localAgentExecution: config.localAgentExecution,
     artifactVerification: config.artifactVerification,
     workDelivery: config.workDelivery,
     hiflyApi: config.hiflyApi.enabled ? {

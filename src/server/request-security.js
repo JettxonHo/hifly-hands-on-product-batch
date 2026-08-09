@@ -41,7 +41,8 @@ function validMutationContentType(request) {
   const type = String(request.headers["content-type"] || "").split(";", 1)[0].toLowerCase();
   const path = request.url.split("?", 1)[0];
   return request.method === "PUT" && (path.startsWith("/api/assets/uploads/") && ["image/jpeg", "image/png", "image/webp"].includes(type)
-    || path.startsWith("/api/manual-execution-candidate-uploads/") && ["video/mp4", "video/webm", "application/octet-stream"].includes(type));
+    || path.startsWith("/api/manual-execution-candidate-uploads/") && ["video/mp4", "video/webm", "application/octet-stream"].includes(type)
+    || /^\/api\/agent\/v1\/candidate-uploads\/[^/]+$/.test(path) && type === "video/mp4");
 }
 
 function normalizedStringSet(values, label) {
@@ -64,6 +65,10 @@ function reject(reply, statusCode, code) {
 
 function isRpaCallback(request) {
   return request.method === "POST" && request.url.split("?", 1)[0] === "/api/rpa/callback";
+}
+
+function isLocalAgentRoute(request) {
+  return request.url.split("?", 1)[0].startsWith("/api/agent/v1/");
 }
 
 export function createRequestSecurity({ allowedHost = null } = {}) {
@@ -138,6 +143,14 @@ export function createCloudRequestSecurity({ trustedHosts, trustedOrigins } = {}
     reply.header("Cache-Control", "no-store");
     if (!hosts.has(request.headers.host)) {
       reject(reply, 403, "TRUSTED_HOST_REQUIRED");
+      return;
+    }
+    if (isLocalAgentRoute(request)) {
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method) && !validMutationContentType(request)) {
+        reject(reply, 415, "JSON_OR_MULTIPART_REQUIRED");
+        return;
+      }
+      done();
       return;
     }
     const origin = request.headers.origin;

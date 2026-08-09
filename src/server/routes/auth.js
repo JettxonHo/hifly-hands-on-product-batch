@@ -143,6 +143,7 @@ export function createIdentityGuard(authService) {
     const key = routeKey(request);
     const path = request.url.split("?", 1)[0];
     if (!path.startsWith("/api/")) return;
+    if (path.startsWith("/api/agent/v1/")) return;
     const token = sessionToken(authService, request);
 
     if (!SAFE_METHODS.has(request.method)) {

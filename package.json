@@ -13,6 +13,7 @@
     "demo:stop": "node scripts/demo-stop.mjs",
     "demo:reset": "node scripts/demo-reset.mjs",
     "login": "node src/login.js",
+    "local-agent:run-once": "node scripts/local-agent.js run-once",
     "migrate:identity": "node scripts/migrate-identity.mjs",
     "migrate:assets": "node scripts/migrate-assets.mjs",
     "migrate:project-content": "node scripts/migrate-project-content.mjs",

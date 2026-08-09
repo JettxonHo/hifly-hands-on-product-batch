@@ -2,7 +2,25 @@
 
 > 最后更新：2026-08-10
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：`GOAL_APPROVED`，Vertical Slice A 的 A01～A14 已全部合并并关闭对应 Issue
+> 当前 Goal：生产能力补齐，正在交付新云端系统的最小 Local Agent 真实执行器闭环
+
+## 2026-08-10 Local Agent 最小执行器实现完成，等待发布与真实验收
+
+- 云端控制面已实现 Agent readiness、claim/start/lease heartbeat、交接包下载、候选 MP4 回传、受控结果报告，并把成功候选交给既有 A12 核验创建 Work。
+- macOS CLI 默认 standby，只上报在线而不领取工单；fake 需显式环境开关，真实 Playwright 需 `--real` 和 `LOCAL_AGENT_REAL_EXECUTION=true` 双门禁。缺人物映射进入 `requires_action`；租约续期失败停止上传和报告。
+- Local Agent 默认关闭，云端仍保持 `PRODUCTION_EXECUTOR=fail_closed`。配置和运行步骤见 `docs/deployment/LOCAL_AGENT_RUNBOOK.md`。
+- 无积分验证：定向 74 tests 为 73 pass / 1 PostgreSQL environment skip / 0 fail；全量串行 862 tests 为 848 pass / 14 environment skips / 0 fail；静态检查 204 JS 与 diff check 通过。skip 未计为通过。
+- 当前只完成代码和无积分 fake 闭环，尚未部署这组改动，也没有执行真实飞影单条验收，因此不能宣称云端端到端可用。
+- 本轮未访问飞影、未消耗积分。真实单条验收必须重新明确授权，并遵守失败即停、不自动重试。
+
+## 2026-08-10 Local Agent Task 1+2 有界阶段完成（未访问飞影、未消耗积分）
+
+- 按主控再次收紧范围，本轮完成 memory 状态修正、PG migration 002/repository lease 字段、显式 agent order/package 内部 port、独立 Bearer guard、claim/start/heartbeat/package download routes，以及 production config/wiring；candidate/report/A12/CLI 均未开始。
+- Local Agent 默认 feature off；生产仅在 `LOCAL_AGENT_ENABLED=true` 且 `LOCAL_AGENT_ID`、`LOCAL_AGENT_ORGANIZATION_ID`、`LOCAL_AGENT_TOKEN` 完整时注册 route。token 只留在 env→内存 guard，不进数据库、响应或日志；生产 executor 仍 `fail_closed`。
+- `executor_type=local_agent` 与 `executor_agent_id`、`operator_id=null` 由 migration CHECK 和 memory/PG repository 共同约束；order transition 经过 `transitionOrderForAgent`，不使用 `actorRole=agent` 穿过 member service。租约失效账本使用 repository current status，并记录 `actor_agent_id`。
+- 配置状态：`CONFIG_VERIFIED`（`~/.codex/agents/luna-worker.toml` 为 `gpt-5.6-luna` / Max）；运行时身份不可见，记录 `UNVERIFIED_RUNTIME_MODEL`；未回退 Terra。
+- 定向验证：Local Agent service 3 pass；Local Agent API/feature-off 3 pass；production-start/config/wiring 6 pass；manual execution/handoff/API 20 pass；production-order/server-security 18 pass；`npm run check` 198 JS；`git diff --check` 通过。PG integration 1 skip，原因是本机缺少 `TEST_DATABASE_URL`/`IDENTITY_TEST_DATABASE_URL`，未计为通过。
+- 本轮未启动 Playwright、未访问 Hifly、未部署、未 push/merge/创建 PR，未运行 CLI，飞影积分消耗为 0。
 
 ## 2026-08-10 阿里云 2C4G 内部试运行环境已部署（未访问飞影、未消耗积分）
 

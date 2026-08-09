@@ -37,6 +37,7 @@ import { createManualHandoffPackageWorker } from "../manual-handoff/manual-hando
 import { createPostgresManualHandoffRepository } from "../manual-handoff/postgres-manual-handoff-repository.js";
 import { createManualExecutionService } from "../manual-execution/manual-execution-service.js";
 import { createPostgresManualExecutionRepository } from "../manual-execution/postgres-manual-execution-repository.js";
+import { createLocalAgentExecutionService, createLocalAgentReadiness } from "../local-agent-execution/local-agent-execution-service.js";
 import { createWorkVerificationService } from "../work-verification/work-verification-service.js";
 import { createWorkVerificationWorker } from "../work-verification/work-verification-worker.js";
 import { createPostgresWorkVerificationRepository } from "../work-verification/postgres-work-verification-repository.js";
@@ -65,6 +66,7 @@ import { registerAvatarSelectionRoutes } from "./routes/avatar-selection.js";
 import { registerVideoPlanningRoutes } from "./routes/video-planning.js";
 import { registerProductionOrderRoutes } from "./routes/production-orders.js";
 import { registerManualHandoffRoutes } from "./routes/manual-handoff.js";
+import { createLocalAgentBearerGuard, registerLocalAgentExecutionRoutes } from "./routes/local-agent-execution.js";
 import { registerWorkVerificationRoutes } from "./routes/work-verification.js";
 import { createWorkDeliveryService } from "../work-delivery/work-delivery-service.js";
 import { createPostgresWorkDeliveryRepository } from "../work-delivery/postgres-work-delivery-repository.js";
@@ -130,6 +132,9 @@ function apiError(error, request = null) {
   if (error?.code === "FST_ERR_CTP_BODY_TOO_LARGE" && request?.url?.startsWith("/api/manual-execution-candidate-uploads/")) {
     return { statusCode: 413, code: "MANUAL_EXECUTION_CANDIDATE_SIZE_INVALID" };
   }
+  if (error?.code === "FST_ERR_CTP_BODY_TOO_LARGE" && request?.url?.startsWith("/api/agent/v1/candidate-uploads/")) {
+    return { statusCode: 413, code: "LOCAL_AGENT_CANDIDATE_SIZE_INVALID" };
+  }
   if (["PROJECT_NOT_FOUND", "PRODUCT_REVISION_NOT_FOUND", "SELLING_POINT_NOT_FOUND"].includes(error?.code)) {
     return { statusCode: 404, code: error.code };
   }
@@ -179,6 +184,18 @@ function apiError(error, request = null) {
   if (["MANUAL_HANDOFF_PACKAGE_VERSION_CONFLICT", "MANUAL_HANDOFF_RETRY_BLOCKED", "MANUAL_HANDOFF_LEASE_LOST", "MANUAL_HANDOFF_PACKAGE_TRANSITION_INVALID", "MANUAL_HANDOFF_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (error?.code === "MANUAL_HANDOFF_DOWNLOAD_AUTHORIZATION_EXPIRED") return { statusCode: 410, code: error.code };
   if (["MANUAL_HANDOFF_PACKAGE_NOT_READY", "MANUAL_HANDOFF_PACKAGE_NOT_DOWNLOADABLE", "MANUAL_HANDOFF_CROSS_ORGANIZATION_DATA", "MANUAL_HANDOFF_INPUT_SNAPSHOT_REQUIRED", "MANUAL_HANDOFF_ASSET_UNAVAILABLE"].includes(error?.code)) return { statusCode: 422, code: error.code };
+  if (["LOCAL_AGENT_ORDER_NOT_FOUND", "LOCAL_AGENT_ATTEMPT_NOT_FOUND", "LOCAL_AGENT_PACKAGE_NOT_FOUND", "LOCAL_AGENT_CANDIDATE_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
+  if (["LOCAL_AGENT_CONTEXT_REQUIRED", "LOCAL_AGENT_PROGRESS_INVALID", "LOCAL_AGENT_PACKAGE_DOWNLOAD_UNAVAILABLE", "LOCAL_AGENT_CANDIDATE_INVALID",
+    "LOCAL_AGENT_CANDIDATE_ROLE_INVALID", "LOCAL_AGENT_CANDIDATE_MEDIA_TYPE_INVALID", "LOCAL_AGENT_REPORT_ID_INVALID",
+    "LOCAL_AGENT_REPORT_OUTCOME_INVALID", "LOCAL_AGENT_REPORT_ERROR_INVALID", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) return { statusCode: 400, code: error.code };
+  if (["LOCAL_AGENT_ATTEMPT_ACTIVE", "LOCAL_AGENT_ATTEMPT_CONFLICT", "LOCAL_AGENT_RESULT_BLOCKED", "LOCAL_AGENT_ORDER_CONFLICT",
+    "LOCAL_AGENT_PACKAGE_MISMATCH", "LOCAL_AGENT_CANDIDATE_CONFLICT", "LOCAL_AGENT_CANDIDATE_MISMATCH", "LOCAL_AGENT_PRIMARY_OUTPUT_EXISTS",
+    "LOCAL_AGENT_REPORT_CONFLICT", "LOCAL_AGENT_LEASE_EXPIRED", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (["LOCAL_AGENT_PACKAGE_NOT_READY", "LOCAL_AGENT_PACKAGE_NOT_DOWNLOADABLE", "LOCAL_AGENT_CANDIDATE_INTEGRITY_MISMATCH",
+    "LOCAL_AGENT_UPLOAD_NOT_COMPLETED", "MANUAL_HANDOFF_PACKAGE_OBJECT_MISSING"].includes(error?.code)) return { statusCode: 422, code: error.code };
+  if (error?.code === "LOCAL_AGENT_CANDIDATE_SIZE_INVALID") return { statusCode: 413, code: error.code };
+  if (["LOCAL_AGENT_CANDIDATE_STORE_UNAVAILABLE", "LOCAL_AGENT_CANDIDATE_STORE_FAILED", "LOCAL_AGENT_CANDIDATE_REPOSITORY_UNAVAILABLE",
+    "LOCAL_AGENT_VERIFICATION_UNAVAILABLE", "LOCAL_AGENT_VERIFICATION_OWNER_REQUIRED"].includes(error?.code)) return { statusCode: 503, code: error.code };
   if (["MANUAL_EXECUTION_ATTEMPT_NOT_FOUND", "MANUAL_EXECUTION_CANDIDATE_NOT_FOUND", "MANUAL_EXECUTION_REPORT_NOT_FOUND", "MANUAL_EXECUTION_PACKAGE_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
   if (["MANUAL_EXECUTION_CONTEXT_REQUIRED", "MANUAL_EXECUTION_REPORT_ID_REQUIRED", "MANUAL_EXECUTION_REPORT_OUTCOME_INVALID", "MANUAL_EXECUTION_REPORT_INVALID",
     "MANUAL_EXECUTION_CANDIDATE_INVALID", "MANUAL_EXECUTION_CANDIDATE_ROLE_INVALID", "MANUAL_EXECUTION_CANDIDATE_MEDIA_TYPE_INVALID",
@@ -286,6 +303,7 @@ export async function buildApp({
   productionOrders: productionOrdersOptions = null,
   manualHandoff: manualHandoffOptions = null,
   manualExecution: manualExecutionOptions = null,
+  localAgentExecution: localAgentExecutionOptions = null,
   artifactVerification: artifactVerificationOptions = null,
   workDelivery: workDeliveryOptions = null,
   hiflyApi: hiflyApiOptions = null,
@@ -309,10 +327,15 @@ export async function buildApp({
   const productionOrdersEnabled = productionOrdersOptions?.enabled === true;
   const manualHandoffEnabled = manualHandoffOptions?.enabled === true;
   const manualExecutionEnabled = manualExecutionOptions?.enabled === true;
+  const localAgentExecutionEnabled = localAgentExecutionOptions?.enabled === true;
   const artifactVerificationEnabled = artifactVerificationOptions?.enabled === true;
   const worksEnabled = workDeliveryOptions?.enabled === true;
   const hiflyApiEnabled = hiflyApiOptions?.enabled === true;
   const manualExecutionMaxCandidateBytes = manualExecutionOptions?.maxCandidateBytes ?? DEFAULT_MANUAL_EXECUTION_MAX_CANDIDATE_BYTES;
+  const localAgentReadiness = localAgentExecutionEnabled
+    ? (localAgentExecutionOptions.agentReadinessPort || createLocalAgentReadiness({ organizationId: localAgentExecutionOptions.organizationId,
+      agentId: localAgentExecutionOptions.agentId, leaseMs: localAgentExecutionOptions.leaseMs, now }))
+    : null;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
   if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
@@ -328,6 +351,11 @@ export async function buildApp({
   if (manualExecutionEnabled && !identityEnabled) throw Object.assign(new Error("MANUAL_EXECUTION_REQUIRE_IDENTITY"), { code: "MANUAL_EXECUTION_REQUIRE_IDENTITY" });
   if (manualExecutionEnabled && !productionOrdersEnabled) throw Object.assign(new Error("MANUAL_EXECUTION_REQUIRE_PRODUCTION_ORDERS"), { code: "MANUAL_EXECUTION_REQUIRE_PRODUCTION_ORDERS" });
   if (manualExecutionEnabled && !manualHandoffEnabled) throw Object.assign(new Error("MANUAL_EXECUTION_REQUIRE_MANUAL_HANDOFF"), { code: "MANUAL_EXECUTION_REQUIRE_MANUAL_HANDOFF" });
+  if (localAgentExecutionEnabled && !identityEnabled) throw Object.assign(new Error("LOCAL_AGENT_EXECUTION_REQUIRE_IDENTITY"), { code: "LOCAL_AGENT_EXECUTION_REQUIRE_IDENTITY" });
+  if (localAgentExecutionEnabled && !productionOrdersEnabled) throw Object.assign(new Error("LOCAL_AGENT_EXECUTION_REQUIRE_PRODUCTION_ORDERS"), { code: "LOCAL_AGENT_EXECUTION_REQUIRE_PRODUCTION_ORDERS" });
+  if (localAgentExecutionEnabled && !manualHandoffEnabled) throw Object.assign(new Error("LOCAL_AGENT_EXECUTION_REQUIRE_MANUAL_HANDOFF"), { code: "LOCAL_AGENT_EXECUTION_REQUIRE_MANUAL_HANDOFF" });
+  if (localAgentExecutionEnabled && !manualExecutionEnabled) throw Object.assign(new Error("LOCAL_AGENT_EXECUTION_REQUIRE_MANUAL_EXECUTION"), { code: "LOCAL_AGENT_EXECUTION_REQUIRE_MANUAL_EXECUTION" });
+  if (localAgentExecutionEnabled && !artifactVerificationEnabled) throw Object.assign(new Error("LOCAL_AGENT_EXECUTION_REQUIRE_ARTIFACT_VERIFICATION"), { code: "LOCAL_AGENT_EXECUTION_REQUIRE_ARTIFACT_VERIFICATION" });
   if (artifactVerificationEnabled && !identityEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_IDENTITY"), { code: "ARTIFACT_VERIFICATION_REQUIRE_IDENTITY" });
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !assetsEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_ASSETS"), { code: "ARTIFACT_VERIFICATION_REQUIRE_ASSETS" });
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !productionOrdersEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_PRODUCTION_ORDERS"), { code: "ARTIFACT_VERIFICATION_REQUIRE_PRODUCTION_ORDERS" });
@@ -433,6 +461,7 @@ export async function buildApp({
       productionOrdersEnabled,
       manualHandoffEnabled,
       manualExecutionEnabled,
+      localAgentExecutionEnabled,
       artifactVerificationEnabled,
       worksEnabled,
       hiflyApiEnabled,
@@ -574,7 +603,7 @@ export async function buildApp({
     const capabilitySnapshotPort = videoPlanningOptions.capabilitySnapshotPort || {
       async resolve(input) { return (await app.avatarSelection.service.getPlanningInput(input))?.capability_config_snapshot || null; }
     };
-    const agentReadinessPort = videoPlanningOptions.agentReadinessPort || { async isOnline() { return false; } };
+    const agentReadinessPort = videoPlanningOptions.agentReadinessPort || localAgentReadiness || { async isOnline() { return false; } };
     const service = createVideoPlanningService({ repository, upstreamPort, capabilitySnapshotPort, agentReadinessPort,
       productionOrdersEnabled, now });
     const evaluator = videoPlanningOptions.evaluator || createControlledPreflightEvaluator();
@@ -599,7 +628,7 @@ export async function buildApp({
       avatarSelectionService: app.avatarSelection?.service,
       assetService: app.assets?.service
     });
-    const agentReadinessPort = productionOrdersOptions.agentReadinessPort || videoPlanningOptions.agentReadinessPort || { async isOnline() { return false; } };
+    const agentReadinessPort = productionOrdersOptions.agentReadinessPort || videoPlanningOptions.agentReadinessPort || localAgentReadiness || { async isOnline() { return false; } };
     const service = createProductionOrderService({ repository, planPort, inputSnapshotPort, agentReadinessPort, now });
     app.decorate("productionOrders", { repository, service });
     app.addHook("onClose", async () => repository.close?.());
@@ -692,6 +721,30 @@ export async function buildApp({
     app.addHook("onClose", async () => { worker.stop(); await repository?.close?.(); });
     await registerWorkVerificationRoutes(app, { service });
     if (artifactVerificationOptions.worker?.autoStart !== false) worker.start();
+  }
+
+  if (localAgentExecutionEnabled) {
+    const verificationPort = artifactVerificationEnabled ? {
+      requestVerification: app.artifactVerification?.service?.requestVerification,
+      getLatestVerificationJob: app.artifactVerification?.repository?.getLatestVerificationJob,
+      wake: app.artifactVerification?.worker?.wake
+    } : null;
+    const service = createLocalAgentExecutionService({
+      repository: app.manualExecution.repository,
+      orderPort: app.productionOrders.service,
+      packagePort: app.manualHandoff.service,
+      candidateStore: app.manualExecution.candidateStore,
+      maxCandidateBytes: manualExecutionMaxCandidateBytes,
+      verificationPort,
+      readinessPort: localAgentReadiness,
+      organizationId: localAgentExecutionOptions.organizationId,
+      agentId: localAgentExecutionOptions.agentId,
+      leaseMs: localAgentExecutionOptions.leaseMs,
+      now
+    });
+    const guard = createLocalAgentBearerGuard(localAgentExecutionOptions);
+    app.decorate("localAgentExecution", { service, guard, readiness: localAgentReadiness });
+    await registerLocalAgentExecutionRoutes(app, { service, guard, maxCandidateBytes: manualExecutionMaxCandidateBytes });
   }
 
   if (worksEnabled) {

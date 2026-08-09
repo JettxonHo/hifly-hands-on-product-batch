@@ -39,7 +39,7 @@ function publicReport(value) {
   return safe;
 }
 
-function acceptsMediaType(actual, accepted) {
+export function acceptsMediaType(actual, accepted) {
   return accepted.some((pattern) => pattern === actual || (pattern.endsWith("/*") && actual.startsWith(`${pattern.slice(0, -1)}`)));
 }
 
