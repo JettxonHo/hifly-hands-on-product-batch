@@ -45,7 +45,7 @@ function migrationProbePool() {
   };
 }
 
-async function productionFeatureOptions() {
+async function productionFeatureOptions({ localAgentExecution = null } = {}) {
   const objectStore = createMemoryObjectStore();
   return {
     assets: {
@@ -99,6 +99,7 @@ async function productionFeatureOptions() {
       repository: createMemoryManualExecutionRepository(),
       candidateStore: objectStore
     },
+    ...(localAgentExecution ? { localAgentExecution } : {}),
     artifactVerification: {
       enabled: true,
       worker: { autoStart: false }
@@ -163,6 +164,40 @@ test("production build disables database startup migrations but still checks rep
   assert.equal(untrustedHealth.statusCode, 403);
 });
 
+test("enabled local-agent wiring registers bearer routes without changing member routes", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-production-agent-build-"));
+  const identity = createMemoryIdentityRepository();
+  const pool = migrationProbePool();
+  let app;
+  t.after(async () => {
+    await app?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  app = await buildApp({
+    root,
+    executor: createFakeExecutor(),
+    databasePool: pool,
+    startupMigrations: false,
+    generationConfig: { executionBackend: "fake", rpa: { mode: "mock", realLive: { enabled: false, batch: { enabled: false } } } },
+    identity: { enabled: true, repository: identity, trustedHosts: ["pilot.test"], trustedOrigins: ["https://pilot.test"], cookieSecure: true, seed: { enabled: false } },
+    ...(await productionFeatureOptions({ localAgentExecution: { enabled: true, organizationId: "org_agent", agentId: "agent_1", token: "agent-secret", leaseMs: 10_000 } }))
+  });
+
+  assert.equal(typeof app.localAgentExecution.service.claimTask, "function");
+  const heartbeat = await app.inject({ method: "POST", url: "/api/agent/v1/heartbeat", headers: {
+    host: "pilot.test", authorization: "Bearer agent-secret", "idempotency-key": "agent-online", "content-type": "application/json"
+  }, payload: {} });
+  assert.equal(heartbeat.statusCode, 200);
+  assert.equal(await app.localAgentExecution.readiness.isOnline({ organizationId: "org_agent" }), true);
+  const claim = await app.inject({ method: "POST", url: "/api/agent/v1/tasks/claim", headers: {
+    host: "pilot.test", authorization: "Bearer agent-secret", "idempotency-key": "agent-claim", "content-type": "application/json"
+  }, payload: {} });
+  assert.equal(claim.statusCode, 201);
+  assert.deepEqual(claim.json(), { attempt: null, replayed: false });
+  assert.equal(claim.body.includes("agent-secret"), false);
+});
+
 test("production config is env-only, enables A01-A14, and defaults execution to fail-closed", async () => {
   const config = createProductionConfig({
     root: "/tmp/hifly-production-test",
@@ -177,6 +212,8 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   assert.equal(config.generationConfig.rpa.realLive.enabled, false);
   assert.equal(config.generationConfig.rpa.realLive.batch.enabled, false);
   assert.equal(config.hiflyApi.enabled, false);
+  assert.equal(config.localAgentExecution.enabled, false);
+  assert.equal(config.localAgentExecution.token, null);
   assert.equal(config.identity.cookieSecure, true);
   assert.equal(config.featureFlags.A14, true);
   assert.equal(config.generationConfig.uploadLimits.maxBatchBytes, 128 * 1024 * 1024);
@@ -188,6 +225,28 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   });
   assert.equal(withHiflyToken.hiflyApi.enabled, true);
   assert.equal(withHiflyToken.hiflyApi.token, "test-hifly-token");
+
+  for (const missing of ["LOCAL_AGENT_ID", "LOCAL_AGENT_ORGANIZATION_ID", "LOCAL_AGENT_TOKEN"]) {
+    const env = productionEnv({
+      LOCAL_AGENT_ENABLED: "true",
+      LOCAL_AGENT_ID: "agent-1",
+      LOCAL_AGENT_ORGANIZATION_ID: "org_pilot",
+      LOCAL_AGENT_TOKEN: "local-secret"
+    });
+    delete env[missing];
+    assert.throws(
+      () => createProductionConfig({ root: "/tmp/hifly-production-test", env }),
+      { code: "LOCAL_AGENT_CONFIG_REQUIRED" },
+      `missing ${missing} must fail closed with a stable configuration error`
+    );
+  }
+
+  const withLocalAgent = createProductionConfig({
+    root: "/tmp/hifly-production-test",
+    env: productionEnv({ LOCAL_AGENT_ENABLED: "true", LOCAL_AGENT_ID: "agent-1", LOCAL_AGENT_ORGANIZATION_ID: "org_pilot", LOCAL_AGENT_TOKEN: "local-secret" })
+  });
+  assert.equal(withLocalAgent.localAgentExecution.enabled, true);
+  assert.equal(withLocalAgent.localAgentExecution.agentId, "agent-1");
 
   await assert.rejects(
     createProductionExecutor().createAsset({ task_id: "pilot-task" }),
@@ -225,6 +284,7 @@ test("production server binds once on 0.0.0.0 without opening a browser", async 
   assert.equal(buildOptions.databasePool, pool);
   assert.equal(buildOptions.closeDatabasePool, false);
   assert.equal(buildOptions.startupMigrations, false);
+  assert.equal(buildOptions.localAgentExecution.enabled, false);
   assert.equal(buildOptions.openBrowser, null);
   assert.equal(buildOptions.identity.listenHost, "0.0.0.0");
   await assert.rejects(buildOptions.executor.submitVideo({ task_id: "pilot-task" }), { code: "EXECUTOR_UNAVAILABLE" });

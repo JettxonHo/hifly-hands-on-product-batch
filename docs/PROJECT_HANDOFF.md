@@ -3,6 +3,23 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 新云端系统最小 Local Agent 执行器闭环（未访问飞影、未消耗积分）
+
+- 独立分支 `codex/cloud-production-executor` 基于 `origin/main@05e4466` 实现；根工作区既有脏文件未触碰。
+- 云端已具备 Agent Bearer readiness、claim/start/lease heartbeat、A10 交接包下载、候选 MP4 authorize/upload/complete、受控结果报告、A12 核验触发和 Work 创建。Agent 身份单独记录，不伪造成企业成员。
+- macOS CLI 入口为 `npm run local-agent:run-once`，默认 standby 只心跳、不领取；fake 需 `LOCAL_AGENT_FAKE_EXECUTION=true`，真实 Playwright 必须使用 `--real` 和 `LOCAL_AGENT_REAL_EXECUTION=true`。人物映射按云端 avatar asset version id 解析本地图片。
+- Sol Review 已修复三项会阻断真实链路的问题：CLI/server requires-action 字段不一致、租约心跳失败后仍可能上传、CLI/server 受控错误码不一致。
+- 验证已完成：全量串行 862 tests / 848 pass / 14 environment skips / 0 fail；定向 74 tests / 73 pass / 1 PostgreSQL environment skip / 0 fail；`npm run check` 204 JS、`git diff --check` 通过。环境 skip 未记为通过。
+- 当前没有部署到阿里云、没有连接 Mac Agent、没有真实飞影单条验收。不得把 fake 系统测试写成云端端到端已可用。下一阶段顺序：合并本分支 → 云端 migration/config/deploy → Mac 配对和无积分 idle/fake 检查 → Owner 新授权后只跑 1 条真实飞影。
+- 运行手册：`docs/deployment/LOCAL_AGENT_RUNBOOK.md`。本轮飞影积分消耗 0。
+
+## 2026-08-10 Local Agent Task 1+2 有界阶段（IMPLEMENTER；未访问飞影、未消耗积分）
+
+- 分支 `codex/cloud-production-executor` 基于 `origin/main@05e4466`；已完成 Local Agent memory/PG claim-start-heartbeat/package download seam、显式 agent order/package 内部 port、Bearer guard/routes、production config/wiring/default-off。
+- migration 002 允许 `local_agent` attempt 使用 `executor_agent_id`、lease/heartbeat/progress 字段，并保持 manual member identity 约束；memory/PG lease-expiry ledger 使用 repository current status 与 `actor_agent_id`。生产 order transition 不经过 `actorRole=agent` member service。
+- candidate/report/A12 fake integration、CLI、UI、真实 Playwright/Hifly、部署与外部协调均未做。定向测试与静态检查结果以 `docs/status/CURRENT.md` 顶部和对应 session 记录为准；PG integration 因无测试数据库明确 skip，不计为通过。
+- 配置状态 `CONFIG_VERIFIED`；运行时模型不可见，记录 `UNVERIFIED_RUNTIME_MODEL`；未使用 Terra。未 commit/push/merge/创建 PR，积分消耗为 0。
+
 ## 2026-08-10 阿里云内部试运行部署检查点（未访问飞影、未消耗积分）
 
 - 生产基线：`origin/main=646c0a9df00a3fe1b7555a1c8b7a8fda60ec13e9`，部署目录 `/opt/hifly-pilot`，服务器仓库 `main...origin/main` 且工作树干净。

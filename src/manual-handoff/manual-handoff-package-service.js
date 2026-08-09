@@ -166,6 +166,13 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
     return result;
   }
 
+  async function getPackageForAgent(input) {
+    if (!clean(input.organizationId) || !clean(input.agentId) || !clean(input.packageId)) throw failure("MANUAL_HANDOFF_CONTEXT_REQUIRED");
+    const result = await repository.getPackage(input.organizationId, input.packageId);
+    if (!result || result.organization_id !== input.organizationId) throw failure("MANUAL_HANDOFF_PACKAGE_NOT_FOUND");
+    return result;
+  }
+
   async function getGenerationJob(input) {
     validateActor(input);
     const result = await repository.getJob(input.organizationId, input.jobId);
@@ -176,6 +183,11 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
   async function listPackages(input) {
     const order = await scopedOrder(input);
     return (await repository.listPackages(input.organizationId, order.id)).map(publicPackage);
+  }
+
+  async function listPackagesForAgent(input) {
+    if (!clean(input.organizationId) || !clean(input.agentId) || !clean(input.productionOrderId)) throw failure("MANUAL_HANDOFF_CONTEXT_REQUIRED");
+    return repository.listPackages(input.organizationId, input.productionOrderId);
   }
 
   async function getOrder(input) {
@@ -258,6 +270,17 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
     return { body, contentType: MANUAL_HANDOFF_PACKAGE_CONTENT_TYPE, package: value };
   }
 
+  async function downloadPackageForAgent(input) {
+    const value = await getPackageForAgent(input);
+    if (["generating", "generation_failed"].includes(value.status)) throw failure("MANUAL_HANDOFF_PACKAGE_NOT_READY");
+    if (["revoked", "superseded", "expired"].includes(value.status)) throw failure("MANUAL_HANDOFF_PACKAGE_NOT_DOWNLOADABLE");
+    const body = await packageStore.get(value.storage_key);
+    if (!body) throw failure("MANUAL_HANDOFF_PACKAGE_OBJECT_MISSING");
+    await repository.appendAudit?.({ id: randomUUID(), organization_id: input.organizationId, actor_member_id: null,
+      package_id: value.id, event_type: "manual_handoff.agent_downloaded", metadata: { agent_id: input.agentId, package_version: value.package_version }, created_at: timestamp() });
+    return { body, contentType: MANUAL_HANDOFF_PACKAGE_CONTENT_TYPE, package: value };
+  }
+
   async function transitionPackage(input) {
     validateActor(input);
     if (!MANUAL_HANDOFF_PACKAGE_STATES.includes(input.status)) throw failure("MANUAL_HANDOFF_PACKAGE_STATE_INVALID");
@@ -272,7 +295,9 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
     requestGeneration,
     getOrder,
     getPackage,
+    getPackageForAgent,
     listPackages,
+    listPackagesForAgent,
     getGenerationJob,
     claimNextGenerationJob,
     heartbeatGenerationJob,
@@ -282,6 +307,7 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
     buildManifest,
     authorizeDownload,
     downloadPackage,
+    downloadPackageForAgent,
     transitionPackage,
     publicPackage,
     packageStorageKey

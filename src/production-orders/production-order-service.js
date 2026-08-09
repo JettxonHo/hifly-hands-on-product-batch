@@ -24,6 +24,10 @@ function validateContext(input) {
   if (!clean(input.productId)) throw failure("PRODUCTION_ORDER_CONTEXT_REQUIRED");
 }
 
+function validateAgentContext(input) {
+  if (!clean(input.organizationId) || !clean(input.actorAgentId)) throw failure("PRODUCTION_ORDER_CONTEXT_REQUIRED");
+}
+
 function validateKey(value) {
   if (!clean(value) || value.length > 128) throw failure("INVALID_IDEMPOTENCY_KEY");
 }
@@ -180,6 +184,34 @@ export function createProductionOrderService({ repository, planPort, inputSnapsh
     return transitioned;
   }
 
+  async function listOrdersForAgent(input) {
+    validateAgentContext(input);
+    return repository.listOrders(input.organizationId, input.productId);
+  }
+
+  async function getOrderForAgent(input) {
+    validateAgentContext(input);
+    if (!clean(input.orderId)) throw failure("PRODUCTION_ORDER_NOT_FOUND");
+    const order = await repository.getOrder(input.organizationId, input.orderId);
+    if (!order) throw failure("PRODUCTION_ORDER_NOT_FOUND");
+    return order;
+  }
+
+  async function transitionOrderForAgent(input) {
+    validateAgentContext(input);
+    if (!clean(input.orderId) || !clean(input.toStatus) || !Array.isArray(input.fromStatuses) || !input.fromStatuses.length) {
+      throw failure("PRODUCTION_ORDER_CONTEXT_REQUIRED");
+    }
+    const transitioned = await repository.transitionOrder({
+      organizationId: input.organizationId, orderId: input.orderId, expectedRevision: input.expectedRevision,
+      fromStatuses: input.fromStatuses, toStatus: input.toStatus, at: input.at || timestamp(),
+      actorMemberId: null, actorAgentId: input.actorAgentId, reason: input.reason || null,
+      transactionClient: input.transactionClient || null
+    });
+    if (!transitioned) throw failure("PRODUCTION_ORDER_CONFLICT");
+    return transitioned;
+  }
+
   async function getWorkspace(input) {
     validateContext(input);
     const [{ resolved, gate }, orders, executionEnvironment] = await Promise.all([
@@ -199,5 +231,6 @@ export function createProductionOrderService({ repository, planPort, inputSnapsh
     };
   }
 
-  return { createProductionOrder, listOrders, getOrder, transitionOrder, getWorkspace, resolveCurrentApprovedPlan: resolveGate };
+  return { createProductionOrder, listOrders, getOrder, transitionOrder, listOrdersForAgent, getOrderForAgent,
+    transitionOrderForAgent, getWorkspace, resolveCurrentApprovedPlan: resolveGate };
 }

@@ -56,6 +56,10 @@ function integer(value, name, { min = 1, max = 65535 } = {}) {
   return selected;
 }
 
+function duration(value, name, fallback, { min = 1_000, max = 30 * 60 * 1000 } = {}) {
+  return integer(value || fallback, name, { min, max });
+}
+
 function boolean(value, name, fallback = false) {
   if (value === undefined || value === "") return fallback;
   if (value === true || value === "true" || value === "1") return true;
@@ -127,6 +131,13 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
 
   const worker = workerOptions();
   const hiflyApiToken = env.HIFLY_API_TOKEN?.trim() || null;
+  const localAgentRequested = boolean(env.LOCAL_AGENT_ENABLED, "LOCAL_AGENT_ENABLED", false);
+  const localAgentId = env.LOCAL_AGENT_ID?.trim() || null;
+  const localAgentOrganizationId = env.LOCAL_AGENT_ORGANIZATION_ID?.trim() || null;
+  const localAgentToken = env.LOCAL_AGENT_TOKEN?.trim() || null;
+  if (localAgentRequested && (!localAgentId || !localAgentOrganizationId || !localAgentToken)) {
+    throw Object.assign(new Error("LOCAL_AGENT_CONFIG_REQUIRED"), { code: "LOCAL_AGENT_CONFIG_REQUIRED" });
+  }
   const generationConfig = {
     executionBackend: executionMode,
     rpa: {
@@ -208,6 +219,14 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
     productionOrders: { enabled: true },
     manualHandoff: { enabled: true, localRoot: path.join(dataDir, "manual-handoff-packages"), worker },
     manualExecution: { enabled: true, maxCandidateBytes: 256 * 1024 * 1024, localRoot: path.join(dataDir, "manual-execution-candidates"), worker },
+    localAgentExecution: {
+      enabled: localAgentRequested && Boolean(localAgentId && localAgentOrganizationId && localAgentToken),
+      configured: localAgentRequested,
+      agentId: localAgentId,
+      organizationId: localAgentOrganizationId,
+      token: localAgentToken,
+      leaseMs: duration(env.LOCAL_AGENT_LEASE_MS, "LOCAL_AGENT_LEASE_MS", 30_000)
+    },
     artifactVerification: { enabled: true, worker },
     workDelivery: { enabled: true },
     hiflyApi: {
