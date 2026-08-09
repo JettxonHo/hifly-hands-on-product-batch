@@ -3,6 +3,20 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-09 PR #97 合并，腾讯云 2C4G 试运行准备启动（未访问飞影、未消耗积分）
+
+- Owner 要求开始正式投入准备并询问腾讯云 2C4G 可行性；PR #97 已按仓库策略 squash merge，
+  merge commit 为 `fc54f7c`，A01-A14 一键本地演示正式进入 main。
+- 独立 worktree `/private/tmp/hifly-tencent-cloud-pilot`、分支 `codex/tencent-cloud-pilot` 基于该 main；
+  根目录 `gui/visual-refresh` 的 `.gitignore`、package 文件、`.claude/`、`docs/resume/`、`wrangler.jsonc`
+  均为既有脏文件，本轮未修改、未删除、未提交。
+- 结论：2C4G 足够低并发内部试运行，但不适合把 Node/PostgreSQL/大量视频/并发 Playwright 全部长期同机。
+  正式客户生产建议 2C4G 仅作为应用节点，数据库与文件分别使用托管 PostgreSQL、COS，Playwright 如保留则独立部署。
+- 已新增 `docs/deployment/TENCENT_CLOUD_2C4G_DEPLOYMENT_DESIGN.md` 与
+  `docs/maintenance/REPOSITORY_CLEANUP_AUDIT.md`。当前只做设计与清理盘点，等待 Owner 确认“内部试运行”
+  或“直接外部客户生产”后再实现部署代码。
+- 本轮未访问 Hifly、未运行真实 Provider/Capture HTTP/Playwright 批次、未消耗积分。
+
 ## 2026-08-09 A01-A14 一键本地演示入口完成实跑（未访问飞影、未消耗积分）
 
 - 独立 worktree `/private/tmp/hifly-vsa-full-demo`、分支 `codex/vsa-full-demo` 基于 `origin/main=3aa4cf0` 实现；根目录 `gui/visual-refresh` 的既有脏文件未触碰。
