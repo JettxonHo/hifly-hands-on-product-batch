@@ -9,6 +9,8 @@
 - worktree：`/private/tmp/hifly-vsa-full-demo`
 - 分支：`codex/vsa-full-demo`
 - 基准：`origin/main @ 3aa4cf0`
+- 实现提交：`605b82d`
+- ready PR：#97（Ubuntu、Windows、PostgreSQL CI 全绿；未合并）
 
 ## 改动
 
