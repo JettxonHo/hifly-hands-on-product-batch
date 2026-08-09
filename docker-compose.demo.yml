@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hifly_vsa_demo
+      POSTGRES_USER: hifly_demo
+      POSTGRES_PASSWORD: demo-local-only
+    ports:
+      - "127.0.0.1:${HIFLY_DEMO_DB_PORT:-55433}:5432"
+    volumes:
+      - hifly_vsa_demo_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hifly_demo -d hifly_vsa_demo"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  hifly_vsa_demo_data:
+    name: hifly_vsa_demo_data

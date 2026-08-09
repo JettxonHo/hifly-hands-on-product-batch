@@ -51,6 +51,61 @@ Windows PowerShell 可使用：
 $env:HIFLY_GUI_PORT=4320; npm run gui
 ```
 
+## A01-A14 本地全链路演示
+
+演示入口与传统 GUI 配置完全隔离，不读取或覆盖 `config.local.json`，不读取飞影登录态，也不访问 `hifly.cc`。Mac 和 Windows 使用同一套 Node 脚本；只要求 Docker Desktop 的 `docker compose` 可用：
+
+```bash
+npm run demo
+```
+
+启动顺序固定为：
+
+```text
+Docker Compose up（project=hifly-vsa-demo，DB port 从 55433 起自动选择）
+→ PostgreSQL ready
+→ identity
+→ assets
+→ projectContent
+→ copyGeneration
+→ copyQuality
+→ copyReview
+→ avatarSelection
+→ videoPlanning
+→ productionOrders
+→ manualHandoff
+→ manualExecution
+→ artifactVerification（work-verification migration）
+→ workDelivery
+→ demo server
+→ /login.html
+```
+
+演示启用 A01-A14 全部 feature，使用现有 `phase1_controlled_test_double` provider/evaluator 和 `src/executors/fake-executor.js`。`realLive.batch.enabled` 为 `false`，runtime auth 和 real capture transport 都是 fail-closed；旧工作台生成按钮也不会切换到 Playwright、影刀或真实 Capture HTTP，因此不消耗飞影积分。演示 server 的本地固定测试凭据为：
+
+```text
+账号：demo-admin@demo.local
+临时密码：Demo-Local-2026-Only!
+```
+
+首次登录会进入已有的强制改密页面，请设置新的本地密码。该凭据只用于本地演示，不得复用到真实环境。
+
+演示数据库使用独立的 `docker-compose.demo.yml`、Compose project `hifly-vsa-demo`、volume `hifly_vsa_demo_data`，loopback 端口从 `55433` 起自动选择可用值，不会影响 `docker-compose.identity.yml` 的 `55432` 测试库。素材、交接包等本地演示文件默认保存在项目 `.local-demo/`。停止时默认保留数据：
+
+```bash
+npm run demo:stop
+```
+
+只有明确需要重置演示数据库时才运行：
+
+```bash
+npm run demo:reset
+```
+
+该命令删除演示专用 PostgreSQL volume，但保留 `.local-demo/` 中的素材、交接包等本地文件。
+
+可选的本地环境变量只改变演示运行位置，不会进入真实配置路径：`HIFLY_DEMO_DB_PORT`（设置后固定该端口；未设置时从 `55433` 起自动选择）、`HIFLY_DEMO_GUI_PORT`（默认 `4317`）和 `HIFLY_DEMO_DATA_DIR`（默认项目 `.local-demo/`）。
+
 ## 企业身份模式（VSA-A01）
 
 身份模式默认关闭；关闭时仍是原来的 127.0.0.1 单用户工作台，不需要数据库。

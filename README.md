@@ -32,6 +32,31 @@ npm run gui
 Local workbench: http://127.0.0.1:4318
 ```
 
+## A01-A14 本地全链路演示
+
+只想查看企业内容生产闭环时，可使用不读取 `config.local.json`、不读取飞影登录态的本地演示：
+
+```bash
+npm run demo
+```
+
+该命令需要 Docker Desktop，使用独立的 PostgreSQL 容器（loopback 端口从 `55433` 起自动选择、独立 Compose project 和 volume），按 A01→A14 顺序执行 migration，启用完整企业功能，并打开 `http://127.0.0.1:<port>/login.html`。演示数据默认保存在项目 `.local-demo/`，不会因系统清理临时目录而丢失。演示使用仓库现有 controlled provider/evaluator 和 fake executor；真实 Provider、Capture HTTP、Playwright、影刀和飞影积分均不会被调用。旧工作台的生成按钮在演示中也只会落到 fake executor。
+
+固定的本地测试凭据如下，仅用于演示：
+
+```text
+账号：demo-admin@demo.local
+临时密码：Demo-Local-2026-Only!
+```
+
+首次登录会强制设置新密码；后续重启请使用你设置的新密码，忘记时可执行下方 reset 后重新初始化。请勿把该凭据当作生产密码。停止演示数据库但保留数据：
+
+```bash
+npm run demo:stop
+```
+
+只有明确需要重置演示数据库时才运行 `npm run demo:reset`；该命令只删除演示专用 PostgreSQL volume，不触碰 `docker-compose.identity.yml` 的测试库，也不删除 `.local-demo/` 中的本地素材文件。
+
 ## 本地工作台能力
 
 - 单条商品录入：填写 SKU、产品名称、核心卖点、品类并上传商品图。
@@ -70,6 +95,9 @@ assets/person_pool/default/
 | 命令 | 用途 |
 | --- | --- |
 | `npm run gui` | 启动 Mac/Windows 通用本地网页工作台。 |
+| `npm run demo` | 启动不访问飞影的 A01-A14 企业本地演示并打开登录页。 |
+| `npm run demo:stop` | 停止演示 PostgreSQL，保留演示数据。 |
+| `npm run demo:reset` | 显式删除演示 PostgreSQL 的专用 volume；保留 `.local-demo/` 文件。 |
 | `npm run login` | 打开浏览器，人工登录飞影并保存登录态。 |
 | `npm run validate` | 校验传统 `products/products.csv` 输入。 |
 | `npm run prepare-standard` | 按每商品 1 条标准视频生成口播脚本、飞影提示词和质检表。 |

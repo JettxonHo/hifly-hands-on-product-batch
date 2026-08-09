@@ -4,6 +4,15 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：`GOAL_APPROVED`，Vertical Slice A 的 A01～A14 已全部合并并关闭对应 Issue
 
+## A01-A14 本地演示入口实现（2026-08-09；未访问飞影、未消耗积分）
+
+- 当前 worktree：`/private/tmp/hifly-vsa-full-demo`，分支 `codex/vsa-full-demo`，基于 `origin/main @ 3aa4cf0`；实现提交 `605b82d` 已进入 ready PR #97，Ubuntu、Windows、PostgreSQL CI 全绿，等待 Owner 合并决定。
+- 已新增跨平台 Node 命令 `npm run demo` / `demo:stop` / 显式 `demo:reset`，专用 `docker-compose.demo.yml`、独立 Compose project/volume，以及从 `55433` 起自动避让占用的 loopback DB 端口；A01→A14 migration 顺序固定，并补齐 `migrate:manual-execution` CLI。
+- demo server 启用全量 VSA feature，使用现有 controlled provider/evaluator、`fake-executor` 和 fail-closed capture transport；不读取 `config.local.json` 或飞影登录态，不调用真实 Provider/Capture HTTP/Playwright/影刀。登录落点为 `/login.html`，固定本地临时账号首次登录强制改密；演示文件保存在已忽略的项目 `.local-demo/`。
+- Sol 独立验证：demo 定向 10/10；`npm run check` 通过（186 JS）；全量 `npm test` 为 813 tests / 768 pass / 0 fail / 45 environment skips；`git diff --check` 通过。独立 worktree 已执行 `npm ci`，未改根工作区的旧 `node_modules` 或脏文件。
+- Docker 实跑通过：既有 `55432`～`55434` 被占用时自动选择 `127.0.0.1:55435`，PostgreSQL healthy，13 组 migration 全部完成；真实本地浏览器完成临时密码登录 → 强制改密 → `/projects.html`，并确认统一企业壳层入口。验收后数据库已 reset 并重新启动为干净初始状态，GUI 当前运行于 `http://127.0.0.1:4317/login.html`。
+- 本轮未访问外部服务、未执行真实飞影或积分动作。配置状态：`CONFIG_VERIFIED`（`~/.codex/agents/luna-worker.toml` 为 `gpt-5.6-luna` / Max）；运行时身份不可见，记录 `UNVERIFIED_RUNTIME_MODEL`，未回退 Terra。
+
 ## VSA-A14 全链路验收与加固（Issue #70，2026-08-09）
 
 - Kimi Code 已按 `kimi-code/k3`、1M context、Max reasoning 产出并合并
