@@ -3,6 +3,14 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-09 Hifly 官方 API Token 底座（未调用真实 API、未消耗积分）
+
+- 独立分支 `codex/hifly-official-api-token` 基于 `origin/main=76cfff3`；根工作区既有脏文件未触碰。
+- Owner 确认官方 API Token 由服务端环境变量/云 SecretStore 托管；Q-018 由 D-032 关闭。
+- 新增官方 API client、生产 `HIFLY_API_TOKEN` 配置和管理员显式账户积分连接检查；Token 不进入前端、领域数据、日志或 Git。
+- 「手里有货」仍未在公开 API V2 文档确认，现有 Capture HTTP/Playwright 路径与 `fail_closed` 默认不变。
+- 本轮只读取公开 API 文档，没有调用真实 API 主机、没有使用真实 Token、没有执行视频生成、没有消耗积分。
+
 ## 2026-08-09 Sol 隔离实机验收完成（未访问飞影、未消耗积分）
 
 - Sol 在独立 Compose project `hifly-pilot-verify` 完成实机验证，使用 HTTP `28080`、HTTPS `28443`，临时自签

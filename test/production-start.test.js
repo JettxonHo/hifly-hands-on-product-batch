@@ -176,10 +176,18 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   assert.equal(config.generationConfig.executionBackend, "fail_closed");
   assert.equal(config.generationConfig.rpa.realLive.enabled, false);
   assert.equal(config.generationConfig.rpa.realLive.batch.enabled, false);
+  assert.equal(config.hiflyApi.enabled, false);
   assert.equal(config.identity.cookieSecure, true);
   assert.equal(config.featureFlags.A14, true);
   assert.equal(config.generationConfig.uploadLimits.maxBatchBytes, 128 * 1024 * 1024);
   for (const feature of PRODUCTION_FEATURES) assert.equal(config[feature].enabled, true, feature);
+
+  const withHiflyToken = createProductionConfig({
+    root: "/tmp/hifly-production-test",
+    env: productionEnv({ HIFLY_API_TOKEN: "test-hifly-token" })
+  });
+  assert.equal(withHiflyToken.hiflyApi.enabled, true);
+  assert.equal(withHiflyToken.hiflyApi.token, "test-hifly-token");
 
   await assert.rejects(
     createProductionExecutor().createAsset({ task_id: "pilot-task" }),
@@ -228,6 +236,28 @@ test("production server binds once on 0.0.0.0 without opening a browser", async 
     "close",
     "pool.end"
   ]);
+});
+
+test("production server wires an optional Hifly API client without changing the executor", async () => {
+  const pool = { async end() {} };
+  const app = { async listen() {}, async stopExecutions() {}, async close() {} };
+  let buildOptions;
+  const server = await startProductionServer({
+    root: "/tmp/hifly-production-test",
+    env: productionEnv({ HIFLY_API_TOKEN: "test-hifly-token" }),
+    handleSignals: false,
+    createPool: () => pool,
+    hiflyFetch: async () => new Response(JSON.stringify({ code: 0, left: 99, request_id: "req-prod" }), { status: 200 }),
+    buildAppImpl: async (options) => {
+      buildOptions = options;
+      return app;
+    }
+  });
+
+  assert.equal(buildOptions.hiflyApi.enabled, true);
+  assert.deepEqual(await buildOptions.hiflyApi.client.getAccountCredit(), { left: 99, requestId: "req-prod" });
+  assert.equal(buildOptions.executor.backend, "fail_closed");
+  await server.close();
 });
 
 test("production server does not advance to another port after an explicit bind failure", async () => {

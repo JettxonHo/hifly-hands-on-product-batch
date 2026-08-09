@@ -71,7 +71,7 @@
 | [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md) | D-029 的人工交接包合同 Specification：ZIP/manifest/README/素材引用、版本与生命周期、manual ExecutionAttempt、ManualExecutionReport、候选产物核验与 Work 创建门禁、证据/幂等/安全；不代表包生成或上传已实现 |
 | [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md) | D-030 的交付计划 Specification：Vertical Slice A 交付目标、Issue 拆分原则、VSA-A01～A14 边界、依赖波次、Issue 模板、单 Issue DoD、Slice 级 DoD。Development Issues #57～#70 已创建；当前实施状态见 `docs/status/CURRENT.md` |
 | [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-031）；最新：D-031 多 Agent 长期开发治理与工程克制 |
-| [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决；Q-018 仍开放；未关闭问题任何角色不得擅自代替 owner 决定） |
+| [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决，Q-018 已由 D-032 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 
 ---

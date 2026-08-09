@@ -16,7 +16,7 @@
 - 为 MVP 定义 Cloud Control Plane 与 Local Agent 分离的基础设施边界；
 - 区分「个人开发与功能验收环境」与「企业正式生产环境」；
 - 明确计算、数据库、对象存储、任务、Secret、观测、备份与恢复的概念边界；
-- 保留 Q-018（飞影 API Token 保管与调用位置）为开放问题；
+- 落实 D-032：飞影官方 API Token 由服务端环境变量或云 SecretStore 托管；
 - 不实施功能、不创建云资源、不制作低保真原型。
 
 ## 2. 核心原则
@@ -256,7 +256,7 @@ MVP 不单独采购消息队列。采用 **PostgreSQL AsyncJob / Transactional O
 - 凭据必须支持版本化、轮换、紧急吊销和访问审计；
 - 不在 D-026 统一固定所有 Secret 的轮换周期。
 
-**Q-018 仍然开放。采用 SSM 不等于授权上传 Hifly Token。** 在 Q-018 决定前：Hifly Token 不进入既定云端 Secret 清单、不默认进入 CloudBase Run、不从 Local Agent 迁移至云端。
+**Q-018 已由 D-032 关闭。** Hifly 官方 API Token 进入服务端 Secret 清单；个人试点可由环境变量注入，企业正式环境使用 SSM/KMS 等 SecretStore。网页登录态、Cookie、LocalStorage 与浏览器 Profile 仍只保存在 Local Agent，不迁移到云端。
 
 ## 11. 日志、监控与审计
 
@@ -330,7 +330,7 @@ COS：production 敏感桶开启版本控制；production 内容桶开启版本�
 - 长 Playwright 仍在 Local Agent，不在 Cloud Web 请求进程运行；
 - 企业正式 CloudBase Run API / Worker；
 - PostgreSQL AsyncJob / Outbox 是 MVP 任务机制；
-- Q-018 Token 边界保持开放（见第 10 节）；
+- D-032 Token 边界已确定（见第 10 节）；
 - CloudBase Run 服务角色访问 SSM/COS/KMS 需部署前验证；
 - 正式生产广州地域；
 - 基础设施通过抽象接入，领域层不绑定腾讯云；
@@ -372,7 +372,7 @@ D-026 不代表以下内容已经实现：CloudBase Run 已创建；PostgreSQL �
 
 待决事项必须保留：
 
-- Q-018 Hifly Token 位置；
+- Hifly Token 的企业轮换周期与账号权限 Evidence；
 - 企业正式预算；
 - 企业最终实例规格；
 - 企业具体域名；
@@ -390,5 +390,5 @@ D-026 不代表以下内容已经实现：CloudBase Run 已创建；PostgreSQL �
 - 个人 2C4G 环境用于功能闭环与可靠性验收，不验收生产容量/SLA/高可用；
 - 企业正式环境在广州按 D-026 架构落地，且上线前必须完成第 17 节验证清单与第 12 节恢复演练；
 - 企业正式预算与最终规格保持 Pending Evidence，直到完成企业资源盘点与容量评估；
-- Q-018 保持开放；Hifly Token 不默认进入云端；
+- Q-018 已由 D-032 关闭；Hifly 官方 API Token 由服务端环境变量或云 SecretStore 托管；
 - 本规格不代表任何云资源已经部署。

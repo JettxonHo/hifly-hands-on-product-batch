@@ -793,3 +793,14 @@
 - **是否可逆**：治理流程可通过后续 Decision 调整；已合并的产品/领域决策不受影响。
 - **决策来源**：owner 于 2026-08-06 明确要求采用多 Agent 长期自主开发规范，并明确补充工程克制原则。
 - **相关 Issue 或 PR**：VSA-A01～A14（#57～#70）；治理文档 PR 待创建。
+
+## D-032 Hifly 官方 API Token 的服务端托管与双执行路径
+
+- **日期**：2026-08-09
+- **状态**：Confirmed
+- **背景（Context）**：飞影 API V2 公开文档确认使用 Bearer Token，实际 API 主机为 `hfw-api.hifly.cc`，并提供账户积分查询等正式接口；但「手里有货」仍未在公开 API 中确认。Q-018 此前未决定 Token 放在云端还是 Local Agent，阻塞 Hifly API Worker 的稳定配置边界。
+- **决策**：官方 API Token 由服务端环境变量或云端 SecretStore 托管，当前环境变量名为 `HIFLY_API_TOKEN`。Token 只在服务端内存中用于官方 API 请求，不进入 Browser、Domain、Database、Git、日志、错误信息、截图、交接包或 Local Agent 任务包。公开 API 已确认且完成账号权限与真实调用验证的 capability 才能由 Hifly API asynchronous worker 执行；仅网页支持或依赖浏览器登录态/人工接管的能力继续由 Local Agent / Playwright 执行。配置 Token 不代表「手里有货」获得官方 API 支持，Capture HTTP 和 Playwright 保留。当前落地只包含管理员显式触发的账户积分连接检查，不自动访问飞影、不创建任务、不改变 `PRODUCTION_EXECUTOR=fail_closed`。
+- **影响（Consequences）**：Q-018 关闭；Provider Task Router 采用官方 API Worker 与 Local Agent 并存模式；腾讯云试点可通过 `.env` 注入，正式环境迁移到 SSM/KMS 等 SecretStore。每项 capability 仍需 HIFLY-001 Evidence，不因 Token 可用而自动升级能力状态。
+- **非目标**：不实现「手里有货」官方 API；不启用真实视频生成；不把积分查询成功当作创作能力验证；不自动调用账户接口；不改变现有 Capture HTTP/Playwright 默认与回退关系。
+- **可重新评估条件**：飞影正式开放「手里有货」API；企业要求 Organization BYOK；Token 权限模型或官方认证方式发生变化；云端 SecretStore 无法满足部署要求。
+- **决策来源**：owner 于 2026-08-09 明确确认接入官方 API Token，并接受服务端环境变量/SecretStore与双执行路径方案。

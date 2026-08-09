@@ -7,6 +7,7 @@ import { createControlledCopyRewriter } from "../copy-quality/controlled-rewrite
 import { createIdentityPool } from "../identity/postgres.js";
 import { createControlledPreflightEvaluator } from "../video-planning/controlled-preflight-evaluator.js";
 import { createDisabledLiveTransport } from "../rpa/capture/real-live-http-client.js";
+import { createHiflyApiClient } from "../providers/hifly-api-client.js";
 import { buildApp } from "./app.js";
 import { createProductionConfig, createProductionExecutor } from "./production-config.js";
 
@@ -23,7 +24,7 @@ function disabledCaptureLive() {
   };
 }
 
-function appOptions(config, projectRoot, pool, executor) {
+function appOptions(config, projectRoot, pool, executor, hiflyFetch) {
   return {
     root: config.dataDir,
     webRoot: path.join(projectRoot, "web"),
@@ -54,7 +55,15 @@ function appOptions(config, projectRoot, pool, executor) {
     manualHandoff: config.manualHandoff,
     manualExecution: config.manualExecution,
     artifactVerification: config.artifactVerification,
-    workDelivery: config.workDelivery
+    workDelivery: config.workDelivery,
+    hiflyApi: config.hiflyApi.enabled ? {
+      enabled: true,
+      client: createHiflyApiClient({
+        token: config.hiflyApi.token,
+        timeoutMs: config.hiflyApi.timeoutMs,
+        fetchImpl: hiflyFetch
+      })
+    } : { enabled: false }
   };
 }
 
@@ -65,6 +74,7 @@ export async function startProductionServer({
   buildAppImpl = buildApp,
   createPool = createIdentityPool,
   executor = null,
+  hiflyFetch = globalThis.fetch,
   handleSignals = true
 } = {}) {
   const projectRoot = path.resolve(root || process.cwd());
@@ -77,7 +87,7 @@ export async function startProductionServer({
   const selectedExecutor = executor || createProductionExecutor({ mode: selectedConfig.generationConfig.executionBackend });
   let app;
   try {
-    app = await buildAppImpl(appOptions(selectedConfig, projectRoot, pool, selectedExecutor));
+    app = await buildAppImpl(appOptions(selectedConfig, projectRoot, pool, selectedExecutor, hiflyFetch));
     await app.listen({ host: selectedConfig.listenHost, port: selectedConfig.port });
   } catch (error) {
     await app?.close?.().catch(() => undefined);

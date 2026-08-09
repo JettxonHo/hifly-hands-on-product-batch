@@ -121,6 +121,7 @@ test("restore CLI requires confirmation and does not print DATABASE_URL", async 
 test("production package and container contracts are explicit and isolated", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(packageJson.scripts["start:production"], "node src/server/production-start.js");
+  assert.equal(packageJson.scripts["hifly:check"], "node scripts/check-hifly-api.mjs");
   assert.equal(packageJson.scripts["migrate:production"], "node scripts/migrate-production.mjs");
   assert.equal(packageJson.scripts["db:backup"], "node scripts/backup-production-db.mjs");
   assert.equal(packageJson.scripts["db:restore"], "node scripts/restore-production-db.mjs");
@@ -170,7 +171,9 @@ test("production package and container contracts are explicit and isolated", asy
   const envExample = await readFile(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(envExample, /DATABASE_URL=/);
   assert.match(envExample, /INITIAL_ADMIN_PASSWORD=/);
+  assert.match(envExample, /HIFLY_API_TOKEN=/);
   assert.match(envExample, /HTTP_PORT=80/);
   assert.match(envExample, /HTTPS_PORT=443/);
   assert.doesNotMatch(envExample, /postgresql:\/\/pilot:secret@/);
+  assert.match(appBlock, /HIFLY_API_TOKEN:/);
 });

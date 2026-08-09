@@ -293,7 +293,7 @@ Provider Adapter
 - **企业正式生产环境**：主地域腾讯云广州（`ap-guangzhou`）；CloudBase Run API + Worker；TencentDB for PostgreSQL（唯一权威关系型业务库）；COS（sensitive + content 私有桶，大文件进 COS 不进 PostgreSQL）；PostgreSQL AsyncJob / Transactional Outbox（MVP 不采购 RabbitMQ、不用 Kubernetes）；SSM/KMS/CAM/STS；CLS/APM/CloudAudit；自动备份、PITR、对象版本控制与恢复演练；
 - 长时间 Playwright、视频编码和本地大模型不在 Web/API 请求进程运行，由 Local Agent 承担；
 - 企业正式月度预算与最终实例规格保持 **Pending Evidence**，上线前必须重新执行容量与资源评估、盘点企业已有腾讯云资源；
-- Q-018（飞影 API Token 保管与调用位置）仍保持开放；Hifly Token 不默认进入云端；
+- Q-018 已由 D-032 关闭；Hifly 官方 API Token 由服务端环境变量或云 SecretStore 托管，网页登录态仍留在 Local Agent；
 - D-026 只固化架构方向、环境边界和后续部署验收要求，**不代表任何云资源已经部署**；下一步进入低保真页面结构（本 Decision 不制作低保真）。
 
 **核心领域模型与状态机契约（D-028）**：权威对象关系、不可变版本、状态机、失效传播、并发/幂等与事务边界由 D-028 固化，详见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)。关键口径：ProductRevision / CopyVersion / VideoPlanVersion 使用不可变版本（DM-001）；单一 status 不承载全部含义（文案区分 CopyVersion 生命周期 / QualityRun 技术状态 / QualityResult 业务结论 / HumanReview / 业务可用性投影；VideoPlan 区分 VideoPlanVersion / PreflightRun / PreflightResult / PlanReview）；QC passed ≠ 文案 approved、Preflight passed ≠ VideoPlan approved；ProductionOrder 与 ExecutionAttempt 分离（attempt succeeded ≠ ProductionOrder succeeded），人工执行使用 `executor_type = manual` 的 ExecutionAttempt（DM-003）；ProductionOrder 仅在产物核验与 Work 创建成功后 succeeded，**禁止先标记 succeeded 再创建 Work**；Work ≠ DeliveryRecord，一个 Work 可有多条 DeliveryRecord（DM-002）；revoked Review 不得原地恢复为 approved（DM-005）；前端只提交业务命令，最终状态由服务端验证门禁后决定。D-028 是产品与领域合同，**不代表数据库、API、状态机代码或 Local Agent 已经实现**。

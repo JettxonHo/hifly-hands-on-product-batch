@@ -70,6 +70,7 @@ import { createWorkDeliveryService } from "../work-delivery/work-delivery-servic
 import { createPostgresWorkDeliveryRepository } from "../work-delivery/postgres-work-delivery-repository.js";
 import { runWorkDeliveryMigrations } from "../work-delivery/postgres.js";
 import { registerWorkDeliveryRoutes } from "./routes/work-delivery.js";
+import { registerHiflyProviderRoutes } from "./routes/hifly-provider.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -234,6 +235,9 @@ function apiError(error, request = null) {
     return { statusCode: 422, code: error.code };
   }
   if (error?.code === "ADMIN_REQUIRED") return { statusCode: 403, code: "ADMIN_REQUIRED" };
+  if (["HIFLY_API_AUTH_INVALID", "HIFLY_API_UNAVAILABLE", "HIFLY_API_RESPONSE_INVALID", "HIFLY_API_REQUEST_FAILED"].includes(error?.code)) {
+    return { statusCode: 502, code: error.code };
+  }
   if (error?.code === "UPLOAD_AUTHORIZATION_EXPIRED") return { statusCode: 410, code: "UPLOAD_AUTHORIZATION_EXPIRED" };
   if (["INVALID_ASSET_PAYLOAD", "ASSET_TYPE_NOT_ALLOWED", "ASSET_SIZE_NOT_ALLOWED", "INVALID_ASSET_CHECKSUM", "INVALID_ASSET_ID", "INVALID_ASSET_ACTOR", "INVALID_ASSET_DISPLAY_NAME", "INVALID_ASSET_REVISION", "INVALID_UPLOAD_BODY", "UPLOAD_CONTENT_TYPE_MISMATCH", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) {
     return { statusCode: 400, code: error.code };
@@ -284,6 +288,7 @@ export async function buildApp({
   manualExecution: manualExecutionOptions = null,
   artifactVerification: artifactVerificationOptions = null,
   workDelivery: workDeliveryOptions = null,
+  hiflyApi: hiflyApiOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
   now
@@ -306,6 +311,7 @@ export async function buildApp({
   const manualExecutionEnabled = manualExecutionOptions?.enabled === true;
   const artifactVerificationEnabled = artifactVerificationOptions?.enabled === true;
   const worksEnabled = workDeliveryOptions?.enabled === true;
+  const hiflyApiEnabled = hiflyApiOptions?.enabled === true;
   const manualExecutionMaxCandidateBytes = manualExecutionOptions?.maxCandidateBytes ?? DEFAULT_MANUAL_EXECUTION_MAX_CANDIDATE_BYTES;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
@@ -328,6 +334,10 @@ export async function buildApp({
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !manualHandoffEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_MANUAL_HANDOFF"), { code: "ARTIFACT_VERIFICATION_REQUIRE_MANUAL_HANDOFF" });
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !manualExecutionEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_MANUAL_EXECUTION"), { code: "ARTIFACT_VERIFICATION_REQUIRE_MANUAL_EXECUTION" });
   if (worksEnabled && !identityEnabled) throw Object.assign(new Error("WORK_DELIVERY_REQUIRE_IDENTITY"), { code: "WORK_DELIVERY_REQUIRE_IDENTITY" });
+  if (hiflyApiEnabled && !identityEnabled) throw Object.assign(new Error("HIFLY_API_REQUIRES_IDENTITY"), { code: "HIFLY_API_REQUIRES_IDENTITY" });
+  if (hiflyApiEnabled && typeof hiflyApiOptions.client?.getAccountCredit !== "function") {
+    throw Object.assign(new Error("HIFLY_API_CLIENT_REQUIRED"), { code: "HIFLY_API_CLIENT_REQUIRED" });
+  }
   const store = createBatchStore(batchRoot, storeOptions);
   // Startup schema migration: every legacy batch is brought to the current
   // schema BEFORE the coordinator and routes exist — buildApp does not resolve
@@ -425,6 +435,7 @@ export async function buildApp({
       manualExecutionEnabled,
       artifactVerificationEnabled,
       worksEnabled,
+      hiflyApiEnabled,
       ...(manualExecutionEnabled ? { manualExecutionMaxCandidateBytes } : {}),
       realBatchEnabled: batchConfig.enabled === true,
       realBatchMaxItems: Number.isInteger(batchConfig.maxItems) && batchConfig.maxItems >= 1 ? batchConfig.maxItems : 3
@@ -439,6 +450,10 @@ export async function buildApp({
   if (identityService) {
     app.decorate("identity", { repository: identityRepository, service: identityService });
     await registerAuthRoutes(app, { authService: identityService });
+  }
+  if (hiflyApiEnabled) {
+    app.decorate("hiflyApi", { client: hiflyApiOptions.client });
+    await registerHiflyProviderRoutes(app, { client: hiflyApiOptions.client });
   }
   if (assetsEnabled) {
     const assetRepository = assetOptions.repository || (sharedPool ? createPostgresAssetRepository({ pool: sharedPool }) : null);

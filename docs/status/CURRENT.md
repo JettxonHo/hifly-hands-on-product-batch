@@ -4,6 +4,13 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：`GOAL_APPROVED`，Vertical Slice A 的 A01～A14 已全部合并并关闭对应 Issue
 
+## 2026-08-09 Hifly 官方 API Token 底座（本地实现，未调用真实 API、未消耗积分）
+
+- Owner 确认 D-032：官方 API Token 使用服务端 `HIFLY_API_TOKEN` 或云 SecretStore 托管；Q-018 关闭。
+- 新增最小 Hifly API client 与管理员显式 `POST /api/providers/hifly/connection-test`，仅查询账户积分；无自动请求、无创作任务。
+- 生产默认 `fail_closed`、Capture HTTP 与 Playwright 路径保持不变；公开 API 未确认「手里有货」，因此不会由 Token 路径执行该能力。
+- 本轮只访问公开 API 文档页面，没有向 `hfw-api.hifly.cc` 发送请求，没有使用真实 Token，没有消耗积分。
+
 ## 2026-08-09 Sol 隔离实机验收完成（未访问飞影、未消耗积分）
 
 - Sol 使用独立 Compose project `hifly-pilot-verify`，对外测试端口为 HTTP `28080`、HTTPS `28443`；使用临时

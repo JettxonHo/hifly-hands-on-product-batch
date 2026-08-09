@@ -126,6 +126,7 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
   }
 
   const worker = workerOptions();
+  const hiflyApiToken = env.HIFLY_API_TOKEN?.trim() || null;
   const generationConfig = {
     executionBackend: executionMode,
     rpa: {
@@ -208,7 +209,12 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
     manualHandoff: { enabled: true, localRoot: path.join(dataDir, "manual-handoff-packages"), worker },
     manualExecution: { enabled: true, maxCandidateBytes: 256 * 1024 * 1024, localRoot: path.join(dataDir, "manual-execution-candidates"), worker },
     artifactVerification: { enabled: true, worker },
-    workDelivery: { enabled: true }
+    workDelivery: { enabled: true },
+    hiflyApi: {
+      enabled: Boolean(hiflyApiToken),
+      token: hiflyApiToken,
+      timeoutMs: integer(env.HIFLY_API_TIMEOUT_MS || 10_000, "HIFLY_API_TIMEOUT_MS", { min: 1_000, max: 60_000 })
+    }
   };
 }
 
