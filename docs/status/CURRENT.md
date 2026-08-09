@@ -1,7 +1,7 @@
 # 项目当前状态
 
 > 最后更新：2026-08-09
-> 当前远端 main：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（A14 PR #94 已合并）
+> A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：`GOAL_APPROVED`，Vertical Slice A 的 A01～A14 已全部合并并关闭对应 Issue
 
 ## VSA-A14 全链路验收与加固（Issue #70，2026-08-09）
