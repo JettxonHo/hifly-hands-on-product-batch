@@ -63,11 +63,11 @@ test("manual handoff panel recovers generation, downloads without execution, and
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL); await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
-  await page.locator("#newPassword").fill("Manual-Handoff-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/`);
+  await page.locator("#newPassword").fill("Manual-Handoff-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
   await page.goto(`${origin}/production.html?project=${project.id}&product=${product.id}&orderId=${order.order.id}`);
   await page.getByText("等待执行", { exact: true }).first().waitFor();
   assert.equal(await page.getByRole("button", { name: "生成交接包", exact: true }).count(), 1);
-  assert.equal(await page.getByRole("button", { name: "领取人工任务", exact: true }).isDisabled(), true);
+  assert.equal(await page.locator("#claimManualTask").isDisabled(), true);
   await page.getByRole("button", { name: "生成交接包", exact: true }).click();
   await page.getByText("生成中", { exact: true }).waitFor();
   await app.manualHandoff.worker.runNext();

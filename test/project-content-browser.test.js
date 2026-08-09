@@ -40,12 +40,25 @@ test("system Chrome completes and restores the project-content flow", async (t) 
   t.after(() => browser.close());
   const page = await browser.newPage();
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL); await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
-  await page.locator("#newPassword").fill("Browser-Content-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/`);
-  await page.getByText("项目", { exact: true }).click(); await page.getByRole("button", { name: "创建项目" }).click(); await page.getByLabel("项目名称").fill("八月新品"); await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click(); await page.getByText("打开", { exact: true }).click();
+  await page.locator("#newPassword").fill("Browser-Content-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
+  await page.getByRole("link", { name: "项目", exact: true }).click(); await page.getByRole("button", { name: "创建项目" }).click(); await page.getByLabel("项目名称").fill("八月新品"); await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click(); await page.getByText("打开", { exact: true }).click();
   await page.getByRole("button", { name: "创建商品" }).click(); await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("云朵抱枕"); await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
   await page.getByRole("button", { name: "新增卖点" }).click(); await page.locator(".point-row input").fill("柔软亲肤"); await page.getByRole("button", { name: "保存草稿" }).click(); await page.getByText("草稿已保存。").waitFor();
   await page.getByRole("button", { name: "确认", exact: true }).click(); await page.getByText(/已确认。$/).waitFor(); await page.locator("#assetOptions input").check();
   await page.getByRole("button", { name: "设为 Ready" }).click(); await page.getByText("商品快照已 Ready。").waitFor(); assert.match(await page.locator("#revisionState").textContent(), /^已 Ready/);
+  const revisionId = new URL(page.url()).searchParams.get("revision");
+  assert.ok(revisionId);
   await page.reload(); await page.locator("#revisionState").waitFor(); assert.match(await page.locator("#revisionState").textContent(), /^已 Ready/);
+  assert.equal(new URL(page.url()).searchParams.get("revision"), revisionId);
   assert.equal(await page.getByRole("button", { name: "设为 Ready" }).isDisabled(), true);
+
+  await page.route(new RegExp(`/api/product-revisions/${revisionId}$`), (route) => route.fulfill({
+    status: 409,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "PRODUCT_REVISION_CONFLICT" })
+  }));
+  await page.locator('textarea[name="product_description"]').fill("并发修改");
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await page.getByText("页面内容已过期，请刷新后继续。", { exact: true }).waitFor();
+  await page.unroute(new RegExp(`/api/product-revisions/${revisionId}$`));
 });

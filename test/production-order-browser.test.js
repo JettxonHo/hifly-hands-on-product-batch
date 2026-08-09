@@ -64,7 +64,7 @@ test("production workspace supports empty/create/re-entry flows at desktop and 3
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL);
   await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
-  await page.locator("#newPassword").fill("Production-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/`);
+  await page.locator("#newPassword").fill("Production-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
 
   await page.goto(`${origin}/production.html?project=${project.id}&product=${product.id}`);
   await page.getByRole("heading", { name: "生成与交付", exact: true }).waitFor();

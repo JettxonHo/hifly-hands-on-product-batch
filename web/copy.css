@@ -68,7 +68,7 @@
 .finding-card.resolved { border-color: var(--n-200); border-left-color: var(--n-400); background: var(--n-50); }
 .finding-card h3 { margin: 6px 0 4px; font-size: 14px; }
 .finding-card p { margin: 0; overflow-wrap: anywhere; color: var(--n-700); font-size: 13px; }
-.finding-card .finding-match { margin: 8px 0; padding: 8px 10px; border-left: 2px solid var(--warning); background: var(--surface); color: var(--n-800); font-size: 13px; overflow-wrap: anywhere; }
+.finding-card .finding-match { margin: 8px 0; padding: 8px 10px; border-left: 2px solid var(--warning); background: var(--n-50); color: var(--n-800); font-size: 13px; overflow-wrap: anywhere; }
 .finding-card .finding-meta { margin-top: 8px; color: var(--n-500); }
 .finding-card .finding-suggestion { margin-top: 8px; font-weight: 600; color: var(--n-800); }
 .finding-card .finding-resolution { margin-top: 8px; color: var(--n-500); }

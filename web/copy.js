@@ -87,7 +87,7 @@
     element("#projectBreadcrumb").href = `/project.html?id=${encodeURIComponent(project.id)}`;
     element("#factsStageLink").href = `/project.html?id=${encodeURIComponent(project.id)}`;
     element("#mobileFactsStageLink").href = `/project.html?id=${encodeURIComponent(project.id)}`;
-    element("#productFactsLink").href = `/project.html?id=${encodeURIComponent(project.id)}`;
+    element("#productFactsLink").href = `/project.html?id=${encodeURIComponent(project.id)}&revision=${encodeURIComponent(revision.id)}`;
     updateAvatarLinks();
 
     const selector = element("#productSelector");

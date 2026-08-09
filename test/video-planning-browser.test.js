@@ -47,7 +47,7 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL);
   await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
-  await page.locator("#newPassword").fill("Plan-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/`);
+  await page.locator("#newPassword").fill("Plan-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
 
   await page.goto(`${origin}/plan.html?project=${project.id}&product=${product.id}`);
   await page.getByRole("heading", { name: "视频方案", exact: true }).waitFor(); await page.getByText("还没有视频方案").waitFor();

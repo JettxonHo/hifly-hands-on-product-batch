@@ -1,8 +1,30 @@
 # 项目当前状态
 
 > 最后更新：2026-08-09
-> 当前远端 main：`75dfe96ec50fe06e24396c4ca8e47aef9e5135c2`（A13 PR #91 已合并）
-> 当前 Goal：A04～A13 自主开发已完成并停止；A14 未开始
+> 当前远端 main：`ed6567ceb4b266f2ee4ec823ab01b9263bdc71d6`（A14 UX 审计 PR #93 已合并）
+> 当前 Goal：A14 实现与本地验收完成；待实现 PR、CI 与 Owner 合并授权
+
+## VSA-A14 全链路验收与加固（Issue #70，2026-08-09）
+
+- Kimi Code 已按 `kimi-code/k3`、1M context、Max reasoning 产出并合并
+  `docs/frontend/VSA-A14_FULL_CHAIN_UX_AUDIT.md`（PR #93，main `ed6567c`）。配置状态
+  `CONFIG_VERIFIED`，CLI 未暴露服务端模型身份，运行时状态 `UNVERIFIED_RUNTIME_MODEL`。
+- 实现位于 `/private/tmp/hifly-vsa-a14-implementation`、分支 `codex/vsa-a14-acceptance`，基于
+  `ed6567c`。准确使用自定义 Agent `luna-worker`（`gpt-5.6-luna` / Max）实施，Sol 独立 Review；
+  未使用 Terra。
+- 已补企业 feature-aware 登录落点与非管理员回链、商品 revision URL 恢复、文案页返回上下文、
+  project 409 冲突文案、素材核验 2s 有界轮询、缺失 token、works hover 位移和 production 死控件清理。
+- 独立 Review 发现并修复生产工单开启且尚无视频方案时 `plan.status` 空引用；回归测试先复现，
+  修复后 A14 主路径不再通过 service hook 预置方案，而是从空状态填写说明并点击创建。
+- 新增 A14 系统 Chrome 主路径：全新企业管理员/成员登录与改密 → 项目/商品/素材 → 文案生成、
+  质检与审核 → 人物确认 → 空视频方案创建、预检与批准 → 工单、交接包、人工执行、核验、Work
+  检查与交付。1440px 生产页与 390px 作品页均断言无横向溢出；截图仅在
+  `/private/tmp/hifly-vsa-a14-screenshots/`，不进仓库。
+- 验证：A14 + A10 browser 2/2 pass、0 skip；`npm run check` 178 JS；`git diff --check` 通过；
+  全量 `npm test` 为 803 tests / 789 pass / 0 fail / 14 environment skips。跳过项为既有 PostgreSQL/
+  identity browser 环境条件，不计为通过。
+- 没有访问 Hifly、没有真实 Provider/Capture HTTP、没有运行批次、没有消耗飞影积分。当前尚未
+  commit/push/创建实现 PR；A14 合并需 Owner 另行明确授权。
 
 ## VSA-A13 作品检查与交付记录（Issue #69，2026-08-09）
 

@@ -55,7 +55,7 @@ test("A11 browser flow claims, confirms, uploads, reports, refreshes, and stays 
   delete packageProjection.id;
   await page.route(`**/api/production-orders/${order.order.id}/manual-handoff-packages`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ packages: [packageProjection] }) }));
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(email); await page.getByLabel("密码", { exact: true }).fill(temporaryPassword); await page.getByRole("button", { name: "登录" }).click();
-  await page.locator("#newPassword").fill("A11-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/`);
+  await page.locator("#newPassword").fill("A11-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
   await page.goto(`${origin}/production.html?project=${project.id}&product=${product.id}&orderId=${order.order.id}`);
   await page.getByRole("button", { name: "领取人工任务", exact: true }).waitFor();
   await page.getByRole("button", { name: "领取人工任务", exact: true }).click(); await page.getByText("任务已领取，请确认开始。", { exact: true }).waitFor();

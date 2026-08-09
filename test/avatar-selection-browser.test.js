@@ -60,7 +60,7 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL);
   await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
   await page.locator("#newPassword").fill("Avatar-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click();
-  await page.waitForURL(`${origin}/`);
+  await page.waitForURL(`${origin}/projects.html`);
 
   const url = `${origin}/avatar.html?project=${project.id}&product=${product.id}&copy=copy-approved`;
   let releaseRuntime;

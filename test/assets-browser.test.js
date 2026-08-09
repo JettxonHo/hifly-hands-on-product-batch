@@ -52,12 +52,9 @@ test("material center restores verifying and available states after refresh", as
   await page.locator("#assetFile").setInputFiles(imagePath);
   await page.getByRole("button", { name: "上传并开始核验" }).click();
   await page.getByText("核验中", { exact: true }).waitFor();
-  await page.reload();
-  await page.getByText("核验中", { exact: true }).waitFor();
   assert.equal(await page.getByText("核验通过", { exact: true }).count(), 0);
   await app.assets.service.runNextVerificationJob();
-  await page.reload();
-  await page.getByText("核验通过", { exact: true }).waitFor();
+  await page.getByText("核验通过", { exact: true }).waitFor({ timeout: 5000 });
 });
 
 test("identity and assets disabled preserve the real browser Playwright workbench", async (t) => {

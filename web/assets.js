@@ -5,6 +5,10 @@
   const errorNode = document.querySelector("#assetError");
   const listNode = document.querySelector("#assetList");
   const refreshButton = document.querySelector("#refreshAssets");
+  const pendingStatuses = new Set(["upload_pending", "uploading", "verifying"]);
+  let pollTimer = null;
+  let refreshInFlight = false;
+  let tornDown = false;
 
   const csrf = () => {
     const value = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf="));
@@ -28,6 +32,18 @@
     SIZE_MISMATCH: "文件大小与上传声明不一致，请重新上传。", CHECKSUM_MISMATCH: "文件完整性核验失败，请重新上传。",
     OWNERSHIP_MISMATCH: "文件归属核验失败，请联系管理员。"
   };
+  function stopPolling() {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+  function schedulePolling(assets) {
+    stopPolling();
+    if (tornDown || !assets.some((asset) => pendingStatuses.has(asset.versions[0]?.status))) return;
+    pollTimer = setTimeout(() => {
+      pollTimer = null;
+      if (!tornDown) refresh();
+    }, 2000);
+  }
   function render(assets) {
     listNode.replaceChildren();
     if (!assets.length) {
@@ -45,9 +61,20 @@
     }
   }
   async function refresh() {
+    if (refreshInFlight || tornDown) return;
+    refreshInFlight = true;
     refreshButton.disabled = true; errorNode.textContent = "";
-    try { render((await request("/api/assets")).assets); } catch (error) { if (error.message !== "AUTH_REQUIRED") errorNode.textContent = "素材状态加载失败，请稍后刷新。"; }
-    finally { refreshButton.disabled = false; }
+    try {
+      const assets = (await request("/api/assets")).assets;
+      render(assets);
+      schedulePolling(assets);
+    } catch (error) {
+      stopPolling();
+      if (error.message !== "AUTH_REQUIRED") errorNode.textContent = "素材状态加载失败，请稍后刷新。";
+    } finally {
+      refreshInFlight = false;
+      refreshButton.disabled = false;
+    }
   }
   form.addEventListener("submit", async (event) => {
     event.preventDefault(); const file = fileInput.files[0]; if (!file) return;
@@ -64,6 +91,7 @@
     } finally { form.querySelector("button").disabled = false; }
   });
   refreshButton.addEventListener("click", refresh);
+  window.addEventListener("pagehide", () => { tornDown = true; stopPolling(); }, { once: true });
   try {
     const me = await request("/api/auth/me");
     if (me.status !== "ok") window.location.replace("/login.html"); else await refresh();
