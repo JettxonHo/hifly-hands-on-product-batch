@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-09
 > 当前远端 main：`ed6567ceb4b266f2ee4ec823ab01b9263bdc71d6`（A14 UX 审计 PR #93 已合并）
-> 当前 Goal：A14 实现与本地验收完成；待实现 PR、CI 与 Owner 合并授权
+> 当前 Goal：A14 ready PR #94 本地验收与 CI 全绿；待 Owner 合并授权
 
 ## VSA-A14 全链路验收与加固（Issue #70，2026-08-09）
 
@@ -23,8 +23,9 @@
 - 验证：A14 + A10 browser 2/2 pass、0 skip；`npm run check` 178 JS；`git diff --check` 通过；
   全量 `npm test` 为 803 tests / 789 pass / 0 fail / 14 environment skips。跳过项为既有 PostgreSQL/
   identity browser 环境条件，不计为通过。
-- 没有访问 Hifly、没有真实 Provider/Capture HTTP、没有运行批次、没有消耗飞影积分。当前尚未
-  commit/push/创建实现 PR；A14 合并需 Owner 另行明确授权。
+- 实现提交 `5d771c0` 已推送，ready PR #94 的 Ubuntu、Windows、PostgreSQL CI 全绿。没有访问
+  Hifly、没有真实 Provider/Capture HTTP、没有运行批次、没有消耗飞影积分。A14 合并需 Owner
+  另行明确授权。
 
 ## VSA-A13 作品检查与交付记录（Issue #69，2026-08-09）
 

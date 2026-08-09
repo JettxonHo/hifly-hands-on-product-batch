@@ -6,7 +6,8 @@
 ## 2026-08-09 VSA-A14 本地实现与独立验收完成（未访问飞影、未消耗积分）
 
 - A14 UX 审计文档已通过 PR #93 合并到 `main=ed6567c`。实现 worktree 为
-  `/private/tmp/hifly-vsa-a14-implementation`，分支 `codex/vsa-a14-acceptance`；当前改动尚未提交。
+  `/private/tmp/hifly-vsa-a14-implementation`，分支 `codex/vsa-a14-acceptance`；实现提交
+  `5d771c0` 已推送并进入 ready PR #94。
 - `luna-worker` 完成有界实现，Sol Review 发现并修复 production-enabled 空视频方案的真实空引用；
   A14 browser 现从 UI 空状态创建首个方案，不再从测试 service hook 绕过。
 - 全链路浏览器验收覆盖全新企业、权限角色、A02～A13 页面接力、异步恢复、方案/审核/工单/人工执行/
@@ -14,8 +15,8 @@
 - 本地证据：A14 + manual handoff 系统 Chrome 2 pass/0 fail/0 skip；`npm run check` 178 JS；
   `npm test` 803 tests / 789 pass / 0 fail / 14 environment skips；`git diff --check` 通过；1440/390
   截图在仓库外 `/private/tmp/hifly-vsa-a14-screenshots/`。
-- 下一步：commit/push/create ready PR → 等 CI → Sol 复核。A14 不在 A04～A13 自动合并授权内，
-  合并和关闭 Issue #70 前需 Owner 明确授权。当前关键飞影批次均未触碰。
+- 实现提交 `5d771c0` 已推送，ready PR #94 的 Ubuntu、Windows、PostgreSQL CI 全绿。A14 不在
+  A04～A13 自动合并授权内，合并和关闭 Issue #70 前需 Owner 明确授权。当前关键飞影批次均未触碰。
 
 ## 2026-08-09 VSA-A13 作品检查与交付记录（luna-worker；未访问飞影、未消耗积分）
 

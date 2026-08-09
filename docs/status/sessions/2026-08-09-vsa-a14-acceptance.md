@@ -59,7 +59,6 @@ pass
 
 ## 下一步
 
-1. 提交并推送当前实现。
-2. 创建 ready PR 并等待 Ubuntu、Windows、PostgreSQL CI。
-3. Sol 复核 PR 与 CI。
-4. A14 合并需 Owner 明确授权；合并后关闭 Issue #70，并给出 Vertical Slice A Goal 最终结论。
+1. 实现提交 `5d771c0` 已推送，ready PR #94 已创建。
+2. Ubuntu、Windows、PostgreSQL CI 均已通过。
+3. A14 合并需 Owner 明确授权；合并后关闭 Issue #70，并给出 Vertical Slice A Goal 最终结论。
