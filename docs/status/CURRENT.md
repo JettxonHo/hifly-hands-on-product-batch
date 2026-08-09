@@ -4,6 +4,42 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：`GOAL_APPROVED`，Vertical Slice A 的 A01～A14 已全部合并并关闭对应 Issue
 
+## 2026-08-09 Sol 隔离实机验收完成（未访问飞影、未消耗积分）
+
+- Sol 使用独立 Compose project `hifly-pilot-verify`，对外测试端口为 HTTP `28080`、HTTPS `28443`；使用临时
+  自签证书和测试密码，均不是生产凭据/证书。镜像 build 成功；首次从 Docker Hub 拉取时出现若干 EOF，重试后
+  成功，确认不是代码失败。
+- `postgres:15-alpine` healthy，当前 13 个 A01-A14 migration steps 全部成功；app healthy，
+  `nginx:1.30.4-alpine` healthy。HTTPS `GET /healthz` 返回 `200 {"status":"ok"}`，`/login.html` 返回 200。
+- `pg_dump` backup 成功，并恢复到 fresh `hifly_restore_verify` 成功；恢复库 public tables count 为 92。
+- Sol 全量 `npm test`：821 total / 776 pass / 45 skip / 0 fail（约 40 秒）；生产定向测试 9/9，
+  `npm run check` 检查 193 个 JS，`git diff --check` 与 Compose config 均通过。
+- 验收使用的临时容器随后由 Sol 清理；临时自签证书不具备生产用途。全程未访问 Hifly、未执行真实 provider/Playwright/Capture，
+  未消耗飞影积分。
+
+## 2026-08-09 腾讯云 2C4G 一体化内部试运行基线（IMPLEMENTER；未访问飞影、未消耗积分）
+
+- 分支 `codex/tencent-cloud-pilot` 在设计基线 `e1f985e` 上完成生产入口、显式 A01-A14 migration、PostgreSQL
+  backup/restore、Docker Compose 与 Nginx 合同；默认生产执行器为 `fail_closed`，真实飞影/provider/executor
+  未配置时不会伪造成功。
+- Compose 试点数据库统一为 `postgres:15-alpine`，与 Node 22 slim/bookworm 内的 `postgresql-client` major
+  版本一致；`POSTGRES_PASSWORD` 必须显式提供，不再有可启动的默认密码。backup/restore argv 只使用脱敏
+ 连接 URI，密码通过子进程 `PGPASSWORD` 传递，日志不输出连接串。
+- 生产入口只读取环境变量/secret，不读取 `config.local.json`；固定监听 `0.0.0.0:PORT`，不自动跳端口；
+  `startupMigrations=false`，启动只做 repository initialize/schema-current 校验。demo/legacy 默认 startup
+  migration 与 Playwright 路径保持不变。
+- Compose 仅 proxy 对外发布，app/PostgreSQL 走内网并使用持久 volume、healthcheck 和 2C4G 资源上限；
+  `HTTP_PORT`/`HTTPS_PORT` 可覆写，证书契约为 `deploy/certs/fullchain.pem` 与 `privkey.pem`。`/healthz`
+  不受 identity guard，但受 trusted Host 约束，Nginx health proxy 使用允许的 Host；单次批量请求上限为
+  128 MiB，生产 `maxBatchBytes` 与 Nginx `client_max_body_size` 对齐。
+- 已通过：`node --test test/production-start.test.js test/production-deployment.test.js`（9/9）；
+  `npm run check`（193 个 JavaScript 文件）、`git diff --check`、默认及 `HTTP_PORT=18080 HTTPS_PORT=18443`
+  的隔离 Compose config，以及隔离项目名的 app image build。Sol 独立重跑全量测试通过：821 tests，776 pass，
+  45 skip，0 fail，约 40 秒；本 IMPLEMENTER 未重复长测。
+- 本轮未启动、停止或修改任何既有 Docker 容器，未访问 `hifly.cc`、未运行真实 provider/Playwright/Capture，
+  未消耗积分；该文档与 `docs/deployment/TENCENT_CLOUD_2C4G_DEPLOYMENT_RUNBOOK.md` 明确本方案尚未达到公网
+  生产交付。
+
 ## 2026-08-09 云端试运行准备启动
 
 - PR #97 已 squash merge，`main=fc54f7c`；A01-A14 一键本地演示入口已进入正式基线。

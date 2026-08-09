@@ -1,6 +1,6 @@
 # 腾讯云 2C4G 试运行部署设计
 
-> 状态：待 Owner 确认部署级别后实施
+> 状态：Owner 已确认第一阶段内部试运行；部署基线已实现并通过本地隔离验收
 > 基线：`main` 已包含 A01-A14 与一键本地演示（PR #97）
 
 ## 结论
@@ -31,7 +31,7 @@
 Internet
   -> HTTPS reverse proxy (80/443)
       -> Node/Fastify app (container, private port)
-          -> PostgreSQL 16 (container, loopback/private network)
+          -> PostgreSQL 15 (container, loopback/private network)
           -> persistent local volume
           -> external provider / manual execution
 ```
@@ -61,24 +61,26 @@ Internet
 正式生产应把数据库和文件从应用机拆出。这样 2C4G 只承担 Web/API 与轻量 worker，后续可直接
 横向扩容；Playwright 若仍保留，应部署到独立的 4C8G 或更高执行节点。
 
-## 当前实现缺口
+## 当前实现状态与剩余缺口
 
-1. `src/server/start.js` 仍以本地 GUI 启动方式为主，会尝试打开浏览器，并以本地 URL 输出。
-2. 生产配置仍依赖 `config.local.json`；缺少只从环境变量/Secret 注入的云端入口。
-3. 当前对象存储只有本地文件实现，尚无腾讯云 COS adapter。
-4. controlled provider/evaluator 与 fake executor 只能用于演示，不能作为真实生产能力。
-5. 缺少生产 Dockerfile、Compose、反向代理、健康检查、备份和部署检查脚本。
-6. 缺少 2C4G 实机资源基准、故障恢复演练和受控真实链路验收。
+已完成生产专用入口、环境变量配置、显式 migration、Dockerfile、Compose、Nginx、健康检查及
+PostgreSQL 备份/恢复。默认执行器为 `fail_closed`，不会把演示结果伪装成真实生产结果。
 
-## 实施顺序
+仍未完成：
 
-1. 新增生产 server 入口：禁用自动开浏览器，固定监听容器端口，配置全部由环境变量注入。
-2. 新增 Dockerfile、生产 Compose、反向代理和健康检查。
-3. 按 A01-A14 依赖顺序提供显式 migration 命令，部署不在应用启动时偷偷迁移。
-4. 建立 volume、备份、恢复和日志轮转说明。
-5. 用 fake provider/executor 在 Linux 容器完成无积分端到端验证。
-6. 接入真实 Provider；将本地对象存储迁移到 COS。
-7. 获得单独授权后，才进行 1 条真实飞影链路验收。
+1. 当前对象存储只有本地文件实现，尚无腾讯云 COS adapter；
+2. controlled provider/evaluator 仅适合流程试点，尚未接入正式文案与质检 Provider；
+3. 真实飞影执行链未接入云端生产入口，Playwright 仍只保留为本地兜底；
+4. 尚未在真实 2C4G 云主机完成持续资源基准、服务器重启恢复与异机备份演练；
+5. 尚未完成面向公网客户所需的托管数据库、密钥托管、监控告警和安全运维。
+
+## 后续实施顺序
+
+1. 在腾讯云 2C4G 实机按 runbook 部署内部试运行环境并采集资源基准；
+2. 配置正式域名、证书、安全组、异机备份和监控告警；
+3. 接入真实 Provider，并将本地对象存储迁移到 COS；
+4. 获得单独积分授权后，才进行 1 条真实飞影链路验收；
+5. 外部客户生产前拆分托管 PostgreSQL、COS 与独立执行节点。
 
 ## 2C4G 验收线
 
@@ -90,10 +92,7 @@ Internet
 - 服务器重启后服务、数据库与 worker 恢复，未完成任务不被重复提交；
 - 全程不依赖服务器桌面或人工打开浏览器。
 
-## 待 Owner 确认
+## Owner 决策
 
-必须先确认首发目标：
-
-- **内部试运行**：采用第一阶段一体化 2C4G，成本最低，后续再拆 COS/数据库；
-- **直接面向外部客户**：采用第二阶段，2C4G 仅作应用节点，从第一天使用托管 PostgreSQL 与 COS。
-
+首发采用第一阶段一体化 2C4G 内部试运行。该决定不等于批准公网生产，也不授权真实飞影积分执行；
+进入第二阶段前仍需单独验收和授权。

@@ -259,6 +259,25 @@ npm run package
 outputs/hifly-hands-on-product-batch.tar.gz
 ```
 
+## 腾讯云 2C4G 内网试运行
+
+生产试运行不使用 `config.local.json`、本地 GUI 自动开浏览器或真实飞影链路；配置来自环境变量/secret，
+默认 `PRODUCTION_EXECUTOR=fail_closed`。完整步骤见
+`docs/deployment/TENCENT_CLOUD_2C4G_DEPLOYMENT_RUNBOOK.md`。
+
+```bash
+cp .env.example .env
+HTTP_PORT=18080 HTTPS_PORT=18443 docker compose -p hifly-pilot \
+  -f docker-compose.production.yml config
+docker compose -p hifly-pilot -f docker-compose.production.yml up -d postgres
+docker compose -p hifly-pilot -f docker-compose.production.yml run --rm app npm run migrate:production
+docker compose -p hifly-pilot -f docker-compose.production.yml up -d
+```
+
+实际部署前必须准备 `PUBLIC_HOST`/`PUBLIC_ORIGIN`、数据库连接串、初始管理员配置（如启用 seed）以及只读挂载
+证书 `fullchain.pem`/`privkey.pem`。只有 Nginx 对外发布，`app` 与 PostgreSQL 仅在 Compose 内网；备份写入
+`/var/backups/hifly` 挂载目录，恢复必须显式传 `--confirm`。这套配置是低并发内网试点，不代表公网生产就绪。
+
 包内包含 `web/`、`src/`、`scripts/`、`docs/`、示例配置和示例商品表；不包含浏览器登录态、真实下载视频、日志、截图和本地配置。
 
 ## GitHub 发布前检查

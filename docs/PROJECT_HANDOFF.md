@@ -3,6 +3,41 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-09 Sol 隔离实机验收完成（未访问飞影、未消耗积分）
+
+- Sol 在独立 Compose project `hifly-pilot-verify` 完成实机验证，使用 HTTP `28080`、HTTPS `28443`，临时自签
+  证书和测试密码；这些证书/凭据不属于生产环境。image build success；Docker Hub 首次若干 EOF 后重试成功，
+  不是代码失败。
+- `postgres:15-alpine` healthy，13 个 migration steps 全部成功；app healthy；`nginx:1.30.4-alpine` healthy。
+  HTTPS `GET /healthz` 得到 200 `{"status":"ok"}`，`/login.html` 得到 200。
+- `pg_dump` backup 成功，restore 到 fresh `hifly_restore_verify` 成功，public tables count 为 92。
+- Sol 全量测试为 821 total / 776 pass / 45 skip / 0 fail（约 40 秒）；production targeted 9/9，check 193，
+  diff-check 与 Compose config 均通过。临时容器随后由 Sol 清理；全程未访问 Hifly、未消耗飞影积分。
+
+## 2026-08-09 腾讯云 2C4G 一体化内部试运行基线实现（IMPLEMENTER；未访问飞影、未消耗积分）
+
+- 工作区 `/private/tmp/hifly-tencent-cloud-pilot`，分支 `codex/tencent-cloud-pilot`，基于设计提交
+  `e1f985e`；本轮未 commit/push/PR/merge，未触碰根工作区或既有 Docker 容器。
+- 已完成生产专用 `production-config`/`production-start`：环境变量与 secret-only 配置、A01-A14 全量启用、
+  `fail_closed` executor、禁用真实 live transport、固定 `0.0.0.0:PORT` 监听、禁用 startup migration；
+  `buildApp` 仅在 production seam 下跳过两处 startup migration，repository initialize 仍检查 schema-current，
+  demo/legacy 默认行为保持不变。
+- 已完成 `src/deployment/production-migrations.js` 与 `scripts/migrate-production.mjs`，按当前 identity、assets、
+  projectContent、copyGeneration、copyQuality、copyReview、avatarSelection、videoPlanning、productionOrders、
+  manualHandoff、manualExecution、artifactVerification、workDelivery 顺序显式执行；并完成 PostgreSQL
+  15 试点的 `db:backup`/`db:restore`，restore 强制 `--confirm`；argv 使用无密码连接 URI，密码只通过
+  `PGPASSWORD` 传给子进程，日志不输出 `DATABASE_URL`。
+- 已完成 `Dockerfile`（Node 22 slim、跳过 Playwright 浏览器下载、非 root）、`.dockerignore`、
+  `docker-compose.production.yml`、`deploy/nginx/default.conf`、`.env.example` 与部署 runbook。只有 proxy
+  对外发布；HTTP/HTTPS 可用环境变量覆写；proxy 固定为 `nginx:1.30.4-alpine`，HTTPS 使用 `listen 443 ssl;`
+  与 `http2 on;`；health proxy 使用 trusted Host 并保留正常 Host/Origin 语义。
+- TDD/验证：生产部署与启动定向测试 9/9 通过；`npm run check` 检查 193 个 JavaScript 文件通过，
+  `git diff --check` 通过；显式 `POSTGRES_PASSWORD` 与替代端口 Compose config 通过，隔离 project 名的 app
+  image build 通过且未启动任何服务。Sol 独立重跑全量测试通过：821 tests / 776 pass / 45 skip / 0 fail，
+  约 40 秒；本 IMPLEMENTER 未重复长测。不做真实数据库迁移、backup/restore 或飞影执行。
+- 已知边界：这是内网低并发试点基线，不是公网生产交付；未提供真实 provider/executor、COS/托管数据库、
+  密钥托管、弹性扩容和公网安全运维。保持 `PRODUCTION_EXECUTOR=fail_closed`，证书与云安全组由部署方另行配置。
+
 ## 2026-08-09 PR #97 合并，腾讯云 2C4G 试运行准备启动（未访问飞影、未消耗积分）
 
 - Owner 要求开始正式投入准备并询问腾讯云 2C4G 可行性；PR #97 已按仓库策略 squash merge，
