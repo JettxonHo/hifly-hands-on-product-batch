@@ -268,6 +268,9 @@ export async function buildApp({
   captureLive = {},
   webRoot = path.join(getProjectRoot(), "web"),
   storeOptions = {},
+  databasePool = null,
+  closeDatabasePool = false,
+  startupMigrations = true,
   identity: identityOptions = null,
   assets: assetOptions = null,
   projectContent: projectContentOptions = null,
@@ -286,6 +289,7 @@ export async function buildApp({
   now
 } = {}) {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("root is required");
+  if (typeof startupMigrations !== "boolean") throw new TypeError("startupMigrations must be boolean");
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
   const batchRoot = path.join(path.resolve(root), "batches");
   const staticRoot = path.resolve(webRoot);
@@ -331,24 +335,24 @@ export async function buildApp({
   await store.initialize();
   let identityRepository = null;
   let identityService = null;
-  let ownsIdentityRepository = false;
+  let ownsDatabasePool = false;
   let assetService = null;
   let assetWorker = null;
-  let sharedPool = null;
+  let sharedPool = databasePool;
   let projectContentRepository = null;
   if (identityEnabled) {
     if (identityOptions.repository) {
       identityRepository = identityOptions.repository;
     } else {
-      sharedPool = createIdentityPool({ connectionString: identityOptions.databaseUrl || process.env.DATABASE_URL });
+      sharedPool = sharedPool || createIdentityPool({ connectionString: identityOptions.databaseUrl || process.env.DATABASE_URL });
       identityRepository = createPostgresIdentityRepository({ pool: sharedPool, ownsPool: false });
-      ownsIdentityRepository = true;
+      ownsDatabasePool = !databasePool || closeDatabasePool;
     }
     try {
       await identityRepository.initialize();
       if (identityOptions.seed?.enabled) await seedInitialAdmin(identityRepository, identityOptions.seed, { now });
     } catch (error) {
-      if (ownsIdentityRepository) await sharedPool?.end().catch(() => undefined);
+      if (ownsDatabasePool) await sharedPool?.end().catch(() => undefined);
       throw error;
     }
     identityService = createAuthService({
@@ -381,7 +385,7 @@ export async function buildApp({
   app.decorate("workbench", { batchRoot, executor, openBrowser, store });
   app.decorate("stopExecutions", coordinator.stop);
   app.addHook("onClose", async () => coordinator.stop());
-  if (ownsIdentityRepository) app.addHook("onClose", async () => sharedPool.end());
+  if (ownsDatabasePool) app.addHook("onClose", async () => sharedPool.end());
   app.addHook("onRequest", security.onRequest);
   if (identityService) app.addHook("preHandler", createIdentityGuard(identityService));
   app.setErrorHandler((error, request, reply) => {
@@ -396,6 +400,15 @@ export async function buildApp({
   }
 
   if (!identityEnabled) app.get("/api/session", async (request, reply) => security.bootstrap(reply));
+  app.get("/healthz", async (_request, reply) => {
+    try {
+      await sharedPool?.query?.("SELECT 1");
+      return { status: "ok" };
+    } catch {
+      reply.code(503);
+      return { status: "unavailable" };
+    }
+  });
   app.get("/api/runtime", async () => {
     const batchConfig = generationConfig.rpa?.realLive?.batch || {};
     return {
@@ -439,7 +452,7 @@ export async function buildApp({
       await objectStore.initialize?.();
     } catch (error) {
       await assetRepository.close?.().catch(() => undefined);
-      if (ownsIdentityRepository) await sharedPool.end().catch(() => undefined);
+      if (ownsDatabasePool) await sharedPool.end().catch(() => undefined);
       throw error;
     }
     assetService = createAssetService({
@@ -640,7 +653,7 @@ export async function buildApp({
     if (!service) {
       repository = repository || (sharedPool ? createPostgresWorkVerificationRepository({ pool: sharedPool }) : null);
       if (!repository) throw Object.assign(new Error("WORK_VERIFICATION_REPOSITORY_REQUIRED"), { code: "WORK_VERIFICATION_REPOSITORY_REQUIRED" });
-      if (sharedPool && !artifactVerificationOptions.repository) await runWorkVerificationMigrations(sharedPool);
+      if (startupMigrations && sharedPool && !artifactVerificationOptions.repository) await runWorkVerificationMigrations(sharedPool);
       await repository.initialize();
       const orderPort = artifactVerificationOptions.orderPort || {
         getOrder: app.productionOrders.service.getOrder,
@@ -672,7 +685,7 @@ export async function buildApp({
     if (!service) {
       repository = repository || (sharedPool ? createPostgresWorkDeliveryRepository({ pool: sharedPool }) : null);
       if (!repository) throw Object.assign(new Error("WORK_DELIVERY_REPOSITORY_REQUIRED"), { code: "WORK_DELIVERY_REPOSITORY_REQUIRED" });
-      if (sharedPool && !workDeliveryOptions.repository) await runWorkDeliveryMigrations(sharedPool);
+      if (startupMigrations && sharedPool && !workDeliveryOptions.repository) await runWorkDeliveryMigrations(sharedPool);
       await repository.initialize();
       const workPort = workDeliveryOptions.workPort || app.artifactVerification?.repository;
       if (!workPort?.listWorks || !workPort?.getWork) throw Object.assign(new Error("WORK_DELIVERY_WORK_PORT_REQUIRED"), { code: "WORK_DELIVERY_WORK_PORT_REQUIRED" });

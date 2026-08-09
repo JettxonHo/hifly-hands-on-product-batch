@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "gui": "node src/server/start.js",
+    "start:production": "node src/server/production-start.js",
     "demo": "node scripts/demo.mjs",
     "demo:stop": "node scripts/demo-stop.mjs",
     "demo:reset": "node scripts/demo-reset.mjs",
@@ -22,6 +23,9 @@
     "migrate:production-orders": "node scripts/migrate-production-orders.mjs",
     "migrate:manual-handoff": "node scripts/migrate-manual-handoff.mjs",
     "migrate:manual-execution": "node scripts/migrate-manual-execution.mjs",
+    "migrate:production": "node scripts/migrate-production.mjs",
+    "db:backup": "node scripts/backup-production-db.mjs",
+    "db:restore": "node scripts/restore-production-db.mjs",
     "migrate:work-verification": "node scripts/migrate-work-verification.mjs",
     "validate": "node src/validate-products.js",
     "run": "node src/run-batch.js",
