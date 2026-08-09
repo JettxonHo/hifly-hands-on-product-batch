@@ -1,8 +1,18 @@
 # 项目当前状态
 
-> 最后更新：2026-08-09
+> 最后更新：2026-08-10
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：`GOAL_APPROVED`，Vertical Slice A 的 A01～A14 已全部合并并关闭对应 Issue
+
+## 2026-08-10 阿里云 2C4G 内部试运行环境已部署（未访问飞影、未消耗积分）
+
+- `origin/main=646c0a9` 已部署到阿里云 Ubuntu 22.04 轻量服务器；服务器 Git 工作树保持干净，部署变量、证书、数据库数据与备份均不进入 Git。
+- Docker Engine 29.7.2 / Compose v5.4.0 已安装；PostgreSQL 15、Node 应用和 Nginx 三个容器均为 healthy，只有 22/80/443 对外监听，app 3000 与 PostgreSQL 5432 仅在 Compose 网络内可达。
+- A01-A14 共 13 组 production migration 全部通过；公网 HTTPS `/healthz` 返回 `{"status":"ok"}`，登录页可访问，初始管理员登录返回 `password_change_required`。
+- `pg_dump` 已生成备份，并成功恢复到临时验证数据库；验证得到 92 张 public tables，随后删除临时库，生产库未受影响。
+- 服务器资源验收时 app/PostgreSQL/Nginx 合计使用约 185 MiB 内存，系统盘约 13% 已用，满足当前低并发内部试运行基线。
+- 当前使用 30 天自签 IP 证书，仅用于内部试运行；正式对外前必须配置域名、可信证书、备案/安全组策略和监控备份。`PRODUCTION_EXECUTOR=fail_closed`，服务器未配置 Hifly Token，也没有触发真实飞影请求或积分消耗。
+- 阿里云网络下 Docker Hub 与 Debian 官方源出现超时；镜像通过 DaoCloud 公共镜像前缀预拉取并重新标记，应用镜像使用仓库外 Dockerfile 将 Debian apt 源替换为阿里云镜像。服务器仓库源码未改动。细节见 `docs/deployment/ALIYUN_2C4G_DEPLOYMENT_NOTES.md`。
 
 ## 2026-08-09 Hifly 官方 API Token 底座与连接验证（未生成视频、未消耗积分）
 
