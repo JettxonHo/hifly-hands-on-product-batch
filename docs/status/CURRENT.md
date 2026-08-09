@@ -1,8 +1,8 @@
 # 项目当前状态
 
 > 最后更新：2026-08-09
-> 当前远端 main：`ed6567ceb4b266f2ee4ec823ab01b9263bdc71d6`（A14 UX 审计 PR #93 已合并）
-> 当前 Goal：A14 ready PR #94 本地验收与 CI 全绿；待 Owner 合并授权
+> 当前远端 main：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（A14 PR #94 已合并）
+> 当前 Goal：`GOAL_APPROVED`，Vertical Slice A 的 A01～A14 已全部合并并关闭对应 Issue
 
 ## VSA-A14 全链路验收与加固（Issue #70，2026-08-09）
 
@@ -23,9 +23,9 @@
 - 验证：A14 + A10 browser 2/2 pass、0 skip；`npm run check` 178 JS；`git diff --check` 通过；
   全量 `npm test` 为 803 tests / 789 pass / 0 fail / 14 environment skips。跳过项为既有 PostgreSQL/
   identity browser 环境条件，不计为通过。
-- 实现提交 `5d771c0` 已推送，ready PR #94 的 Ubuntu、Windows、PostgreSQL CI 全绿。没有访问
-  Hifly、没有真实 Provider/Capture HTTP、没有运行批次、没有消耗飞影积分。A14 合并需 Owner
-  另行明确授权。
+- PR #94 已于 2026-08-09 squash merge，merge commit 为 `ba687de`，Issue #70 已自动关闭；
+  Ubuntu、Windows、PostgreSQL CI 全绿。A14 最终结论为 `GOAL_APPROVED`。没有访问 Hifly、没有
+  真实 Provider/Capture HTTP、没有运行批次、没有消耗飞影积分。
 
 ## VSA-A13 作品检查与交付记录（Issue #69，2026-08-09）
 
