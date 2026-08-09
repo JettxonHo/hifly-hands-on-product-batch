@@ -3,6 +3,17 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 阿里云内部试运行部署检查点（未访问飞影、未消耗积分）
+
+- 生产基线：`origin/main=646c0a9df00a3fe1b7555a1c8b7a8fda60ec13e9`，部署目录 `/opt/hifly-pilot`，服务器仓库 `main...origin/main` 且工作树干净。
+- 运行状态：`app`、`postgres`、`proxy` 均 healthy；公网只监听 22/80/443，HTTPS health 与登录页通过，最近启动日志未匹配到 uncaught/unhandled/fatal/连接拒绝/migration failed。
+- 数据状态：13 组 production migration 全部通过；备份文件位于持久备份卷，已恢复到临时库验证 92 张 public tables，临时库已删除。
+- 身份状态：初始管理员 seed 已验证可登录，服务端返回 `password_change_required`；凭据仅保存在服务器权限为 600 的 `.env`，未写入仓库或本文档。
+- 部署隔离：证书位于 `/opt/hifly-runtime/certs`，通过 `TLS_CERT_DIR` 只读挂载；构建用 Dockerfile 位于 `/opt/hifly-runtime/Dockerfile`，只替换 Debian apt 镜像源。两者均位于 Git 工作树之外。
+- 当前边界：30 天自签 IP 证书、`PRODUCTION_EXECUTOR=fail_closed`、`HIFLY_API_TOKEN` 为空。环境可用于 A01-A14 内部低并发验收，但还不是客户公网生产，也不能在服务器端自动执行飞影「手里有货」。
+- 下一步人工动作：Owner 使用临时管理员首次登录并立即改密；取得域名后完成备案/DNS/可信证书，再决定是否把官方 API Token 放入云端 SecretStore。任何真实飞影生成仍需单独授权积分。
+- 阿里云镜像与运维差异见 `docs/deployment/ALIYUN_2C4G_DEPLOYMENT_NOTES.md`；通用启动、迁移、备份和恢复仍以腾讯云 2C4G runbook 为准。
+
 ## 2026-08-09 Hifly 官方 API Token 底座（未调用真实 API、未消耗积分）
 
 - 独立分支 `codex/hifly-official-api-token` 基于 `origin/main=76cfff3`；根工作区既有脏文件未触碰。
