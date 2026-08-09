@@ -4,7 +4,7 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：生产能力补齐，正在交付新云端系统的最小 Local Agent 真实执行器闭环
 
-## 2026-08-10 Local Agent 最小执行器实现完成，等待合并与真实验收
+## 2026-08-10 Local Agent 最小执行器实现完成，等待发布与真实验收
 
 - 云端控制面已实现 Agent readiness、claim/start/lease heartbeat、交接包下载、候选 MP4 回传、受控结果报告，并把成功候选交给既有 A12 核验创建 Work。
 - macOS CLI 默认 standby，只上报在线而不领取工单；fake 需显式环境开关，真实 Playwright 需 `--real` 和 `LOCAL_AGENT_REAL_EXECUTION=true` 双门禁。缺人物映射进入 `requires_action`；租约续期失败停止上传和报告。

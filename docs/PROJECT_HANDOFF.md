@@ -10,7 +10,7 @@
 - macOS CLI 入口为 `npm run local-agent:run-once`，默认 standby 只心跳、不领取；fake 需 `LOCAL_AGENT_FAKE_EXECUTION=true`，真实 Playwright 必须使用 `--real` 和 `LOCAL_AGENT_REAL_EXECUTION=true`。人物映射按云端 avatar asset version id 解析本地图片。
 - Sol Review 已修复三项会阻断真实链路的问题：CLI/server requires-action 字段不一致、租约心跳失败后仍可能上传、CLI/server 受控错误码不一致。
 - 验证已完成：全量串行 862 tests / 848 pass / 14 environment skips / 0 fail；定向 74 tests / 73 pass / 1 PostgreSQL environment skip / 0 fail；`npm run check` 204 JS、`git diff --check` 通过。环境 skip 未记为通过。
-- 当前没有部署到阿里云、没有连接 Mac Agent、没有真实飞影单条验收。不得把 fake 系统测试写成云端端到端已可用。下一阶段顺序：合并本分支 → 云端 migration/config/deploy → Mac 配对和无积分 idle/fake 检查 → Owner 新授权后只跑 1 条真实飞影。
+- 当前没有部署到阿里云、没有连接 Mac Agent、没有真实飞影单条验收。不得把 fake 系统测试写成云端端到端已可用。进入 `main` 后的顺序：云端 migration/config/deploy → Mac 配对和无副作用 standby 检查 → 隔离环境 fake 检查 → Owner 新授权后只跑 1 条真实飞影。
 - 运行手册：`docs/deployment/LOCAL_AGENT_RUNBOOK.md`。本轮飞影积分消耗 0。
 
 ## 2026-08-10 Local Agent Task 1+2 有界阶段（IMPLEMENTER；未访问飞影、未消耗积分）
