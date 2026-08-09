@@ -32,9 +32,9 @@ Local Agent / 常驻执行节点
 └── 人工接管
 
 Provider API asynchronous worker
-├── 可部署在云端
-├── 可部署在 Local Agent
-└── 由 Q-018 决定
+├── 正式 API 能力：服务端 Worker
+├── Token：服务端环境变量或云 SecretStore
+└── 仅网页能力：Local Agent / Playwright
 ```
 
 ```text
@@ -85,7 +85,7 @@ D-026 固化了云基础设施方向（详见 [CLOUD_INFRASTRUCTURE.md](CLOUD_IN
 - 企业正式计算层为 CloudBase Run API + Worker（两个独立部署单元，模块化单体）；核心业务不依赖 CloudBase 专有身份/数据库/领域 SDK，**CloudBase Run 等产品名不泄露到领域模型**（领域层通过基础设施抽象接入，领域层不绑定腾讯云）；
 - MVP 任务机制为 PostgreSQL AsyncJob / Transactional Outbox（Worker 用 `FOR UPDATE SKIP LOCKED` 领取 + 租约/心跳），不采购 RabbitMQ；
 - 正式生产主地域为腾讯云广州（`ap-guangzhou`），API/Worker/PostgreSQL 同 VPC，PostgreSQL 不开放公网；
-- **Q-018 仍开放**：采用 SSM 不等于授权上传 Hifly Token；Q-018 决定前 Hifly Token 不进入既定云端 Secret 清单、不默认进入 CloudBase Run、不从 Local Agent 迁移至云端；
+- **Q-018 已由 D-032 关闭**：Hifly 官方 API Token 由服务端环境变量或云 SecretStore 托管；网页登录态、Cookie 与浏览器 Profile 仍只留在 Local Agent；
 - CloudBase Run 服务角色（或等效临时身份）能否访问 SSM、COS、KMS 必须在正式部署前验证；
 - Local Agent、Playwright Adapter、Hifly API Adapter 继续保留；影刀（Yingdao）RPA Adapter 仍是可选 Adapter，需独立 Evidence，不替代 Playwright 主链路，不在 D-026 中做最终工具迁移决策；
 - 不新增或修改 Provider capability 声明；不访问真实 Provider。
@@ -96,7 +96,7 @@ D-026 只固化架构方向，**不代表任何云资源已经部署**。
 
 ## 三、Local Agent
 
-> **D-028 领域边界**：LocalAgent 区分连接状态（pairing/online/offline/revoked）与业务可用状态（unconfigured/available/busy/requires_action/incompatible/disabled），在线 ≠ 业务可用，前端不得直接将 Agent 改为 online；ProductionOrder 与 ExecutionAttempt 分离，每次技术重试或执行器切换（含 Playwright 切换影刀）创建新 ExecutionAttempt，attempt succeeded ≠ ProductionOrder succeeded；人工执行使用 `executor_type = manual` 的 ExecutionAttempt，不伪造自动化信息（DM-003）；ProviderConnection 不保存 Hifly 网页 Secret（用户名/密码/Cookie/LocalStorage/浏览器 Profile/Hifly Token 明文/验证码/未脱敏页面数据），**Q-018 仍 Pending Evidence / Open**。详见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)（D-028）。
+> **D-028 / D-032 领域边界**：LocalAgent 区分连接状态（pairing/online/offline/revoked）与业务可用状态（unconfigured/available/busy/requires_action/incompatible/disabled），在线 ≠ 业务可用，前端不得直接将 Agent 改为 online；ProductionOrder 与 ExecutionAttempt 分离，每次技术重试或执行器切换（含 Playwright 切换影刀）创建新 ExecutionAttempt，attempt succeeded ≠ ProductionOrder succeeded；人工执行使用 `executor_type = manual` 的 ExecutionAttempt，不伪造自动化信息（DM-003）；ProviderConnection 不保存 Hifly 网页 Secret（用户名/密码/Cookie/LocalStorage/浏览器 Profile/Hifly Token 明文/验证码/未脱敏页面数据）。官方 API Token 按 D-032 仅由服务端环境变量或云 SecretStore 托管。详见 [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)（D-028）。
 
 现有项目应**演化为 Local Agent，而不是被删除**。现有可靠执行内核（批量执行、状态机、原子写、幂等、证据采集、跨平台 CI 标准）是 Local Agent 的执行引擎基础。
 
@@ -169,8 +169,7 @@ Provider Task Router
 └── Local Agent / Playwright
 ```
 
-- **Hifly API Worker 是逻辑上的异步执行角色，不默认代表云端部署。** 它可以部署在：云端后台 Worker、Local Agent 内部 Worker、或两种方式并存；具体部署位置由 Q-018 的 Token 保管决策决定。
-- **在 Q-018 决定前**：不默认把 Token 上传云端；不默认 API 必须从云端调用；不默认 API 必须经过 Local Agent。
+- **Hifly API Worker 是逻辑上的异步执行角色。** D-032 确认正式 API 能力由服务端 Worker 使用服务端 Token 调用；仅网页能力继续走 Local Agent / Playwright。
 - **API 创作任务必须异步执行**，不放在普通 HTTP 请求生命周期内（与长 Playwright 任务的约束一致）；
 - 路由依据 Provider capability 确认状态与任务需求决定：需要登录态、本地文件、人工接管或仅网页支持的能力走 Local Agent / Playwright；已确认 API 能力走 Hifly API asynchronous worker；
 - Provider Adapter 仍是统一的能力抽象，底层执行路径对上层透明。
@@ -549,8 +548,10 @@ API 文档提供任务完成回调，但**回调不能作为唯一完成机制**
 
 ### API Token 保管
 
-- 飞影 API Token 的保管位置与调用执行位置待 owner 决策（见 [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) Q-018）；
-- **在决策前不得默认把 Token 上传云端**。
+- 飞影官方 API Token 使用服务端环境变量或云 SecretStore 托管，当前配置名为 `HIFLY_API_TOKEN`；
+- Token 不进入前端、领域模型、数据库、日志、错误信息、Git、交接包或 Local Agent 任务包；
+- 网页登录态、Cookie、LocalStorage 与浏览器 Profile 不因 D-032 迁移到云端；
+- 配置 Token 不代表「手里有货」已获得官方 API 支持。
 
 ---
 
@@ -599,7 +600,7 @@ API 文档提供任务完成回调，但**回调不能作为唯一完成机制**
 
 - 我们账号是否拥有 API Token、配额与调用权限；
 - 文档能力与实际调用行为是否一致；
-- API Token 的保管位置与调用执行位置（见 Q-018）；
+- API Token 的账号权限、配额、轮换与吊销验证（保管位置已由 D-032 确定）；
 - Provider 配额与成本是否可程序化查询。
 
-**在 Q-018 决策前，不得默认把 Token 上传云端。**
+**任何 capability 在真实权限与调用验证前，不得仅因 Token 已配置而标记为可用。**

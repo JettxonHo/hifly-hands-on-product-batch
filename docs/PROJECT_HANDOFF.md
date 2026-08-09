@@ -3,6 +3,16 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-09 Hifly 官方 API Token 底座（未调用真实 API、未消耗积分）
+
+- 独立分支 `codex/hifly-official-api-token` 基于 `origin/main=76cfff3`；根工作区既有脏文件未触碰。
+- Owner 确认官方 API Token 由服务端环境变量/云 SecretStore 托管；Q-018 由 D-032 关闭。
+- 新增官方 API client、生产 `HIFLY_API_TOKEN` 配置和管理员显式账户积分连接检查；Token 不进入前端、领域数据、日志或 Git。
+- 「手里有货」仍未在公开 API V2 文档确认，现有 Capture HTTP/Playwright 路径与 `fail_closed` 默认不变。
+- Owner 确认 `hifly_agent_token` 暂不接入当前批量生产链路；它只作为后续 Coze/对话式智能体能力候选，不替代官方 API Token，也不解决「手里有货」、姿势或背景控制。用户截图中曾出现完整智能体 Token，必须先在飞影后台撤销或轮换，项目不得保存该值。
+- 2026-08-09 Owner 将官方 API Key 配置到本地；检查发现其最初误写入受跟踪的 `.env.example`，已迁移至 Git 忽略且权限为 `600` 的 `.env`，模板恢复为空，真实值从未提交。
+- Owner 确认后运行一次 `npm run hifly:check`：官方账户积分接口连接成功并返回整数余额；没有创建视频任务、没有消耗积分。检查命令使用 Node 原生 `.env` 加载，不依赖 shell `source`。
+
 ## 2026-08-09 Sol 隔离实机验收完成（未访问飞影、未消耗积分）
 
 - Sol 在独立 Compose project `hifly-pilot-verify` 完成实机验证，使用 HTTP `28080`、HTTPS `28443`，临时自签

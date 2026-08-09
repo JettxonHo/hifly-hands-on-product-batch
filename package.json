@@ -8,6 +8,7 @@
     "test": "node --test test/*.test.js",
     "gui": "node src/server/start.js",
     "start:production": "node src/server/production-start.js",
+    "hifly:check": "node --env-file-if-exists=.env scripts/check-hifly-api.mjs",
     "demo": "node scripts/demo.mjs",
     "demo:stop": "node scripts/demo-stop.mjs",
     "demo:reset": "node scripts/demo-reset.mjs",

@@ -43,6 +43,18 @@ cp .env.example .env
 `DATABASE_URL`，以及启用初始管理员 seed 时的四个 `INITIAL_ADMIN_*`/组织字段。生产必须使用 HTTPS，
 `PUBLIC_ORIGIN` 必须是 `https://`；不要把 `.env` 提交到 Git。
 
+如需启用飞影官方 API，在服务端 `.env` 设置 `HIFLY_API_TOKEN`。留空时官方 API 功能保持禁用；设置后也不会
+在启动或页面加载时自动访问飞影。只有管理员显式调用 `POST /api/providers/hifly/connection-test` 才会执行
+账户积分查询，该调用不创建视频任务。当前公开 API 未确认「手里有货」，因此该 Token 不会替换 Capture HTTP
+或 Playwright 路径，`PRODUCTION_EXECUTOR` 仍默认保持 `fail_closed`。正式企业环境应把 Token 迁移到云端
+SecretStore，不写入镜像、Git、日志或前端配置。
+
+配置完成后可在应用容器内显式验证 Token 和积分查询；该命令不会创建视频任务：
+
+```bash
+docker compose -p hifly-pilot -f docker-compose.production.yml exec app npm run hifly:check
+```
+
 准备证书目录（默认 `./deploy/certs`，也可用 `TLS_CERT_DIR` 指定宿主机目录）：
 
 ```text

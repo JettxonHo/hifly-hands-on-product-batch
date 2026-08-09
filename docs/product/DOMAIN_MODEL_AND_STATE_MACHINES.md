@@ -266,7 +266,7 @@ DeliveryRecord 是交付业务事件，不是 Work 状态。每条记录至少�
 
 ProviderConnection 只保存：Organization、LocalAgent、Provider 类型、连接状态摘要、最近验证时间、已验证能力摘要、脱敏账号引用、Evidence 版本。**不得保存**：用户名和密码、Cookie、LocalStorage、浏览器 Profile、Hifly Token 明文、验证码、未脱敏页面数据。
 
-**Q-018 继续保持 Pending Evidence / Open。D-028 不关闭 Q-018，也不声称 SPK-018 已完成。**
+**D-028 当时未关闭 Q-018；Q-018 后续已由 D-032 关闭。D-028 仍不声称 SPK-018 已完成。**
 
 ## 24. 失效传播矩阵
 
@@ -334,4 +334,4 @@ D-028 不固定：数据库表名/字段名；ORM；API 路径；JSON Schema；�
 - ProductionOrder 人工交接包合同（ManualHandoffPackage 字段/格式/回传协议）；
 - Vertical Slice A Issue 拆分原则与 Definition of Done；
 - HIFLY-001 与 SPK-018-01～06 并行 Evidence；
-- Q-018（飞影 API Token 保管与调用位置）保持 Pending Evidence / Open。
+- Q-018（飞影 API Token 保管与调用位置）后续已由 D-032 关闭。

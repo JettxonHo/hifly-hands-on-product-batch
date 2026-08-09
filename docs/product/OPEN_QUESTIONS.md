@@ -189,17 +189,18 @@ Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROAD
 
 影响：手里有货 capability 的参数边界、阶段三背景资产与手里有货方案的组合规则。
 
-## Q-018 飞影 API Token 的保管位置与调用执行位置
+## Q-018 飞影 API Token 的保管位置与调用执行位置 —— 已关闭（2026-08-09，D-032）
 
-飞影 API Token 如何保管、调用在哪里执行，需要 owner 后续决定：
+**结论（owner 决定，2026-08-09，D-032）**：
 
-- 云端加密托管 Token；
-- Token 仅保存在 Local Agent；
-- 两种模式并存。
+- 飞影正式 API 的 Bearer Token 由服务端环境变量或云端 SecretStore 托管；当前配置名为 `HIFLY_API_TOKEN`；
+- Token 不进入前端、领域模型、数据库、Git、日志、错误信息、截图、交接包或 Local Agent 任务包；
+- 已由公开 API 文档确认并完成真实验证的能力，才允许经 Hifly API asynchronous worker 执行；
+- 仅网页支持、依赖浏览器登录态或需要人工接管的能力继续由 Local Agent / Playwright 执行；
+- 「手里有货」当前未在公开 API V2 文档中确认，不能因配置 Token 而改走官方 API；现阶段仍保留 Capture HTTP 与 Playwright 路径；
+- 当前实现只提供管理员显式触发的账户积分连接检查，不自动请求飞影，不创建任务，也不改变生产 `fail_closed` 默认值。
 
-**在决定前不得默认把 Token 上传云端。**
-
-影响：Provider Task Router 的 API Worker 部署形态、登录态与安全边界（见 `PROVIDER_AND_AGENT_ARCHITECTURE.md`）、多租户隔离方案。
+影响：Provider Task Router 采用云端官方 API Worker + Local Agent 网页执行并存的模式；具体 capability 仍按 Evidence 五层确认，Q-018 关闭不等于 HIFLY-001 已完成。
 
 ## Q-019 MVP 默认 LLM Provider 和模型 —— 已关闭（2026-08-04，D-023）
 
@@ -269,7 +270,7 @@ Vertical Slice A / Vertical Slice B 是垂直切片标签，不是 DELIVERY_ROAD
 - 企业生产架构：CloudBase Run API + Worker（独立部署单元，模块化单体）、TencentDB for PostgreSQL（唯一权威关系型业务库）、Tencent Cloud COS（sensitive + content 私有桶）、PostgreSQL AsyncJob / Transactional Outbox（MVP 不采购 RabbitMQ）、SSM/KMS/CAM/STS、CLS/APM/CloudAudit；
 - 个人 2C4G 环境只验证功能闭环与可靠性，不证明生产容量、SLA 或高可用；
 - 企业正式预算保持 **Pending Evidence**，企业正式上线前必须重新执行容量与资源评估、盘点企业已有腾讯云资源；
-- Q-018（飞影 API Token 保管与调用位置）**未被 D-026 解决，仍保持开放**；采用 SSM 不等于授权上传 Hifly Token，Hifly Token 不默认进入云端。
+- Q-018 当时未被 D-026 解决；后续已由 D-032 关闭，Hifly 官方 API Token 改由服务端环境变量或云 SecretStore 托管。
 
 详细 Specification 见 [CLOUD_INFRASTRUCTURE.md](CLOUD_INFRASTRUCTURE.md) 与 [DECISION_LOG.md](DECISION_LOG.md) D-026。D-026 只固化架构方向、环境边界和后续部署验收要求，不代表任何云资源已经部署。
 

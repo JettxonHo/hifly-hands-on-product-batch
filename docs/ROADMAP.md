@@ -42,8 +42,8 @@ Wave 12 A14 端到端验收与加固
 
 ## 4. Slice A 之后的产品能力
 
-- HIFLY-001、Q-018、SPK-018：继续 Evidence/能力验证，不是 Slice A 完成条件。
-- Local Agent 与自动 Provider 执行：在凭据边界和 Evidence 明确后进入后续阶段。
+- HIFLY-001、SPK-018：继续 Evidence/能力验证，不是 Slice A 完成条件；Q-018 已由 D-032 关闭。
+- Local Agent 与自动 Provider 执行：按 D-032 的双执行路径，在各 capability Evidence 明确后逐项接入。
 - Cloud 正式部署、企业增强、多 Provider、发布与数据复盘：依据 `docs/product/DELIVERY_ROADMAP.md` 分阶段实施。
 
 ## 5. 进入下一波次的门禁
