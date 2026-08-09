@@ -4,12 +4,18 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：`GOAL_APPROVED`，Vertical Slice A 的 A01～A14 已全部合并并关闭对应 Issue
 
-## 2026-08-09 Hifly 官方 API Token 底座（本地实现，未调用真实 API、未消耗积分）
+## 2026-08-09 Hifly 官方 API Token 底座与连接验证（未生成视频、未消耗积分）
 
 - Owner 确认 D-032：官方 API Token 使用服务端 `HIFLY_API_TOKEN` 或云 SecretStore 托管；Q-018 关闭。
 - 新增最小 Hifly API client 与管理员显式 `POST /api/providers/hifly/connection-test`，仅查询账户积分；无自动请求、无创作任务。
 - 生产默认 `fail_closed`、Capture HTTP 与 Playwright 路径保持不变；公开 API 未确认「手里有货」，因此不会由 Token 路径执行该能力。
-- 本轮只访问公开 API 文档页面，没有向 `hfw-api.hifly.cc` 发送请求，没有使用真实 Token，没有消耗积分。
+- 底座实现阶段只访问公开 API 文档页面；后续经 Owner 确认才执行下方一次真实只读连接检查。
+
+### 后续验证更新
+
+- Owner 配置 API Key 后，已完成一次显式账户积分只读检查：官方 API 连接成功、返回整数余额，没有创建任务或消耗积分。
+- Key 已从误用的 `.env.example` 迁移到 Git 忽略且权限为 `600` 的 `.env`；模板恢复为空，真实值未提交。
+- `hifly_agent_token` 暂不接入当前批量生产；截图中暴露的旧值必须在飞影后台轮换。
 
 ## 2026-08-09 Sol 隔离实机验收完成（未访问飞影、未消耗积分）
 
