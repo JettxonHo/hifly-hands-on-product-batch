@@ -82,7 +82,7 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL); await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
-  await page.locator("#newPassword").fill("Quality-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/`);
+  await page.locator("#newPassword").fill("Quality-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
   await page.goto(`${origin}/copy.html?project=${project.id}&revision=${revision.id}`);
   await page.getByRole("button", { name: "开始质检" }).click();
   await page.getByText("质检中，可离开本页").waitFor();

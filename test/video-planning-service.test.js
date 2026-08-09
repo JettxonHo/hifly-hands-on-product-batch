@@ -118,6 +118,14 @@ test("production order availability is projected only for an enabled current app
   assert.equal(invalidated.production_order_available, false);
 });
 
+test("production-enabled empty workspace is safe before the first plan exists", async () => {
+  const state = world({ productionOrdersEnabled: true });
+  const workspace = await state.service.getWorkspace(actor);
+  assert.equal(workspace.current_plan, null);
+  assert.equal(workspace.production_order_available, false);
+  assert.equal(workspace.production_order_notice, "当前方案尚未满足生产工单创建条件。");
+});
+
 test("technical preflight failure does not create a blocked business result", async () => {
   const state = world({ evaluate: async () => { throw Object.assign(new Error("offline evaluator"),
     { code: "PREFLIGHT_EVALUATION_FAILED" }); } });

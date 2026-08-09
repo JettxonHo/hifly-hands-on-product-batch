@@ -30,6 +30,16 @@
     csrf = await json(await fetch("/api/auth/intent", { credentials: "same-origin" }));
   }
 
+  async function landingPath() {
+    try {
+      const response = await fetch("/api/runtime", { credentials: "same-origin" });
+      const runtime = response.ok ? await response.json() : {};
+      return runtime.projectContentEnabled === true ? "/projects.html" : "/";
+    } catch (_error) {
+      return "/";
+    }
+  }
+
   function mutation(path, body) {
     return fetch(path, {
       method: "POST",
@@ -63,10 +73,10 @@
       if (mode === "login") {
         const result = await mutation("/api/auth/login", { email: byId("email").value, password: byId("password").value });
         if (result.status === "password_change_required") enterPasswordChange();
-        else window.location.assign("/");
+        else window.location.assign(await landingPath());
       } else {
         await mutation("/api/auth/change-password", { new_password: byId("newPassword").value });
-        window.location.assign("/");
+        window.location.assign(await landingPath());
       }
     } catch (error) {
       byId("authError").textContent = message(error.code);
@@ -80,7 +90,7 @@
     .then(async (response) => {
       if (!response.ok) return newIntent();
       const context = await response.json();
-      if (context.status !== "password_change_required") return window.location.replace("/");
+      if (context.status !== "password_change_required") return window.location.replace(await landingPath());
       const token = cookie("hifly_identity_csrf");
       if (!token) return newIntent();
       csrf = { csrf_token: token, csrf_header: "x-identity-csrf" };

@@ -54,7 +54,7 @@ test("copy workspace restores async generation, preserves frozen history, and re
   t.after(() => browser.close());
   const page = await browser.newPage();
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL); await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
-  await page.locator("#newPassword").fill("Copy-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/`);
+  await page.locator("#newPassword").fill("Copy-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
   await page.goto(`${origin}/projects.html`); await page.getByRole("button", { name: "创建项目" }).click(); await page.getByLabel("项目名称").fill("文案项目"); await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click(); await page.getByRole("link", { name: "打开" }).click();
   await page.getByRole("button", { name: "创建商品" }).click(); await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("云朵抱枕"); await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
   await page.getByRole("button", { name: "新增卖点" }).click(); await page.locator(".point-row input").fill("柔软亲肤"); await page.getByRole("button", { name: "保存草稿" }).click(); await page.getByText("草稿已保存。").waitFor();
@@ -63,6 +63,7 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.getByRole("link", { name: "进入文案与质检" }).click();
   await page.waitForURL(/\/copy\.html\?project=/);
   await page.getByRole("heading", { name: "文案与质检" }).waitFor();
+  assert.match(await page.locator("#productFactsLink").getAttribute("href"), /[?&]revision=[^&]+/);
   await page.getByRole("navigation", { name: "项目阶段" }).locator('[aria-current="step"]').waitFor();
   await page.getByRole("button", { name: "生成文案" }).click();
   await page.getByText("文案正在生成，可离开此页面。", { exact: true }).waitFor();

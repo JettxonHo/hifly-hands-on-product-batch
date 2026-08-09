@@ -19,6 +19,16 @@
     return payload;
   }
 
+  async function landingPath() {
+    try {
+      const response = await fetch("/api/runtime", { credentials: "same-origin" });
+      const runtime = response.ok ? await response.json() : {};
+      return runtime.projectContentEnabled === true ? "/projects.html" : "/";
+    } catch (_error) {
+      return "/";
+    }
+  }
+
   function render() {
     const root = byId("memberList");
     root.replaceChildren();
@@ -67,7 +77,7 @@
     try {
       const me = await request("/api/auth/me");
       if (me.status === "password_change_required") return window.location.replace("/login.html");
-      if (me.membership.role !== "admin") return window.location.replace("/");
+      if (me.membership.role !== "admin") return window.location.replace(await landingPath());
       members = (await request("/api/identity/members")).members;
       byId("membersError").textContent = "";
       render();

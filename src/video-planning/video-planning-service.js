@@ -80,7 +80,7 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
     const currentReview = reviews.at(-1) || null;
     const result = preflight.current_result;
     const canSubmit = plan?.status === "frozen" && ["passed", "warning"].includes(result?.status) && !currentReview;
-    const productionOrderAvailable = productionOrdersEnabled === true && plan?.id === head?.current_plan_id &&
+    const productionOrderAvailable = productionOrdersEnabled === true && Boolean(plan) && plan.id === head?.current_plan_id &&
       plan.status === "frozen" && currentReview?.status === "approved" && ["passed", "warning"].includes(result?.status);
     const productionOrderNotice = productionOrdersEnabled === true
       ? productionOrderAvailable ? "当前方案已批准，可以进入生产工单。" : "当前方案尚未满足生产工单创建条件。"

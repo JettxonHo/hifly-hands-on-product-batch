@@ -77,7 +77,7 @@ test("A12 browser flow restores an initial read failure, queued and passed verif
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill("a12-browser@example.test"); await page.getByLabel("密码", { exact: true }).fill("Temporary-A12-Browser-9!"); await page.getByRole("button", { name: "登录" }).click();
-  await page.locator("#newPassword").fill("A12-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/`);
+  await page.locator("#newPassword").fill("A12-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
   const executionProjection = { order: { id: order.order.id, status: "succeeded" }, current_attempt: { id: "attempt-a12-browser", status: "succeeded" }, candidates: [{ id: "candidate-a12-browser", role: "primary_video", status: "pending_verification", original_filename: "a12.mp4", checksum: "a".repeat(64), verification_status: "queued" }], reports: [{ id: "report-a12-browser", outcome: "completed", deviations: [{ code: "input_changed" }], primary_output: { upload_reference: "candidate-a12-browser", checksum: "a".repeat(64), media_type: "video/mp4", size: 16, role: "primary_video" } }] };
   await page.route(new RegExp(`/api/production-orders/${order.order.id}/manual-execution$`), (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(executionProjection) }));
   await page.route(new RegExp(`/api/manual-execution-attempts/${executionProjection.current_attempt.id}/reports$`), async (route) => {

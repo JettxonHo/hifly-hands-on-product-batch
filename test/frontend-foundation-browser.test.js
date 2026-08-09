@@ -63,7 +63,10 @@ test("enterprise pages share the approved shell and responsive creation flows", 
 
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.IDENTITY_BROWSER_EXECUTABLE || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    });
   } catch (error) {
     if (error.message.includes("Executable doesn't exist") || error.message.includes("browserType.launch")) {
       return t.skip("Playwright browser is unavailable");
@@ -79,7 +82,7 @@ test("enterprise pages share the approved shell and responsive creation flows", 
   await page.getByRole("button", { name: "登录" }).click();
   await page.locator("#newPassword").fill("Frontend-Foundation-Password-9!");
   await page.getByRole("button", { name: "保存并进入工作台" }).click();
-  await page.waitForURL(`${origin}/`);
+  await page.waitForURL(`${origin}/projects.html`);
 
   await page.goto(`${origin}/projects.html`);
   await page.getByRole("navigation", { name: "主导航" }).waitFor();
@@ -136,7 +139,7 @@ test("enterprise pages share the approved shell and responsive creation flows", 
   await page.getByRole("button", { name: "登录" }).click();
   await page.locator("#newPassword").fill("Operator-Permanent-Password-9!");
   await page.getByRole("button", { name: "保存并进入工作台" }).click();
-  await page.waitForURL(`${origin}/`);
+  await page.waitForURL(`${origin}/projects.html`);
   await page.route("**/api/auth/me", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     await route.continue();
