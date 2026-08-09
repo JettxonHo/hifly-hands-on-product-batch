@@ -3,7 +3,7 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
-## 2026-08-09 VSA-A14 本地实现与独立验收完成（未访问飞影、未消耗积分）
+## 2026-08-09 VSA-A14 已合并，Vertical Slice A Goal 完成（未访问飞影、未消耗积分）
 
 - A14 UX 审计文档已通过 PR #93 合并到 `main=ed6567c`。实现 worktree 为
   `/private/tmp/hifly-vsa-a14-implementation`，分支 `codex/vsa-a14-acceptance`；实现提交
@@ -15,8 +15,9 @@
 - 本地证据：A14 + manual handoff 系统 Chrome 2 pass/0 fail/0 skip；`npm run check` 178 JS；
   `npm test` 803 tests / 789 pass / 0 fail / 14 environment skips；`git diff --check` 通过；1440/390
   截图在仓库外 `/private/tmp/hifly-vsa-a14-screenshots/`。
-- 实现提交 `5d771c0` 已推送，ready PR #94 的 Ubuntu、Windows、PostgreSQL CI 全绿。A14 不在
-  A04～A13 自动合并授权内，合并和关闭 Issue #70 前需 Owner 明确授权。当前关键飞影批次均未触碰。
+- Owner 明确授权后，PR #94 已 squash merge，merge commit 为 `ba687de`，Issue #70 已关闭；
+  Ubuntu、Windows、PostgreSQL CI 全绿。VSA-A01～A14 全部进入 `main`，Goal 最终结论为
+  `GOAL_APPROVED`。当前关键飞影批次均未触碰。
 
 ## 2026-08-09 VSA-A13 作品检查与交付记录（luna-worker；未访问飞影、未消耗积分）
 

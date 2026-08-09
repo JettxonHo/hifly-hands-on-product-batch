@@ -57,8 +57,8 @@ pass
 - 未运行真实批次，未消耗飞影积分。
 - 未提交配置、登录态、批次、输出视频、HAR、日志、截图或 `node_modules`。
 
-## 下一步
+## 最终状态
 
-1. 实现提交 `5d771c0` 已推送，ready PR #94 已创建。
-2. Ubuntu、Windows、PostgreSQL CI 均已通过。
-3. A14 合并需 Owner 明确授权；合并后关闭 Issue #70，并给出 Vertical Slice A Goal 最终结论。
+1. PR #94 已于 2026-08-09 squash merge，merge commit 为 `ba687de`。
+2. Ubuntu、Windows、PostgreSQL CI 均已通过，Issue #70 已关闭。
+3. Vertical Slice A Goal 最终结论为 `GOAL_APPROVED`；真实 Hifly 与积分生产不在本 Goal 范围内。
