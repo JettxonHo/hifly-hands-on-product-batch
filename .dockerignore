@@ -1,0 +1,20 @@
+.git
+.gitignore
+node_modules
+config.local.json
+playwright/profile
+playwright/.auth
+rpa/capture/raw
+batches
+downloads
+logs
+outputs
+screenshots
+tmp
+.local-demo
+.pilot-backups
+*.har
+*.mp4
+*.zip
+*.dump
+# Keep migration SQL in the image.

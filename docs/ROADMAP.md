@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-06
-> 当前正式 Goal：Vertical Slice A（详见 `GOAL.md` 与 D-030）
+> 最后更新：2026-08-09
+> 当前状态：Vertical Slice A 已完成；进入腾讯云试运行准备
 
 ## 1. 当前交付：Vertical Slice A
 
@@ -20,11 +20,9 @@ Wave 11 A13 WorkInspection / DeliveryRecord
 Wave 12 A14 端到端验收与加固
 ```
 
-- Development Issues：#57～#70，均已创建。
-- 当前：A01 / #57 已获实现授权，独立 worktree 中完成首版，等待独立 Review、PR 和 CI。
-- A01 阻塞所有需要身份/Organization 上下文的后续 Issue。
-- A02 与 A03 仅在 A01 合并后并行；A02 的 ProductRevision ready 完整验收依赖 A03。
-- A14 只做串联、回归和小型加固，不接收 A01～A13 遗漏的主要能力。
+- Development Issues #57～#70 已全部完成并关闭；A01-A14 已进入 `main`。
+- PR #97 已合并，提供隔离、无积分的一键 A01-A14 本地演示入口。
+- 该里程碑证明企业业务闭环和页面链路可运行，不代表真实 Provider、飞影执行链和云端生产已经交付。
 
 ## 2. 旧本地生产链路：维护基线
 
@@ -33,13 +31,22 @@ Wave 12 A14 端到端验收与加固
 - Issue #37 Windows capture `interrupted_unknown` 根因仍开放；本轮 VSA 不扩大处理。
 - MULTI-002 保持 pending，未获新积分授权不得执行。
 
-## 3. Slice A 之后
+## 3. 当前阶段：云端试运行准备
+
+1. 建立 Linux 生产入口、环境变量配置、容器、HTTPS、健康检查和显式 migration。
+2. 在腾讯云 2C4G 上完成无积分端到端与资源基准。
+3. 接入真实 Provider 与腾讯云 COS；正式客户生产时优先使用托管 PostgreSQL。
+4. 经单独积分授权后，才执行 1 条真实飞影链路验收。
+
+部署设计见 `docs/deployment/TENCENT_CLOUD_2C4G_DEPLOYMENT_DESIGN.md`。
+
+## 4. Slice A 之后的产品能力
 
 - HIFLY-001、Q-018、SPK-018：继续 Evidence/能力验证，不是 Slice A 完成条件。
 - Local Agent 与自动 Provider 执行：在凭据边界和 Evidence 明确后进入后续阶段。
 - Cloud 正式部署、企业增强、多 Provider、发布与数据复盘：依据 `docs/product/DELIVERY_ROADMAP.md` 分阶段实施。
 
-## 4. 进入下一波次的门禁
+## 5. 进入下一波次的门禁
 
 1. 前置 Issue 已合并并通过 CI。
 2. `docs/status/CURRENT.md`、Goal 与相关产品文档一致。
