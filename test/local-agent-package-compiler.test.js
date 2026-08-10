@@ -126,7 +126,8 @@ test("loads avatar_asset_version_id mappings from a JSON config and compiles one
     assert.equal(item.sku, "SKU-1");
     assert.equal(item.product_name, "Alpha");
     assert.equal(item.script, "先展示商品，再说明体验。");
-    assert.equal(item.image_path, path.join(root, "assets", "product-version-1"));
+    assert.equal(item.image_path, path.join(root, "assets", "product-version-1.png"));
+    assert.deepEqual(await readFile(item.image_path), PRODUCT_BYTES);
     assert.equal(item.resolved_person_image_path, avatarPath);
     assert.equal(item.resolved_person_source, "local_agent_mapping");
   } finally {

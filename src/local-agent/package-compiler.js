@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { extractManualHandoffArchive } from "../manual-handoff/manual-handoff-package-store.js";
@@ -120,6 +120,12 @@ function productAsset(manifest) {
   return references.find((reference) => PRODUCT_IMAGE_ROLES.has(text(reference?.role)));
 }
 
+function productUploadExtension(reference) {
+  if (reference?.media_type === "image/png") return ".png";
+  if (reference?.media_type === "image/jpeg") return ".jpg";
+  throw localAgentError("LOCAL_AGENT_PACKAGE_INVALID");
+}
+
 export async function compilePackageToBatchItem({ manifest, extractionRoot, avatarMappings = {}, taskId } = {}) {
   if (!manifest || typeof manifest !== "object" || !text(extractionRoot)) throw localAgentError("LOCAL_AGENT_PACKAGE_INVALID");
   const itemCount = declaredItemCount(manifest);
@@ -135,8 +141,10 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
   const reference = productAsset(manifest);
   const assetVersionId = text(reference?.asset_version_id);
   if (!assetVersionId) throw localAgentError("LOCAL_AGENT_PACKAGE_INVALID");
-  const imagePath = packagePath(extractionRoot, path.posix.join("assets", assetVersionId));
-  await assertLocalFile(imagePath, "LOCAL_AGENT_PACKAGE_INVALID");
+  const packagedImagePath = packagePath(extractionRoot, path.posix.join("assets", assetVersionId));
+  await assertLocalFile(packagedImagePath, "LOCAL_AGENT_PACKAGE_INVALID");
+  const imagePath = `${packagedImagePath}${productUploadExtension(reference)}`;
+  await copyFile(packagedImagePath, imagePath);
 
   const product = manifest.product_revision || manifest.product_revision_snapshot || {};
   const copy = manifest.copy_snapshot || manifest.approved_copy_snapshot || {};
