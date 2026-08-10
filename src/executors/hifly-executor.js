@@ -27,8 +27,8 @@ export function createHiflyExecutor(config) {
       return hiflyPage.querySubmission(remoteEvidence);
     },
 
-    async downloadArtifact(remoteEvidence, destination) {
-      return hiflyPage.downloadArtifact(remoteEvidence, destination);
+    async downloadArtifact(remoteEvidence, destination, context) {
+      return hiflyPage.downloadArtifact(remoteEvidence, destination, context);
     },
 
     async reconcileSubmission(task, checkpoint) {
