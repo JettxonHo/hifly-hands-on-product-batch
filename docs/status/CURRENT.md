@@ -2,15 +2,32 @@
 
 > 最后更新：2026-08-10
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，正在交付新云端系统的最小 Local Agent 真实执行器闭环
+> 当前 Goal：生产能力补齐，最小 Local Agent 已部署并完成无副作用配对，等待单条真实验收授权
 
-## 2026-08-10 Local Agent 最小执行器实现完成，等待发布与真实验收
+## 2026-08-10 Local Agent 已部署并完成 standby 配对（未访问飞影、未消耗积分）
+
+- 阿里云试运行环境已从 `646c0a9` 升级到 `main@8846602`。升级前生成数据库备份
+  `hifly-20260810T020113Z.dump`，旧应用镜像保留为回滚标签。
+- 新镜像使用仓库外阿里云镜像源 Dockerfile 构建；13 组 production migration 全部成功，包含
+  `manualExecution` 下的 Local Agent 002/003 migration。app、postgres、proxy 均 healthy，HTTPS
+  `/healthz` 返回 200，服务器 Git 工作树干净。
+- 云端启用单一 `mac-agent-01`，绑定试运行 Organization；Bearer Token 仅保存在服务器 `.env` 和 Mac 用户级
+  `~/.config/hifly-local-agent/cloud.env`，文件权限为 600，未进入仓库、日志或本文档。
+- Mac 使用独立干净运行目录 `~/.local/share/hifly-local-agent/app`，版本同为 `8846602`。默认运行
+  `npm run local-agent:run-once` 后 heartbeat 返回 200，并输出 `local_agent_standby`；本次没有开启 fake/real
+  环境变量，没有领取工单、下载交接包或调用飞影。
+- 当前只证明云端与 Mac 的认证、网络和 readiness 心跳可用，不能宣称真实出片或云端端到端已验收。下一步需准备
+  1 个符合门禁的工单和本地人物映射，并由 Owner 另行明确授权 1 条飞影积分后运行 real 双门禁；失败即停且不自动重试。
+- 本阶段飞影积分消耗为 0。详细证据见
+  `docs/status/sessions/2026-08-10-local-agent-deployment-and-standby.md`。
+
+## 2026-08-10 Local Agent 最小执行器实现完成（部署前历史检查点）
 
 - 云端控制面已实现 Agent readiness、claim/start/lease heartbeat、交接包下载、候选 MP4 回传、受控结果报告，并把成功候选交给既有 A12 核验创建 Work。
 - macOS CLI 默认 standby，只上报在线而不领取工单；fake 需显式环境开关，真实 Playwright 需 `--real` 和 `LOCAL_AGENT_REAL_EXECUTION=true` 双门禁。缺人物映射进入 `requires_action`；租约续期失败停止上传和报告。
 - Local Agent 默认关闭，云端仍保持 `PRODUCTION_EXECUTOR=fail_closed`。配置和运行步骤见 `docs/deployment/LOCAL_AGENT_RUNBOOK.md`。
 - 无积分验证：定向 74 tests 为 73 pass / 1 PostgreSQL environment skip / 0 fail；全量串行 862 tests 为 848 pass / 14 environment skips / 0 fail；静态检查 204 JS 与 diff check 通过。skip 未计为通过。
-- 当前只完成代码和无积分 fake 闭环，尚未部署这组改动，也没有执行真实飞影单条验收，因此不能宣称云端端到端可用。
+- 该历史检查点只完成代码和无积分 fake 闭环，当时尚未部署；当前部署状态以上方最新章节为准。真实飞影单条验收仍未执行，因此不能宣称云端端到端可用。
 - 本轮未访问飞影、未消耗积分。真实单条验收必须重新明确授权，并遵守失败即停、不自动重试。
 
 ## 2026-08-10 Local Agent Task 1+2 有界阶段完成（未访问飞影、未消耗积分）
