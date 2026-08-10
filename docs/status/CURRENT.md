@@ -2,7 +2,16 @@
 
 > 最后更新：2026-08-10
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，第六次真实 Local Agent 验收的无积分前置已就绪；等待 Owner 重新授权最多 1 条真实生成，云端端到端仍未通过
+> 当前 Goal：生产能力补齐，第六次真实 Local Agent 已按授权执行并在飞影手持图上游失败；授权已用完，云端端到端仍未通过
+
+## 2026-08-10 第六次真实执行在飞影手持图上游失败，已停止且未重试
+
+- Owner 明确授权工单 `77aa217b-9a86-42de-8412-6dca62b0841b` 最多执行 1 条真实飞影生成并接受积分风险。执行前再次确认它是唯一 `waiting_for_executor` 工单、交接包 `8df73c3d-7fdd-49b5-b672-a2e1f4b420b1` 为 `ready / v1`、attempt 数为 0，飞影登录预检为 `ready`。
+- 唯一真实命令完成 heartbeat、claim、start、交接包下载、人物与商品上传，并点击一次手持商品图生成。飞影接口随后返回 `goods_holding_image_generation.data.status = 4`，页面进入“生成失败”；没有进入外层视频提交。
+- attempt `8793ea7b-4fe5-41a5-b4b1-1dfbff6d5013`、报告 `70cd9d0d-556b-4e96-a4fe-89d65832c59d` 已安全收口：工单和 attempt 为 `failed`，报告为 `failed / not_retryable`，candidate 0、Work 0。失败后没有启动第二次命令。
+- “最新作品”仍只有旧作品 `692503`，未出现本次新视频。账户余额在执行前后页面读取均为 `56041`，未观察到净扣分；最终积分结算仍以飞影后台流水为准。
+- 该失败是飞影手持图上游明确失败，不是登录、上传、确认、下载或云端报告链路回归。当前没有足够证据支持继续修改本地代码，也不得自动重试。若 Owner 决定继续，必须新建 reproduction 工单并再次明确授权最多 1 条真实生成。
+- 详细记录见 `docs/status/sessions/2026-08-10-sixth-real-local-agent-upstream-failure.md`。
 
 ## 2026-08-10 第六次真实验收前置就绪（未生成、未消耗积分）
 

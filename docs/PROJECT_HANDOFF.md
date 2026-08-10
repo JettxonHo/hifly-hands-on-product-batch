@@ -3,6 +3,14 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 第六次真实 Local Agent：飞影手持图上游失败；失败即停且未重试
+
+- Owner 明确授权工单 `77aa217b-9a86-42de-8412-6dca62b0841b` 只执行 1 条真实飞影生成并接受积分风险。执行前确认唯一待执行、交接包 ready、attempt 0 和登录预检 ready。
+- 唯一真实命令完成云端领取、交接包下载、素材上传并点击一次手持商品图生成。飞影 `goods_holding_image_generation` 返回 `data.status = 4`，页面进入“生成失败”；没有进入批准文案填写或外层视频提交。
+- attempt `8793ea7b-4fe5-41a5-b4b1-1dfbff6d5013`、报告 `70cd9d0d-556b-4e96-a4fe-89d65832c59d` 已落盘；工单/attempt failed，报告 `failed / not_retryable`，candidate 0、Work 0，没有第二次执行。
+- 飞影最新作品未增加，余额在执行前后页面读取均为 `56041`，未观察到净扣分；实际结算仍以飞影后台流水为准。本次授权已使用，禁止自动重试。
+- 详细记录：`docs/status/sessions/2026-08-10-sixth-real-local-agent-upstream-failure.md`。
+
 ## 2026-08-10 第六次真实验收前置完成；停在新的积分授权门禁前
 
 - 正式 API 已创建 reproduction 工单 `77aa217b-9a86-42de-8412-6dca62b0841b`，绑定已批准方案 `ab4f7c0c-2cfa-4023-9b63-b419233efab3`；交接包 `8df73c3d-7fdd-49b5-b672-a2e1f4b420b1` 为 `ready / v1`，生成 job `6d482d51-171a-40b1-be6c-b73d449c7b97` succeeded。
