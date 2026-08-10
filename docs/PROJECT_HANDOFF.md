@@ -3,6 +3,14 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 第六次真实验收前置完成；停在新的积分授权门禁前
+
+- 正式 API 已创建 reproduction 工单 `77aa217b-9a86-42de-8412-6dca62b0841b`，绑定已批准方案 `ab4f7c0c-2cfa-4023-9b63-b419233efab3`；交接包 `8df73c3d-7fdd-49b5-b672-a2e1f4b420b1` 为 `ready / v1`，生成 job `6d482d51-171a-40b1-be6c-b73d449c7b97` succeeded。
+- 只读数据库复核：该工单是全组织唯一 `waiting_for_executor` 工单，attempt 数为 0。飞影登录预检返回 `ready / playwright`；默认 standby 在有待执行工单时仍只 heartbeat，不 claim。
+- 本轮没有运行 real 双门禁，没有上传素材或点击飞影生成，积分消耗 0。第五次授权已用完；继续时必须获得 Owner 新的单条积分授权，且只允许运行一次，失败即停、不自动重试。
+- 当前 Mac Local Agent 为 `main@47093bb`，包含 PR #107～#110 的上传、文件类型、下载根目录和飞影失败态修复。云端服务仍运行 `e9c0df2`（PR #106）；其后四个合并提交只涉及 Local Agent 页面适配/编译/下载上下文及文档测试，没有改变本次使用的云端 Agent API 或数据库合同。
+- 详细记录：`docs/status/sessions/2026-08-10-sixth-real-local-agent-preflight.md`。
+
 ## 2026-08-10 第五次真实 Local Agent：飞影手持图生成失败；失败态识别已无积分修复
 
 - Owner 新授权最多执行 1 条真实飞影生成。通过正式 API 创建 reproduction 工单 `5ce1cd6d-fa17-4d66-acc0-697cf649dc36`，交接包 `5d7d7722-3726-4abe-a608-a551862dc2d8` 为 `ready / v1`；执行前确认其为唯一待执行工单、attempt 数为 0，飞影预检为 `ready`。
