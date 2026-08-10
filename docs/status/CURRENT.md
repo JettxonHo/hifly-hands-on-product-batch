@@ -2,7 +2,15 @@
 
 > 最后更新：2026-08-10
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，第五次真实 Local Agent 在飞影手持图生成阶段收到“生成失败”；已完成失败态识别的无积分 TDD 修复，云端端到端仍未通过
+> 当前 Goal：生产能力补齐，第六次真实 Local Agent 验收的无积分前置已就绪；等待 Owner 重新授权最多 1 条真实生成，云端端到端仍未通过
+
+## 2026-08-10 第六次真实验收前置就绪（未生成、未消耗积分）
+
+- 复用唯一已批准的 `iPad 平板电脑` 输入：商品 `ca54826c-91b3-4b9e-9fb7-f922a4152e1d`、视频方案 `ab4f7c0c-2cfa-4023-9b63-b419233efab3`、人物素材版本 `4e1bbcbb-5e8c-483e-9ea3-9a1ce51732a0`。第四次真实执行曾用同组输入生成飞影手持图和视频，因此没有把第五次上游生成失败误判为本地素材合同失效。
+- 通过正式云端 API 创建 reproduction 工单 `77aa217b-9a86-42de-8412-6dca62b0841b`；交接包 `8df73c3d-7fdd-49b5-b672-a2e1f4b420b1` 为 `ready / v1`，生成 job `6d482d51-171a-40b1-be6c-b73d449c7b97` 为 `succeeded / attempts 1`。
+- 只读数据库复核确认全组织只有该工单处于 `waiting_for_executor`，ExecutionAttempt 数为 0。Local Agent 飞影预检返回 `ready / playwright`；在存在该待执行工单时运行默认 standby 只完成 heartbeat 200 并返回 `local_agent_standby`，没有 claim。
+- 本轮没有上传素材、点击飞影生成、创建 attempt 或消耗积分。下一步必须由 Owner 新授权最多 1 条真实生成后，才允许运行一次 real 双门禁；失败立即停止且不自动重试。
+- 详细记录见 `docs/status/sessions/2026-08-10-sixth-real-local-agent-preflight.md`。
 
 ## 2026-08-10 第五次真实执行在飞影手持图生成失败，失败态识别已修复
 
