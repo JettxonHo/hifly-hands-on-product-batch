@@ -689,10 +689,11 @@ export class HiflyHandsOnProductPage {
     const startedAt = Date.now();
     let lastLoggedAt = 0;
     while (Date.now() - startedAt < timeout) {
-      if (await this.hasGeneratedImageReady()) return;
+      const state = await this.inspectVisibleGeneratedModalState();
+      if (state.failed) throw new Error("Hifly hands-on image generation failed.");
+      if (state.ready || (!state.visible && await this.hasGeneratedImageReady())) return;
       if (Date.now() - lastLoggedAt > 10000) {
         lastLoggedAt = Date.now();
-        const state = await this.inspectVisibleGeneratedModalState();
         this.logger.info("generated_modal_wait_state", {
           elapsedMs: Date.now() - startedAt,
           visible: state.visible,
@@ -868,6 +869,7 @@ export class HiflyHandsOnProductPage {
 
   async hasGeneratedImageReady() {
     const visibleState = await this.inspectVisibleGeneratedModalState();
+    if (visibleState.failed) return false;
     if (visibleState.ready) return true;
     if (visibleState.visible) return false;
 
@@ -901,6 +903,7 @@ export class HiflyHandsOnProductPage {
       const hasReadyActions = text.includes("再次生成") &&
         text.includes("重新编辑") &&
         text.includes("确认");
+      const failed = text.includes("生成失败");
       const hasUploadActions = text.includes("上传人物") ||
         text.includes("上传商品") ||
         text.includes("立即生成");
@@ -910,13 +913,15 @@ export class HiflyHandsOnProductPage {
       });
 
       return {
-        ready: hasReadyActions || (hasGeneratedImage && !hasUploadActions),
+        ready: !failed && (hasReadyActions || (hasGeneratedImage && !hasUploadActions)),
+        failed,
         text,
         buttonTexts,
         imageSources
       };
     }).catch(() => ({
       ready: false,
+      failed: false,
       text: "",
       buttonTexts: [],
       imageSources: []
@@ -960,6 +965,7 @@ export class HiflyHandsOnProductPage {
     if (typeof this.page.evaluate !== "function") {
       return {
         ready: false,
+        failed: false,
         visible: false,
         text: "",
         buttonTexts: [],
@@ -973,6 +979,7 @@ export class HiflyHandsOnProductPage {
       return state;
     }).catch(() => ({
       ready: false,
+      failed: false,
       visible: false,
       text: "",
       buttonTexts: [],
@@ -1024,6 +1031,7 @@ export class HiflyHandsOnProductPage {
         if (!element) {
           return {
             ready: false,
+            failed: false,
             visible: false,
             text: "",
             buttonTexts: [],
@@ -1041,6 +1049,7 @@ export class HiflyHandsOnProductPage {
         const hasReadyActions = text.includes("再次生成") &&
           text.includes("重新编辑") &&
           text.includes("确认");
+        const failed = text.includes("生成失败");
         const hasUploadActions = text.includes("上传人物") ||
           text.includes("上传商品") ||
           text.includes("立即生成");
@@ -1050,7 +1059,8 @@ export class HiflyHandsOnProductPage {
         });
 
         return {
-          ready: hasReadyActions || (hasGeneratedImage && !hasUploadActions),
+          ready: !failed && (hasReadyActions || (hasGeneratedImage && !hasUploadActions)),
+          failed,
           visible: true,
           text,
           buttonTexts,

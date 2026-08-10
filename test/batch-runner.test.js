@@ -2127,6 +2127,44 @@ test("confirmGeneratedHandsOnImage waits for generated preview before confirming
   ]);
 });
 
+test("hasGeneratedImageReady rejects a failed generation modal with ready-action buttons", async () => {
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { modalConfirmText: "确认" }
+  }, { info() {} });
+  adapter.inspectVisibleGeneratedModalState = async () => ({
+    ready: true,
+    failed: true,
+    visible: true,
+    text: "手持商品图生成失败再次生成150积分重新编辑确认",
+    buttonTexts: ["Close", "再次生成150积分", "重新编辑", "确认"],
+    imageSources: []
+  });
+
+  assert.equal(await adapter.hasGeneratedImageReady(), false);
+});
+
+test("waitForGeneratedHandsOnImage stops immediately when Hifly reports generation failure", async () => {
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout() {}
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 1000 }
+  }, { info() {} });
+  adapter.inspectVisibleGeneratedModalState = async () => ({
+    ready: false,
+    failed: true,
+    visible: true,
+    text: "手持商品图生成失败再次生成150积分重新编辑确认",
+    buttonTexts: ["Close", "再次生成150积分", "重新编辑", "确认"],
+    imageSources: []
+  });
+
+  await assert.rejects(
+    adapter.waitForGeneratedHandsOnImage(),
+    /Hifly hands-on image generation failed/
+  );
+});
+
 test("hasGeneratedImageReady detects split confirm text from modal content", async () => {
   const actions = [];
   const dialog = {
