@@ -614,12 +614,13 @@ export class HiflyHandsOnProductPage {
     const required = options.required === true;
     const timeout = this.config.batch.defaultTimeoutMs;
     await this.assertAuthenticated();
-    const button = this.page.getByRole("button", {
+    const dialog = this.dialogLocator();
+    const button = dialog.getByRole("button", {
       name: new RegExp(escapeRegExp(label))
     }).first();
     if (!await button.isVisible({ timeout: 1000 }).catch(() => false)) {
       // 兜底：上传入口可能是图标“+”按钮（getByRole 按文字匹配不到），直接用隐藏的 input[type=file] 上传
-      const fileInput = this.page.locator("input[type='file']").last();
+      const fileInput = dialog.locator("input[type='file']").last();
       if (await fileInput.count().catch(() => 0)) {
         await fileInput.setInputFiles(filePath, { timeout });
         await this.page.waitForTimeout(this.config.behavior?.postUploadWaitMs ?? 0);
@@ -635,6 +636,16 @@ export class HiflyHandsOnProductPage {
       if (ready) return;
       await button.waitFor({ state: "visible", timeout });
     }
+
+    const nestedFileInput = typeof button.locator === "function"
+      ? button.locator("input[type='file']").first()
+      : null;
+    if (nestedFileInput && await nestedFileInput.count().catch(() => 0)) {
+      await nestedFileInput.setInputFiles(filePath, { timeout });
+      await this.page.waitForTimeout(this.config.behavior?.postUploadWaitMs ?? 0);
+      return;
+    }
+
     let chooser;
     try {
       [chooser] = await Promise.all([
@@ -800,12 +811,16 @@ export class HiflyHandsOnProductPage {
           const src = img.currentSrc || img.src || "";
           return rect.width > 0 && rect.height > 0 && !src.includes("rec_");
         })
-        .map((img) => ({
-          src: img.currentSrc || img.src || "",
-          naturalWidth: img.naturalWidth,
-          x: img.getBoundingClientRect().x
-        }))
-        .sort((a, b) => b.x - a.x);
+        .map((img) => {
+          const rect = img.getBoundingClientRect();
+          return {
+            src: img.currentSrc || img.src || "",
+            naturalWidth: img.naturalWidth,
+            x: rect.x,
+            displayArea: rect.width * rect.height
+          };
+        })
+        .sort((a, b) => b.displayArea - a.displayArea || b.x - a.x);
       const target = imgs[0];
       return target ? { src: target.src, naturalWidth: target.naturalWidth } : null;
     }).catch(() => null);

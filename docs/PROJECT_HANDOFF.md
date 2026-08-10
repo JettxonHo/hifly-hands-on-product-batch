@@ -3,6 +3,15 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 第二次真实 Local Agent 失败即停；上传控件根因完成无积分修复
+
+- 执行前先修复 PostgreSQL 手工执行报告 INSERT 的 24 列/25 参数错误。PR #106 已合并并部署，云端健康；旧 attempt 通过受支持的 recheck/report/reenter 审计链恢复并 supersede。
+- Owner 的单条真实授权只执行一次。新 attempt `41f7db49-8c2a-43ab-947f-936ba7be9ef4` 在已登录飞影弹窗内的人物上传阶段失败，报告正常落盘；工单为 `failed`，candidate 0，没有点击生成、没有视频、没有自动重试。
+- 无积分 DOM 诊断确认：人物/商品控件各自有隐藏 input；旧代码强制 chooser 且人物查询误命中外层同名控件。商品上传后的主图校验还会误选 `pd4.jpg` 推荐缩略图。
+- 修复后上传严格限定可见“手持商品图”弹窗，优先设置匹配控件内 input；商品主图按展示面积选择。实页无积分复验人物和商品两个主预览均出现，商品校验通过，积分 `56841 -> 56841`。
+- 修复进入审查和合并流程；完成后再正式恢复工单。下一条真实执行需要 Owner 新授权，禁止沿用本次授权。
+- 详细记录：`docs/status/sessions/2026-08-10-second-real-local-agent-upload-control-failure.md`。
+
 ## 2026-08-10 登录态预检与 filechooser 异常已无积分修复
 
 - 分支 `codex/local-agent-login-preflight` 在独立 Local Agent checkout 中完成修复；原始项目工作区未触碰。
@@ -10,7 +19,7 @@
 - `uploadModalFile` 使用 `Promise.all([waitForEvent("filechooser"), click()])` 共同管理文件选择器和点击 Promise；异常后重新检查登录态，避免未处理拒绝导致进程异常退出。
 - Owner 登录并保存状态后，已仅执行无副作用 `preflight()`，结果 `ready / playwright`。没有 claim、上传、生成或积分消耗。
 - 相关回归 101/101、静态检查 204 JS、diff check 通过。全量测试已观察 838 项通过，但既有 Yingdao worker 阻止进程自然结束，不能记为完整全量门禁通过。
-- 关键工单 `97bba08b-d602-4fd2-88b3-86f3af76f570` 仍为上次事故后的 `requires_action`；本轮未恢复。下一位接手者应先合并此修复，再使用正式恢复入口恢复工单并做无积分状态检查，最后等待 Owner 对 1 条真实生成重新授权。禁止直接重复 real 命令。
+- 关键工单 `97bba08b-d602-4fd2-88b3-86f3af76f570` 仍为上次事故后的 `requires_action`；本轮未恢复。此修复合并后，下一位接手者应使用正式恢复入口恢复工单并做无积分状态检查，最后等待 Owner 对 1 条真实生成重新授权。禁止直接重复 real 命令。
 - 详细记录：`docs/status/sessions/2026-08-10-local-agent-login-preflight-fix.md`。
 
 ## 2026-08-10 首次真实 Local Agent 执行失败并安全收口（飞影登录态失效）

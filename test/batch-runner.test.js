@@ -1705,6 +1705,43 @@ test("verifyProductImageReplaced throws when no product image is found after upl
   );
 });
 
+test("captureProductImageSrc prefers the large product preview over recommendation thumbnails", async () => {
+  const preview = {
+    currentSrc: "https://shortvideo-cdn.example/product.png",
+    src: "https://shortvideo-cdn.example/product.png",
+    naturalWidth: 714,
+    getBoundingClientRect() { return { x: 751, width: 312, height: 398 }; }
+  };
+  const recommendation = {
+    currentSrc: "https://hfcdn.example/pd4.jpg",
+    src: "https://hfcdn.example/pd4.jpg",
+    naturalWidth: 720,
+    getBoundingClientRect() { return { x: 999, width: 58, height: 58 }; }
+  };
+  const page = {
+    async evaluate(callback) {
+      const previousWindow = globalThis.window;
+      globalThis.window = {
+        __hiflyGetVisibleHandsOnModalState() {
+          return { element: { querySelectorAll() { return [preview, recommendation]; } } };
+        }
+      };
+      try {
+        return callback();
+      } finally {
+        globalThis.window = previousWindow;
+      }
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage(page, {}, { info() {} });
+  adapter.ensureVisibleModalInspector = async () => {};
+
+  assert.deepEqual(await adapter.captureProductImageSrc(), {
+    src: "https://shortvideo-cdn.example/product.png",
+    naturalWidth: 714
+  });
+});
+
 test("Hifly preflight reports login required before any upload action", async () => {
   const actions = [];
   const visible = (name) => ({
@@ -1770,6 +1807,10 @@ test("uploadModalFile skips optional uploads when the modal is already ready to 
     batch: { defaultTimeoutMs: 10 },
     hiflyUi: { uploadProductText: "上传商品", modalSubmitText: "立即生成" }
   }, { info() {} });
+  adapter.dialogLocator = () => ({
+    getByRole: adapter.page.getByRole.bind(adapter.page),
+    locator: adapter.page.locator.bind(adapter.page)
+  });
   adapter.isHandsOnModalReadyForGenerate = async () => {
     actions.push("generate-ready");
     return true;
@@ -1781,6 +1822,58 @@ test("uploadModalFile skips optional uploads when the modal is already ready to 
     "button:/上传人物/",
     "upload-hidden",
     "generate-ready"
+  ]);
+});
+
+test("uploadModalFile uses the file input nested in the matching modal upload control", async () => {
+  const actions = [];
+  const uploadControl = (scope, label) => ({
+    first() {
+      return {
+        async isVisible() { return true; },
+        locator(selector) {
+          assert.equal(selector, "input[type='file']");
+          return {
+            first() {
+              return {
+                async count() { return 1; },
+                async setInputFiles(filePath) {
+                  actions.push(`${scope}:${label}:${filePath}`);
+                }
+              };
+            }
+          };
+        },
+        async click() { actions.push(`${scope}:unexpected-click`); }
+      };
+    }
+  });
+  const page = {
+    getByRole(_role, options) {
+      return uploadControl("outer", String(options?.name || ""));
+    },
+    async waitForEvent() { throw new Error("unexpected-filechooser"); },
+    async waitForTimeout(ms) { actions.push(`wait:${ms}`); }
+  };
+  const adapter = new HiflyHandsOnProductPage(page, {
+    batch: { defaultTimeoutMs: 10 },
+    behavior: { postUploadWaitMs: 0 }
+  }, { info() {} });
+  adapter.assertAuthenticated = async () => {};
+  adapter.dialogLocator = () => ({
+    getByRole(_role, options) {
+      return uploadControl("modal", String(options?.name || ""));
+    }
+  });
+
+  await adapter.uploadModalFile("上传人物", "/tmp/person.png");
+  await adapter.uploadModalFile("上传商品", "/tmp/product.png", { required: true });
+
+  assert.deepEqual(actions, [
+    "modal:/上传人物/:/tmp/person.png",
+    "wait:0",
+    "modal:/上传商品/:/tmp/product.png",
+    "wait:0"
   ]);
 });
 
@@ -1816,6 +1909,10 @@ test("uploadModalFile refuses to skip a required upload when the button stays hi
     batch: { defaultTimeoutMs: 10 },
     hiflyUi: { uploadProductText: "上传商品", modalSubmitText: "立即生成" }
   }, { info() {} });
+  adapter.dialogLocator = () => ({
+    getByRole: adapter.page.getByRole.bind(adapter.page),
+    locator: adapter.page.locator.bind(adapter.page)
+  });
   adapter.isHandsOnModalReadyForGenerate = async () => {
     actions.push("generate-ready");
     return true;
@@ -1865,6 +1962,10 @@ test("uploadModalFile refuses a required product upload even when the modal is n
     batch: { defaultTimeoutMs: 10 },
     hiflyUi: { uploadProductText: "上传商品", modalSubmitText: "立即生成" }
   }, { info() {} });
+  adapter.dialogLocator = () => ({
+    getByRole: adapter.page.getByRole.bind(adapter.page),
+    locator: adapter.page.locator.bind(adapter.page)
+  });
   adapter.isHandsOnModalReadyForGenerate = async () => {
     actions.push("generate-not-ready");
     return false;
@@ -1906,6 +2007,7 @@ test("uploadModalFile owns a rejected filechooser promise when the upload click 
     behavior: { postUploadWaitMs: 0 }
   }, { info() {} });
   adapter.assertAuthenticated = async () => {};
+  adapter.dialogLocator = () => ({ getByRole: adapter.page.getByRole.bind(adapter.page) });
 
   const uploading = adapter.uploadModalFile("上传商品", "/tmp/product.png", { required: true });
   rejectChooser(new Error("filechooser timeout"));
