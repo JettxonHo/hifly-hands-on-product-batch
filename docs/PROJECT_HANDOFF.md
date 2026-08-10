@@ -3,6 +3,14 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 真实工单与人物映射准备完成（未访问飞影、未消耗积分）
+
+- 云端项目 `真实出片验收 2026-08-10` 已完成单商品、素材核验、文案生成/QC/人工批准、人物确认和视频方案预检/人工批准。
+- 已确认人物 `林小满 v1`，人物素材版本为 `4e1bbcbb-5e8c-483e-9ea3-9a1ce51732a0`；Mac 私有人物映射文件已配置并通过离线交接包编译，不得提交该文件或人物图。
+- 生产工单 `97bba08b-d602-4fd2-88b3-86f3af76f570` 当前为 `waiting_for_executor`，交接包 `ca1e1192-ea25-465f-ba06-78cb67c8afab` 为 `ready / v1`，执行 attempt 数为 0。
+- 有待执行工单时再次运行默认 `npm run local-agent:run-once`，仍只 heartbeat 200 并返回 `standby`，没有 claim、没有访问飞影、没有消耗积分。
+- 下一步是单独取得 Owner 对 1 条真实飞影生成的积分授权后，运行 real 双门禁一次；任何失败立即停止，不自动重试。完整证据见 `docs/status/sessions/2026-08-10-real-order-and-avatar-mapping.md`。
+
 ## 2026-08-10 Local Agent 云端部署与 standby 配对完成（未访问飞影、未消耗积分）
 
 - 阿里云 `/opt/hifly-pilot` 已从 `646c0a9` 快进到 `main@8846602`。升级前备份为
