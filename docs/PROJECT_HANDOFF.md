@@ -3,6 +3,15 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 第二次真实 Local Agent 失败即停；上传控件根因完成无积分修复
+
+- 执行前先修复 PostgreSQL 手工执行报告 INSERT 的 24 列/25 参数错误。PR #106 已合并并部署，云端健康；旧 attempt 通过受支持的 recheck/report/reenter 审计链恢复并 supersede。
+- Owner 的单条真实授权只执行一次。新 attempt `41f7db49-8c2a-43ab-947f-936ba7be9ef4` 在已登录飞影弹窗内的人物上传阶段失败，报告正常落盘；工单为 `failed`，candidate 0，没有点击生成、没有视频、没有自动重试。
+- 无积分 DOM 诊断确认：人物/商品控件各自有隐藏 input；旧代码强制 chooser 且人物查询误命中外层同名控件。商品上传后的主图校验还会误选 `pd4.jpg` 推荐缩略图。
+- 修复后上传严格限定可见“手持商品图”弹窗，优先设置匹配控件内 input；商品主图按展示面积选择。实页无积分复验人物和商品两个主预览均出现，商品校验通过，积分 `56841 -> 56841`。
+- 当前必须先完成审查/合并，再正式恢复工单；下一条真实执行需要 Owner 新授权，禁止沿用本次授权。
+- 详细记录：`docs/status/sessions/2026-08-10-second-real-local-agent-upload-control-failure.md`。
+
 ## 2026-08-10 登录态预检与 filechooser 异常已无积分修复
 
 - 分支 `codex/local-agent-login-preflight` 在独立 Local Agent checkout 中完成修复；原始项目工作区未触碰。
