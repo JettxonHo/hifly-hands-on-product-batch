@@ -2,7 +2,17 @@
 
 > 最后更新：2026-08-10
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，第二次真实 Local Agent 执行已失败即停；弹窗上传控件与商品主图校验已完成无积分修复和实页验证，下一步是正式恢复工单并重新授权 1 条真实生成
+> 当前 Goal：生产能力补齐，第三次真实 Local Agent 执行已失败即停；已定位交接包商品图缺少扩展名导致飞影拒绝上传，并完成无积分 TDD 修复
+
+## 2026-08-10 第三次真实执行失败即停，商品上传文件扩展名已无积分修复
+
+- Owner 新授权最多执行 1 条真实飞影生成，接受积分扣除，失败立即停止且不自动重试。旧工单的失败报告为 `not_retryable`，因此保留其审计链，并通过正式 API 创建 reproduction 工单 `5e245a67-cdf8-4836-be66-6c5c58118990`；交接包 `d969bb14-3032-4592-81c8-6c5c277b4611` 为 `ready / v1`。
+- 执行前确认飞影 `preflight = ready / playwright`，且云端只有这一个 `waiting_for_executor` 工单。唯一真实命令成功 heartbeat、claim、start、下载交接包并进入飞影弹窗。
+- attempt `cabb5e35-9691-429c-9b97-1a7902e6590c` 在商品上传校验阶段失败，报告 `f603334f-694c-4025-aeda-d4791cbad0b8` 正常落盘；工单和 attempt 均为 `failed`，candidate 0，没有视频，没有自动重试。
+- 截图显示弹窗商品位仍是“上传商品”，弹窗“立即生成”保持禁用，账户积分仍为 `56841`。本次没有点击任何生成按钮，未进入积分动作。
+- 根因：交接包正确声明商品图为 `image/png`，但 Local Agent 解包路径是无扩展名的 `assets/<asset-version-id>`；Playwright 因此向浏览器提供空 MIME type，飞影静默拒绝。修复后编译器根据媒体类型生成仅用于上传的 `.png` 或 `.jpg` 临时副本。
+- 本次真实授权已经使用。修复合并后仍需创建新的 reproduction 工单，并由 Owner 再次明确授权 1 条真实生成；禁止直接重复 real 命令。
+- 详细记录见 `docs/status/sessions/2026-08-10-third-real-local-agent-extension-failure.md`。
 
 ## 2026-08-10 第二次真实执行失败即停，弹窗上传根因已无积分修复
 

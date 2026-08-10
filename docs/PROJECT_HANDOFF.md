@@ -3,6 +3,16 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 第三次真实 Local Agent 失败即停；商品上传扩展名完成无积分修复
+
+- 旧失败报告为 `not_retryable`，公开恢复入口按设计拒绝重入；没有篡改审计链。使用同一批准方案创建 reproduction 工单 `5e245a67-cdf8-4836-be66-6c5c58118990`，交接包 `d969bb14-3032-4592-81c8-6c5c277b4611` 为 ready。
+- 执行前无副作用预检为 `ready / playwright`，并确认仅有该工单可领取。Owner 授权的唯一真实命令已执行一次，失败后停止，没有自动重试。
+- attempt `cabb5e35-9691-429c-9b97-1a7902e6590c` 在商品上传校验阶段失败，报告 `f603334f-694c-4025-aeda-d4791cbad0b8` 已落盘；candidate 0、无视频。
+- 飞影弹窗商品位仍为空，“立即生成”禁用，积分显示 `56841`。没有点击生成按钮，未进入积分动作。
+- 根因是交接包内嵌商品图文件没有扩展名：manifest 声明 `image/png`，但 Playwright 以无扩展名路径设置 input 后，浏览器 `File.type` 为空，飞影拒绝。Local Agent 编译器现根据 `image/png` / `image/jpeg` 生成带 `.png` / `.jpg` 的临时上传副本。
+- 修复合并后不能恢复当前 `not_retryable` attempt；下一次应创建新的 reproduction 工单并重新取得 Owner 的单条积分授权。
+- 详细记录：`docs/status/sessions/2026-08-10-third-real-local-agent-extension-failure.md`。
+
 ## 2026-08-10 第二次真实 Local Agent 失败即停；上传控件根因完成无积分修复
 
 - 执行前先修复 PostgreSQL 手工执行报告 INSERT 的 24 列/25 参数错误。PR #106 已合并并部署，云端健康；旧 attempt 通过受支持的 recheck/report/reenter 审计链恢复并 supersede。
