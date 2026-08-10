@@ -57,11 +57,21 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual bindings
   await orderRepository.createOrder({ receiptKey: "a11-order", fingerprint: "a11-order", order,
     auditEvents: [{ id: randomUUID(), organization_id: order.organization_id, actor_member_id: seeded.member.id, production_order_id: order.id, event_type: "production_order.created", metadata: {}, created_at: at }],
     outboxEvent: { id: randomUUID(), organization_id: order.organization_id, aggregate_id: order.id, event_type: "production_order.created", payload: {}, created_at: at, published_at: null } });
-  await pool.query(`INSERT INTO manual_handoff_packages(id,organization_id,production_order_id,contract_type,contract_version,package_version,status,generation_request_id,generation_job_id,manifest,readme,manifest_hash,package_hash,storage_key,created_by_member_id,created_at,updated_at,row_version,status_history)
-    VALUES ($1,$2,$3,'manual_handoff','1.0',1,'ready','a11-generation',$4,$5,$6,$7,$8,$9,$10,$11,$11,1,$12)`, [packageId, order.organization_id, order.id, jobId,
-    JSON.stringify({ accepted_media_types: ["video/mp4"] }), "说明", "manifest-pg", "package-pg", "manual-handoff/package.zip", seeded.member.id, at, JSON.stringify([{ from_status: "generating", to_status: "ready", at }])]);
-  await pool.query(`INSERT INTO manual_handoff_package_generation_jobs(id,organization_id,package_id,type,status,attempts,max_attempts,order_snapshot,created_at,updated_at)
-    VALUES ($1,$2,$3,'manual_handoff_package_generation','succeeded',1,1,$4,$5,$5)`, [jobId, order.organization_id, packageId, JSON.stringify(snapshot), at]);
+  const handoffClient = await pool.connect();
+  try {
+    await handoffClient.query("BEGIN");
+    await handoffClient.query(`INSERT INTO manual_handoff_packages(id,organization_id,production_order_id,contract_type,contract_version,package_version,status,generation_request_id,generation_job_id,manifest,readme,manifest_hash,package_hash,storage_key,created_by_member_id,created_at,updated_at,row_version,status_history)
+      VALUES ($1,$2,$3,'manual_handoff','1.0',1,'ready','a11-generation',$4,$5,$6,$7,$8,$9,$10,$11,$11,1,$12)`, [packageId, order.organization_id, order.id, jobId,
+      JSON.stringify({ accepted_media_types: ["video/mp4"] }), "说明", "manifest-pg", "package-pg", "manual-handoff/package.zip", seeded.member.id, at, JSON.stringify([{ from_status: "generating", to_status: "ready", at }])]);
+    await handoffClient.query(`INSERT INTO manual_handoff_package_generation_jobs(id,organization_id,package_id,type,status,attempts,max_attempts,order_snapshot,created_at,updated_at)
+      VALUES ($1,$2,$3,'manual_handoff_package_generation','succeeded',1,1,$4,$5,$5)`, [jobId, order.organization_id, packageId, JSON.stringify(snapshot), at]);
+    await handoffClient.query("COMMIT");
+  } catch (error) {
+    await handoffClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    handoffClient.release();
+  }
 
   const repository = createPostgresManualExecutionRepository({ pool }); await repository.initialize();
   const packagePort = { async getPackage() { return { id: packageId, organization_id: order.organization_id, production_order_id: order.id, package_version: 1, status: "ready", manifest_hash: "manifest-pg", package_hash: "package-pg", manifest: { accepted_media_types: ["video/mp4"] } }; }, async listPackages() { return []; } };
