@@ -231,7 +231,7 @@ export class HiflyHandsOnProductPage {
     return { candidates: await this.matchLatestWorks(evidence) };
   }
 
-  async downloadArtifact(remoteEvidence, destination) {
+  async downloadArtifact(remoteEvidence, destination, context = {}) {
     const candidates = await this.matchLatestWorks(remoteEvidence);
     if (candidates.length !== 1) {
       const error = new Error("Could not uniquely match a remote work for download");
@@ -251,7 +251,7 @@ export class HiflyHandsOnProductPage {
     // by default and must be anchored to config.__rootDir (or process.cwd()
     // as the explicit fallback), never to the incidental process cwd via
     // path.resolve.
-    const projectRoot = this.config.__rootDir ?? process.cwd();
+    const projectRoot = context.projectRoot ?? this.config.__rootDir ?? process.cwd();
     const requestedDestination = destination ?? this.config.downloadDir;
     const absoluteDestination = path.isAbsolute(requestedDestination)
       ? requestedDestination

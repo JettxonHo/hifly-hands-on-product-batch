@@ -10,6 +10,7 @@ import { createExecutionSnapshot } from "../src/core/execution-snapshot.js";
 import { runBatch } from "../src/core/batch-runner.js";
 import { transitionTask } from "../src/core/state-machine.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
+import { createHiflyExecutor } from "../src/executors/hifly-executor.js";
 import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
 import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
 import { readRpaState, rpaWorstCaseRenameBackoffMs, writeRpaState } from "../src/rpa/rpa-state.js";
@@ -1062,6 +1063,86 @@ test("downloadArtifact prefixes repeated suggested filenames with the remote id"
     assert.match(artifact.relative_path, /^downloads\//);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("runBatch passes its project root to the download executor", async () => {
+  let downloadContext = null;
+  const executor = createFakeExecutor({ remoteId: "remote-context" });
+  const originalDownload = executor.downloadArtifact;
+  executor.downloadArtifact = async (remoteEvidence, destination, context) => {
+    downloadContext = context;
+    return originalDownload(remoteEvidence, destination);
+  };
+  const fixture = await fixtureRun({ executor });
+  try {
+    await runBatch(fixture);
+    assert.equal(downloadContext.projectRoot, fixture.paths.projectRoot);
+    assert.equal(downloadContext.taskId, "task-1");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("Hifly executor forwards the batch download context to its page object", async () => {
+  let received = null;
+  const executor = createHiflyExecutor({
+    hiflyPage: {
+      async preflight() {},
+      async prepareAsset() {},
+      async submitVideo() {},
+      async querySubmission() {},
+      async downloadArtifact(_remoteEvidence, _destination, context) {
+        received = context;
+        return { artifact_id: "remote-context", relative_path: "downloads/video.mp4" };
+      },
+      async reconcileSubmission() {}
+    }
+  });
+
+  await executor.downloadArtifact({}, "/tmp/downloads", { projectRoot: "/tmp/run" });
+
+  assert.deepEqual(received, { projectRoot: "/tmp/run" });
+});
+
+test("downloadArtifact accepts a destination inside an explicit batch project root", async () => {
+  const configRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-config-root-"));
+  const batchRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-root-"));
+  try {
+    const downloadDir = path.join(batchRoot, "downloads");
+    await mkdir(downloadDir);
+    let savedAs = null;
+    const page = {
+      waitForEvent() {
+        return Promise.resolve({
+          suggestedFilename() { return "未命名.mp4"; },
+          async saveAs(outputPath) {
+            savedAs = outputPath;
+            await writeFile(outputPath, "video");
+          }
+        });
+      }
+    };
+    const adapter = new HiflyHandsOnProductPage(page, {
+      __rootDir: configRoot,
+      downloadDir: path.join(configRoot, "downloads"),
+      batch: { generationTimeoutMs: 10 }
+    }, { info() {} });
+    adapter.matchLatestWorks = async () => [{ remote_id: "remote-context", work_key: "remote-context" }];
+    adapter.clickWorkDownload = async () => {};
+
+    const artifact = await adapter.downloadArtifact(
+      { remote_id: "remote-context" },
+      downloadDir,
+      { projectRoot: batchRoot }
+    );
+
+    assert.equal(path.dirname(savedAs), downloadDir);
+    assert.match(artifact.relative_path, /^downloads\//);
+    assert.equal(await readFile(savedAs, "utf8"), "video");
+  } finally {
+    await rm(configRoot, { recursive: true, force: true });
+    await rm(batchRoot, { recursive: true, force: true });
   }
 });
 

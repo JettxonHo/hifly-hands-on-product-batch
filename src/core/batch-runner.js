@@ -202,6 +202,7 @@ export async function runBatch({
     return {
       batchId,
       taskId: task.task_id,
+      projectRoot: paths.projectRoot,
       executionKey: task.execution_key,
       batchOptions: config.execution?.batchOptions,
       instanceId,
