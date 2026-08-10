@@ -5,6 +5,7 @@ export const EXIT_CODES = Object.freeze({
 });
 
 export const LOCAL_AGENT_REPORT_CODES = Object.freeze([
+  "LOGIN_REQUIRED",
   "AVATAR_MAPPING_REQUIRED",
   "PACKAGE_ITEM_COUNT_UNSUPPORTED",
   "LOCAL_EXECUTION_FAILED"
@@ -26,6 +27,7 @@ export function localAgentError(code, options = {}) {
 
 export function isRequiresActionError(error) {
   return error?.outcome === "requires_action" || [
+    "LOGIN_REQUIRED",
     "AVATAR_MAPPING_REQUIRED",
     "PACKAGE_ITEM_COUNT_UNSUPPORTED"
   ].includes(error?.code);

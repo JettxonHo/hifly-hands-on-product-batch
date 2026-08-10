@@ -11,6 +11,10 @@ function pageFrom(config) {
 export function createHiflyExecutor(config) {
   const hiflyPage = pageFrom(config);
   const executor = {
+    async preflight() {
+      return hiflyPage.preflight();
+    },
+
     async createAsset(task) {
       return hiflyPage.prepareAsset(task);
     },

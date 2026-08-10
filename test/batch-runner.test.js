@@ -1705,6 +1705,39 @@ test("verifyProductImageReplaced throws when no product image is found after upl
   );
 });
 
+test("Hifly preflight reports login required before any upload action", async () => {
+  const actions = [];
+  const visible = (name) => ({
+    first() {
+      return {
+        async isVisible() {
+          actions.push(`visible:${name}`);
+          return name === "phone";
+        }
+      };
+    }
+  });
+  const adapter = new HiflyHandsOnProductPage({
+    async goto(url) { actions.push(`goto:${url}`); },
+    async waitForLoadState() {},
+    getByPlaceholder() { return visible("phone"); },
+    getByText() { return visible("wechat"); }
+  }, {
+    handsOnProductUrl: "https://hifly.cc/goods",
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: {}
+  }, { info() {} });
+
+  await assert.rejects(adapter.preflight(), {
+    code: "LOGIN_REQUIRED",
+    outcome: "requires_action"
+  });
+  assert.deepEqual(actions, [
+    "goto:https://hifly.cc/goods",
+    "visible:phone"
+  ]);
+});
+
 test("uploadModalFile skips optional uploads when the modal is already ready to generate", async () => {
   const actions = [];
   const adapter = new HiflyHandsOnProductPage({
@@ -1847,6 +1880,36 @@ test("uploadModalFile refuses a required product upload even when the modal is n
     "upload-hidden",
     "generate-not-ready"
   ]);
+});
+
+test("uploadModalFile owns a rejected filechooser promise when the upload click is blocked", async () => {
+  let rejectChooser;
+  const chooser = new Promise((_resolve, reject) => { rejectChooser = reject; });
+  const adapter = new HiflyHandsOnProductPage({
+    getByRole() {
+      return {
+        first() {
+          return {
+            async isVisible() { return true; },
+            async click() {
+              await new Promise((resolve) => setImmediate(resolve));
+              throw new Error("upload click blocked");
+            }
+          };
+        }
+      };
+    },
+    waitForEvent() { return chooser; },
+    async waitForTimeout() {}
+  }, {
+    batch: { defaultTimeoutMs: 10 },
+    behavior: { postUploadWaitMs: 0 }
+  }, { info() {} });
+  adapter.assertAuthenticated = async () => {};
+
+  const uploading = adapter.uploadModalFile("上传商品", "/tmp/product.png", { required: true });
+  rejectChooser(new Error("filechooser timeout"));
+  await assert.rejects(uploading, /filechooser timeout/);
 });
 
 test("confirmGeneratedHandsOnImage waits for generated preview before confirming", async () => {

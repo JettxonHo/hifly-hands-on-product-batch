@@ -2,7 +2,17 @@
 
 > 最后更新：2026-08-10
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，首次真实执行已在飞影登录态门禁失败并安全停止，等待登录与无积分修复后重新授权
+> 当前 Goal：生产能力补齐，飞影登录态预检与文件选择器异常收口已无积分修复并实机通过；等待恢复工单后重新授权 1 条真实生成
+
+## 2026-08-10 飞影登录态预检与文件选择器异常收口完成（未生成视频）
+
+- 已在独立 Local Agent checkout 中完成无积分 TDD 修复：真实双门禁在 heartbeat/claim 前先打开「手里有货」并检查登录弹窗；命中手机号或微信登录信号时返回 `LOGIN_REQUIRED / requires_action`，不会领取云端工单。
+- 若登录在领取工单后失效，批处理暂停状态会映射为受控 `LOGIN_REQUIRED` 报告，服务端可把工单收口为 `requires_action`，不再以通用失败或悬空租约结束。
+- 上传文件的 `filechooser` 等待与按钮点击改为同一 `Promise.all` 生命周期；点击被登录弹窗阻断时会重新检查登录态，并且不再遗留未处理的 chooser rejection。
+- Owner 已重新登录并保存 Profile。随后只调用执行器 `preflight()` 做实机验证，结果为 `ready / playwright`；该调用没有 heartbeat、claim、上传素材或点击生成，飞影积分消耗 0。
+- 验证：相关 Local Agent/批处理测试 101/101 通过，静态检查 204 个 JS，`git diff --check` 通过。全量 `npm test` 输出中的 838 项均通过，但进程被既有 `yingdao-rpa-executor.test.js` worker 阻塞而未自然退出，因此不把它记作一次完整全量通过。
+- 原工单仍为 `requires_action`，本轮没有恢复或领取。下一步先通过受支持的云端恢复入口将它恢复为 `waiting_for_executor`，再次确认唯一可领取工单和 attempt 状态；之后仍需 Owner 新的单条积分授权，失败即停且不自动重试。
+- 详细记录见 `docs/status/sessions/2026-08-10-local-agent-login-preflight-fix.md`。
 
 ## 2026-08-10 首次云端工单真实执行在飞影登录门禁失败（未生成视频）
 
