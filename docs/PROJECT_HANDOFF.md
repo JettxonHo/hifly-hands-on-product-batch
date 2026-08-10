@@ -3,14 +3,29 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
-## 2026-08-10 新云端系统最小 Local Agent 执行器闭环（未访问飞影、未消耗积分）
+## 2026-08-10 Local Agent 云端部署与 standby 配对完成（未访问飞影、未消耗积分）
+
+- 阿里云 `/opt/hifly-pilot` 已从 `646c0a9` 快进到 `main@8846602`。升级前备份为
+  `/var/backups/hifly/hifly-20260810T020113Z.dump`，旧应用镜像保留回滚标签。
+- 使用 `/opt/hifly-runtime/Dockerfile` 构建新应用镜像；13 组 production migration 全部成功。app、postgres、
+  proxy 均 healthy，HTTPS health 返回 200，服务器 Git 工作树干净。
+- 云端 Local Agent 配置已启用并绑定试运行 Organization。真实 Bearer Token 仅保存在服务器 `.env` 与 Mac
+  `~/.config/hifly-local-agent/cloud.env`（600），不得复制到仓库、Issue、PR、日志或聊天。
+- Mac 独立运行目录为 `~/.local/share/hifly-local-agent/app`，当前 checkout 为 `8846602`。默认 standby 命令
+  heartbeat 返回 200 并输出 `local_agent_standby`；未设置 fake/real 开关，因此没有领取工单或访问飞影。
+- 当前验证边界是 deployment + migration + network/auth/readiness。真实 Hifly、候选上传、A12 和 Work 链路尚未验收，
+  不得标记为云端端到端可用。下一步必须由 Owner 单独授权 1 条积分后再执行 real 双门禁，失败即停且不自动重试。
+- 本轮飞影积分消耗 0。操作证据见
+  `docs/status/sessions/2026-08-10-local-agent-deployment-and-standby.md`。
+
+## 2026-08-10 新云端系统最小 Local Agent 执行器闭环（部署前历史检查点；未访问飞影、未消耗积分）
 
 - 独立分支 `codex/cloud-production-executor` 基于 `origin/main@05e4466` 实现；根工作区既有脏文件未触碰。
 - 云端已具备 Agent Bearer readiness、claim/start/lease heartbeat、A10 交接包下载、候选 MP4 authorize/upload/complete、受控结果报告、A12 核验触发和 Work 创建。Agent 身份单独记录，不伪造成企业成员。
 - macOS CLI 入口为 `npm run local-agent:run-once`，默认 standby 只心跳、不领取；fake 需 `LOCAL_AGENT_FAKE_EXECUTION=true`，真实 Playwright 必须使用 `--real` 和 `LOCAL_AGENT_REAL_EXECUTION=true`。人物映射按云端 avatar asset version id 解析本地图片。
 - Sol Review 已修复三项会阻断真实链路的问题：CLI/server requires-action 字段不一致、租约心跳失败后仍可能上传、CLI/server 受控错误码不一致。
 - 验证已完成：全量串行 862 tests / 848 pass / 14 environment skips / 0 fail；定向 74 tests / 73 pass / 1 PostgreSQL environment skip / 0 fail；`npm run check` 204 JS、`git diff --check` 通过。环境 skip 未记为通过。
-- 当前没有部署到阿里云、没有连接 Mac Agent、没有真实飞影单条验收。不得把 fake 系统测试写成云端端到端已可用。进入 `main` 后的顺序：云端 migration/config/deploy → Mac 配对和无副作用 standby 检查 → 隔离环境 fake 检查 → Owner 新授权后只跑 1 条真实飞影。
+- 该历史检查点尚未部署到阿里云或连接 Mac Agent；当前部署与配对状态以上方最新章节为准。真实飞影单条验收仍未执行，不得把 fake 系统测试或 standby 写成云端端到端已可用。
 - 运行手册：`docs/deployment/LOCAL_AGENT_RUNBOOK.md`。本轮飞影积分消耗 0。
 
 ## 2026-08-10 Local Agent Task 1+2 有界阶段（IMPLEMENTER；未访问飞影、未消耗积分）
