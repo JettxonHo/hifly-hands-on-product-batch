@@ -16,7 +16,7 @@ function findTask(batch, taskId) {
 }
 
 function isPause(error) {
-  return error?.code === "PAUSED_AUTH";
+  return ["PAUSED_AUTH", "LOGIN_REQUIRED"].includes(error?.code);
 }
 
 function isRecoverableRpaInterruption(error) {

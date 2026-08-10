@@ -73,6 +73,8 @@ assets/person_pool/fresh_food/host_02.jpg
 
 ## 飞影页面已知行为与调试要点（实机总结）
 
+- **Local Agent 真实模式必须先做登录预检**：执行器进入 `https://hifly.cc/goods` 后，以手机号输入框（placeholder 含「11 位手机号」）或「微信扫码登录」作为登录失效信号。预检必须发生在云端 heartbeat/claim 前；命中时返回 `LOGIN_REQUIRED / requires_action`，不得领取工单或继续上传。
+- **上传按钮与文件选择器必须共同等待**：`filechooser` listener 和上传按钮 click 必须放在同一个 `Promise.all` 中管理。若登录弹窗遮挡或页面阻断点击，异常路径应再次执行登录检查，避免 chooser Promise 留下未处理拒绝并导致 Node 进程退出。
 - **手持商品图是账号级持久化残留**：上一个商品生成的手持图会残留在账号里，新商品打开「手持商品图」弹窗时看到的是上一个商品的残留已生成图（不是空上传界面）。`page.reload` / 重新导航都清不掉——残留是服务端/会话维度。这是「新商品生成却复用上一个商品（如青菜/白菜）素材」bug 的根因。
 - **删残留图会关弹窗**：在弹窗里点残留图的垃圾桶删除，会把弹窗也关闭（回到外层「手里有货」页面）。代码对策：`resetGeneratedHandsOnImage` 清残留后会重新 `openHandsOnModal` 打开干净上传界面（见 `src/hifly-page.js`），并有 `verifyProductImageReplaced` 安全网在上传后验证商品图真的被替换，未替换则在上传阶段抛错、不会走到「立即生成」消耗积分。
 - **调试定位别靠视觉截图**：`getByRole` 匹配的是 accessible name（aria-label / innerText），不是可见像素。不要用「截图里看不到按钮文字」推断「`getByRole` 匹配不到」。飞影上传入口可能是图标按钮（如紫色「+」），按文字匹配不到时要加 `input[type='file']` 兜底。看真实 DOM 用 `dumpModalDomSnapshot`（落盘 `logs/batch-*.jsonl` 的 `modal_dom_snapshot` 事件，含所有按钮 text+aria-label+图片 src）。

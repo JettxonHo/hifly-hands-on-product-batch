@@ -3,6 +3,16 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 登录态预检与 filechooser 异常已无积分修复
+
+- 分支 `codex/local-agent-login-preflight` 在独立 Local Agent checkout 中完成修复；原始项目工作区未触碰。
+- 真实模式现在在 heartbeat/claim 前调用执行器 `preflight()`。飞影登录弹窗会产生 `LOGIN_REQUIRED / requires_action`，因此无效登录态不会领取工单；领取后登录失效也会提交同一受控错误码。
+- `uploadModalFile` 使用 `Promise.all([waitForEvent("filechooser"), click()])` 共同管理文件选择器和点击 Promise；异常后重新检查登录态，避免未处理拒绝导致进程异常退出。
+- Owner 登录并保存状态后，已仅执行无副作用 `preflight()`，结果 `ready / playwright`。没有 claim、上传、生成或积分消耗。
+- 相关回归 101/101、静态检查 204 JS、diff check 通过。全量测试已观察 838 项通过，但既有 Yingdao worker 阻止进程自然结束，不能记为完整全量门禁通过。
+- 关键工单 `97bba08b-d602-4fd2-88b3-86f3af76f570` 仍为上次事故后的 `requires_action`；本轮未恢复。下一位接手者应先合并此修复，再使用正式恢复入口恢复工单并做无积分状态检查，最后等待 Owner 对 1 条真实生成重新授权。禁止直接重复 real 命令。
+- 详细记录：`docs/status/sessions/2026-08-10-local-agent-login-preflight-fix.md`。
+
 ## 2026-08-10 首次真实 Local Agent 执行失败并安全收口（飞影登录态失效）
 
 - Owner 仅授权 1 条真实执行；执行前确认目标工单 `97bba08b-d602-4fd2-88b3-86f3af76f570` 是唯一 `waiting_for_executor` 工单，交接包 ready，attempt 数为 0。

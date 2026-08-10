@@ -152,7 +152,12 @@ async function executeBatch({ task, executor, temporaryRoot, attemptId, runId })
       lock
     });
     const item = result.items?.[0];
-    if (result.status !== "completed" || item?.status !== "completed") throw localAgentError("LOCAL_EXECUTION_FAILED");
+    if (result.status !== "completed" || item?.status !== "completed") {
+      if (item?.paused_auth === true && item?.error_message === "LOGIN_REQUIRED") {
+        throw localAgentError("LOGIN_REQUIRED", { outcome: "requires_action" });
+      }
+      throw localAgentError("LOCAL_EXECUTION_FAILED");
+    }
     const outputPath = safeOutputPath(temporaryRoot, item.output_path);
     return { body: await readFile(outputPath) };
   } finally {
@@ -189,6 +194,7 @@ export async function runLocalAgentOnce({
   let reportSubmitted = false;
   let heartbeatController = null;
   let progressPhase = "started";
+  let selectedExecutor = null;
   const reportIds = new Map();
 
   const reportIdFor = (outcome) => {
@@ -214,6 +220,16 @@ export async function runLocalAgentOnce({
   }
 
   try {
+    selectedExecutor = selectLocalAgentExecutor({
+      argv,
+      env,
+      fakeExecutor: executor || fakeExecutor || createLocalAgentFakeExecutor(),
+      realExecutor
+    });
+    if (isRealExecutionEnabled({ argv, env })) {
+      if (typeof selectedExecutor.preflight !== "function") throw localAgentError("LOCAL_EXECUTION_FAILED");
+      await selectedExecutor.preflight();
+    }
     temporaryRoot = await tempDirectoryFactory();
     await client.heartbeat({ idempotencyKey: `${runId}:heartbeat` });
     const claimed = await client.claim({ idempotencyKey: `${runId}:claim` });
@@ -258,12 +274,6 @@ export async function runLocalAgentOnce({
     }
 
     progressPhase = "executing";
-    const selectedExecutor = selectLocalAgentExecutor({
-      argv,
-      env,
-      fakeExecutor: executor || fakeExecutor || createLocalAgentFakeExecutor(),
-      realExecutor
-    });
     const output = await executeBatch({ task, executor: selectedExecutor, temporaryRoot, attemptId, runId });
     await heartbeatController.assertLease();
     const outputChecksum = checksum(output.body);

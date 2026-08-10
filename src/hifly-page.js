@@ -47,6 +47,37 @@ export class HiflyHandsOnProductPage {
     if (ui.handsOnProductText) await this.clickByText(ui.handsOnProductText);
   }
 
+  async isLoginRequired() {
+    if (typeof this.page.getByPlaceholder === "function") {
+      const phoneInput = this.page.getByPlaceholder(/11\s*位手机号/).first();
+      if (await phoneInput.isVisible({ timeout: 1000 }).catch(() => false)) return true;
+    }
+    if (typeof this.page.getByText === "function") {
+      const wechatLogin = this.page.getByText(/微信扫码登录/).first();
+      return wechatLogin.isVisible({ timeout: 1000 }).catch(() => false);
+    }
+    return false;
+  }
+
+  async assertAuthenticated() {
+    if (!await this.isLoginRequired()) return;
+    throw Object.assign(new Error("LOGIN_REQUIRED"), {
+      code: "LOGIN_REQUIRED",
+      outcome: "requires_action"
+    });
+  }
+
+  async preflight() {
+    if (this.config.handsOnProductUrl) {
+      await this.enterHandsOnProductMode();
+    } else {
+      await this.openWorkbench();
+      await this.enterHandsOnProductMode();
+    }
+    await this.assertAuthenticated();
+    return { status: "ready" };
+  }
+
   async fillProduct(product) {
     const ui = this.config.hiflyUi;
 
@@ -582,6 +613,7 @@ export class HiflyHandsOnProductPage {
   async uploadModalFile(label, filePath, options = {}) {
     const required = options.required === true;
     const timeout = this.config.batch.defaultTimeoutMs;
+    await this.assertAuthenticated();
     const button = this.page.getByRole("button", {
       name: new RegExp(escapeRegExp(label))
     }).first();
@@ -603,9 +635,16 @@ export class HiflyHandsOnProductPage {
       if (ready) return;
       await button.waitFor({ state: "visible", timeout });
     }
-    const chooserPromise = this.page.waitForEvent("filechooser", { timeout });
-    await button.click({ timeout });
-    const chooser = await chooserPromise;
+    let chooser;
+    try {
+      [chooser] = await Promise.all([
+        this.page.waitForEvent("filechooser", { timeout }),
+        button.click({ timeout })
+      ]);
+    } catch (error) {
+      await this.assertAuthenticated();
+      throw error;
+    }
     await chooser.setFiles(filePath);
     await this.page.waitForTimeout(this.config.behavior?.postUploadWaitMs ?? 0);
   }

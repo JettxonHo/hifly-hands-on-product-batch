@@ -54,6 +54,7 @@ function createLazyHiflyExecutor(root, options = {}) {
   }
 
   return {
+    async preflight(...args) { return (await ensureDelegate()).preflight(...args); },
     async createAsset(...args) { return (await ensureDelegate()).createAsset(...args); },
     async submitVideo(...args) { return (await ensureDelegate()).submitVideo(...args); },
     async querySubmission(...args) { return (await ensureDelegate()).querySubmission(...args); },

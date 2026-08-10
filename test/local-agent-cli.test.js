@@ -112,6 +112,10 @@ function createRecordingExecutor({ events, failAt = null } = {}) {
   };
   return {
     calls,
+    async preflight() {
+      record("preflight");
+      return { status: "ready" };
+    },
     async createAsset(task) {
       record("createAsset");
       return { asset_id: `asset-${task.task_id}` };
@@ -259,6 +263,62 @@ test("both real gates select the injected real adapter and still keep execution 
     assert.equal(state.result.status, "completed");
     assert.equal(fake.calls.length, 0);
     assert.ok(real.calls.length > 0);
+    await rm(state.parent, { recursive: true, force: true });
+  } finally {
+    await rm(avatarPath, { force: true });
+  }
+});
+
+test("real preflight login failure stops before heartbeat and claim", async () => {
+  const events = [];
+  const real = createRecordingExecutor({ events });
+  real.preflight = async () => {
+    events.push(["executor:preflight"]);
+    throw Object.assign(new Error("LOGIN_REQUIRED"), {
+      code: "LOGIN_REQUIRED",
+      outcome: "requires_action"
+    });
+  };
+
+  const state = await runFixture({
+    realExecutor: real,
+    argv: ["run-once", "--real"],
+    env: { LOCAL_AGENT_REAL_EXECUTION: "true" },
+    events
+  });
+
+  assert.equal(state.result.status, "requires_action");
+  assert.equal(state.result.exitCode, EXIT_CODES.requiresAction);
+  assert.equal(state.result.attemptId, null);
+  assert.deepEqual(events.map(([event]) => event), ["executor:preflight"]);
+  await rm(state.parent, { recursive: true, force: true });
+});
+
+test("login expiry after claim submits a controlled requires_action report", async () => {
+  const events = [];
+  const avatarPath = path.join(os.tmpdir(), `local-agent-avatar-${process.pid}-login-expired.png`);
+  await writeFile(avatarPath, "avatar-image");
+  const real = createRecordingExecutor({ events });
+  real.createAsset = async () => {
+    events.push(["executor:createAsset"]);
+    throw Object.assign(new Error("LOGIN_REQUIRED"), {
+      code: "LOGIN_REQUIRED",
+      outcome: "requires_action"
+    });
+  };
+  try {
+    const state = await runFixture({
+      avatarMappings: { "avatar-version-1": avatarPath },
+      realExecutor: real,
+      argv: ["run-once", "--real"],
+      env: { LOCAL_AGENT_REAL_EXECUTION: "true" },
+      events
+    });
+    assert.equal(state.result.status, "requires_action");
+    const report = events.at(-1)[1];
+    assert.equal(report.outcome, "requires_action");
+    assert.equal(report.errorCode, "LOGIN_REQUIRED");
+    assert.equal(events.some(([event]) => event === "authorize"), false);
     await rm(state.parent, { recursive: true, force: true });
   } finally {
     await rm(avatarPath, { force: true });
@@ -493,6 +553,7 @@ test("main defaults to standby, while fake and real execution require explicit g
   const realExecutorFactory = async () => {
     factoryCalls += 1;
     return {
+      async preflight() {},
       async close() { closeCalls += 1; },
       async createAsset() {},
       async submitVideo() {},
