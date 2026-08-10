@@ -3,6 +3,15 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-10 首次真实 Local Agent 执行失败并安全收口（飞影登录态失效）
+
+- Owner 仅授权 1 条真实执行；执行前确认目标工单 `97bba08b-d602-4fd2-88b3-86f3af76f570` 是唯一 `waiting_for_executor` 工单，交接包 ready，attempt 数为 0。
+- real 双门禁成功 claim/start/download package，随后飞影「手里有货」页面出现登录弹窗。`uploadModalFile` 等待 `filechooser` 30 秒超时并导致 Node 进程退出；没有点击飞影任何生成按钮，没有候选上传、报告或 Work。
+- attempt `3c90b604-f79f-4769-b235-7b00783bb724` 经租约过期清理后为 `requires_action / lease_expired`，工单同步为 `requires_action`；清理 claim 返回空 attempt，没有发生第二次领取或重试。
+- 积分风险判断：上传前失败且未点击生成，预计未扣积分，但必须以飞影后台账单为准。本轮截图只留在 Git 忽略目录，不得提交。
+- 接手顺序：先 `npm run login` 完成飞影登录；再无积分修复登录页前置识别与 filechooser Promise 异常收口；最后把工单从 requires_action 恢复到 waiting_for_executor，并取得新的单条积分授权后才允许重试。禁止直接重复 real 命令。
+- 完整证据见 `docs/status/sessions/2026-08-10-first-real-local-agent-run.md`。
+
 ## 2026-08-10 真实工单与人物映射准备完成（未访问飞影、未消耗积分）
 
 - 云端项目 `真实出片验收 2026-08-10` 已完成单商品、素材核验、文案生成/QC/人工批准、人物确认和视频方案预检/人工批准。
