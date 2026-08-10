@@ -312,7 +312,7 @@ export function createPostgresManualExecutionRepository({ pool, ownsPool = false
         }
         await client.query(`INSERT INTO manual_execution_reports
           (id,organization_id,report_version,production_order_id,execution_attempt_id,package_id,package_version,manifest_hash,submitted_by,submitted_by_agent_id,submitted_at,supersedes_report_id,outcome,started_at,completed_at,operator_note,deviations,primary_output,supporting_outputs,error_category,failure_stage,requires_action_reason,retryability,upstream_return_target)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`, [value.id, value.organization_id, value.report_version,
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`, [value.id, value.organization_id, value.report_version,
           value.production_order_id, value.execution_attempt_id, value.package_id, value.package_version, value.manifest_hash, value.submitted_by,
           value.submitted_by_agent_id ?? null, value.submitted_at, value.supersedes_report_id, value.outcome, value.started_at, value.completed_at, value.operator_note, json(value.deviations),
           json(value.primary_output), json(value.supporting_outputs), value.error_category, value.failure_stage, value.requires_action_reason,
