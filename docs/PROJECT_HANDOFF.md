@@ -3,6 +3,13 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-11 第七次真实验收前置完成；等待新工单单条积分授权
+
+- 未重用第六次 `not_retryable` 失败工单。正式 API 新建 reproduction 工单 `b5e180bc-7d7d-4d22-be4a-57ac0bd2484e`，交接包 `3c653228-2dff-420e-aaa1-5754792d299e` 为 `ready / v1`，生成 job `72c3eb76-0f4c-4432-afca-3e065f850fb9` succeeded。
+- 只读数据库复核：该工单是全组织唯一 `waiting_for_executor` 工单，attempt 数为 0。飞影登录预检返回 `ready / playwright`。
+- 本轮没有运行 real 双门禁，没有上传素材、点击生成或消耗积分。下一步必须由 Owner 对该工单明确授权最多 1 条真实生成并接受积分风险，失败即停且不自动重试。
+- 详细记录：`docs/status/sessions/2026-08-11-seventh-real-local-agent-preflight.md`。
+
 ## 2026-08-10 第六次真实 Local Agent：飞影手持图上游失败；失败即停且未重试
 
 - Owner 明确授权工单 `77aa217b-9a86-42de-8412-6dca62b0841b` 只执行 1 条真实飞影生成并接受积分风险。执行前确认唯一待执行、交接包 ready、attempt 0 和登录预检 ready。
