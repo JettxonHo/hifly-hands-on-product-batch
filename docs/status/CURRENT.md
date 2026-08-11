@@ -1,8 +1,16 @@
 # 项目当前状态
 
-> 最后更新：2026-08-10
+> 最后更新：2026-08-11
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，第六次真实 Local Agent 已按授权执行并在飞影手持图上游失败；授权已用完，云端端到端仍未通过
+> 当前 Goal：生产能力补齐，第七次真实 Local Agent 的新 reproduction 工单与无积分前置已就绪；等待 Owner 对该工单明确授权最多 1 条真实生成
+
+## 2026-08-11 第七次真实验收前置就绪（未执行生成、未消耗积分）
+
+- 未恢复或重用第六次失败工单。通过正式云端 API 创建新 reproduction 工单 `b5e180bc-7d7d-4d22-be4a-57ac0bd2484e`，继续绑定已批准视频方案 `ab4f7c0c-2cfa-4023-9b63-b419233efab3`。
+- 新交接包 `3c653228-2dff-420e-aaa1-5754792d299e` 为 `ready / v1`；生成 job `72c3eb76-0f4c-4432-afca-3e065f850fb9` 为 `succeeded / attempts 1`。
+- 只读数据库复核确认它是全组织唯一 `waiting_for_executor` 工单，ExecutionAttempt 数为 0。Local Agent 飞影登录预检返回 `ready / playwright`。
+- 本轮没有运行 real 双门禁，没有领取工单、上传素材或点击生成，积分消耗 0。下一步只允许在 Owner 明确授权该工单最多 1 条真实飞影生成并接受积分风险后执行一次；失败立即停止且不自动重试。
+- 详细记录见 `docs/status/sessions/2026-08-11-seventh-real-local-agent-preflight.md`。
 
 ## 2026-08-10 第六次真实执行在飞影手持图上游失败，已停止且未重试
 
