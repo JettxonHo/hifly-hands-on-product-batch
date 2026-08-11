@@ -2,7 +2,15 @@
 
 > 最后更新：2026-08-11
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，第七次真实 Local Agent 已按授权执行一次并失败即停；账号级失败弹窗残留已完成无积分 TDD 修复，等待 PR 门禁与合并
+> 当前 Goal：生产能力补齐，第八次真实 Local Agent 的新 reproduction 工单与无积分前置已就绪；等待 Owner 针对该工单明确授权最多 1 条真实生成
+
+## 2026-08-11 第八次真实验收前置就绪（未执行生成、未消耗积分）
+
+- 第七次失败工单继续保留为 `not_retryable` 审计链，没有恢复或重用。通过正式云端 API 创建新 reproduction 工单 `e9d6139f-42cf-4145-95b0-1c2f5b834d4c`，绑定已批准视频方案 `ab4f7c0c-2cfa-4023-9b63-b419233efab3`。
+- 新交接包 `d0856dc8-7bc7-42f6-b55f-551b68f27e22` 为 `ready / v1`；生成 job `7af613f9-39c6-4190-96d5-f2fee7ffeea0` 为 `succeeded / attempts 1`。
+- 云端只读复核确认它是全组织唯一 `waiting_for_executor` 工单，ExecutionAttempt 数为 0。Local Agent 飞影登录预检返回 `ready / playwright`。
+- 本轮没有运行 real 双门禁，没有领取工单、上传素材或点击生成，积分消耗 0。下一步只允许在 Owner 明确授权该工单最多 1 条真实飞影生成并接受积分风险后执行一次；失败立即停止且不自动重试。
+- 详细记录见 `docs/status/sessions/2026-08-11-eighth-real-local-agent-preflight.md`。
 
 ## 2026-08-11 第七次真实执行被账号级失败弹窗残留阻断，已停止且未重试
 
