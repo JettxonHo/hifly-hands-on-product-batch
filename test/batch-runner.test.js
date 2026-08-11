@@ -1638,6 +1638,120 @@ test("createHandsOnImage edits a stale failed modal before continuing the curren
   ]);
 });
 
+test("createHandsOnImage resets a failed modal revealed by the outer upload click", async () => {
+  const calls = [];
+  let outerClicked = false;
+  let edited = false;
+  const outerUploadButton = {
+    async waitFor() {
+      calls.push("outer-upload-ready");
+    },
+    async click() {
+      outerClicked = true;
+      calls.push("outer-upload-click");
+    }
+  };
+  const productUploadButton = {
+    async isVisible() {
+      return edited;
+    },
+    async waitFor() {
+      calls.push("product-upload-wait");
+      if (!edited) throw new Error("failed modal has no product upload button");
+    }
+  };
+  const editButton = {
+    async isVisible() {
+      return outerClicked && !edited;
+    },
+    async click() {
+      edited = true;
+      calls.push("edit-failed");
+    }
+  };
+  const regenerateButton = {
+    async isVisible() {
+      return true;
+    },
+    async click() {
+      calls.push("regenerate");
+    }
+  };
+  const dialog = {
+    getByText(pattern) {
+      const button = String(pattern).includes("重新编辑") ? editButton : regenerateButton;
+      return { first: () => button };
+    }
+  };
+  const page = {
+    getByRole(_role, options) {
+      const button = String(options?.name || "").includes("上传商品")
+        ? productUploadButton
+        : outerUploadButton;
+      return { first: () => button };
+    },
+    async waitForTimeout(ms) {
+      calls.push(`wait:${ms}`);
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage(page, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: {
+      uploadLabel: "上传人物+产品图",
+      uploadPersonText: "上传人物",
+      uploadProductText: "上传商品"
+    }
+  }, { info() {} });
+
+  adapter.dialogLocator = () => dialog;
+  adapter.inspectVisibleGeneratedModalState = async () => outerClicked && !edited
+    ? {
+        ready: false,
+        failed: true,
+        visible: true,
+        text: "手持商品图生成失败再次生成150积分重新编辑确认",
+        buttonTexts: ["再次生成150积分", "重新编辑", "确认"],
+        imageSources: []
+      }
+    : { ready: false, failed: false, visible: edited, text: "", buttonTexts: [], imageSources: [] };
+  adapter.hasGeneratedImageReady = async () => {
+    const state = await adapter.inspectVisibleGeneratedModalState();
+    return state.ready;
+  };
+  const resetGeneratedHandsOnImage = adapter.resetGeneratedHandsOnImage.bind(adapter);
+  adapter.resetGeneratedHandsOnImage = async (...args) => {
+    calls.push("reset-failed");
+    return resetGeneratedHandsOnImage(...args);
+  };
+  adapter.captureStep = async (_product, step) => calls.push(`capture:${step}`);
+  adapter.dumpModalDomSnapshot = async () => calls.push("dump");
+  adapter.isHandsOnModalReadyForGenerate = async () => false;
+  adapter.captureProductImageSrc = async () => ({ src: "before.png", naturalWidth: 100 });
+  adapter.uploadModalFile = async (label, filePath, options = {}) => {
+    const required = options.required === true ? "required" : "optional";
+    calls.push(`upload:${label}:${filePath}:${required}`);
+  };
+  adapter.verifyProductImageReplaced = async () => calls.push("verify-product");
+  adapter.clickModalGenerate = async () => calls.push("generate");
+  adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
+
+  await adapter.createHandsOnImage({
+    sku: "SKU001",
+    person_image_path: "/tmp/current-person.png",
+    image_path: "/tmp/current-product.png"
+  });
+
+  assert.ok(calls.indexOf("outer-upload-click") < calls.indexOf("reset-failed"));
+  assert.ok(calls.indexOf("reset-failed") < calls.indexOf("edit-failed"));
+  assert.equal(calls.includes("regenerate"), false);
+  assert.deepEqual(calls.filter((call) => call.startsWith("upload:")), [
+    "upload:上传人物:/tmp/current-person.png:optional",
+    "upload:上传商品:/tmp/current-product.png:required"
+  ]);
+  assert.ok(calls.indexOf("edit-failed") < calls.indexOf("generate"));
+  assert.ok(calls.indexOf("generate") < calls.indexOf("confirm"));
+});
+
 test("createHandsOnImage retries when a generated modal appears before clicking generate", async () => {
   const calls = [];
   const readyResults = [
@@ -1959,6 +2073,60 @@ test("Hifly preflight reports login required before any upload action", async ()
     "goto:https://hifly.cc/goods",
     "visible:phone"
   ]);
+});
+
+test("Hifly preflight waits for guest-mode signals that appear after initial render", async () => {
+  const guestText = "游客模式 注册即得1000积分";
+  const locatorFor = (appearsAfterRender) => ({
+    first() {
+      return {
+        async isVisible() { return false; },
+        async waitFor({ state, timeout }) {
+          assert.equal(state, "visible");
+          assert.ok(timeout > 0 && timeout <= 2000);
+          if (!appearsAfterRender) throw new Error("not visible");
+        }
+      };
+    }
+  });
+  const adapter = new HiflyHandsOnProductPage({
+    async goto() {},
+    async waitForLoadState() {},
+    getByPlaceholder() { return locatorFor(false); },
+    getByText(pattern) { return locatorFor(pattern.test(guestText)); }
+  }, {
+    handsOnProductUrl: "https://hifly.cc/goods",
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: {}
+  }, { info() {} });
+
+  await assert.rejects(adapter.preflight(), {
+    code: "LOGIN_REQUIRED",
+    outcome: "requires_action"
+  });
+});
+
+test("Hifly preflight accepts an authenticated page without guest-mode signals", async () => {
+  const locator = {
+    first() {
+      return {
+        async isVisible() { return false; },
+        async waitFor() { throw new Error("not visible"); }
+      };
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({
+    async goto() {},
+    async waitForLoadState() {},
+    getByPlaceholder() { return locator; },
+    getByText() { return locator; }
+  }, {
+    handsOnProductUrl: "https://hifly.cc/goods",
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: {}
+  }, { info() {} });
+
+  assert.deepEqual(await adapter.preflight(), { status: "ready" });
 });
 
 test("uploadModalFile skips optional uploads when the modal is already ready to generate", async () => {

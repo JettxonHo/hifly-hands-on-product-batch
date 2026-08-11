@@ -37,14 +37,14 @@ function playwrightContextOptions(root, config, options = {}) {
   };
 }
 
-function createLazyHiflyExecutor(root, options = {}) {
+function createLazyHiflyExecutor(root, initialConfig = {}, options = {}) {
   let context;
   let delegate;
 
   async function ensureDelegate() {
     if (delegate) return delegate;
-    const config = loadConfig(path.join(root, "config.local.json"));
-    const profileDir = resolvedPath(root, config.browser.profileDir);
+    const config = loadConfig(initialConfig.__configPath || path.join(root, "config.local.json"));
+    const profileDir = resolveFromRoot(config, config.browser.profileDir);
     context = await chromium.launchPersistentContext(profileDir, playwrightContextOptions(root, config, options));
     const page = context.pages()[0] || await context.newPage();
     page.setDefaultTimeout(config.batch.defaultTimeoutMs);
@@ -68,7 +68,7 @@ function createLazyHiflyExecutor(root, options = {}) {
 export function createExecutorForBackend(root, config = {}, options = {}) {
   const backend = config.executionBackend || "playwright";
   if (backend === "playwright") {
-    const executor = createLazyHiflyExecutor(root, options);
+    const executor = createLazyHiflyExecutor(root, config, options);
     return Object.assign(executor, { backend: "playwright" });
   }
   if (backend === "yingdao_rpa") {

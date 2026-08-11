@@ -73,7 +73,8 @@ assets/person_pool/fresh_food/host_02.jpg
 
 ## 飞影页面已知行为与调试要点（实机总结）
 
-- **Local Agent 真实模式必须先做登录预检**：执行器进入 `https://hifly.cc/goods` 后，以手机号输入框（placeholder 含「11 位手机号」）或「微信扫码登录」作为登录失效信号。预检必须发生在云端 heartbeat/claim 前；命中时返回 `LOGIN_REQUIRED / requires_action`，不得领取工单或继续上传。
+- **Local Agent 真实模式必须先做登录预检**：执行器进入 `https://hifly.cc/goods` 后，手机号输入框（placeholder 含「11 位手机号」）、「微信扫码登录」、顶部「游客模式」或「注册即得…积分」都属于登录失效信号。飞影允许游客访问商品页，因此“页面可打开”不等于已登录。预检必须发生在云端 heartbeat/claim 前；命中时返回 `LOGIN_REQUIRED / requires_action`，不得领取工单或继续上传。
+- **登录与执行必须使用同一份外部配置/Profile**：Local Agent 通过 `LOCAL_AGENT_HIFLY_CONFIG_PATH` 指定配置时，Playwright lazy executor 必须按该路径重新加载配置，并相对于该配置文件目录解析 `browser.profileDir`。登录也要显式使用同一路径：先加载 `~/.config/hifly-local-agent/cloud.env`，再运行 `HIFLY_CONFIG="$LOCAL_AGENT_HIFLY_CONFIG_PATH" npm run login`。不要只登录仓库运行目录的默认 Profile，否则预检与真实执行可能使用不同登录态。
 - **弹窗上传优先直接设置对应 input**：实页 DOM 中“上传人物”和“上传商品”都是 `<span role="button">`，各自内部有独立的隐藏 `input[type=file]`。上传必须先限定到可见“手持商品图”弹窗，再对匹配控件内的 input 调用 `setInputFiles`；不要用页面级 `/上传人物/` 查询，否则会误命中弹窗背后的“上传人物+产品图”。只有控件内没有 input 时才用 `Promise.all([waitForEvent("filechooser"), click()])` 回退。
 - **商品主图校验不能按最右图片判断**：商品推荐缩略图（如 `pd4.jpg`）位于主商品图右侧。上传后应优先选择展示面积最大的非人物推荐图，并在面积相同时取更靠右者，避免把推荐缩略图误判为未替换的商品主图。
 - **手持商品图是账号级持久化残留**：上一个商品生成的手持图会残留在账号里，新商品打开「手持商品图」弹窗时看到的是上一个商品的残留已生成图（不是空上传界面）。`page.reload` / 重新导航都清不掉——残留是服务端/会话维度。这是「新商品生成却复用上一个商品（如青菜/白菜）素材」bug 的根因。
