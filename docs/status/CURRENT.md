@@ -1,8 +1,19 @@
 # 项目当前状态
 
-> 最后更新：2026-08-11
+> 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，第八次真实 Local Agent 的新 reproduction 工单与无积分前置已就绪；等待 Owner 针对该工单明确授权最多 1 条真实生成
+> 当前 Goal：生产能力补齐，第八次真实 Local Agent 已按单条授权执行并被点击上传后出现的账号级失败弹窗残留阻断；未重试；无积分修复与完整测试已通过，等待合并并登录正确的外部 Profile；后续单条真实生成 standing authorization 剩余 5 次
+
+## 2026-08-12 第八次真实执行被点击上传后出现的失败弹窗残留阻断，已停止且未重试
+
+- Owner 明确授权工单 `e9d6139f-42cf-4145-95b0-1c2f5b834d4c` 最多执行 1 条真实飞影生成并接受积分风险。执行前确认它是唯一活跃工单、状态为 `waiting_for_executor`、交接包 `d0856dc8-7bc7-42f6-b55f-551b68f27e22` 为 `ready / v1`、attempt 数为 0，现有预检错误返回 `ready / playwright`。
+- 唯一真实命令完成 heartbeat、claim、start 和交接包下载，随后失败并提交报告。attempt `59b4a9a1-eb96-44c5-a0c0-25c8d404f181`、报告 `a466cf58-2fa8-490d-8f49-f712ba8d1074`；工单/attempt 为 `failed`，报告为 `failed / not_retryable`，candidate 0、Work 0。失败后没有运行第二次命令。
+- 只读实页诊断确认本次真实执行实际误用了运行目录中的会员 Profile，页面显示余额 `55637`。点击外层“上传人物+产品图”后，账号级旧失败弹窗才出现，内容为“生成失败 / 再次生成 150积分 / 重新编辑 / 确认”。现有修复只在点击外层入口之前检查失败态，因此仍会等待不存在的“上传商品”入口直至超时。
+- 本次没有进入人物/商品上传，也没有点击手持图 `立即生成 150积分`、`再次生成 150积分` 或外层视频生成；未观察到本轮可计费动作。余额较更早记录发生变化，不能归因到本轮，最终积分结算仍以飞影后台流水为准。
+- 无积分 TDD 修复已完成：打开外层入口后立即再次检查失败弹窗，命中时只走“重新编辑”恢复上传态，禁止点击“再次生成”；游客态信号会在 heartbeat/claim 前返回 `LOGIN_REQUIRED`；Playwright lazy executor 也会尊重 `LOCAL_AGENT_HIFLY_CONFIG_PATH` 对应配置及相对 Profile 路径，不再静默改用运行目录配置。修复后无副作用预检已对正确外部 Profile 返回 `LOGIN_REQUIRED`，没有 heartbeat、claim、上传或生成。
+- 验证：`npm run check` 检查 204 个 JavaScript 文件；`npm test` 共 878 项，864 pass / 14 environment skip / 0 fail；`git diff --check` 通过。下一步先合并修复，再用同一外部配置运行 `npm run login` 保存登录态，并仅做无副作用预检。该工单授权已经使用，不得重试。
+- Owner 随后明确授予未来 5 次单条真实飞影生成权限，无需逐次再次确认。该 standing authorization 从下一条新 reproduction 工单开始计数，当前剩余 5 次；每次仍必须先通过登录态、唯一工单、零 attempt 和交接包就绪门禁，每次最多 1 个工单/1 条生成，失败即停且不自动重试。
+- 详细记录见 `docs/status/sessions/2026-08-12-eighth-real-local-agent-stale-failure-after-open.md`。
 
 ## 2026-08-11 第八次真实验收前置就绪（未执行生成、未消耗积分）
 

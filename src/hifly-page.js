@@ -54,7 +54,12 @@ export class HiflyHandsOnProductPage {
     }
     if (typeof this.page.getByText === "function") {
       const wechatLogin = this.page.getByText(/微信扫码登录/).first();
-      return wechatLogin.isVisible({ timeout: 1000 }).catch(() => false);
+      if (await wechatLogin.isVisible({ timeout: 1000 }).catch(() => false)) return true;
+
+      const guestMode = this.page.getByText(/游客模式|注册即得\s*[\d,]+\s*积分/).first();
+      return guestMode.waitFor({ state: "visible", timeout: 2000 })
+        .then(() => true)
+        .catch(() => false);
     }
     return false;
   }
@@ -602,6 +607,11 @@ export class HiflyHandsOnProductPage {
     await this.uploadButton().waitFor({ state: "visible", timeout });
     await this.uploadButton().click({ timeout, force: true });
     await this.page.waitForTimeout(1000);
+    const openedState = await this.inspectVisibleGeneratedModalState();
+    if (openedState.failed) {
+      await this.resetGeneratedHandsOnImage(product);
+      return;
+    }
     if (await this.hasGeneratedImageReady()) return;
 
     const uploadProductButton = this.page.getByRole("button", {
