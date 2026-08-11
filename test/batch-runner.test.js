@@ -1533,6 +1533,111 @@ test("createHandsOnImage edits a stale generated modal before uploading the curr
   ]);
 });
 
+test("createHandsOnImage edits a stale failed modal before continuing the current upload", async () => {
+  const calls = [];
+  const requestedDialogTexts = [];
+  const editText = {
+    async isVisible() {
+      return true;
+    },
+    async click() {
+      calls.push("edit-failed");
+    }
+  };
+  const productUploadButton = {
+    async isVisible() {
+      calls.push("product-upload-visible");
+      return true;
+    },
+    async waitFor() {
+      calls.push("product-upload-ready");
+    }
+  };
+  const outerUploadButton = {
+    async waitFor() {
+      throw new Error("stale failed modal left the outer upload entry blocked");
+    },
+    async click() {
+      calls.push("outer-upload-click");
+    }
+  };
+  const page = {
+    getByRole(_role, options) {
+      const name = String(options?.name || "");
+      return {
+        first() {
+          return name.includes("上传商品") ? productUploadButton : outerUploadButton;
+        }
+      };
+    },
+    async waitForTimeout(ms) {
+      calls.push(`wait:${ms}`);
+    }
+  };
+  const dialog = {
+    getByText(pattern) {
+      requestedDialogTexts.push(String(pattern));
+      return { first: () => editText };
+    },
+    getByRole(_role, options) {
+      requestedDialogTexts.push(String(options?.name || ""));
+      return { first: () => editText };
+    }
+  };
+  const states = [
+    {
+      ready: false,
+      failed: true,
+      visible: true,
+      text: "手持商品图生成失败再次生成150积分重新编辑确认",
+      buttonTexts: ["Close", "再次生成150积分", "重新编辑", "确认"],
+      imageSources: []
+    },
+    { ready: false, failed: false, visible: true, text: "手持商品图 上传人物 上传商品", buttonTexts: [], imageSources: [] },
+    { ready: false, failed: false, visible: true, text: "手持商品图 上传人物 上传商品", buttonTexts: [], imageSources: [] }
+  ];
+  const adapter = new HiflyHandsOnProductPage(page, {
+    batch: { defaultTimeoutMs: 10 },
+    behavior: { useRecommendedPersonWhenMissing: true },
+    personPool: { fallbackToRecommended: true },
+    hiflyUi: {
+      uploadLabel: "上传人物+产品图",
+      uploadPersonText: "上传人物",
+      uploadProductText: "上传商品"
+    }
+  }, { info() {} });
+
+  adapter.dialogLocator = () => dialog;
+  adapter.inspectVisibleGeneratedModalState = async () => states.shift() ?? states.at(-1);
+  adapter.captureStep = async (_product, step) => calls.push(`capture:${step}`);
+  adapter.dumpModalDomSnapshot = async () => calls.push("dump");
+  adapter.selectRecommendedPerson = async () => calls.push("select-person");
+  adapter.captureProductImageSrc = async () => ({ src: "before.png", naturalWidth: 100 });
+  adapter.uploadModalFile = async (label, filePath, options = {}) => {
+    const required = options?.required === true ? "required" : "optional";
+    calls.push(`upload:${label}:${filePath}:${required}`);
+  };
+  adapter.verifyProductImageReplaced = async () => calls.push("verify-product");
+  adapter.clickModalGenerate = async () => calls.push("generate");
+  adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
+
+  await adapter.createHandsOnImage({
+    sku: "SKU001",
+    person_image_path: "/tmp/current-person.png",
+    image_path: "/tmp/current-product.png"
+  });
+
+  assert.equal(calls.includes("edit-failed"), true);
+  assert.equal(calls.includes("outer-upload-click"), false);
+  assert.equal(calls.includes("generate"), true);
+  assert.equal(calls.includes("confirm"), true);
+  assert.equal(requestedDialogTexts.some((text) => text.includes("再次生成")), false);
+  assert.deepEqual(calls.filter((call) => call.startsWith("upload:")), [
+    "upload:上传人物:/tmp/current-person.png:optional",
+    "upload:上传商品:/tmp/current-product.png:required"
+  ]);
+});
+
 test("createHandsOnImage retries when a generated modal appears before clicking generate", async () => {
   const calls = [];
   const readyResults = [
