@@ -525,7 +525,7 @@ export class HiflyHandsOnProductPage {
 
   async createHandsOnImage(product) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      await this.openHandsOnModal();
+      await this.openHandsOnModal(product);
       await this.captureStep(product, attempt === 0 ? "modal-open" : "modal-retry-open");
 
       if (await this.hasGeneratedImageReady()) {
@@ -582,7 +582,7 @@ export class HiflyHandsOnProductPage {
     await this.captureStep(product, "modal-reset");
     // clearResidual 删残留图会关闭"手持商品图"弹窗、回到外层页面；
     // 重新打开一个干净的上传界面（残留已删），才能看到"上传商品"按钮。
-    await this.openHandsOnModal();
+    await this.openHandsOnModal(product);
     await this.captureStep(product, "modal-reopen");
     if (await this.hasGeneratedImageReady()) {
       await this.dumpModalDomSnapshot(product);
@@ -590,8 +590,13 @@ export class HiflyHandsOnProductPage {
     }
   }
 
-  async openHandsOnModal() {
+  async openHandsOnModal(product) {
     const timeout = this.config.batch.defaultTimeoutMs;
+    const visibleState = await this.inspectVisibleGeneratedModalState();
+    if (visibleState.failed) {
+      await this.resetGeneratedHandsOnImage(product);
+      return;
+    }
     if (await this.hasGeneratedImageReady()) return;
 
     await this.uploadButton().waitFor({ state: "visible", timeout });
