@@ -1,6 +1,12 @@
 # 运行环境与交付打包说明
 
-## 本地依赖
+## 当前生产入口
+
+生产用户只需要浏览器访问云端 HTTPS 工作台，不需要在个人电脑安装 Node.js、Playwright 或 Local Agent。飞影浏览器与 Profile 由阿里云 Cloud Executor 持有；受控登录、standby、重启和回滚见 `docs/deployment/ALIYUN_CLOUD_EXECUTOR_CE07_RUNBOOK.md`。
+
+当前生产配置必须保持 `LOCAL_AGENT_ENABLED=false`。Local Agent 和下方本地 GUI 只用于 legacy fallback、开发与演示，不作为生产路径或纯云端验收证据。
+
+## Legacy 本地开发依赖
 
 - macOS 12+ 或 Windows 10+
 - Node.js 20+，推荐 22+
@@ -9,7 +15,7 @@
 - 飞影账号，且账号可访问 `https://hifly.cc/goods`
 - GitHub CLI `gh`，仅在需要推送 GitHub 或创建 PR 时使用
 
-## 首次安装
+## Legacy 本地首次安装
 
 ```bash
 npm install
@@ -23,9 +29,9 @@ cp config.example.json config.local.json
 npm run login
 ```
 
-在弹出的浏览器中登录飞影。确认可以进入 `https://hifly.cc/goods` 后，回到终端按 Enter 保存登录态。
+在弹出的浏览器中登录飞影。该登录态只属于本地 Profile，不会配置或验证云端 Cloud Executor Profile。
 
-## GUI 启动
+## Legacy 本地 GUI 启动
 
 Mac 和 Windows 使用同一个命令：
 
