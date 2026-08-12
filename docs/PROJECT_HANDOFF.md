@@ -3,6 +3,15 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-12 P2-03 Issue #130 人物品类推荐（实现与独立审查完成）
+
+- 当前共享 checkout 分支为 `codex/p2-03-avatar-category-recommendations`，基准 `main@4776189abc9412307a9d6bbb43735b0afdf01c15`；本轮未 commit、未 push、未创建 PR、未合并或关闭 Issue。
+- AvatarSelection service 通过 `app.projectContent.productRevisionPort` 读取 approved CopyVersion 绑定的 ProductRevision `primary_category`；推荐只在已有 catalog gate `can_confirm=true` 后计算，采用 trim/lowercase 精确匹配，精确匹配优先，无码匹配时回退到空标签通用池，稳定排序并保留非推荐人物浏览。
+- workspace/API recommendation projection 为 provider-neutral：`recommended`、稳定 `reason_code`、中文 `reason`、`matched_tags`；不新增数据库列，不暴露 provider ID、对象存储 key、上传 token、本地路径。读取 workspace 不会创建或修改 AvatarSelection。
+- GUI `web/avatar.*` 已在人物目录、详情与移动抽屉显示“推荐”和理由；既有来源/状态筛选、确认/更换 Dialog 与 optimistic revision 保持不变。无匹配且无通用池显示无推荐说明。
+- 已验证：focused service/API/browser 27/27；完整受控并发回归 954 total / 940 pass / 14 既有 environment skip / 0 fail；`npm run check` 213 JS 通过；`git diff --check` 通过。Sol 独立审查仅修正管理员 browser fixture 缺失的 authoritative revision port，生产推荐逻辑无需修改。
+- 本轮没有访问 Hifly/DeepSeek/Playwright/Capture/Local Agent production module 或外部服务，没有真实执行和飞影积分消耗。运行时模型不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。尚未部署生产，也未做真实人物/商品生产验证。
+
 ## 2026-08-12 P2-02 Issue #128 企业人物素材登记（实现与独立审查完成）
 
 - 本轮在 `codex/p2-02-enterprise-avatar-materials` 完成企业人物素材最小闭环：现有资产上传/核验支持显式 `avatar_image`，省略 kind 仍默认为 `product_image`，继续复用 SHA-256 checksum；裸上传不会声明手持商品能力。

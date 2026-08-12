@@ -19,12 +19,119 @@ function world({ approved = true, now = "2026-08-07T08:00:00.000Z" } = {}) {
       return copyApproved ? { copy_version_id: "copy-a", product_revision_id: "revision-a", current_valid: true } : null;
     }
   };
+  const productRevisionPort = {
+    async getSnapshot({ organizationId, productRevisionId }) {
+      if (organizationId !== "org-a" || productRevisionId !== "revision-a") {
+        throw Object.assign(new Error("PRODUCT_REVISION_NOT_FOUND"), { code: "PRODUCT_REVISION_NOT_FOUND" });
+      }
+      return { organization_id: organizationId, product_id: "product-a", primary_category: "general" };
+    }
+  };
   return {
     repository,
-    service: createAvatarSelectionService({ repository, copyApprovalPort, now: () => Date.parse(now) }),
+    service: createAvatarSelectionService({ repository, copyApprovalPort, productRevisionPort, now: () => Date.parse(now) }),
     revokeCopy() { copyApproved = false; }
   };
 }
+
+function taggedRepository(tagsByName) {
+  const repository = createMemoryAvatarSelectionRepository();
+  const listCatalog = repository.listCatalog.bind(repository);
+  repository.listCatalog = async (organizationId) => (await listCatalog(organizationId)).map((entry) => ({
+    ...entry, asset: { ...entry.asset, category_tags: tagsByName[entry.asset.display_name] || [] }
+  }));
+  return repository;
+}
+
+function recommendationService({ primaryCategory, tagsByName = {}, approved = true } = {}) {
+  const repository = taggedRepository(tagsByName);
+  const copyApprovalPort = {
+    async getCurrentApprovedCopy() {
+      return approved ? { copy_version_id: "copy-a", product_revision_id: "revision-a", current_valid: true } : null;
+    },
+    async resolveCurrentApprovedCopy() {
+      return approved ? { copy_version_id: "copy-a", product_revision_id: "revision-a", current_valid: true } : null;
+    }
+  };
+  const productRevisionPort = {
+    async getSnapshot({ organizationId, productRevisionId }) {
+      assert.equal(organizationId, "org-a");
+      assert.equal(productRevisionId, "revision-a");
+      return { organization_id: organizationId, product_id: "product-a", primary_category: primaryCategory };
+    }
+  };
+  return { repository, service: createAvatarSelectionService({ repository, copyApprovalPort, productRevisionPort }) };
+}
+
+test("recommendations use authoritative exact category matches and stable priority", async () => {
+  const { service } = recommendationService({ primaryCategory: "  BEAUTY ", tagsByName: {
+    "林小满": ["护肤"], "周言": [" Beauty ", "beauty"], "青禾企业主播": ["美妆"]
+  } });
+  const workspace = await service.getWorkspace({ ...actor, productId: "product-a", copyVersionId: "copy-a" });
+  const recommended = workspace.catalog.filter((item) => item.recommendation.recommended);
+
+  assert.deepEqual(recommended.map((item) => item.display_name), ["周言"]);
+  assert.deepEqual(recommended[0].recommendation, {
+    recommended: true, reason_code: "exact_category_match", reason: "匹配商品主品类「beauty」。", matched_tags: ["beauty"]
+  });
+  assert.equal(workspace.recommendation.reason_code, "exact_category_match");
+  assert.equal(workspace.catalog[0].display_name, "周言");
+  assert.ok(workspace.catalog.find((item) => item.display_name === "林小满").gate.can_confirm);
+  assert.equal(workspace.catalog.find((item) => item.display_name === "林小满").recommendation.recommended, false);
+});
+
+test("recommendations fall back to the confirmable general pool when no exact match exists", async () => {
+  const { service } = recommendationService({ primaryCategory: "美妆", tagsByName: {
+    "林小满": ["护肤"], "周言": ["口播"], "青禾企业主播": []
+  } });
+  const workspace = await service.getWorkspace({ ...actor, productId: "product-a", copyVersionId: "copy-a" });
+  const recommended = workspace.catalog.filter((item) => item.recommendation.recommended);
+
+  assert.deepEqual(recommended.map((item) => item.display_name), ["青禾企业主播"]);
+  assert.equal(workspace.recommendation.reason_code, "general_pool_fallback");
+  assert.match(workspace.recommendation.reason, /未找到.*精确匹配/);
+  assert.deepEqual(recommended[0].recommendation.matched_tags, []);
+  assert.equal(recommended[0].recommendation.reason_code, "general_pool_fallback");
+});
+
+test("recommendations explain when no eligible exact or general candidate exists and exclude blocked avatars", async () => {
+  const { service } = recommendationService({ primaryCategory: "美妆", tagsByName: {
+    "林小满": ["护肤"], "周言": ["口播"], "青禾企业主播": ["口播"], "能力待核验人物": ["美妆"]
+  } });
+  const workspace = await service.getWorkspace({ ...actor, productId: "product-a", copyVersionId: "copy-a" });
+  const blocked = workspace.catalog.find((item) => item.display_name === "能力待核验人物");
+
+  assert.equal(workspace.catalog.some((item) => item.recommendation.recommended), false);
+  assert.equal(workspace.recommendation.reason_code, "no_eligible_recommendation");
+  assert.equal(blocked.gate.can_confirm, false);
+  assert.equal(blocked.recommendation.recommended, false);
+  assert.equal(blocked.recommendation.reason_code, "not_confirmable");
+});
+
+test("workspace recommendation reads the approved copy bound revision and never creates a selection", async () => {
+  const calls = [];
+  const state = world();
+  state.service = createAvatarSelectionService({ repository: state.repository,
+    copyApprovalPort: {
+      async getCurrentApprovedCopy() { return { copy_version_id: "copy-a", product_revision_id: "revision-a", current_valid: true }; }
+    },
+    productRevisionPort: {
+      async getSnapshot(input) {
+        calls.push(input);
+        return { organization_id: input.organizationId, product_id: "product-a", primary_category: "护肤" };
+      }
+    }
+  });
+  const before = await state.repository.getSelectionState("org-a", "product-a");
+  const workspace = await state.service.getWorkspace({ ...actor, productId: "product-a", copyVersionId: "copy-a" });
+  const after = await state.repository.getSelectionState("org-a", "product-a");
+
+  assert.deepEqual(calls, [{ organizationId: "org-a", productRevisionId: "revision-a" }]);
+  assert.equal(workspace.recommendation.primary_category, "护肤");
+  assert.equal(before.current_selection, null);
+  assert.equal(after.current_selection, null);
+  assert.equal(after.selection_revision, before.selection_revision);
+});
 
 test("controlled existing-only catalog exposes public and enterprise avatars without unsupported capability claims", async () => {
   const { service } = world();

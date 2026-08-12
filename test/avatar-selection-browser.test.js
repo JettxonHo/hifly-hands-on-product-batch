@@ -89,7 +89,8 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
     assert.match(await page.locator(selector).getAttribute("href"), /^\/plan\.html\?/);
   }
   assert.equal(await page.locator("#avatarWorkspace").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length), 3);
-  assert.equal(await page.getByText(/推荐/).count(), 0);
+  assert.ok(await page.getByText("推荐", { exact: true }).count() > 0);
+  await page.getByText(/未找到商品主品类精确匹配/).first().waitFor();
 
   await page.getByRole("button", { name: /同步公共人物/ }).click();
   await page.getByText("公共目录", { exact: true }).first().waitFor();
@@ -155,6 +156,11 @@ test("avatar admin GUI registers verified material and members remain read-only"
     avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository(), copyApprovalPort: {
       async getCurrentApprovedCopy({ copyVersionId }) { return copyVersionId ? { copy_version_id: copyVersionId, product_revision_id: "revision-admin-browser", current_valid: true } : null; },
       async resolveCurrentApprovedCopy() { return { copy_version_id: "copy-admin-browser", product_revision_id: "revision-admin-browser", current_valid: true }; }
+    }, productRevisionPort: {
+      async getSnapshot({ organizationId, productRevisionId }) {
+        return organizationId === "org-avatar-admin-browser" && productRevisionId === "revision-admin-browser" ?
+          { organization_id: organizationId, product_id: product.id, primary_category: "美妆" } : null;
+      }
     } }
   });
   const project = await app.projectContent.service.createProject({ organizationId: "org-avatar-admin-browser", actorMemberId: seeded.member.id,
