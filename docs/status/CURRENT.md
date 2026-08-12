@@ -4,6 +4,16 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
+## 2026-08-12 CE-05 / Issue #140 Cloud 持久素材、视频与磁盘门限（本地 READY，待独立 Review）
+
+- 当前分支：`codex/ce-05-cloud-persistent-media`；基线：`main@b78fe08`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
+- 已新增可复用 Cloud workspace/storage seam：启动/ready 前创建固定 `profile`、`assets`、`outputs`、`evidence` 目录；Profile 生命周期仍归 CE-04。未注入 candidate store 时，standalone runtime 复用现有 local object store，并将 Cloud 输出持久化到 `outputs`；注入 manual-execution candidate store 的现有组合保持不变。
+- 已新增 `CLOUD_EXECUTOR_MIN_FREE_BYTES`（默认 1 GiB）与 `statfs`/注入等价物检查。readiness 低于门限或 statfs 不可用时返回 `storage_blocked`，在订单 list/claim/attempt 创建前失败关闭；公开状态不暴露路径或磁盘实现细节。
+- 已新增 `deploy/cloud-executor-storage.yml` 与 `docs/deployment/CLOUD_EXECUTOR_STORAGE_CONTRACT.md`，显式挂载 assets/outputs/evidence named volumes；未新增 Cloud Executor 文件 route，视频继续复用 A12 verified output AssetVersion 与现有鉴权 Work preview/download 合同。
+- 已新增第二 runtime/service/store 共享临时持久根的重启测试：商品/人物素材、Evidence、candidate 元数据与视频字节保留；通过现有 verified output registration 和鉴权 Work 下载路径返回原始视频字节。公开 Cloud result 不含绝对路径、raw storage key、signed URL、cookie 或 token。
+- 已验证：CE-02/03/04 + CE-05 focused `38/38`；`npm run check` 检查 223 个 JavaScript 文件；`npm test` `993` tests / `979` pass / `14` existing environment skips / `0` fail；`git diff --check` 通过；CE-05 Compose fragment `docker compose -f deploy/cloud-executor-storage.yml config` 通过。
+- 外部边界：0 次 Hifly/真实浏览器/Provider/DeepSeek/HTTP，0 次真实 ProductionOrder claim，0 次部署，飞影积分消耗 0。CE-07 仍需目标云环境的真实 volume/bind、disabled/fail-closed standby、磁盘/readiness 与重启恢复证明；CE-08 仍需另行授权真实纯云端出片。
+
 ## 2026-08-12 CE-04 / Issue #139 Cloud Profile 与受控登录（READY PR 待 Review）
 
 - 当前分支：`codex/ce-04-cloud-login-readiness`；基线：`main@678aa48`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。

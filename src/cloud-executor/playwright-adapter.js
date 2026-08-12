@@ -10,7 +10,7 @@ import { runBatch } from "../core/batch-runner.js";
 import { createHiflyExecutor } from "../executors/hifly-executor.js";
 import { HiflyHandsOnProductPage } from "../hifly-page.js";
 import { compilePackageToBatchItem, extractHandoffPackage, loadAvatarMappings } from "../local-agent/package-compiler.js";
-import { ensureCloudExecutorWorkspace } from "./workspace.js";
+import { createCloudWorkspaceConfig, ensureCloudExecutorWorkspace } from "./workspace.js";
 
 export const CLOUD_PLAYWRIGHT_PROGRESS = Object.freeze({
   PRE_SUBMIT: "pre_submit",
@@ -35,27 +35,6 @@ const EXECUTOR_METHODS = Object.freeze([
 
 function clean(value) {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function requiredAbsolute(value, name) {
-  const selected = clean(value);
-  if (!selected || !path.isAbsolute(selected)) throw new TypeError(`${name} must be an absolute path`);
-  return path.resolve(selected);
-}
-
-export function createCloudWorkspaceConfig(workspace = {}) {
-  if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) {
-    throw new TypeError("cloud workspace is required");
-  }
-  const root = requiredAbsolute(workspace.root || workspace.workspaceRoot, "workspace.root");
-  const profileDir = requiredAbsolute(workspace.profileDir, "workspace.profileDir");
-  const assetsDir = requiredAbsolute(workspace.assetsDir || path.join(root, "assets"), "workspace.assetsDir");
-  const outputsDir = requiredAbsolute(workspace.outputsDir || workspace.downloadDir || path.join(root, "outputs"), "workspace.outputsDir");
-  const evidenceDir = requiredAbsolute(workspace.evidenceDir || path.join(root, "evidence"), "workspace.evidenceDir");
-  const batchDir = requiredAbsolute(workspace.batchDir || path.join(root, "batches"), "workspace.batchDir");
-  const lockDir = requiredAbsolute(workspace.lockDir || path.join(root, "locks"), "workspace.lockDir");
-  return Object.freeze({ root, profileDir, assetsDir, outputsDir, evidenceDir, batchDir, lockDir,
-    profileMarkerPath: path.join(profileDir, ".cloud-executor-profile.marker") });
 }
 
 function hiflyConfigFor(workspace, config = {}) {
@@ -408,3 +387,5 @@ export function createCloudPlaywrightAdapter({
 }
 
 export const createCloudPlaywrightExecutor = createCloudPlaywrightAdapter;
+
+export { createCloudWorkspaceConfig };

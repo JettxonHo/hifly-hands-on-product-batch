@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { DEFAULT_CLOUD_EXECUTOR_MIN_FREE_BYTES } from "./workspace.js";
+
 const MODES = new Set(["fail_closed", "fake", "playwright", "login"]);
 const DEFAULT_ROOT = "/var/lib/hifly/cloud-executor";
 
@@ -21,6 +23,14 @@ function duration(value, name, fallback) {
 function port(value, name, fallback) {
   const selected = Number(value || fallback);
   if (!Number.isSafeInteger(selected) || selected < 1 || selected > 65_535) {
+    throw Object.assign(new Error(`${name}_INVALID`), { code: `${name}_INVALID` });
+  }
+  return selected;
+}
+
+function bytes(value, name, fallback) {
+  const selected = Number(value === undefined || value === "" ? fallback : value);
+  if (!Number.isSafeInteger(selected) || selected < 0) {
     throw Object.assign(new Error(`${name}_INVALID`), { code: `${name}_INVALID` });
   }
   return selected;
@@ -58,6 +68,7 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
     : null;
   const hiflyConfigPath = path.resolve(root, env.CLOUD_EXECUTOR_HIFLY_CONFIG_PATH || env.LOCAL_AGENT_HIFLY_CONFIG_PATH || "config.local.json");
   const display = env.CLOUD_EXECUTOR_DISPLAY?.trim() || ":99";
+  const minFreeBytes = bytes(env.CLOUD_EXECUTOR_MIN_FREE_BYTES, "CLOUD_EXECUTOR_MIN_FREE_BYTES", DEFAULT_CLOUD_EXECUTOR_MIN_FREE_BYTES);
   const workspace = {
     root: workspaceRoot,
     profileDir,
@@ -82,6 +93,7 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
     hiflyConfigPath,
     profileDir,
     storageRoot: workspaceRoot,
+    storage: { root: workspaceRoot, minFreeBytes },
     display,
     xvfb: { enabled: true, display },
     noVnc: {

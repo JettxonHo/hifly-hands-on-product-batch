@@ -1,0 +1,23 @@
+# CE-05 contract fragment only. CE-07 owns the worker image, service wiring,
+# and live deployment validation. The CE-04 Profile volume is supplied by the
+# login contract; this fragment intentionally adds only media persistence.
+services:
+  cloud_executor:
+    image: "${CLOUD_EXECUTOR_IMAGE:-hifly-cloud-executor:ce-05-contract}"
+    environment:
+      CLOUD_EXECUTOR_ENABLED: "${CLOUD_EXECUTOR_ENABLED:-false}"
+      CLOUD_EXECUTOR_MODE: "${CLOUD_EXECUTOR_MODE:-fail_closed}"
+      CLOUD_EXECUTOR_ROOT: "/var/lib/hifly-executor"
+      CLOUD_EXECUTOR_ASSETS_DIR: "/var/lib/hifly-executor/assets"
+      CLOUD_EXECUTOR_OUTPUTS_DIR: "/var/lib/hifly-executor/outputs"
+      CLOUD_EXECUTOR_EVIDENCE_DIR: "/var/lib/hifly-executor/evidence"
+      CLOUD_EXECUTOR_MIN_FREE_BYTES: "${CLOUD_EXECUTOR_MIN_FREE_BYTES:-1073741824}"
+    volumes:
+      - cloud_executor_assets:/var/lib/hifly-executor/assets
+      - cloud_executor_outputs:/var/lib/hifly-executor/outputs
+      - cloud_executor_evidence:/var/lib/hifly-executor/evidence
+
+volumes:
+  cloud_executor_assets:
+  cloud_executor_outputs:
+  cloud_executor_evidence:
