@@ -11,6 +11,7 @@
 - 修复：入口在 Xvfb 前探测活动 display；活动 X server 或 lock PID 仍存活时 fail-closed 并保留文件；确认 stale 后只清理当前 DISPLAY 对应的 lock/socket，再保持 Xvfb → x11vnc → websockify → login/worker 顺序。
 - 回归覆盖 stale 清理、启动顺序、活动 display 不误删，以及默认 worker/login 两条 dispatch 路径。验证：focused `15/15`、`sh -n`、`npm run check`（229 JS）、`NODE_OPTIONS=--test-reporter=dot npm test` exit 0、`git diff --check`。
 - 本轮未 SSH、未访问 Hifly/Provider、未启动真实 provider、未 claim、未消耗积分；阿里云实机重启/live proof仍待独立部署授权与 Review，不在本 PR 声称已验证。
+- 实现提交：`f47fca4`；READY PR [#151](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/151) 已推送到 `main`，OPEN、非 draft；PR 只引用 #142，不自动关闭 Issue。CI 在交接时仍 pending。
 - Session：`docs/status/sessions/2026-08-13-ce-07-xvfb-restart-recovery.md`。
 
 ## 2026-08-12 CE-07 / Issue #142 阿里云 standalone Cloud Executor Worker（READY PR，待 Review）

@@ -31,7 +31,11 @@
   generation, or points consumption was performed; live CE-07 proof remains
   unverified.
 
-## Next step
+## Handoff
 
-Commit and push the bounded change, then create a ready-for-review PR targeting
-`main` without an auto-close directive for Issue #142. Do not merge or approve.
+- Implementation commit: `f47fca4`.
+- Ready PR [#151](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/151)
+  targets `main`, is open and non-draft, and references Issue #142 without an
+  auto-close directive.
+- CI was pending at handoff; the implementer does not approve, merge, deploy,
+  or close the PR/Issue.
