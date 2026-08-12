@@ -18,7 +18,7 @@ import { runManualHandoffMigrations } from "../src/manual-handoff/postgres.js";
 const connectionString = process.env.TEST_DATABASE_URL || process.env.IDENTITY_TEST_DATABASE_URL;
 const isolatedUrl = (value, schema) => { const url = new URL(value); url.searchParams.set("options", `-c search_path=${schema}`); return url.toString(); };
 
-test("clean PostgreSQL A11/A12 migration and repository preserve manual bindings plus local-agent lease fields", { skip: !connectionString }, async (t) => {
+test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-agent, and cloud executor bindings", { skip: !connectionString }, async (t) => {
   const schema = `manual_execution_${randomUUID().replaceAll("-", "")}`;
   const adminPool = createIdentityPool({ connectionString });
   await adminPool.query(`CREATE SCHEMA "${schema}"`);
@@ -26,17 +26,19 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual bindings
   t.after(async () => { await pool.end(); await adminPool.query(`DROP SCHEMA "${schema}" CASCADE`); await adminPool.end(); });
   await runIdentityMigrations(pool); await runProjectContentMigrations(pool); await runVideoPlanningMigrations(pool);
   await runProductionOrderMigrations(pool); await runManualHandoffMigrations(pool); await runManualExecutionMigrations(pool);
-  assert.equal((await pool.query("SELECT max(version)::integer version FROM manual_execution_schema_migrations")).rows[0].version, 3);
+  assert.equal((await pool.query("SELECT max(version)::integer version FROM manual_execution_schema_migrations")).rows[0].version, 4);
   const attemptColumns = (await pool.query(`SELECT column_name FROM information_schema.columns
     WHERE table_schema=current_schema() AND table_name='manual_execution_attempts'
-      AND column_name IN ('executor_agent_id','lease_expires_at','heartbeat_at','progress_phase')`)).rows.map((row) => row.column_name);
-  assert.deepEqual(attemptColumns.sort(), ["executor_agent_id", "heartbeat_at", "lease_expires_at", "progress_phase"]);
+      AND column_name IN ('executor_agent_id','executor_cloud_id','lease_expires_at','heartbeat_at','progress_phase')`)).rows.map((row) => row.column_name);
+  assert.deepEqual(attemptColumns.sort(), ["executor_agent_id", "executor_cloud_id", "heartbeat_at", "lease_expires_at", "progress_phase"]);
   const resultIdentityColumns = (await pool.query(`SELECT table_name,column_name,is_nullable FROM information_schema.columns
-    WHERE table_schema=current_schema() AND ((table_name='manual_execution_candidates' AND column_name IN ('uploaded_by_member_id','uploaded_by_agent_id'))
-      OR (table_name='manual_execution_reports' AND column_name IN ('submitted_by','submitted_by_agent_id')))`)).rows;
+    WHERE table_schema=current_schema() AND ((table_name='manual_execution_candidates' AND column_name IN ('uploaded_by_member_id','uploaded_by_agent_id','uploaded_by_cloud_executor_id'))
+      OR (table_name='manual_execution_reports' AND column_name IN ('submitted_by','submitted_by_agent_id','submitted_by_cloud_executor_id')))`)).rows;
   assert.deepEqual(resultIdentityColumns.map((row) => [row.table_name, row.column_name, row.is_nullable]).sort(), [
+    ["manual_execution_candidates", "uploaded_by_cloud_executor_id", "YES"],
     ["manual_execution_candidates", "uploaded_by_agent_id", "YES"], ["manual_execution_candidates", "uploaded_by_member_id", "YES"],
-    ["manual_execution_reports", "submitted_by", "YES"], ["manual_execution_reports", "submitted_by_agent_id", "YES"]
+    ["manual_execution_reports", "submitted_by", "YES"], ["manual_execution_reports", "submitted_by_agent_id", "YES"],
+    ["manual_execution_reports", "submitted_by_cloud_executor_id", "YES"]
   ]);
   const identityChecks = (await pool.query(`SELECT conname FROM pg_constraint WHERE connamespace=current_schema()::regnamespace
     AND conname IN ('manual_execution_candidate_uploader_identity_check','manual_execution_report_submitter_identity_check') ORDER BY conname`)).rows.map((row) => row.conname);

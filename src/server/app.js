@@ -38,6 +38,9 @@ import { createPostgresManualHandoffRepository } from "../manual-handoff/postgre
 import { createManualExecutionService } from "../manual-execution/manual-execution-service.js";
 import { createPostgresManualExecutionRepository } from "../manual-execution/postgres-manual-execution-repository.js";
 import { createLocalAgentExecutionService, createLocalAgentReadiness } from "../local-agent-execution/local-agent-execution-service.js";
+import { createCloudExecutorReadiness, createCloudExecutorService } from "../cloud-executor/cloud-executor-service.js";
+import { createCloudExecutorWorker } from "../cloud-executor/cloud-executor-worker.js";
+import { createFakeCloudExecutor } from "../cloud-executor/fake-executor.js";
 import { createWorkVerificationService } from "../work-verification/work-verification-service.js";
 import { createWorkVerificationWorker } from "../work-verification/work-verification-worker.js";
 import { createPostgresWorkVerificationRepository } from "../work-verification/postgres-work-verification-repository.js";
@@ -314,6 +317,7 @@ export async function buildApp({
   manualHandoff: manualHandoffOptions = null,
   manualExecution: manualExecutionOptions = null,
   localAgentExecution: localAgentExecutionOptions = null,
+  cloudExecutor: cloudExecutorOptions = null,
   artifactVerification: artifactVerificationOptions = null,
   workDelivery: workDeliveryOptions = null,
   hiflyApi: hiflyApiOptions = null,
@@ -338,6 +342,10 @@ export async function buildApp({
   const manualHandoffEnabled = manualHandoffOptions?.enabled === true;
   const manualExecutionEnabled = manualExecutionOptions?.enabled === true;
   const localAgentExecutionEnabled = localAgentExecutionOptions?.enabled === true;
+  const cloudExecutorRequested = cloudExecutorOptions?.enabled === true;
+  const cloudExecutorConfigured = cloudExecutorRequested && cloudExecutorOptions?.configured === true &&
+    typeof cloudExecutorOptions.executorCloudId === "string" && cloudExecutorOptions.executorCloudId.trim() !== "" &&
+    typeof cloudExecutorOptions.organizationId === "string" && cloudExecutorOptions.organizationId.trim() !== "";
   const artifactVerificationEnabled = artifactVerificationOptions?.enabled === true;
   const worksEnabled = workDeliveryOptions?.enabled === true;
   const hiflyApiEnabled = hiflyApiOptions?.enabled === true;
@@ -366,6 +374,11 @@ export async function buildApp({
   if (localAgentExecutionEnabled && !manualHandoffEnabled) throw Object.assign(new Error("LOCAL_AGENT_EXECUTION_REQUIRE_MANUAL_HANDOFF"), { code: "LOCAL_AGENT_EXECUTION_REQUIRE_MANUAL_HANDOFF" });
   if (localAgentExecutionEnabled && !manualExecutionEnabled) throw Object.assign(new Error("LOCAL_AGENT_EXECUTION_REQUIRE_MANUAL_EXECUTION"), { code: "LOCAL_AGENT_EXECUTION_REQUIRE_MANUAL_EXECUTION" });
   if (localAgentExecutionEnabled && !artifactVerificationEnabled) throw Object.assign(new Error("LOCAL_AGENT_EXECUTION_REQUIRE_ARTIFACT_VERIFICATION"), { code: "LOCAL_AGENT_EXECUTION_REQUIRE_ARTIFACT_VERIFICATION" });
+  if (cloudExecutorConfigured && !identityEnabled) throw Object.assign(new Error("CLOUD_EXECUTOR_REQUIRE_IDENTITY"), { code: "CLOUD_EXECUTOR_REQUIRE_IDENTITY" });
+  if (cloudExecutorConfigured && !productionOrdersEnabled) throw Object.assign(new Error("CLOUD_EXECUTOR_REQUIRE_PRODUCTION_ORDERS"), { code: "CLOUD_EXECUTOR_REQUIRE_PRODUCTION_ORDERS" });
+  if (cloudExecutorConfigured && !manualHandoffEnabled) throw Object.assign(new Error("CLOUD_EXECUTOR_REQUIRE_MANUAL_HANDOFF"), { code: "CLOUD_EXECUTOR_REQUIRE_MANUAL_HANDOFF" });
+  if (cloudExecutorConfigured && !manualExecutionEnabled) throw Object.assign(new Error("CLOUD_EXECUTOR_REQUIRE_MANUAL_EXECUTION"), { code: "CLOUD_EXECUTOR_REQUIRE_MANUAL_EXECUTION" });
+  if (cloudExecutorConfigured && !artifactVerificationEnabled) throw Object.assign(new Error("CLOUD_EXECUTOR_REQUIRE_ARTIFACT_VERIFICATION"), { code: "CLOUD_EXECUTOR_REQUIRE_ARTIFACT_VERIFICATION" });
   if (artifactVerificationEnabled && !identityEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_IDENTITY"), { code: "ARTIFACT_VERIFICATION_REQUIRE_IDENTITY" });
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !assetsEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_ASSETS"), { code: "ARTIFACT_VERIFICATION_REQUIRE_ASSETS" });
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !productionOrdersEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_PRODUCTION_ORDERS"), { code: "ARTIFACT_VERIFICATION_REQUIRE_PRODUCTION_ORDERS" });
@@ -472,6 +485,9 @@ export async function buildApp({
       manualHandoffEnabled,
       manualExecutionEnabled,
       localAgentExecutionEnabled,
+      cloudExecutorEnabled: cloudExecutorConfigured,
+      cloudExecutorConfigured,
+      cloudExecutorMode: cloudExecutorOptions?.mode || "fail_closed",
       artifactVerificationEnabled,
       worksEnabled,
       hiflyApiEnabled,
@@ -734,6 +750,45 @@ export async function buildApp({
     app.addHook("onClose", async () => { worker.stop(); await repository?.close?.(); });
     await registerWorkVerificationRoutes(app, { service });
     if (artifactVerificationOptions.worker?.autoStart !== false) worker.start();
+  }
+
+  if (cloudExecutorRequested && !cloudExecutorConfigured) {
+    app.decorate("cloudExecutor", { enabled: false, configured: false, status: "unconfigured" });
+  }
+  if (cloudExecutorConfigured) {
+    const cloudExecutorRepository = app.manualExecution.repository;
+    const cloudCandidateStore = cloudExecutorOptions.candidateStore || app.manualExecution.candidateStore;
+    const cloudOrderPort = cloudExecutorOptions.orderPort || {
+      listOrdersForCloudExecutor: app.productionOrders.service.listOrdersForCloudExecutor,
+      getOrderForCloudExecutor: app.productionOrders.service.getOrderForCloudExecutor,
+      transitionOrderForCloudExecutor: app.productionOrders.service.transitionOrderForCloudExecutor
+    };
+    const cloudPackagePort = cloudExecutorOptions.packagePort || {
+      listPackagesForCloudExecutor: app.manualHandoff.service.listPackagesForCloudExecutor,
+      getPackageForCloudExecutor: app.manualHandoff.service.getPackageForCloudExecutor
+    };
+    const cloudVerificationPort = artifactVerificationEnabled ? {
+      requestVerification: app.artifactVerification.service.requestVerification,
+      getLatestVerificationJob: app.artifactVerification.repository?.getLatestVerificationJob,
+      wake: app.artifactVerification.worker?.wake
+    } : null;
+    const readiness = cloudExecutorOptions.readinessPort || createCloudExecutorReadiness({
+      enabled: true, mode: cloudExecutorOptions.mode, configured: true,
+      check: cloudExecutorOptions.readinessCheck
+    });
+    const executor = cloudExecutorOptions.executor || createFakeCloudExecutor();
+    const service = createCloudExecutorService({
+      repository: cloudExecutorRepository, orderPort: cloudOrderPort, packagePort: cloudPackagePort,
+      candidateStore: cloudCandidateStore, verificationPort: cloudVerificationPort, executor, readinessPort: readiness,
+      enabled: true, mode: cloudExecutorOptions.mode, organizationId: cloudExecutorOptions.organizationId,
+      executorCloudId: cloudExecutorOptions.executorCloudId, leaseMs: cloudExecutorOptions.worker?.leaseMs,
+      heartbeatIntervalMs: cloudExecutorOptions.worker?.heartbeatIntervalMs, now
+    });
+    const worker = createCloudExecutorWorker({ service, pollIntervalMs: cloudExecutorOptions.worker?.pollIntervalMs,
+      onError: cloudExecutorOptions.worker?.onError || ((error) => console.error("Cloud Executor worker error:", error?.code || "UNEXPECTED_ERROR")) });
+    app.decorate("cloudExecutor", { enabled: true, configured: true, executorType: "cloud_executor", readiness, executor, service, worker });
+    app.addHook("onClose", async () => worker.stop());
+    if (cloudExecutorOptions.worker?.autoStart !== false) worker.start();
   }
 
   if (localAgentExecutionEnabled) {

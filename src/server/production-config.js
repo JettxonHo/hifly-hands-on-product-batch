@@ -42,6 +42,7 @@ const DEFAULT_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const COPY_GENERATION_PROVIDERS = new Set(["phase1_controlled_test_double", "deepseek"]);
 const COPY_QUALITY_EVALUATORS = new Set(["phase1_controlled_test_double", "deepseek_hybrid"]);
 const COPY_QUALITY_REWRITERS = new Set(["phase1_controlled_test_double", "deepseek"]);
+const CLOUD_EXECUTOR_MODES = new Set(["fail_closed", "fake"]);
 
 function required(env, name) {
   const value = env[name];
@@ -157,6 +158,22 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
   if (localAgentRequested && (!localAgentId || !localAgentOrganizationId || !localAgentToken)) {
     throw Object.assign(new Error("LOCAL_AGENT_CONFIG_REQUIRED"), { code: "LOCAL_AGENT_CONFIG_REQUIRED" });
   }
+  const cloudExecutorRequested = boolean(env.CLOUD_EXECUTOR_ENABLED, "CLOUD_EXECUTOR_ENABLED", false);
+  const cloudExecutorMode = env.CLOUD_EXECUTOR_MODE?.trim() || "fail_closed";
+  if (!CLOUD_EXECUTOR_MODES.has(cloudExecutorMode)) {
+    throw Object.assign(new Error("CLOUD_EXECUTOR_MODE_UNSUPPORTED"), { code: "CLOUD_EXECUTOR_MODE_UNSUPPORTED" });
+  }
+  const cloudExecutorId = env.CLOUD_EXECUTOR_ID?.trim() || null;
+  const cloudExecutorOrganizationId = env.CLOUD_EXECUTOR_ORGANIZATION_ID?.trim() || null;
+  const cloudExecutorRoot = dataPath(root, env.CLOUD_EXECUTOR_ROOT || path.join(DEFAULT_DATA_DIR, "cloud-executor"));
+  const cloudExecutorConfigured = cloudExecutorRequested && cloudExecutorMode === "fake" &&
+    Boolean(cloudExecutorId && cloudExecutorOrganizationId);
+  const cloudExecutorWorker = {
+    autoStart: cloudExecutorConfigured,
+    pollIntervalMs: duration(env.CLOUD_EXECUTOR_POLL_INTERVAL_MS, "CLOUD_EXECUTOR_POLL_INTERVAL_MS", 1000),
+    leaseMs: duration(env.CLOUD_EXECUTOR_LEASE_MS, "CLOUD_EXECUTOR_LEASE_MS", 30_000),
+    heartbeatIntervalMs: duration(env.CLOUD_EXECUTOR_HEARTBEAT_INTERVAL_MS, "CLOUD_EXECUTOR_HEARTBEAT_INTERVAL_MS", 5_000)
+  };
   const generationConfig = {
     executionBackend: executionMode,
     rpa: {
@@ -244,6 +261,17 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
     productionOrders: { enabled: true },
     manualHandoff: { enabled: true, localRoot: path.join(dataDir, "manual-handoff-packages"), worker },
     manualExecution: { enabled: true, maxCandidateBytes: 256 * 1024 * 1024, localRoot: path.join(dataDir, "manual-execution-candidates"), worker },
+    cloudExecutor: {
+      enabled: cloudExecutorRequested,
+      configured: cloudExecutorConfigured,
+      mode: cloudExecutorMode,
+      executorType: "cloud_executor",
+      organizationId: cloudExecutorOrganizationId,
+      executorCloudId: cloudExecutorId,
+      profileDir: path.join(cloudExecutorRoot, "profile"),
+      storageRoot: cloudExecutorRoot,
+      worker: cloudExecutorWorker
+    },
     localAgentExecution: {
       enabled: localAgentRequested && Boolean(localAgentId && localAgentOrganizationId && localAgentToken),
       configured: localAgentRequested,
