@@ -1,4 +1,16 @@
 .avatar-page-content { width: min(100% - 48px, 1240px); }
+.enterprise-avatar-admin { margin-top: var(--space-5); }
+.enterprise-avatar-admin .surface-header { margin-bottom: var(--space-4); }
+.enterprise-avatar-form { display: grid; gap: var(--space-3); }
+.enterprise-avatar-form label, .capability-fields label { display: grid; gap: 6px; color: var(--n-700); font-size: 13px; font-weight: 600; }
+.enterprise-avatar-form input, .enterprise-avatar-form select, .enterprise-avatar-form textarea { width: 100%; }
+.form-grid-two, .form-grid-three { display: grid; gap: var(--space-3); }
+.form-grid-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.capability-fields { display: grid; gap: var(--space-2); margin: 0; padding: var(--space-3); border: 1px solid var(--n-200); border-radius: var(--radius-control); }
+.capability-fields legend { padding: 0 6px; color: var(--n-700); font-size: 13px; font-weight: 700; }
+.capability-fields .muted { margin: 0; font-size: 12px; }
+.enterprise-avatar-admin .actions { justify-content: flex-start; }
 .avatar-workspace { display: grid; grid-template-columns: 288px minmax(360px, 1fr) 384px; gap: var(--space-4); align-items: start; margin-top: var(--space-5); }
 .avatar-workspace > .surface { margin-top: 0; min-width: 0; }
 .catalog-panel, .selection-panel { position: sticky; top: 68px; max-height: calc(100dvh - 92px); overflow: auto; }
@@ -57,6 +69,7 @@
   .avatar-detail, .selection-panel { position: static; min-height: 0; max-height: none; }
   .avatar-preview { max-width: none; }
   .avatar-facts { grid-template-columns: 1fr; }
+  .form-grid-two, .form-grid-three { grid-template-columns: 1fr; }
   .detail-heading { display: grid; }
   .selection-actions { position: sticky; z-index: 12; bottom: 0; margin: var(--space-4) calc(var(--space-4) * -1) calc(var(--space-4) * -1); padding: 10px var(--space-4); border-top: 1px solid var(--n-200); background: rgba(255,255,255,.98); }
   .catalog-dialog { width: min(calc(100% - 16px), 520px); max-height: 80dvh; margin-bottom: 8px; }

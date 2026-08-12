@@ -150,10 +150,14 @@ function apiError(error, request = null) {
   if (error?.code === "COPY_REVIEW_FORBIDDEN") return { statusCode: 403, code: error.code };
   if (error?.code === "COPY_REVIEW_GATE_BLOCKED") return { statusCode: 422, code: error.code, reasons: error.details || [] };
   if (error?.code === "AVATAR_ASSET_VERSION_NOT_FOUND") return { statusCode: 404, code: error.code };
+  if (["AVATAR_MATERIAL_VERSION_NOT_FOUND", "AVATAR_ASSET_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
   if (["AVATAR_SELECTION_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
-  if (["AVATAR_SELECTION_CONTEXT_REQUIRED", "INVALID_AVATAR_SELECTION_PAYLOAD"].includes(error?.code)) return { statusCode: 400, code: error.code };
-  if (error?.code === "AVATAR_SELECTION_FORBIDDEN") return { statusCode: 403, code: error.code };
+  if (["AVATAR_ASSET_VERSION_CONFLICT", "AVATAR_SELECTION_CONFLICT", "AVATAR_SELECTION_IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (["AVATAR_SELECTION_CONTEXT_REQUIRED", "INVALID_AVATAR_SELECTION_PAYLOAD", "AVATAR_REGISTRATION_CONTEXT_REQUIRED", "INVALID_ENTERPRISE_AVATAR_PAYLOAD",
+    "INVALID_AVATAR_AUTHORIZATION", "INVALID_AVATAR_CAPABILITIES", "INVALID_AVATAR_CATEGORY_TAGS", "INVALID_AVATAR_ASSET_REVISION"].includes(error?.code)) return { statusCode: 400, code: error.code };
+  if (["AVATAR_SELECTION_FORBIDDEN", "AVATAR_REGISTRATION_FORBIDDEN", "AVATAR_ASSET_DISABLE_FORBIDDEN"].includes(error?.code)) return { statusCode: 403, code: error.code };
   if (error?.code === "AVATAR_SELECTION_GATE_BLOCKED") return { statusCode: 422, code: error.code, reasons: error.details || [] };
+  if (["AVATAR_MATERIAL_KIND_INVALID", "AVATAR_MATERIAL_NOT_AVAILABLE", "AVATAR_ASSET_NOT_ACTIVE", "AVATAR_MATERIALS_UNAVAILABLE"].includes(error?.code)) return { statusCode: 422, code: error.code };
   if (["VIDEO_PLAN_NOT_FOUND", "VIDEO_PLAN_REVIEW_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
   if (["VIDEO_PLAN_CONFLICT", "VIDEO_PLAN_IMMUTABLE", "VIDEO_PLAN_DERIVE_BLOCKED", "VIDEO_PLAN_REVIEW_CONFLICT",
     "VIDEO_PLAN_REVIEW_ACTIVE_EXISTS", "PREFLIGHT_RUN_LEASE_LOST"].includes(error?.code)) return { statusCode: 409, code: error.code };
@@ -262,7 +266,7 @@ function apiError(error, request = null) {
     return { statusCode: error.code === "HIFLY_PUBLIC_AVATAR_CATALOG_KEY_CONFLICT" ? 409 : 502, code: error.code };
   }
   if (error?.code === "UPLOAD_AUTHORIZATION_EXPIRED") return { statusCode: 410, code: "UPLOAD_AUTHORIZATION_EXPIRED" };
-  if (["INVALID_ASSET_PAYLOAD", "ASSET_TYPE_NOT_ALLOWED", "ASSET_SIZE_NOT_ALLOWED", "INVALID_ASSET_CHECKSUM", "INVALID_ASSET_ID", "INVALID_ASSET_ACTOR", "INVALID_ASSET_DISPLAY_NAME", "INVALID_ASSET_REVISION", "INVALID_UPLOAD_BODY", "UPLOAD_CONTENT_TYPE_MISMATCH", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) {
+  if (["INVALID_ASSET_PAYLOAD", "ASSET_TYPE_NOT_ALLOWED", "ASSET_SIZE_NOT_ALLOWED", "INVALID_ASSET_CHECKSUM", "INVALID_ASSET_ID", "INVALID_ASSET_ACTOR", "INVALID_ASSET_DISPLAY_NAME", "INVALID_ASSET_REVISION", "INVALID_UPLOAD_BODY", "UPLOAD_CONTENT_TYPE_MISMATCH", "ASSET_KIND_NOT_ALLOWED", "ASSET_KIND_CONFLICT", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) {
     return { statusCode: 400, code: error.code };
   }
   if (error?.code === "ENOENT" || error?.code === "INVALID_BATCH_ID" || error?.code === "ARTIFACT_NOT_FOUND") {
@@ -595,7 +599,8 @@ export async function buildApp({
       copyService: app.copyGeneration.service, copyReviewService: app.copyReview.service
     });
     const service = createAvatarSelectionService({ repository, copyApprovalPort, now,
-      publicAvatarCatalog: avatarSelectionOptions.publicAvatarCatalog || null });
+      publicAvatarCatalog: avatarSelectionOptions.publicAvatarCatalog || null,
+      materialAssetPort: avatarSelectionOptions.materialAssetPort || assetService });
     app.decorate("avatarSelection", { repository, service, copyApprovalPort });
     app.addHook("onClose", async () => repository.close?.());
     await registerAvatarSelectionRoutes(app, { service });

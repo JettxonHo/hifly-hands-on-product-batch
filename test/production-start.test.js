@@ -38,7 +38,9 @@ function migrationProbePool() {
     },
     async query(sql) {
       this.queryCalls += 1;
-      const version = String(sql).includes("work_verification_schema_migrations") || String(sql).includes("avatar_selection_schema_migrations") ? 2 : 1;
+      const text = String(sql);
+      const version = text.includes("work_verification_schema_migrations") || text.includes("avatar_selection_schema_migrations") ? 3 :
+        text.includes("asset_schema_migrations") ? 2 : 1;
       return { rows: [{ version }], rowCount: 1 };
     },
     async end() {}

@@ -2,6 +2,11 @@ const clean = (value) => typeof value === "string" ? value.trim() : "";
 const failure = (code, details = null) => Object.assign(new Error(code), { code, details });
 const stableJson = (value) => Array.isArray(value) ? `[${value.map(stableJson).join(",")}]` :
   value && typeof value === "object" ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}` : JSON.stringify(value);
+const AUTHORIZATION_STATUSES = new Set(["valid", "expiring", "expired", "incomplete"]);
+const MAX_CATEGORY_TAGS = 12;
+const MAX_CATEGORY_TAG_LENGTH = 40;
+const MAX_CAPABILITIES = 12;
+const MAX_CAPABILITY_FIELD_LENGTH = 120;
 
 function validateContext(input) {
   if (!clean(input.organizationId) || !clean(input.actorMemberId) || !clean(input.productId)) throw failure("AVATAR_SELECTION_CONTEXT_REQUIRED");
@@ -10,6 +15,38 @@ function validateContext(input) {
 
 function validateKey(value) {
   if (!clean(value) || value.length > 128) throw failure("INVALID_IDEMPOTENCY_KEY");
+}
+
+function normalizeCategoryTags(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > MAX_CATEGORY_TAGS) throw failure("INVALID_AVATAR_CATEGORY_TAGS");
+  const tags = [];
+  for (const item of value) {
+    const tag = clean(item);
+    if (!tag || tag.length > MAX_CATEGORY_TAG_LENGTH) throw failure("INVALID_AVATAR_CATEGORY_TAGS");
+    if (!tags.includes(tag)) tags.push(tag);
+  }
+  return tags;
+}
+
+function normalizeCapabilities(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > MAX_CAPABILITIES) throw failure("INVALID_AVATAR_CAPABILITIES");
+  const codes = new Set();
+  return value.map((item) => {
+    const code = clean(item?.code), label = clean(item?.label), evidenceReference = clean(item?.evidenceReference || item?.evidence_reference);
+    if (!code || !label || !evidenceReference || [code, label, evidenceReference].some((field) => field.length > MAX_CAPABILITY_FIELD_LENGTH) || codes.has(code)) {
+      throw failure("INVALID_AVATAR_CAPABILITIES");
+    }
+    codes.add(code);
+    return { code, label, evidence_reference: evidenceReference, verification_status: "verified" };
+  });
+}
+
+function normalizeAuthorizationExpiresAt(value) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw failure("INVALID_AVATAR_AUTHORIZATION");
+  return new Date(value).toISOString();
 }
 
 export function createCurrentApprovedCopyPort({ copyService, copyReviewService } = {}) {
@@ -38,7 +75,7 @@ export function createCurrentApprovedCopyPort({ copyService, copyReviewService }
 }
 
 export function createAvatarSelectionService({ repository, copyApprovalPort, now = Date.now,
-  confirmationReturnBarrier = async () => {}, publicAvatarCatalog = null } = {}) {
+  confirmationReturnBarrier = async () => {}, publicAvatarCatalog = null, materialAssetPort = null } = {}) {
   if (!repository || !copyApprovalPort) throw new TypeError("repository and copyApprovalPort are required");
   const timestamp = () => new Date(now()).toISOString();
 
@@ -81,18 +118,42 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
     return { can_confirm: reasons.length === 0, reasons: [...new Set(reasons)] };
   }
 
+  function managementProjection(entry) {
+    const { asset, asset_version: version, capabilities } = entry;
+    return {
+      id: asset.id, display_name: asset.display_name, description: asset.description,
+      category_tags: Array.isArray(asset.category_tags) ? [...asset.category_tags] : [],
+      source_type: asset.source_type, status: asset.status, controlled_seed: asset.controlled_seed,
+      revision_number: asset.revision_number || 1,
+      authorization_status: version.authorization_status, authorization_expires_at: version.authorization_expires_at,
+      authorization_scope: version.authorization_scope, materials_accessible: version.materials_accessible === true,
+      material_status: version.material_status || (version.materials_accessible === true ? "available" : "unavailable"),
+      capability_status: version.capability_status,
+      verified_capabilities: capabilities.filter((item) => item.verification_status === "verified" && clean(item.evidence_reference))
+        .map(({ code, label, evidence_reference }) => ({ code, label, evidence_reference })),
+      asset_version: { id: version.id, version_number: version.version_number, status: version.status, preview_kind: version.preview_kind }
+    };
+  }
+
+  async function refreshMaterialState(entry) {
+    const materialVersionId = entry?.asset_version?.material_asset_version_id;
+    if (!materialVersionId || !materialAssetPort?.getAssetVersion || !materialAssetPort?.getAsset) return entry;
+    try {
+      const materialVersion = await materialAssetPort.getAssetVersion({ organizationId: entry.asset.organization_id, assetVersionId: materialVersionId });
+      const materialAsset = await materialAssetPort.getAsset({ organizationId: entry.asset.organization_id, assetId: materialVersion.asset_id });
+      const accessible = materialAsset.organization_id === entry.asset.organization_id && materialAsset.kind === "avatar_image" &&
+        materialAsset.status === "active" && materialVersion.status === "available";
+      return { ...entry, asset_version: { ...entry.asset_version, materials_accessible: accessible, material_status: accessible ? "available" : "unavailable" } };
+    } catch (error) {
+      if (["ASSET_VERSION_NOT_FOUND", "ASSET_NOT_FOUND"].includes(error?.code)) {
+        return { ...entry, asset_version: { ...entry.asset_version, materials_accessible: false, material_status: "unavailable" } };
+      }
+      throw error;
+    }
+  }
+
   function publicCatalog(entry, approvedGate) {
-    const verified = entry.capabilities.filter((item) => item.verification_status === "verified" && clean(item.evidence_reference));
-    return { id: entry.asset.id, display_name: entry.asset.display_name, description: entry.asset.description,
-      source_type: entry.asset.source_type, status: entry.asset.status, controlled_seed: entry.asset.controlled_seed,
-      seed_label: entry.asset.seed_label, creation_supported: false, authorization_status: entry.asset_version.authorization_status,
-      authorization_expires_at: entry.asset_version.authorization_expires_at,
-      authorization_scope: entry.asset_version.authorization_scope,
-      materials_accessible: entry.asset_version.materials_accessible,
-      capability_status: entry.asset_version.capability_status,
-      verified_capabilities: verified.map(({ code, label, evidence_reference }) => ({ code, label, evidence_reference })),
-      asset_version: { id: entry.asset_version.id, version_number: entry.asset_version.version_number,
-        status: entry.asset_version.status, preview_kind: entry.asset_version.preview_kind },
+    return { ...managementProjection(entry), seed_label: entry.asset.seed_label, creation_supported: false,
       gate: catalogGate(entry, approvedGate) };
   }
 
@@ -102,7 +163,7 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
     const reasons = [...gate.reasons];
     if (state.current_selection && clean(input.copyVersionId) && state.current_selection.copy_version_id !== input.copyVersionId) reasons.push("copy_version_changed");
     if (state.current_selection) {
-      const entry = await repository.getCatalogVersion(input.organizationId, state.current_selection.asset_version_id);
+      const entry = await refreshMaterialState(await repository.getCatalogVersion(input.organizationId, state.current_selection.asset_version_id));
       if (!entry) reasons.push("avatar_asset_unavailable");
       else reasons.push(...catalogGate(entry, { approved: true, reasons: [], copy: gate.copy }).reasons);
     }
@@ -113,6 +174,41 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
   return {
     syncPublicCatalog,
     syncHiflyPublicCatalog: syncPublicCatalog,
+    projectCatalogEntry: managementProjection,
+    async registerEnterpriseAvatar(input = {}) {
+      if (!clean(input.organizationId) || !clean(input.actorMemberId)) throw failure("AVATAR_REGISTRATION_CONTEXT_REQUIRED");
+      if (input.actorRole !== "admin") throw failure("AVATAR_REGISTRATION_FORBIDDEN");
+      if (!clean(input.materialAssetVersionId) || !clean(input.displayName) || input.displayName.length > 120 || !clean(input.description) || input.description.length > 1000) {
+        throw failure("INVALID_ENTERPRISE_AVATAR_PAYLOAD");
+      }
+      if (!AUTHORIZATION_STATUSES.has(input.authorizationStatus)) throw failure("INVALID_AVATAR_AUTHORIZATION");
+      const authorizationExpiresAt = normalizeAuthorizationExpiresAt(input.authorizationExpiresAt);
+      const categoryTags = normalizeCategoryTags(input.categoryTags || input.category_tags);
+      const capabilities = normalizeCapabilities(input.capabilities || input.verifiedCapabilities || input.verified_capabilities);
+      if (!materialAssetPort?.getAssetVersion || !materialAssetPort?.getAsset) throw failure("AVATAR_MATERIALS_UNAVAILABLE");
+      let materialVersion, materialAsset;
+      try {
+        materialVersion = await materialAssetPort.getAssetVersion({ organizationId: input.organizationId, assetVersionId: input.materialAssetVersionId });
+        materialAsset = await materialAssetPort.getAsset({ organizationId: input.organizationId, assetId: materialVersion.asset_id });
+      } catch (error) {
+        if (["ASSET_VERSION_NOT_FOUND", "ASSET_NOT_FOUND"].includes(error?.code)) throw failure("AVATAR_MATERIAL_VERSION_NOT_FOUND");
+        throw error;
+      }
+      if (materialAsset.organization_id !== input.organizationId || materialVersion.organization_id !== input.organizationId) throw failure("AVATAR_MATERIAL_VERSION_NOT_FOUND");
+      if (materialAsset.kind !== "avatar_image") throw failure("AVATAR_MATERIAL_KIND_INVALID");
+      if (materialAsset.status !== "active" || materialVersion.status !== "available") throw failure("AVATAR_MATERIAL_NOT_AVAILABLE");
+      return repository.registerEnterpriseAvatar({ organizationId: input.organizationId, actorMemberId: input.actorMemberId,
+        materialAssetVersionId: materialVersion.id, materialAsset, materialVersion, displayName: input.displayName.trim(),
+        description: input.description.trim(), authorizationStatus: input.authorizationStatus,
+        authorizationExpiresAt, categoryTags, capabilities, now: timestamp() });
+    },
+    async disableEnterpriseAvatar(input = {}) {
+      if (!clean(input.organizationId) || !clean(input.actorMemberId)) throw failure("AVATAR_REGISTRATION_CONTEXT_REQUIRED");
+      if (input.actorRole !== "admin") throw failure("AVATAR_REGISTRATION_FORBIDDEN");
+      if (!clean(input.assetId) || !Number.isInteger(input.expectedRevision) || input.expectedRevision < 1) throw failure("INVALID_AVATAR_ASSET_REVISION");
+      return repository.disableEnterpriseAvatar({ organizationId: input.organizationId, assetId: input.assetId,
+        expectedRevision: input.expectedRevision, actorMemberId: input.actorMemberId, now: timestamp() });
+    },
     async getWorkspace(input) {
       validateContext(input);
       const at = timestamp();
@@ -120,7 +216,7 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       const approvedGate = await copyGate(input);
       const resolvedCopyVersionId = approvedGate.copy?.copy_version_id || clean(input.copyVersionId) || null;
       const effectiveInput = { ...input, copyVersionId: resolvedCopyVersionId };
-      const entries = await repository.listCatalog(input.organizationId);
+      const entries = await Promise.all((await repository.listCatalog(input.organizationId)).map(refreshMaterialState));
       return { catalog_kind: "existing_only", provider_integration: false, recommendation: false,
         controlled_seed_notice: "Phase 1 受控预置；不连接真实飞影，不代表推荐或真实生产能力。",
         resolved_copy_version_id: resolvedCopyVersionId,
@@ -138,7 +234,7 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       const receiptKey = `${input.organizationId}:avatar-confirm:${input.idempotencyKey}`;
       const replay = await repository.getReceipt(receiptKey, fingerprint);
       if (replay) return replay;
-      const entry = await repository.getCatalogVersion(input.organizationId, input.assetVersionId);
+      const entry = await refreshMaterialState(await repository.getCatalogVersion(input.organizationId, input.assetVersionId));
       if (!entry) throw failure("AVATAR_ASSET_VERSION_NOT_FOUND");
       const approvedGate = await copyGate(input);
       const gate = catalogGate(entry, approvedGate);
@@ -157,7 +253,7 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       const resolvedCopyVersionId = approvedGate.copy?.copy_version_id || clean(input.copyVersionId) || null;
       const selection = await selectionProjection({ ...input, copyVersionId: resolvedCopyVersionId }, approvedGate);
       if (!selection.current_valid || !selection.current_selection) return null;
-      const entry = await repository.getCatalogVersion(input.organizationId, selection.current_selection.asset_version_id);
+      const entry = await refreshMaterialState(await repository.getCatalogVersion(input.organizationId, selection.current_selection.asset_version_id));
       if (!entry) return null;
       const verified = entry.capabilities.filter((item) => item.verification_status === "verified" && clean(item.evidence_reference));
       return { product_revision_id: approvedGate.copy.product_revision_id,

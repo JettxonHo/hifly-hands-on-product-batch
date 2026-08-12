@@ -10,6 +10,7 @@ import {
   extractHandoffPackage,
   loadAvatarMappings
 } from "../src/local-agent/package-compiler.js";
+import { main as avatarMappingMain } from "../src/local-agent/avatar-mapping-cli.js";
 
 const PRODUCT_BYTES = Buffer.from("product-image");
 
@@ -133,6 +134,27 @@ test("loads avatar_asset_version_id mappings from a JSON config and compiles one
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("local avatar mapping CLI set/list/remove updates the compiler-compatible private config", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "local-agent-avatar-map-cli-"));
+  const avatarPath = path.join(root, "avatar.png"), configPath = path.join(root, "private", "config.local-agent.json");
+  await writeFile(avatarPath, "avatar-image");
+  const logs = [];
+  const logger = { log(value) { logs.push(value); }, error(value) { logs.push(value); } };
+  try {
+    const set = await avatarMappingMain({ argv: ["set", "avatar-version-1", avatarPath, "--config", configPath], logger });
+    assert.equal(set.exitCode, 0);
+    assert.deepEqual(await loadAvatarMappings(configPath), { "avatar-version-1": avatarPath });
+    const listed = await avatarMappingMain({ argv: ["list", "--config", configPath], logger });
+    assert.deepEqual(listed.mappings, { "avatar-version-1": avatarPath });
+    const removed = await avatarMappingMain({ argv: ["remove", "avatar-version-1", "--config", configPath], logger });
+    assert.equal(removed.exitCode, 0);
+    assert.deepEqual(await loadAvatarMappings(configPath), {});
+    const invalid = await avatarMappingMain({ argv: ["set", "avatar-version-2", "relative.png", "--config", configPath], logger });
+    assert.equal(invalid.exitCode, 2);
+    assert.equal(logs.some((value) => String(value).includes("avatar-version-1")), true);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("missing avatar mapping is reported before an executor can receive a batch item", async () => {

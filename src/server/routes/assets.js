@@ -26,11 +26,12 @@ export async function registerAssetRoutes(app, { service, worker }) {
       organizationId: organizationId(request), actorMemberId: request.identity.member.id,
       idempotencyKey: request.headers["idempotency-key"], assetId: request.body?.asset_id,
       filename: request.body?.filename, contentType: request.body?.content_type, size: request.body?.size,
-      checksumSha256: request.body?.checksum_sha256
+      checksumSha256: request.body?.checksum_sha256, assetKind: request.body?.kind || request.body?.asset_kind
     });
     const { object_key: _hidden, ...publicResult } = result;
     publicResult.asset_version = publicVersion(publicResult.asset_version);
-    publicResult.upload.url = `/api/assets/uploads/${encodeURIComponent(result.upload.token)}`;
+    const { token: _uploadToken, ...publicUpload } = result.upload;
+    publicResult.upload = { ...publicUpload, url: `/api/assets/uploads/${encodeURIComponent(result.upload.token)}` };
     reply.code(201).send(publicResult);
   });
 

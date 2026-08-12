@@ -166,6 +166,7 @@ test("controlled upload and completion restore server state without claiming ava
   assert.equal(created.asset.organization_id, "org_test");
   assert.match(created.upload.url, /^\/api\/assets\/uploads\//);
   assert.equal(JSON.stringify(created).includes("object_key"), false);
+  assert.equal(Object.hasOwn(created.upload, "token"), false);
 
   const uploaded = await app.inject({
     method: "PUT", url: created.upload.url,
