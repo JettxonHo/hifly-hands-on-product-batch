@@ -75,3 +75,12 @@ Local Agent 成功报告触发 A12 artifact verification 后：
 - 主控独立 review 未发现 blocker；定向服务/API/wiring 测试通过。
 - 完整验证：`npm run check` 检查 204 个 JavaScript 文件；`npm test` 共 879 项，865 pass / 14 environment skip / 0 fail；`git diff --check` 通过。
 - 修复阶段没有访问飞影、没有运行 Local Agent real 模式、没有上传或生成、没有产生额外积分消耗。
+
+## 部署与既有核验恢复结果
+
+- PR #117 在 Ubuntu、Windows、PostgreSQL 三项 CI 全绿后 squash 合并到 `main@eaf64c9`。
+- 阿里云升级前生成数据库备份 `/var/backups/hifly/hifly-20260812T012109Z.dump`，并将旧应用镜像标记为 `hifly-pilot-app:rollback-e9c0df2`。服务器源码快进到 `eaf64c9`，13 组 production migration 全部成功；app/postgres/proxy 均 healthy，HTTPS `/healthz` 返回 `ok`，Git 工作树干净。
+- 部署后仅对既有 verification job `bd0789ed-e152-49fa-8931-17bb58e0a422` 调用一次正式技术重试。未运行 Local Agent real 命令，未访问飞影，未创建第二个视频或候选，未产生新的积分消耗。
+- job 第 2 次尝试完成为 `succeeded / passed`；candidate `e6d33671-f662-458a-a200-cfb4e85d5f7a` 的 verification 状态为 `passed`，技术失败字段已清空；ProductionOrder `970cc09d-2f33-4c9c-9b2a-72136bdc8988` 为 `succeeded`。
+- Work `41905ac8-4a41-4072-84cd-a6856c7e0124` 已登记为 `available`，主资产版本 `838c83c9-e5a6-4f33-86b0-ffa378bbcde3` 为 `available / video/mp4 / 41874377 bytes`，与原候选一致。
+- 最小真实执行器闭环现已实证跑通：云端工单与交接包 → Mac Local Agent → 飞影生成作品 `696679` → 下载 → 候选上传 → A12 核验 → Work 登记。standing authorization 剩余 4 次；本次真实生成实际积分仍以飞影后台流水为准。

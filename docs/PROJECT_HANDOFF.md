@@ -3,6 +3,15 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-12 新云端系统最小真实执行器闭环已跑通
+
+- PR #117 已合并并部署到阿里云 `main@eaf64c9`。部署前备份：`/var/backups/hifly/hifly-20260812T012109Z.dump`；回滚镜像：`hifly-pilot-app:rollback-e9c0df2`。13 组 migration、三个容器健康检查和 HTTPS `/healthz` 均通过。
+- 第九次唯一真实 Local Agent 执行已生成飞影作品 `696679`，并成功下载、上传候选；真实 attempt `5c093c19-19b5-456e-8028-60ff2ec03459` succeeded，报告 `e2c523e9-a5c6-4d7b-b825-61b5f7aba96b` completed。
+- A12 actor context 修复部署后，仅重试既有核验 job `bd0789ed-e152-49fa-8931-17bb58e0a422`，结果为 `succeeded / passed / attempts 2`。该恢复未访问飞影、未运行 Local Agent real 模式、未消耗额外积分。
+- 工单 `970cc09d-2f33-4c9c-9b2a-72136bdc8988` succeeded；Work `41905ac8-4a41-4072-84cd-a6856c7e0124` available；主资产版本 `838c83c9-e5a6-4f33-86b0-ffa378bbcde3` available。新云端系统的最小真实执行器闭环已经得到生产证据。
+- Owner 的未来单条真实生成 standing authorization 已使用 1/5 次，剩余 4 次。每次仍要求唯一工单、0 attempt、交接包 ready、登录预检 ready、最多 1 条、失败即停且不自动重试。实际积分以飞影后台流水为准。
+- 完整证据：`docs/status/sessions/2026-08-12-ninth-real-local-agent-output-verification-failure.md`。
+
 ## 2026-08-11 第七次真实验收前置完成；等待新工单单条积分授权
 
 - 未重用第六次 `not_retryable` 失败工单。正式 API 新建 reproduction 工单 `b5e180bc-7d7d-4d22-be4a-57ac0bd2484e`，交接包 `3c653228-2dff-420e-aaa1-5754792d299e` 为 `ready / v1`，生成 job `72c3eb76-0f4c-4432-afca-3e065f850fb9` succeeded。
