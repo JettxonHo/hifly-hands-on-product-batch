@@ -1,20 +1,25 @@
 # 飞影「手里有货」批量生产工作台
 
-这个项目用于批量制作电商产品数字人手持商品种草视频。飞影官方 API 目前没有开放「一键成片 - 手里有货」模式，所以主链路采用本地网页工作台 + Playwright 浏览器自动化：运营或客户在本机浏览器上传商品图、填写产品名和卖点，系统生成待执行任务，再由自动化浏览器进入 `https://hifly.cc/goods` 完成上传、确认、提交视频和下载。
+这个项目用于批量制作电商产品数字人手持商品种草视频。当前唯一生产主路径是 Cloud Control Plane + Cloud Executor：运营在任意电脑通过云端 HTTPS 完成项目、商品、文案、人物、视频方案和生产工单，阿里云 Cloud Executor 通过持久 Chrome Profile 与 Playwright 进入飞影「手里有货」，下载视频并回传到 A12、Work 和鉴权下载。Mac Local Agent 与传统本地工作台仅保留为 legacy fallback，不是生产入口或验收依据。
 
-## 推荐工作流
+## 当前生产工作流
 
-1. 首次安装依赖并登录飞影。
-2. 运行 `npm run gui` 打开本地工作台。
-3. 在浏览器中单条录入，或批量上传 CSV/XLSX 与商品图片。
-4. 在「待执行任务」中确认待生成商品和积分提示。
-5. 运行 `npm run prepare-standard` 生成每个商品的标准口播脚本、飞影提示词和质检表骨架。
-6. 点击「开始生成」，由自动化流程逐条处理飞影页面。
-7. 下载完成的视频进入批次产物目录，历史 CLI 下载仍保留在 `downloads/`。
+1. 运营通过云端 HTTPS 登录企业工作台。
+2. 完成商品事实、文案生成/QC/审核、人物确认和 VideoPlan 审核。
+3. 创建一商品一工单的生产任务，并确认 Cloud Executor 在线、登录态与存储就绪。
+4. Cloud Executor 严格串行领取工单，进入飞影「手里有货」完成上传、提交和下载。
+5. 系统保存云端视频，完成 A12 核验并在 Work 中提供鉴权预览和下载。
+6. 真实生成必须有对应积分授权；首失败即停，不自动重试。
 
-本地工作台只监听 `127.0.0.1`，不会开放到公网或局域网。真实飞影登录态、下载文件、日志、截图和 `config.local.json` 不会进入交付包或 Git。
+云端飞影登录只通过 SSH tunnel + loopback noVNC 完成，Profile、Token、素材、下载、日志和截图不会进入 Git。`LOCAL_AGENT_ENABLED=false` 是当前生产默认值。
 
-## 快速开始
+## 生产入口
+
+普通运营只需浏览器和云端 HTTPS 地址，不需要安装 Node.js、Playwright 或 Local Agent。部署和 Cloud Executor 运维见 `docs/deployment/ALIYUN_CLOUD_EXECUTOR_CE07_RUNBOOK.md`。
+
+## Legacy 本地开发入口
+
+以下命令只用于开发、演示和故障回退，不作为当前生产流程：
 
 ```bash
 npm install
@@ -24,7 +29,7 @@ npm run login
 npm run gui
 ```
 
-登录步骤会弹出浏览器。完成飞影登录并确认能进入 `https://hifly.cc/goods` 后，回到终端按 Enter 保存登录态。
+登录步骤会弹出本地浏览器；其 Profile 与云端 Cloud Executor Profile 相互独立，不能用来证明纯云端系统就绪。
 
 如果默认端口被占用，工作台会自动选择下一个可用端口，并在终端打印类似：
 
@@ -57,7 +62,7 @@ npm run demo:stop
 
 只有明确需要重置演示数据库时才运行 `npm run demo:reset`；该命令只删除演示专用 PostgreSQL volume，不触碰 `docker-compose.identity.yml` 的测试库，也不删除 `.local-demo/` 中的本地素材文件。
 
-## 本地工作台能力
+## Legacy 本地工作台能力
 
 - 单条商品录入：填写 SKU、产品名称、核心卖点、品类并上传商品图。
 - 批量导入：上传 CSV/XLSX 和多张商品图，系统按 `sku`、显式图片名或文件名自动匹配。
@@ -94,11 +99,11 @@ assets/person_pool/default/
 
 | 命令 | 用途 |
 | --- | --- |
-| `npm run gui` | 启动 Mac/Windows 通用本地网页工作台。 |
+| `npm run gui` | 启动 legacy Mac/Windows 本地网页工作台，仅用于开发/回退。 |
 | `npm run demo` | 启动不访问飞影的 A01-A14 企业本地演示并打开登录页。 |
 | `npm run demo:stop` | 停止演示 PostgreSQL，保留演示数据。 |
 | `npm run demo:reset` | 显式删除演示 PostgreSQL 的专用 volume；保留 `.local-demo/` 文件。 |
-| `npm run login` | 打开浏览器，人工登录飞影并保存登录态。 |
+| `npm run login` | 保存 legacy 本地 Profile；不会配置云端 Cloud Executor。 |
 | `npm run validate` | 校验传统 `products/products.csv` 输入。 |
 | `npm run prepare-standard` | 按每商品 1 条标准视频生成口播脚本、飞影提示词和质检表。 |
 | `npm run run` | 使用 CLI 路径批量跑 `products/products.csv`。 |
