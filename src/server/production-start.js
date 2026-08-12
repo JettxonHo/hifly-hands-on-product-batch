@@ -6,6 +6,7 @@ import { createDeepSeekCopyProvider } from "../copy-generation/deepseek-provider
 import { createControlledQualityEvaluator } from "../copy-quality/controlled-evaluator.js";
 import { createControlledCopyRewriter } from "../copy-quality/controlled-rewriter.js";
 import { createDeepSeekQualityEvaluator } from "../copy-quality/deepseek-evaluator.js";
+import { createDeepSeekCopyRewriter } from "../copy-quality/deepseek-rewriter.js";
 import { createDeterministicQualityEvaluator } from "../copy-quality/deterministic-evaluator.js";
 import { createHybridQualityEvaluator } from "../copy-quality/hybrid-evaluator.js";
 import { createIdentityPool } from "../identity/postgres.js";
@@ -59,6 +60,19 @@ function copyQualityEvaluator(config, deepseekFetch) {
   throw Object.assign(new Error("COPY_QUALITY_EVALUATOR_UNSUPPORTED"), { code: "COPY_QUALITY_EVALUATOR_UNSUPPORTED" });
 }
 
+function copyQualityRewriter(config, deepseekFetch) {
+  if (config.copyQuality.rewriter === "phase1_controlled_test_double") return createControlledCopyRewriter();
+  if (config.copyQuality.rewriter === "deepseek") {
+    const client = createDeepSeekClient({
+      apiKey: config.copyQuality.deepseek?.apiKey,
+      model: config.copyQuality.deepseek?.model,
+      transport: createFetchTransport({ fetchImpl: deepseekFetch })
+    });
+    return createDeepSeekCopyRewriter({ client });
+  }
+  throw Object.assign(new Error("COPY_QUALITY_REWRITER_UNSUPPORTED"), { code: "COPY_QUALITY_REWRITER_UNSUPPORTED" });
+}
+
 function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFetch) {
   return {
     root: config.dataDir,
@@ -81,7 +95,7 @@ function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFet
     copyQuality: {
       ...config.copyQuality,
       evaluator: copyQualityEvaluator(config, deepseekFetch),
-      rewriter: createControlledCopyRewriter()
+      rewriter: copyQualityRewriter(config, deepseekFetch)
     },
     copyReview: config.copyReview,
     avatarSelection: config.avatarSelection,

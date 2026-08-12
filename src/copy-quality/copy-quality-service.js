@@ -274,13 +274,14 @@ export function createCopyQualityService({ repository, copyService,
     async executeRewriteJob({ job, rewriter }) {
       const copy = await copyService.getCopyVersion({ organizationId: job.organization_id,
         actorMemberId: job.actor_member_id, copyVersionId: job.source_copy_version_id });
-      await currentRevision({ organizationId: job.organization_id, actorMemberId: job.actor_member_id }, copy);
+      const productRevision = await currentRevision({ organizationId: job.organization_id,
+        actorMemberId: job.actor_member_id }, copy);
       const found = job.finding_id ? await repository.getFinding(job.organization_id, job.finding_id) : null;
       if (job.finding_id && (!found || found.run.copy_version_id !== copy.id)) throw failure("QUALITY_FINDING_NOT_FOUND");
       let body = clean(job.rewritten_body);
       if (!body) {
-        const rewritten = await rewriter.rewrite({ copyVersion: copy, finding: found?.finding || null,
-          scope: job.scope, instruction: job.instruction });
+        const rewritten = await rewriter.rewrite({ copyVersion: copy, productRevision,
+          finding: found?.finding || null, scope: job.scope, instruction: job.instruction });
         body = clean(rewritten?.body);
         if (!body) throw failure("COPY_REWRITE_EMPTY_RESULT");
         if (body === copy.body) throw failure("COPY_REWRITE_NO_CHANGE");
