@@ -184,6 +184,18 @@ function emptyProjection(status, reasonCode = null) {
   return result;
 }
 
+function standbyProjection(heartbeat) {
+  const status = heartbeat.readiness_status;
+  const result = emptyProjection(status);
+  result.worker = { connection: "online", last_heartbeat_at: heartbeat.reported_at };
+  result.worker_state = status === "requires_action" || status === "storage_blocked" ? "requires_action" : "standby";
+  result.progress = progressProjection(heartbeat.progress_phase, heartbeat.reported_at);
+  const reasonCode = readinessReason(status, "online");
+  if (reasonCode) result.readiness.reason_code = reasonCode;
+  if (status === "storage_blocked") result.failure = { ...FAILURE_PROJECTIONS.storage_blocked, retryable: false };
+  return result;
+}
+
 export function createCloudExecutorControlPlane({
   enabled = false,
   mode = "fail_closed",
@@ -194,12 +206,14 @@ export function createCloudExecutorControlPlane({
   orderPort = null,
   verificationPort = null,
   deliveryPort = null,
+  standbyHeartbeatEnabled = false,
   heartbeatTimeoutMs = 15_000,
   now = Date.now
 } = {}) {
   const identity = { organizationId: clean(organizationId), executorCloudId: clean(executorCloudId) };
   const active = enabled === true && mode !== "fail_closed";
   const readyForState = active && configured === true && Boolean(identity.organizationId && identity.executorCloudId);
+  const readyForStandbyHeartbeat = standbyHeartbeatEnabled === true && Boolean(identity.organizationId && identity.executorCloudId);
   let heartbeat = null;
 
   if (!Number.isFinite(heartbeatTimeoutMs) || heartbeatTimeoutMs < 1) throw new TypeError("heartbeatTimeoutMs must be positive");
@@ -276,10 +290,13 @@ export function createCloudExecutorControlPlane({
 
   async function reportHeartbeat({ organizationId: scopedOrganizationId, executorCloudId: scopedExecutorId,
     readinessStatus = "available", progressPhase = null } = {}) {
-    if (!readyForState || clean(scopedOrganizationId) !== identity.organizationId || clean(scopedExecutorId) !== identity.executorCloudId) {
+    if ((!readyForState && !readyForStandbyHeartbeat) || clean(scopedOrganizationId) !== identity.organizationId || clean(scopedExecutorId) !== identity.executorCloudId) {
       throw failure("CLOUD_EXECUTOR_CONTEXT_REQUIRED");
     }
     if (!READINESS_SET.has(readinessStatus)) throw failure("CLOUD_EXECUTOR_READINESS_INVALID");
+    if (!readyForState && !["disabled", "unconfigured", "storage_blocked", "requires_action"].includes(readinessStatus)) {
+      throw failure("CLOUD_EXECUTOR_READINESS_INVALID");
+    }
     const progress = progressPhase == null ? null : projectProgressPhase(progressPhase);
     if (progressPhase != null && !progress) throw failure("CLOUD_EXECUTOR_PROGRESS_INVALID");
     heartbeat = { reported_at: new Date(currentTime()).toISOString(), readiness_status: readinessStatus, progress_phase: progress };
@@ -287,8 +304,13 @@ export function createCloudExecutorControlPlane({
   }
 
   async function getStatus(input = {}) {
-    if (!scoped(input) || !active) return emptyProjection("disabled");
-    if (!readyForState) return emptyProjection("unconfigured", "CLOUD_EXECUTOR_UNCONFIGURED");
+    if (!scoped(input)) return emptyProjection("disabled");
+    if (!active || !readyForState) {
+      if (readyForStandbyHeartbeat && heartbeatOnline()) return standbyProjection(heartbeat);
+      return active
+        ? emptyProjection("unconfigured", "CLOUD_EXECUTOR_UNCONFIGURED")
+        : emptyProjection("disabled");
+    }
 
     const online = heartbeatOnline();
     const attempts = await listAttempts();

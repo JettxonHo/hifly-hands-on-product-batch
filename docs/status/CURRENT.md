@@ -4,6 +4,19 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
+## 2026-08-12 CE-07 / Issue #142 阿里云 standalone Cloud Executor Worker（READY PR，待 Review）
+
+- 当前分支：`codex/ce-07-aliyun-standby-deployment`；基线：`main@9dd35ab`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
+- 已新增生产 Worker 专用入口 `scripts/cloud-executor-worker.js`、standalone health server 与 `src/cloud-executor/production.js`：只在显式 active 配置下组装 PostgreSQL identity/assets/production-orders/manual-handoff/manual-execution/work-verification repositories；初始化只做 schema-current check，不执行 migration。Web `production-start` 未接入 Worker。
+- 已新增 A12 wiring：共享 production order/member port、manual handoff package port、candidate/output object store 与 verified output asset port；A12 verification worker 与 Cloud Worker 都由 standalone 进程拥有，concurrency 固定为 1。
+- 已新增 allowlist heartbeat client/Worker progress 上报：Bearer 只来自 env header，HTTP body/health JSON/error callback 不包含 token、raw exception、Profile/path、storage key 或媒体；默认 disabled/fail_closed 为长期 healthy standby，不读取 Hifly config、不创建 browser、不访问 Provider、不列单、不 claim。
+- 已新增 production Compose/image/entrypoint：Chrome/Playwright、Xvfb、loopback-only noVNC、Profile/assets/outputs/evidence/batches/locks/handoff volume、1-instance/resource/healthcheck 合同；新增阿里云 CE-07 runbook，包含显式 migration、重启 marker、内存/磁盘观察、SSH tunnel 和 rollback。
+- 本轮无 Sol 决策 blocker；实机部署与 live proof 明确留给 Sol 在 PR 合并后执行，当前不做 SSH、不访问飞影/Provider、不调用真实 heartbeat 外部服务、不 claim、不消耗积分。
+- 当前验证已通过：独立 Review follow-up focused tests `44/44`；`npm run check` 检查 229 个 JavaScript 文件；`npm test` 为 1,012 tests / 998 pass / 14 existing environment skips / 0 fail；entrypoint shell syntax 与 `git diff --check` 通过；`docker compose -f docker-compose.production.yml config` 静态解析通过。
+- 实现提交：`0c0209d`；READY PR [#150](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/150)（Closes #142；OPEN、非 draft、未合并、未批准）。实现者不批准或合并自己的 PR。
+- 独立 Review follow-up 已补齐 4 个部署阻断合同：Worker 同时接入 internal 与非 internal egress network，只有 loopback noVNC 对宿主机发布且 health 不发布；disabled/fail_closed 启动会准备持久 workspace/非敏感 marker，失败受控为 `storage_blocked/requires_action`；显式、默认关闭的 heartbeat-only pairing 可向 `app:3000` 上报 disabled/unconfigured 状态且控制面禁止伪报 available；production entrypoint 可显式 dispatch CE-04 login command，默认仍启动 Worker。
+- 专用接力记录：`docs/status/sessions/2026-08-12-ce-07-aliyun-standby-deployment.md`。
+
 ## 2026-08-12 CE-06 / Issue #141 Cloud Executor 控制面投影与生产 UX（READY PR，待 Review）
 
 - 当前分支：`codex/ce-06-cloud-control-plane-ux`；基线：`main@1d6bc65`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。

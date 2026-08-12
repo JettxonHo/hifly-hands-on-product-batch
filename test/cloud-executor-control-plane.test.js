@@ -98,6 +98,51 @@ test("disabled Cloud Executor projection is fail-closed and contains only allowl
   assert.doesNotMatch(JSON.stringify(projection), /secret|token|profile|server|object_key|vnc|exception/i);
 });
 
+test("disabled Web control plane accepts only authenticated standby heartbeat states", async (t) => {
+  let repositoryReads = 0;
+  const cloud = {
+    enabled: false,
+    configured: false,
+    mode: "fail_closed",
+    standbyHeartbeatEnabled: true,
+    organizationId: "org_test",
+    executorCloudId: EXECUTOR_ID,
+    repository: { async listAttempts() { repositoryReads += 1; return []; } },
+    internal: {
+      enabled: true,
+      organizationId: "org_test",
+      executorCloudId: EXECUTOR_ID,
+      token: "standby-control-plane-secret"
+    }
+  };
+  const { app } = await identityApp(t, { cloudExecutor: cloud });
+  const auth = await activateAdmin(app);
+  const headers = identityHeaders({ cookies: auth.cookies });
+
+  const heartbeat = await app.inject({
+    method: "POST",
+    url: "/internal/cloud-executor/v1/heartbeat",
+    headers: { ...identityHeaders(), authorization: `Bearer ${cloud.internal.token}` },
+    payload: { readiness_status: "disabled", progress_phase: "standby" }
+  });
+  assert.equal(heartbeat.statusCode, 200);
+  const status = await app.inject({ method: "GET", url: "/api/cloud-executor/status", headers });
+  assert.equal(status.statusCode, 200);
+  assert.equal(status.json().worker.connection, "online");
+  assert.equal(status.json().readiness.status, "disabled");
+  assert.equal(repositoryReads, 0);
+
+  const unsafe = await app.inject({
+    method: "POST",
+    url: "/internal/cloud-executor/v1/heartbeat",
+    headers: { ...identityHeaders(), authorization: `Bearer ${cloud.internal.token}` },
+    payload: { readiness_status: "available", progress_phase: "standby" }
+  });
+  assert.equal(unsafe.statusCode, 400);
+  assert.deepEqual(unsafe.json(), { error: "CLOUD_EXECUTOR_READINESS_INVALID" });
+  assert.doesNotMatch(JSON.stringify(status.json()), /standby-control-plane-secret|token/i);
+});
+
 test("online busy projection exposes a controlled phase and current order/attempt without internal fields", async () => {
   const world = makeWorld({ attempt: cloudAttempt("running", "uploading_product") });
   await world.plane.reportHeartbeat({
