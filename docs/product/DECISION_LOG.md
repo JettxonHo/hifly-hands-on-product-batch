@@ -804,3 +804,14 @@
 - **非目标**：不实现「手里有货」官方 API；不启用真实视频生成；不把积分查询成功当作创作能力验证；不自动调用账户接口；不改变现有 Capture HTTP/Playwright 默认与回退关系。
 - **可重新评估条件**：飞影正式开放「手里有货」API；企业要求 Organization BYOK；Token 权限模型或官方认证方式发生变化；云端 SecretStore 无法满足部署要求。
 - **决策来源**：owner 于 2026-08-09 明确确认接入官方 API Token，并接受服务端环境变量/SecretStore与双执行路径方案。
+
+## D-033 生产化核心能力升级顺序
+
+- **日期**：2026-08-12
+- **状态**：Confirmed
+- **背景（Context）**：Vertical Slice A 已完成，阿里云内部试运行环境已部署，单条 Cloud Web → Mac Local Agent → 飞影「手里有货」→ 下载 → 云端核验 → Work 的真实链路已经跑通。但生产文案与语义 QC 仍为受控替身，人物目录仅有受控种子与本地映射，小批量、声音/场景控制、Local Agent 安装和正式云基础设施仍未完成。继续补页面或一次性扩张全部 Provider 能力都会模糊真实交付边界。
+- **决策**：后续按固定顺序推进：P0 事实重基线 → P1 DeepSeek 官方文案/语义 QC → P2 人物目录与品类选择 → P3 3 商品/2 人物小批量真实验收 → P4 声音/背景/场景/姿势 Evidence 与受控参数 → P5 常驻 Local Agent → P6 生产基础设施。保留 Playwright 作为「手里有货」当前生产执行器；人物推荐必须人工确认；不把飞影自动决定的场景或姿势伪装成系统可控参数；每个任务仍遵守一 Issue/一分支/一 PR、Luna 实现/Sol 审查、真实费用单独门禁。
+- **影响（Consequences）**：现有 A01～A14 业务闭环不重做；第一项代码工作是 DeepSeek Provider Adapter 的无费用 TDD，实现完成后再单独做真实模型 smoke；人物与小批量工作不得抢跑；企业正式基础设施依赖前面波次的真实负载 Evidence。
+- **工程克制**：沿用 D-031，不为普通字段引入 SHA-256，不为无现实触发路径反复加防御；只处理会影响业务正确性、费用、凭据、组织隔离和幂等的真实风险。
+- **Specification**：[PRODUCTIONIZATION_UPGRADE_PLAN.md](PRODUCTIONIZATION_UPGRADE_PLAN.md)
+- **决策来源**：owner 于 2026-08-12 明确批准按推荐顺序开发未完成核心升级。

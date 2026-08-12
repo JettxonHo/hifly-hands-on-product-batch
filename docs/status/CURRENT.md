@@ -2,7 +2,14 @@
 
 > 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，新云端系统最小真实执行器闭环已跑通：飞影作品 `696679` 已生成、下载、上传、核验并登记为可用 Work；后续单条真实生成 standing authorization 剩余 4 次
+> 当前 Goal：生产化核心能力升级（D-033）；P0 重基线进行中，随后进入真实 DeepSeek 文案与语义质检；后续单条真实生成 standing authorization 剩余 4 次
+
+## 2026-08-12 生产化核心能力升级 Goal 启动
+
+- Owner 批准按固定顺序开发尚未完成的核心能力：事实重基线 → DeepSeek 文案/语义 QC → 人物目录与品类选择 → 3 商品/2 人物小批量验收 → 声音/背景/场景/姿势 Evidence → 常驻 Local Agent → 正式生产基础设施。
+- 新 Goal 与详细范围见 `GOAL.md`、`docs/product/PRODUCTIONIZATION_UPGRADE_PLAN.md` 和 D-033。每项继续使用独立 Issue、分支和 PR，由 `luna-worker` 实现、Sol 独立审查。
+- 当前第一项是无费用实现 DeepSeek Provider Adapter 与配置测试；生产 wiring 仍为 `phase1_controlled_test_double`，真实模型 smoke 尚未执行，也未产生 DeepSeek 费用。
+- 已跑通的 Playwright/Local Agent「手里有货」单条链路保持不变。本轮重基线未访问飞影、未执行生成、未消耗积分。
 
 ## 2026-08-12 新云端系统最小真实执行器闭环已跑通
 

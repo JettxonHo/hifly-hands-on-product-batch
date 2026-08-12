@@ -2,7 +2,7 @@
 
 > 状态：Accepted
 > Owner：owner（JettxonHo）
-> 最后更新：2026-08-06
+> 最后更新：2026-08-12
 > 适用范围：本项目全部产品设计、Issue 拆分、PR 审查与技术架构决策
 > 非目标：本目录不包含任何代码、测试、配置或运行时行为变更
 
@@ -36,6 +36,7 @@
 - [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md)
 - [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md)
 - [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md)
+- [PRODUCTIONIZATION_UPGRADE_PLAN.md](PRODUCTIONIZATION_UPGRADE_PLAN.md)
 
 ### Evidence
 
@@ -70,7 +71,8 @@
 | [DOMAIN_MODEL_AND_STATE_MACHINES.md](DOMAIN_MODEL_AND_STATE_MACHINES.md) | D-028 的领域合同 Specification：核心领域对象关系、不可变版本、状态机、失效传播矩阵、并发/幂等/事务边界、DM-001～DM-005；不代表数据库或代码已实现 |
 | [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md) | D-029 的人工交接包合同 Specification：ZIP/manifest/README/素材引用、版本与生命周期、manual ExecutionAttempt、ManualExecutionReport、候选产物核验与 Work 创建门禁、证据/幂等/安全；不代表包生成或上传已实现 |
 | [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md) | D-030 的交付计划 Specification：Vertical Slice A 交付目标、Issue 拆分原则、VSA-A01～A14 边界、依赖波次、Issue 模板、单 Issue DoD、Slice 级 DoD。Development Issues #57～#70 已创建；当前实施状态见 `docs/status/CURRENT.md` |
-| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录（D-001 ～ D-031）；最新：D-031 多 Agent 长期开发治理与工程克制 |
+| [PRODUCTIONIZATION_UPGRADE_PLAN.md](PRODUCTIONIZATION_UPGRADE_PLAN.md) | D-033 的生产化升级 Specification：真实 DeepSeek、人物目录、小批量验收、声音/场景 Evidence、常驻 Local Agent 与生产基础设施的顺序、门禁和完成标准 |
+| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：D-033 生产化核心能力升级顺序 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决，Q-018 已由 D-032 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 

@@ -1,55 +1,43 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-09
-> 当前状态：Vertical Slice A 已完成；进入腾讯云试运行准备
+> 最后更新：2026-08-12
+> 当前状态：Vertical Slice A 已完成；生产化核心能力升级 Goal 进行中
 
-## 1. 当前交付：Vertical Slice A
+## 1. 已完成基线
+
+- A01～A14 已完成企业登录、项目与商品、文案版本/QC/人工审核、人物选择、VideoPlan、ProductionOrder、交接包、执行报告、作品核验与交付。
+- 阿里云 2C4G 内部试运行环境已部署。
+- 单条真实云端工单已通过 Mac Local Agent 调用飞影「手里有货」，完成下载、云端回传、核验和 Work 登记。
+- 官方 Hifly API Token 已完成只读积分连接验证；「手里有货」仍走 Playwright。
+
+## 2. 当前升级顺序
 
 ```text
-Wave 1  A01 企业身份与 Organization 上下文
-Wave 2  A02 商品权威快照 ‖ A03 素材上传核验
-Wave 3  A04 文案生成 ‖ A07 已有人物目录基础
-Wave 4  A05 文案质检 ‖ A07 人物确认
-Wave 5  A06 文案人工审核
-Wave 6  A08 VideoPlan / Preflight / PlanReview
-Wave 7  A09 ProductionOrder
-Wave 8  A10 ManualHandoffPackage
-Wave 9  A11 manual ExecutionAttempt / ManualExecutionReport
-Wave 10 A12 候选产物核验 / Work
-Wave 11 A13 WorkInspection / DeliveryRecord
-Wave 12 A14 端到端验收与加固
+P0  Goal / Roadmap / Evidence 重基线
+P1  真实 DeepSeek 文案生成、语义 QC 与改写
+P2  人物目录同步、上传维护与品类推荐
+P3  3 商品 / 2 人物的小批量真实生产验收
+P4  声音、背景、场景、姿势和构图 Evidence / 受控参数
+P5  可安装常驻 Local Agent
+P6  对象存储、托管 PostgreSQL、可信域名、监控和恢复
 ```
 
-- Development Issues #57～#70 已全部完成并关闭；A01-A14 已进入 `main`。
-- PR #97 已合并，提供隔离、无积分的一键 A01-A14 本地演示入口。
-- 该里程碑证明企业业务闭环和页面链路可运行，不代表真实 Provider、飞影执行链和云端生产已经交付。
+详细范围、门禁和完成标准见 `docs/product/PRODUCTIONIZATION_UPGRADE_PLAN.md`。
 
-## 2. 旧本地生产链路：维护基线
+## 3. 当前第一项
 
-- GUI 单条/批量录入、失败重试、Playwright 生产链路与 Capture HTTP 实验能力已有历史验证。
-- Batch schema version/migrations（CORE-001 / PR #41）已合并；portable path（CORE-004）与 CI 稳定化已合并。
-- Issue #37 Windows capture `interrupted_unknown` 根因仍开放；本轮 VSA 不扩大处理。
-- MULTI-002 保持 pending，未获新积分授权不得执行。
+先实现 P1 的 DeepSeek Provider Adapter 与生产配置，使用 fake transport 完成无费用 TDD；随后再进行单独授权的真实模型 smoke。当前 `phase1_controlled_test_double` 仍是生产 wiring，替换完成前不能宣称真实 AI 文案已上线。
 
-## 3. 当前阶段：云端试运行准备
+## 4. 保留但不抢跑的工作
 
-1. 建立 Linux 生产入口、环境变量配置、容器、HTTPS、健康检查和显式 migration。
-2. 在腾讯云 2C4G 上完成无积分端到端与资源基准。
-3. 接入真实 Provider 与腾讯云 COS；正式客户生产时优先使用托管 PostgreSQL。
-4. 经单独积分授权后，才执行 1 条真实飞影链路验收。
+- Issue #37 Windows capture timing flake，以及 crash recovery、stale lock、诊断和任务预算 UX，继续保留为可靠性 backlog。
+- Capture HTTP 是实验路径；不会为了路线切换破坏已跑通的 Playwright/Local Agent 生产能力。
+- 企业级云基础设施必须等 P1～P5 的真实负载和运行证据，不以当前 2C4G 试运行服务器冒充正式生产 SLA。
 
-部署设计见 `docs/deployment/TENCENT_CLOUD_2C4G_DEPLOYMENT_DESIGN.md`。
+## 5. 每波次门禁
 
-## 4. Slice A 之后的产品能力
-
-- HIFLY-001、SPK-018：继续 Evidence/能力验证，不是 Slice A 完成条件；Q-018 已由 D-032 关闭。
-- Local Agent 与自动 Provider 执行：按 D-032 的双执行路径，在各 capability Evidence 明确后逐项接入。
-- Cloud 正式部署、企业增强、多 Provider、发布与数据复盘：依据 `docs/product/DELIVERY_ROADMAP.md` 分阶段实施。
-
-## 5. 进入下一波次的门禁
-
-1. 前置 Issue 已合并并通过 CI。
-2. `docs/status/CURRENT.md`、Goal 与相关产品文档一致。
-3. 下一 Issue 合同完整，Migration/公共接口/并行文件边界已确认。
-4. 没有需要人工确认的身份、权限、生产数据、不可逆 Migration、Secret 或真实积分风险。
-5. 实现与最终审查由独立 Agent/线程承担。
+1. 上游 Issue 已合并且 CI 通过。
+2. CURRENT、Goal、Roadmap 与 Evidence 结论一致。
+3. 实现任务有明确文件边界、状态合同、测试和非目标。
+4. 真实费用、Secret、生产数据或云资源变更在执行前通过对应授权门禁。
+5. `luna-worker` 负责边界明确的实现，Sol 独立 Review；不自动回退 Terra。
