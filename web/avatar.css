@@ -26,13 +26,19 @@
 .avatar-row-copy { min-width: 0; }
 .avatar-row-title, .avatar-row-meta { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 6px; }
 .avatar-row-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.avatar-row-meta { margin-top: 4px; color: var(--n-500); font-size: 12px; font-weight: 500; }
+.avatar-row-meta { flex-wrap: wrap; margin-top: 4px; color: var(--n-500); font-size: 12px; font-weight: 500; }
 .avatar-row .seed-mini { color: var(--n-500); font-size: 11px; }
+.recommendation-badge { flex: 0 0 auto; padding: 2px 5px; border: 1px solid var(--success-border); border-radius: 4px; color: var(--success); background: var(--success-bg); font-size: 11px; font-weight: 700; line-height: 1.2; }
+.avatar-row-recommendation { flex: 1 0 100%; overflow-wrap: anywhere; color: var(--success); font-size: 11px; }
+.recommendation-summary { margin: 0 0 var(--space-2); overflow-wrap: anywhere; }
 .avatar-detail { min-height: 580px; }
 .avatar-preview { width: 100%; max-width: 420px; aspect-ratio: 4 / 3; margin: 0 auto var(--space-5); border: 1px solid var(--n-200); border-radius: var(--radius-panel); font-size: 52px; }
 .detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .detail-heading h2 { margin-bottom: 0; font-size: 20px; }
 .detail-description { margin: var(--space-3) 0; color: var(--n-700); }
+.avatar-recommendation { margin: var(--space-3) 0; padding: 9px 11px; border: 1px solid var(--n-200); border-left-width: 3px; border-radius: var(--radius-control); overflow-wrap: anywhere; color: var(--n-700); background: var(--n-50); font-size: 13px; }
+.avatar-recommendation.recommended { border-color: var(--success-border); border-left-color: var(--success); color: var(--success); background: var(--success-bg); }
+.avatar-recommendation.not-recommended { border-left-color: var(--n-400); }
 .avatar-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0; padding: var(--space-3); border-radius: var(--radius-control); background: var(--n-50); }
 .avatar-facts div { min-width: 0; }
 .avatar-facts dt { color: var(--n-500); font-size: 12px; }

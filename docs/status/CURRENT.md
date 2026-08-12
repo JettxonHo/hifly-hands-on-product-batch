@@ -2,7 +2,16 @@
 
 > 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产化核心能力升级（D-033）；P1-01/P1-02/P1-03/P2-01 已合并，P2-02 Issue #128 企业人物素材登记已完成实现与独立审查；后续单条真实生成 standing authorization 剩余 4 次
+> 当前 Goal：生产化核心能力升级（D-033）；P1-01/P1-02/P1-03/P2-01/P2-02 已合并，P2-03 Issue #130 品类推荐已完成实现与独立审查；后续单条真实生成 standing authorization 剩余 4 次
+
+## 2026-08-12 P2-03 / Issue #130 人物品类推荐（实现与独立审查完成）
+
+- 当前分支：`codex/p2-03-avatar-category-recommendations`；基准：`main@4776189abc9412307a9d6bbb43735b0afdf01c15`；逻辑角色：`IMPLEMENTER`；运行时模型元数据不可见：`UNVERIFIED_RUNTIME_MODEL`。
+- Avatar workspace 通过注入的 `app.projectContent.productRevisionPort` 读取当前 approved CopyVersion 绑定 ProductRevision 的 authoritative `primary_category`；仅对现有 catalog gate `can_confirm=true` 的人物计算推荐，不复制产品状态，不自动创建或改变 AvatarSelection。
+- 推荐规则确定性实现：主品类与 `category_tags` trim/lowercase 后精确匹配；有精确匹配时只推荐匹配人物并稳定优先排序；无精确匹配时回退到空标签可确认通用池；其余可浏览但不推荐，不可确认永不推荐；无可用推荐时返回稳定 reason code 和中文说明。
+- workspace/API 的 provider-neutral recommendation projection 含 `recommended`、`reason_code`、中文 `reason`、`matched_tags`；未新增数据库列，未返回 provider ID、object key、上传 token 或本地路径。目录、详情、移动抽屉均显示推荐 badge/理由，现有来源/状态筛选、确认/更换 Dialog 保持不变。
+- 验证：focused service/API/browser 27/27（两条 browser 用例，含管理员登记回归与 390px 无横向滚动）；完整受控并发回归 954 total / 940 pass / 14 既有 environment skip / 0 fail；`npm run check` 检查 213 个 JavaScript 文件；`git diff --check` 通过。Sol 独立审查只修正测试夹具缺失的 authoritative revision port，未改推荐业务逻辑。
+- 本轮未访问 Hifly/DeepSeek/Playwright/Capture/Local Agent 生产路径，未访问外部服务，未消耗飞影积分。尚未部署生产，也未做真实人物/商品生产验证；详细过程见 `docs/status/sessions/2026-08-12-p2-03-avatar-category-recommendations.md`。
 
 ## 2026-08-12 P2-02 / Issue #128 企业人物素材登记（实现与独立审查完成）
 

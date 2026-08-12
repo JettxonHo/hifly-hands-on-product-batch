@@ -7,6 +7,15 @@ const MAX_CATEGORY_TAGS = 12;
 const MAX_CATEGORY_TAG_LENGTH = 40;
 const MAX_CAPABILITIES = 12;
 const MAX_CAPABILITY_FIELD_LENGTH = 120;
+const RECOMMENDATION_REASON = Object.freeze({
+  exact_category_match: (category) => `匹配商品主品类「${category}」。`,
+  general_pool_fallback: "未找到商品主品类精确匹配，使用未设置分类标签的通用人物。",
+  category_mismatch: "未匹配商品主品类，仍可浏览。",
+  not_confirmable: "当前人物不可确认，不参与推荐。",
+  approved_copy_missing: "当前批准文案不可用，暂不生成推荐。",
+  product_revision_unavailable: "当前商品版本信息不可用，暂不生成推荐。",
+  no_eligible_recommendation: "没有品类标签精确匹配，也没有未设置分类标签的可确认人物。"
+});
 
 function validateContext(input) {
   if (!clean(input.organizationId) || !clean(input.actorMemberId) || !clean(input.productId)) throw failure("AVATAR_SELECTION_CONTEXT_REQUIRED");
@@ -27,6 +36,15 @@ function normalizeCategoryTags(value) {
     if (!tags.includes(tag)) tags.push(tag);
   }
   return tags;
+}
+
+function normalizeRecommendationCategory(value) {
+  return clean(value).toLowerCase();
+}
+
+function normalizedRecommendationTags(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(normalizeRecommendationCategory).filter(Boolean))];
 }
 
 function normalizeCapabilities(value) {
@@ -75,7 +93,8 @@ export function createCurrentApprovedCopyPort({ copyService, copyReviewService }
 }
 
 export function createAvatarSelectionService({ repository, copyApprovalPort, now = Date.now,
-  confirmationReturnBarrier = async () => {}, publicAvatarCatalog = null, materialAssetPort = null } = {}) {
+  confirmationReturnBarrier = async () => {}, publicAvatarCatalog = null, materialAssetPort = null,
+  productRevisionPort = null } = {}) {
   if (!repository || !copyApprovalPort) throw new TypeError("repository and copyApprovalPort are required");
   const timestamp = () => new Date(now()).toISOString();
 
@@ -157,6 +176,54 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       gate: catalogGate(entry, approvedGate) };
   }
 
+  async function recommendationContext(input, approvedGate) {
+    if (!approvedGate.approved) return { available: false, primary_category: null,
+      reason_code: "approved_copy_missing", reason: RECOMMENDATION_REASON.approved_copy_missing };
+    if (typeof productRevisionPort?.getSnapshot !== "function") return { available: false, primary_category: null,
+      reason_code: "product_revision_unavailable", reason: RECOMMENDATION_REASON.product_revision_unavailable };
+    const revision = await productRevisionPort.getSnapshot({ organizationId: input.organizationId,
+      productRevisionId: approvedGate.copy.product_revision_id });
+    if (!revision || (revision.organization_id && revision.organization_id !== input.organizationId) ||
+      (revision.product_id && revision.product_id !== input.productId)) throw failure("PRODUCT_REVISION_NOT_FOUND");
+    return { available: true, primary_category: normalizeRecommendationCategory(revision.primary_category) || null };
+  }
+
+  function recommendationProjection(reasonCode, primaryCategory, matchedTags = []) {
+    const reason = reasonCode === "exact_category_match" ? RECOMMENDATION_REASON.exact_category_match(primaryCategory) : RECOMMENDATION_REASON[reasonCode];
+    return { recommended: reasonCode === "exact_category_match" || reasonCode === "general_pool_fallback",
+      reason_code: reasonCode, reason, matched_tags: [...matchedTags] };
+  }
+
+  function projectRecommendedCatalog(entries, approvedGate, context) {
+    const candidates = entries.map((entry) => {
+      const projection = publicCatalog(entry, approvedGate);
+      const tags = normalizedRecommendationTags(entry.asset.category_tags);
+      const matchedTags = context.primary_category ? tags.filter((tag) => tag === context.primary_category) : [];
+      return { entry, projection, tags, matchedTags };
+    });
+    const exact = context.available ? candidates.filter((candidate) => candidate.projection.gate.can_confirm && candidate.matchedTags.length > 0) : [];
+    const general = exact.length === 0 ? candidates.filter((candidate) => candidate.projection.gate.can_confirm && candidate.tags.length === 0) : [];
+    const summaryReasonCode = !context.available ? context.reason_code : exact.length > 0 ? "exact_category_match" :
+      general.length > 0 ? "general_pool_fallback" : "no_eligible_recommendation";
+    const summaryReason = summaryReasonCode === "exact_category_match" ? RECOMMENDATION_REASON.exact_category_match(context.primary_category) :
+      RECOMMENDATION_REASON[summaryReasonCode];
+    const catalog = candidates.map((candidate) => {
+      let reasonCode;
+      let matchedTags = [];
+      if (!candidate.projection.gate.can_confirm) reasonCode = "not_confirmable";
+      else if (!context.available) reasonCode = context.reason_code;
+      else if (exact.length > 0 && candidate.matchedTags.length > 0) { reasonCode = "exact_category_match"; matchedTags = candidate.matchedTags; }
+      else if (exact.length === 0 && candidate.tags.length === 0) reasonCode = "general_pool_fallback";
+      else reasonCode = "category_mismatch";
+      return { ...candidate.projection, recommendation: recommendationProjection(reasonCode, context.primary_category, matchedTags) };
+    }).sort((left, right) => {
+      const rank = (item) => item.recommendation.recommended ? (item.recommendation.reason_code === "exact_category_match" ? 0 : 1) : item.gate.can_confirm ? 2 : 3;
+      return rank(left) - rank(right) || left.display_name.localeCompare(right.display_name, "zh-CN") || left.asset_version.id.localeCompare(right.asset_version.id);
+    });
+    return { catalog, recommendation: { primary_category: context.primary_category, has_recommendations: exact.length > 0 || general.length > 0,
+      recommended_count: exact.length || general.length, reason_code: summaryReasonCode, reason: summaryReason } };
+  }
+
   async function selectionProjection(input, approvedGate = null) {
     const state = await repository.getSelectionState(input.organizationId, input.productId);
     const gate = approvedGate || await copyGate(input);
@@ -217,10 +284,12 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       const resolvedCopyVersionId = approvedGate.copy?.copy_version_id || clean(input.copyVersionId) || null;
       const effectiveInput = { ...input, copyVersionId: resolvedCopyVersionId };
       const entries = await Promise.all((await repository.listCatalog(input.organizationId)).map(refreshMaterialState));
-      return { catalog_kind: "existing_only", provider_integration: false, recommendation: false,
+      const context = await recommendationContext(effectiveInput, approvedGate);
+      const projectedCatalog = projectRecommendedCatalog(entries, approvedGate, context);
+      return { catalog_kind: "existing_only", provider_integration: false, recommendation: projectedCatalog.recommendation,
         controlled_seed_notice: "Phase 1 受控预置；不连接真实飞影，不代表推荐或真实生产能力。",
         resolved_copy_version_id: resolvedCopyVersionId,
-        copy_gate: approvedGate, catalog: entries.map((entry) => publicCatalog(entry, approvedGate)),
+        copy_gate: approvedGate, catalog: projectedCatalog.catalog,
         selection: await selectionProjection(effectiveInput, approvedGate) };
     },
     async confirmSelection(input) {

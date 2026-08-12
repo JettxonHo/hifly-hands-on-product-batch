@@ -81,18 +81,25 @@
   function createAvatarButton(item, mobile = false) {
     const button = document.createElement("button"); button.type = "button"; button.className = "avatar-row secondary";
     button.setAttribute("aria-current", String(item.asset_version.id === selectedAvatar?.asset_version.id));
-    button.setAttribute("aria-label", `${item.display_name} · ${sourceLabels[item.source_type]} · ${item.gate.can_confirm ? "可确认" : "暂不可确认"}`);
+    const recommendation = item.recommendation || {};
+    button.setAttribute("aria-label", `${item.display_name} · ${sourceLabels[item.source_type]} · ${item.gate.can_confirm ? "可确认" : "暂不可确认"}${recommendation.recommended ? ` · 推荐 · ${recommendation.reason}` : ""}`);
     const thumb = document.createElement("span"); thumb.className = "avatar-thumb"; thumb.textContent = initials(item.display_name);
     const copy = document.createElement("span"); copy.className = "avatar-row-copy";
     const title = document.createElement("span"); title.className = "avatar-row-title";
     const name = document.createElement("strong"); name.textContent = item.display_name;
     const state = document.createElement("span"); state.className = `state ${item.gate.can_confirm ? "available" : "unavailable"}`;
-    state.textContent = item.gate.can_confirm ? "可确认" : "暂不可确认"; title.append(name,state);
+    state.textContent = item.gate.can_confirm ? "可确认" : "暂不可确认";
+    if (recommendation.recommended) {
+      const badge = document.createElement("span"); badge.className = "recommendation-badge"; badge.textContent = "推荐"; title.append(name, badge, state);
+    } else title.append(name, state);
     const meta = document.createElement("span"); meta.className = "avatar-row-meta";
     const source = document.createElement("span"); source.textContent = sourceLabels[item.source_type];
     const seed = document.createElement("span"); seed.className = "seed-mini";
     seed.textContent = item.source_type === "enterprise" ? "企业登记" : item.controlled_seed ? "受控预置" : "公共目录";
-    meta.append(source,seed);
+    meta.append(source, seed);
+    if (recommendation.recommended) {
+      const reason = document.createElement("span"); reason.className = "avatar-row-recommendation"; reason.textContent = recommendation.reason; meta.append(reason);
+    }
     copy.append(title,meta); button.append(thumb,copy);
     button.addEventListener("click", () => { selectedAvatar = item; render(); if (mobile) element("#catalogDialog").close(); });
     return button;
@@ -110,6 +117,10 @@
     mobile.replaceChildren(...items.map((item) => createAvatarButton(item, true)));
     element("#catalogLoading").hidden = true; element("#catalogEmpty").hidden = items.length > 0;
     desktop.hidden = items.length === 0;
+    const summary = workspace.recommendation;
+    const summaryNotice = element("#recommendationNotice");
+    summaryNotice.className = `notice recommendation-summary ${summary?.has_recommendations ? "success" : "blocked"}`;
+    summaryNotice.textContent = summary?.has_recommendations ? `推荐 ${summary.recommended_count} 位 · ${summary.reason}` : `暂无推荐 · ${summary?.reason || "当前没有可用推荐。"}`;
     element("#openCatalogDrawer").textContent = `▦ 人物目录（${workspace.catalog.length}）· 当前：${selectedAvatar?.display_name || "未选择"} ▾`;
   }
 
@@ -123,6 +134,10 @@
     element("#avatarSeed").textContent = selectedAvatar.seed_label;
     element("#avatarMaterialState").textContent = selectedAvatar.materials_accessible ? `可访问 · ${selectedAvatar.material_status || "available"}` : `不可访问 · ${selectedAvatar.material_status || "unavailable"}`;
     element("#avatarCategoryTags").textContent = selectedAvatar.category_tags?.length ? selectedAvatar.category_tags.join("、") : "未设置";
+    const recommendation = selectedAvatar.recommendation || { recommended: false, reason: "当前没有推荐说明。" };
+    const recommendationNotice = element("#avatarRecommendation");
+    recommendationNotice.className = `avatar-recommendation ${recommendation.recommended ? "recommended" : "not-recommended"}`;
+    recommendationNotice.textContent = `${recommendation.recommended ? "推荐" : "未推荐"} · ${recommendation.reason}`;
     const availability = element("#avatarAvailability"); availability.className = `state ${selectedAvatar.gate.can_confirm ? "available" : "unavailable"}`;
     availability.textContent = selectedAvatar.gate.can_confirm ? "可确认" : "暂不可确认";
     const authorization = element("#avatarAuthorization"); authorization.className = `state ${selectedAvatar.authorization_status}`;

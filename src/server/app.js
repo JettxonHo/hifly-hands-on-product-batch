@@ -598,7 +598,8 @@ export async function buildApp({
     const copyApprovalPort = avatarSelectionOptions.copyApprovalPort || createCurrentApprovedCopyPort({
       copyService: app.copyGeneration.service, copyReviewService: app.copyReview.service
     });
-    const service = createAvatarSelectionService({ repository, copyApprovalPort, now,
+    const service = createAvatarSelectionService({ repository, copyApprovalPort,
+      productRevisionPort: avatarSelectionOptions.productRevisionPort || app.projectContent?.productRevisionPort, now,
       publicAvatarCatalog: avatarSelectionOptions.publicAvatarCatalog || null,
       materialAssetPort: avatarSelectionOptions.materialAssetPort || assetService });
     app.decorate("avatarSelection", { repository, service, copyApprovalPort });

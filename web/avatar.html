@@ -64,6 +64,7 @@
             <aside class="surface catalog-panel" aria-labelledby="catalogTitle">
               <div class="surface-header"><div><h2 id="catalogTitle">人物目录</h2><p>按名称排序 · 仅已有对象</p></div></div>
               <div class="catalog-filters"><label>来源<select id="sourceFilter"><option value="all">全部来源</option><option value="public">公共人物</option><option value="enterprise">企业人物</option></select></label><label>状态<select id="statusFilter"><option value="all">全部状态</option><option value="available">可确认</option><option value="blocked">暂不可确认</option></select></label></div>
+              <p id="recommendationNotice" class="notice recommendation-summary" role="status"></p>
               <div id="catalogLoading" class="empty">正在读取人物目录...</div>
               <div id="catalogList" class="avatar-list" aria-live="polite"></div>
               <div id="catalogEmpty" class="empty" hidden><p>没有符合条件的人物</p><button id="clearFilters" class="secondary" type="button">清除筛选</button></div>
@@ -75,6 +76,7 @@
                 <div id="avatarPreview" class="avatar-preview" aria-hidden="true"></div>
                 <div class="detail-heading"><div><p id="avatarSource" class="eyebrow"></p><h2 id="avatarDetailTitle"></h2></div><div class="status-cluster"><span id="avatarAvailability" class="state"></span><span id="avatarAuthorization" class="state"></span><button id="disableAvatar" class="secondary" type="button" hidden>禁用企业人物</button></div></div>
                 <p id="avatarDescription" class="detail-description"></p>
+                <p id="avatarRecommendation" class="avatar-recommendation" role="status"></p>
                 <dl class="avatar-facts"><div><dt>版本</dt><dd id="avatarVersion"></dd></div><div><dt>使用范围</dt><dd>当前 Organization</dd></div><div><dt>目录性质</dt><dd id="avatarSeed"></dd></div><div><dt>必要素材</dt><dd id="avatarMaterialState"></dd></div><div><dt>分类标签</dt><dd id="avatarCategoryTags"></dd></div></dl>
                 <section class="capability-section"><h3>已验证能力</h3><div id="verifiedCapabilities" class="capability-list"></div></section>
                 <p id="detailNotice" class="notice" role="status"></p>

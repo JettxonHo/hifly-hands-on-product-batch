@@ -91,6 +91,46 @@ test("avatar API lets members browse and explicitly confirm without exposing org
   assert.equal(cross.json().error, "AVATAR_ASSET_VERSION_NOT_FOUND");
 });
 
+test("avatar workspace projects authoritative category recommendations without mutating selection", async (t) => {
+  const repository = createMemoryAvatarSelectionRepository();
+  const listCatalog = repository.listCatalog.bind(repository);
+  repository.listCatalog = async (organizationId) => (await listCatalog(organizationId)).map((entry) => ({
+    ...entry, asset: { ...entry.asset, category_tags: entry.asset.display_name === "林小满" ? [" Beauty "] : ["护肤"] }
+  }));
+  const revisionCalls = [];
+  const { app } = await identityApp(t, {
+    avatarSelection: { enabled: true, repository, copyApprovalPort: approvalPort,
+      productRevisionPort: { async getSnapshot(input) {
+        revisionCalls.push(input);
+        return { organization_id: input.organizationId, product_id: "product-a", primary_category: "  BEAUTY " };
+      } } }
+  });
+  const admin = await activateAdmin(app);
+  const read = identityHeaders({ cookies: admin.cookies });
+  const first = await app.inject({ method: "GET", url: "/api/products/product-a/avatar-workspace?copyVersionId=copy-a", headers: read });
+  assert.equal(first.statusCode, 200);
+  const workspace = first.json();
+  const recommended = workspace.catalog.filter((item) => item.recommendation.recommended);
+
+  assert.deepEqual(recommended.map((item) => item.display_name), ["林小满"]);
+  assert.equal(workspace.recommendation.primary_category, "beauty");
+  assert.equal(workspace.recommendation.reason_code, "exact_category_match");
+  assert.deepEqual(recommended[0].recommendation, {
+    recommended: true, reason_code: "exact_category_match", reason: "匹配商品主品类「beauty」。", matched_tags: ["beauty"]
+  });
+  assert.equal(first.body.includes("provider_key"), false);
+  assert.equal(first.body.includes("object_key"), false);
+  assert.equal(first.body.includes("upload_token"), false);
+  assert.equal(workspace.selection.current_selection, null);
+  assert.equal(workspace.selection.selection_revision, 0);
+  assert.deepEqual(revisionCalls, [{ organizationId: "org_test", productRevisionId: "revision-a" }]);
+
+  const refreshed = await app.inject({ method: "GET", url: "/api/products/product-a/avatar-workspace?copyVersionId=copy-a", headers: read });
+  assert.equal(refreshed.json().selection.current_selection, null);
+  assert.equal(refreshed.json().selection.selection_revision, 0);
+  assert.equal(revisionCalls.length, 2);
+});
+
 test("avatar API maps business gate, idempotency and concurrency failures", async (t) => {
   const { app } = await identityApp(t, {
     avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository(), copyApprovalPort: approvalPort }
