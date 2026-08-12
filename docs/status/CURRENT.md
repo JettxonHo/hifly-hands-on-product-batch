@@ -4,7 +4,7 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
-## 2026-08-12 CE-07 / Issue #142 阿里云 standalone Cloud Executor Worker（本地实现完成，待 READY PR）
+## 2026-08-12 CE-07 / Issue #142 阿里云 standalone Cloud Executor Worker（READY PR，待 Review）
 
 - 当前分支：`codex/ce-07-aliyun-standby-deployment`；基线：`main@9dd35ab`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
 - 已新增生产 Worker 专用入口 `scripts/cloud-executor-worker.js`、standalone health server 与 `src/cloud-executor/production.js`：只在显式 active 配置下组装 PostgreSQL identity/assets/production-orders/manual-handoff/manual-execution/work-verification repositories；初始化只做 schema-current check，不执行 migration。Web `production-start` 未接入 Worker。
@@ -13,6 +13,7 @@
 - 已新增 production Compose/image/entrypoint：Chrome/Playwright、Xvfb、loopback-only noVNC、Profile/assets/outputs/evidence/batches/locks/handoff volume、1-instance/resource/healthcheck 合同；新增阿里云 CE-07 runbook，包含显式 migration、重启 marker、内存/磁盘观察、SSH tunnel 和 rollback。
 - 本轮无 Sol 决策 blocker；实机部署与 live proof 明确留给 Sol 在 PR 合并后执行，当前不做 SSH、不访问飞影/Provider、不调用真实 heartbeat 外部服务、不 claim、不消耗积分。
 - 当前验证已通过：CE-07 deployment tests `10/10`；CE-02～CE-07 + production focused tests `75/75`；`npm run check` 检查 229 个 JavaScript 文件；`npm test` 为 1,009 tests / 995 pass / 14 existing environment skips / 0 fail；`git diff --check` 通过；`docker compose -f docker-compose.production.yml config` 静态解析通过。
+- 实现提交：`0c0209d`；READY PR [#150](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/150)（Closes #142；OPEN、非 draft、未合并、未批准）。实现者不批准或合并自己的 PR。
 - 专用接力记录：`docs/status/sessions/2026-08-12-ce-07-aliyun-standby-deployment.md`。
 
 ## 2026-08-12 CE-06 / Issue #141 Cloud Executor 控制面投影与生产 UX（READY PR，待 Review）
