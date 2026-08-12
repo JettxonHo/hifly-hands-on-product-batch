@@ -12,7 +12,8 @@
 - Cloud config 新增显式 workspace/profile 派生配置，默认仍为 `disabled` / `fail_closed`；未修改或新增 migration，未改 Local Agent 与 Web/API 进程归属。
 - 已验证：CE-03 adapter + CE-02 focused tests 18/18；Local Agent/core focused tests 127/127；`npm run check` 检查 220 个 JavaScript 文件；`npm test` 973 total / 959 pass / 14 existing environment skip / 0 fail；`git diff --check` 通过。
 - 外部边界：0 次 Cloud Executor/真实 Hifly 浏览器启动、0 次 Hifly 访问、0 次外部真实 HTTP/DeepSeek、0 次 ProductionOrder real claim、0 次部署、0 次积分消耗；无真实批次、错误或下载产物路径。本轮新增路径仅使用 fake Playwright/page、fake executor 和本地 fixtures；全量回归中的既有本地 GUI/browser fixture tests 不属于 Cloud Executor 外部动作。
-- 当前卡点/下一步：尚未 commit、push、创建 READY PR；完成提交后创建关闭 #138 的 READY PR，等待独立 Review/CI，不合并或审批自己的 PR。
+- Implementation commit：`490b4b9` 已提交并推送；READY PR [#146](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/146) 已创建并关联 `Closes #138`，当前 `OPEN`、非 draft，CI（Ubuntu/Windows/PostgreSQL）均 queued，独立 Review/CI pending。GitHub connector 创建权限返回 403，已用已认证 `gh` CLI 完成创建。
+- 当前卡点/下一步：等待独立 Review/CI；不合并或审批自己的 PR，不做 CE-04+、部署或真实飞影动作。
 
 ## 2026-08-12 P0 Cloud Executor 正式架构纠偏启动
 

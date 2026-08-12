@@ -12,6 +12,8 @@ Issue：#138
 
 - Branch：`codex/ce-03-cloud-playwright-adapter`
 - Base：`origin/main@d912d93`
+- Implementation commit：`490b4b9`
+- READY PR：[JettxonHo/hifly-hands-on-product-batch#146](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/146)，`Closes #138`，当前 `OPEN` / non-draft；CI checks queued，独立 Review pending。
 - Scope：仅 CE-03；未回滚或覆盖其他工作区改动。
 
 ## 实际改动
@@ -34,4 +36,4 @@ Issue：#138
 
 - 未启动 Cloud Executor/真实 Hifly 浏览器，未访问 Hifly，未调用外部真实 HTTP 或 DeepSeek，未领取真实 ProductionOrder，未部署，未产生飞影积分消耗；所有新增执行测试均使用 fake browserType/context/page、fake page/adapter 和本地临时目录。全量回归中的既有本地 GUI/browser fixture tests 仅覆盖仓库回归，不属于本轮外部动作。
 - 没有真实批次、错误或下载产物路径可记录；CE-03 不进行 Hifly 访问、生成或积分验证。
-- 当前尚未 commit/push 或创建 PR；下一步仅提交本范围文件、push branch、创建 READY PR 并关联 `Closes #138`，随后停止等待独立 Review/CI；不合并或审批自己的 PR。
+- PR 已由已认证 gh CLI 创建（GitHub connector 创建权限返回 403）；当前仅等待独立 Review/CI，随后由授权流程决定是否合并。不合并或审批自己的 PR，不进入 CE-04+、部署或真实飞影动作。
