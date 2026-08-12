@@ -1,13 +1,14 @@
 import { createCloudExecutorReadiness, createCloudExecutorService } from "./cloud-executor-service.js";
 import { createCloudExecutorWorker } from "./cloud-executor-worker.js";
 import { createFakeCloudExecutor } from "./fake-executor.js";
+import { createCloudPlaywrightAdapter } from "./playwright-adapter.js";
 
 const failure = (code) => Object.assign(new Error(code), { code });
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 
 function inactiveState(config) {
   if (config.enabled !== true) return { status: "disabled", ready: false, claimed: false };
-  if (config.mode !== "fake") return { status: "fail_closed", ready: false, claimed: false };
+  if (!["fake", "playwright"].includes(config.mode)) return { status: "fail_closed", ready: false, claimed: false };
   if (config.configured !== true || !clean(config.organizationId) || !clean(config.executorCloudId)) {
     return { status: "unconfigured", ready: false, claimed: false };
   }
@@ -30,8 +31,38 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
     };
   }
 
-  const readiness = readinessPort || createCloudExecutorReadiness({ enabled: true, mode: "fake", configured: true });
-  const selectedExecutor = executor || createFakeCloudExecutor();
+  const selectedExecutor = executor || (config.mode === "playwright"
+    ? createCloudPlaywrightAdapter({
+      workspace: config.workspace || {
+        root: config.storageRoot,
+        profileDir: config.profileDir
+      },
+      hiflyConfig: config.hiflyConfig,
+      browserType: config.browserType,
+      browserOptions: config.browserOptions,
+      contextFactory: config.contextFactory,
+      pageFactory: config.pageFactory,
+      hiflyPageFactory: config.hiflyPageFactory,
+      executorFactory: config.executorFactory,
+      taskFactory: config.taskFactory,
+      onProgress: config.onProgress
+    })
+    : createFakeCloudExecutor());
+  const readiness = readinessPort || createCloudExecutorReadiness({
+    enabled: true,
+    mode: config.mode,
+    configured: true,
+    check: async () => {
+      if (config.mode !== "playwright" || typeof selectedExecutor.preflight !== "function") return { ready: true, status: "available" };
+      try {
+        const result = await selectedExecutor.preflight();
+        return { ready: true, status: "available", ...result };
+      } catch (error) {
+        if (error?.code === "LOGIN_REQUIRED") return { ready: false, status: "requires_login" };
+        return { ready: false, status: "requires_action", reason: error?.code || "CLOUD_EXECUTOR_PREFLIGHT_FAILED" };
+      }
+    }
+  });
   const service = createCloudExecutorService({
     repository,
     orderPort,
@@ -41,7 +72,7 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
     readinessPort: readiness,
     executor: selectedExecutor,
     enabled: true,
-    mode: "fake",
+    mode: config.mode,
     organizationId: config.organizationId,
     executorCloudId: config.executorCloudId,
     leaseMs: config.worker?.leaseMs,
@@ -65,6 +96,7 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
   async function close() {
     worker.stop();
     started = false;
+    await selectedExecutor.close?.();
   }
 
   return {

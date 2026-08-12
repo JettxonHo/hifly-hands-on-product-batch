@@ -51,7 +51,7 @@ export function createCloudExecutorReadiness({ enabled = false, mode = "fail_clo
   return {
     async check(input = {}) {
       if (enabled !== true) return { ready: false, status: "disabled" };
-      if (mode !== "fake") return { ready: false, status: "fail_closed" };
+      if (!["fake", "playwright"].includes(mode)) return { ready: false, status: "fail_closed" };
       if (configured !== true) return { ready: false, status: "unconfigured" };
       if (typeof check === "function") return check(input);
       return { ready: true, status: "available" };
@@ -227,10 +227,10 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
 
   async function candidateForResult(attempt, packageRecord, result) {
     const body = result?.body;
-    if (!Buffer.isBuffer(body) || body.length < 1) throw failure("CLOUD_EXECUTOR_FAKE_OUTPUT_INVALID");
+    if (!Buffer.isBuffer(body) || body.length < 1) throw failure("CLOUD_EXECUTOR_OUTPUT_INVALID");
     const mediaType = clean(result.mediaType) || "video/mp4";
     const checksum = clean(result.checksum).toLowerCase() || sha256(body);
-    if (!/^[a-f0-9]{64}$/.test(checksum) || (result.checksum && checksum !== sha256(body))) throw failure("CLOUD_EXECUTOR_FAKE_OUTPUT_INVALID");
+    if (!/^[a-f0-9]{64}$/.test(checksum) || (result.checksum && checksum !== sha256(body))) throw failure("CLOUD_EXECUTOR_OUTPUT_INVALID");
     const id = randomUUID();
     const at = timestamp();
     return {
@@ -272,7 +272,8 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     return { candidate: completed.candidate || completed, body, replayed: saved.replayed && completed.replayed };
   }
 
-  async function saveReport({ attempt, order, candidate = null, outcome, failureStage = null }) {
+  async function saveReport({ attempt, order, candidate = null, outcome, failureStage = null, requiresActionReason = null,
+    progressPhase = null }) {
     const at = timestamp();
     const reports = await repository.listReports?.(identity.organizationId, attempt.id) || [];
     const report = {
@@ -283,24 +284,27 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       supersedes_report_id: null, outcome, started_at: attempt.started_at, completed_at: at, operator_note: "", deviations: [],
       primary_output: candidate ? { upload_reference: candidate.id, original_filename: candidate.original_filename,
         media_type: candidate.media_type, size: candidate.size, checksum: candidate.checksum, role: "primary_video" } : null,
-      supporting_outputs: [], error_category: outcome === "failed" ? "cloud_executor" : null,
-      failure_stage: failureStage, requires_action_reason: null, retryability: outcome === "failed" ? "not_retryable" : null,
+      supporting_outputs: [], error_category: ["failed", "requires_action"].includes(outcome) ? "cloud_executor" : null,
+      failure_stage: failureStage, requires_action_reason: outcome === "requires_action" ? (requiresActionReason || "Cloud Executor requires human action") : null,
+      retryability: ["failed", "requires_action"].includes(outcome) ? "not_retryable" : null,
       upstream_return_target: null
     };
     const fingerprint = stableJson({ operation: "report", report_id: report.id, attempt_id: attempt.id,
       outcome, primary_output: report.primary_output, failure_stage: report.failure_stage });
     const receiptKey = `${identity.organizationId}:${identity.executorCloudId}:cloud-executor:report:${report.id}`;
-    const targetStatus = outcome === "completed" ? "succeeded" : "failed";
+    const targetStatus = outcome === "completed" ? "succeeded" : outcome;
     const saved = await repository.saveReport({ receiptKey, fingerprint, report, attemptId: attempt.id,
       organizationId: identity.organizationId, expectedRevision: attempt.row_version,
-      orderTransition: outcome === "failed" ? { organizationId: identity.organizationId, orderId: order.id, expectedRevision: order.row_version,
-        fromStatuses: ["running"], toStatus: "failed", at, actorCloudExecutorId: identity.executorCloudId,
-        reason: "Cloud Executor fake 执行失败" } : null,
-      transitionOrder: outcome === "failed" ? () => transitionOrder({ organizationId: identity.organizationId, orderId: order.id,
-        expectedRevision: order.row_version, fromStatuses: ["running"], toStatus: "failed", at, reason: "Cloud Executor fake 执行失败" }) : null,
+      orderTransition: outcome !== "completed" ? { organizationId: identity.organizationId, orderId: order.id, expectedRevision: order.row_version,
+        fromStatuses: ["running"], toStatus: targetStatus, at, actorCloudExecutorId: identity.executorCloudId,
+        reason: requiresActionReason || "Cloud Executor 执行失败" } : null,
+      transitionOrder: outcome !== "completed" ? () => transitionOrder({ organizationId: identity.organizationId, orderId: order.id,
+        expectedRevision: order.row_version, fromStatuses: ["running"], toStatus: targetStatus, at,
+        reason: requiresActionReason || "Cloud Executor 执行失败" }) : null,
       patchAttempt: { previous_status: attempt.status, status: targetStatus, completed_at: at, lease_expires_at: null,
-        heartbeat_at: at, progress_phase: targetStatus, updated_at: at,
-        status_history: [...(attempt.status_history || []), { status: targetStatus, at, actor_cloud_executor_id: identity.executorCloudId }] },
+        heartbeat_at: at, progress_phase: progressPhase || targetStatus, updated_at: at,
+        status_history: [...(attempt.status_history || []), { status: targetStatus, at, actor_cloud_executor_id: identity.executorCloudId,
+          reason: requiresActionReason || null }] },
       candidatePatches: candidate ? [{ id: candidate.id, values: { status: "pending_verification" } }] : [],
       audit: { id: randomUUID(), organization_id: identity.organizationId, actor_cloud_executor_id: identity.executorCloudId,
         attempt_id: attempt.id, production_order_id: attempt.production_order_id, package_id: attempt.package_id,
@@ -316,16 +320,36 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       const attempt = started.attempt;
       const executionOrder = await getOrder(claimedOrder.id);
       let heartbeatError = null;
+      let progressError = null;
+      const reportProgress = async ({ phase, evidence = null } = {}) => {
+        try {
+          const saved = await heartbeat(attempt, phase);
+          return { ...saved, evidence };
+        } catch (error) {
+          progressError ||= error;
+          throw error;
+        }
+      };
       const timer = setInterval(() => heartbeat(attempt).catch((error) => { heartbeatError ||= error; }), heartbeatIntervalMs);
       timer.unref?.();
       try {
-        if (mode !== "fake" || typeof executor?.run !== "function") throw failure("CLOUD_EXECUTOR_FAIL_CLOSED");
+        if (!['fake', 'playwright'].includes(mode) || typeof executor?.run !== "function") throw failure("CLOUD_EXECUTOR_FAIL_CLOSED");
         const result = await executor.run({ organizationId: identity.organizationId, executorCloudId: identity.executorCloudId,
-          order: executionOrder, attempt, package: packageRecord });
-        if (heartbeatError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+          order: executionOrder, attempt, package: packageRecord, progress: reportProgress, checkpoint: reportProgress });
+        if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
         const currentAttempt = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
+        if (result?.status === "requires_action" || result?.outcome === "requires_action") {
+          const requiresAction = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "requires_action",
+            failureStage: clean(result?.failureStage) || "unknown_post_submit",
+            requiresActionReason: clean(result?.requiresActionReason) || "Cloud Executor requires human action",
+            progressPhase: clean(result?.failureStage) || "unknown_post_submit" });
+          halted = true;
+          return { status: "requires_action", stopped: true, attempt: publicAttempt(requiresAction.attempt),
+            report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
+        }
         if (!result || result.ok === false || result.status === "failed" || result.failure) {
-          const failed = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "failed", failureStage: clean(result?.failureStage) || "fake_execution" });
+          const failed = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "failed",
+            failureStage: clean(result?.failureStage) || (mode === "playwright" ? "playwright_execution" : "fake_execution") });
           halted = true;
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
@@ -347,7 +371,14 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
         const current = await repository.getAttempt(identity.organizationId, claimedAttempt.id);
         const order = await getOrder(claimedOrder.id);
         if (current?.status === "running" && order.status === "running") {
-          const failed = await saveReport({ attempt: current, order, outcome: "failed", failureStage: "fake_execution" });
+          if (error?.code === "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN" || error?.outcome === "requires_action") {
+            const requiresAction = await saveReport({ attempt: current, order, outcome: "requires_action",
+              failureStage: "unknown_post_submit", requiresActionReason: error.message, progressPhase: "unknown_post_submit" });
+            return { status: "requires_action", stopped: true, attempt: publicAttempt(requiresAction.attempt),
+              report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
+          }
+          const failed = await saveReport({ attempt: current, order, outcome: "failed",
+            failureStage: mode === "playwright" ? "playwright_execution" : "fake_execution" });
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
       }
@@ -357,7 +388,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
 
   async function runOnce(input = {}) {
     if (enabled !== true) return { status: "disabled", ready: false, claimed: false };
-    if (mode !== "fake") return { status: "fail_closed", ready: false, claimed: false };
+    if (!["fake", "playwright"].includes(mode)) return { status: "fail_closed", ready: false, claimed: false };
     if (!identity.organizationId || !identity.executorCloudId) return { status: "unconfigured", ready: false, claimed: false };
     cloudContext(input);
     if (halted) return { status: "halted", stopped: true };

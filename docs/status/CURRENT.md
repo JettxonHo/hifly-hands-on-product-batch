@@ -4,6 +4,16 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
+## 2026-08-12 CE-03 / Issue #138 Cloud Playwright adapter（本地实现，待 Review）
+
+- 当前分支：`codex/ce-03-cloud-playwright-adapter`；基线：`origin/main@d912d93`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置：`~/.codex/agents/luna-worker.toml`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
+- 新增独立 `src/cloud-executor/playwright-adapter.js`：Cloud Executor 自己拥有 persistent Playwright context/page 的 composition 与 close 生命周期，显式接收 workspace/profile/assets/outputs/evidence 路径；通过现有 `HiflyHandsOnProductPage`、`createHiflyExecutor` 与 `runBatch` 组成执行链，没有复制 selector 或页面流程。运行时 `mode=playwright` 只在 standalone Cloud Executor runtime 中构造它；Web/Fastify 没有新增浏览器生命周期或 worker wiring。
+- 受控进度阶段固定为 `pre_submit`、`submitted`、`wait_download`、`unknown_post_submit`，由既有 Hifly checkpoint 映射；提交后无唯一稳定证据、提交超时或结果含糊时统一返回 `requires_action`，停止 adapter/worker，禁止 Provider submit 重试。CE-02 service 现在持久化该结论为 `requires_action` / `not_retryable`，不领取下一条订单。
+- Cloud config 新增显式 workspace/profile 派生配置，默认仍为 `disabled` / `fail_closed`；未修改或新增 migration，未改 Local Agent 与 Web/API 进程归属。
+- 已验证：CE-03 adapter + CE-02 focused tests 18/18；Local Agent/core focused tests 127/127；`npm run check` 检查 220 个 JavaScript 文件；`npm test` 973 total / 959 pass / 14 existing environment skip / 0 fail；`git diff --check` 通过。
+- 外部边界：0 次 Cloud Executor/真实 Hifly 浏览器启动、0 次 Hifly 访问、0 次外部真实 HTTP/DeepSeek、0 次 ProductionOrder real claim、0 次部署、0 次积分消耗；无真实批次、错误或下载产物路径。本轮新增路径仅使用 fake Playwright/page、fake executor 和本地 fixtures；全量回归中的既有本地 GUI/browser fixture tests 不属于 Cloud Executor 外部动作。
+- 当前卡点/下一步：尚未 commit、push、创建 READY PR；完成提交后创建关闭 #138 的 READY PR，等待独立 Review/CI，不合并或审批自己的 PR。
+
 ## 2026-08-12 P0 Cloud Executor 正式架构纠偏启动
 
 - Owner 明确把 P0 从“云端控制台 + 个人电脑 Local Agent”纠偏为“云端控制台 + 独立 Cloud Executor Worker”。Local Agent 代码和历史 Evidence 保留，但不再是 P0 主实现、主提示或验收路径。

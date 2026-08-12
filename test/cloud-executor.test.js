@@ -199,6 +199,33 @@ test("fake failure stops the worker and never claims the next order", async () =
   assert.equal(workerWorld.orders[1].status, "waiting_for_executor");
 });
 
+test("uncertain post-submit outcome requires action, stops the worker, and never retries Provider submission", async () => {
+  let providerCalls = 0;
+  const world = makeCloudWorld({ orderCount: 2, executor: {
+    async run() {
+      providerCalls += 1;
+      return {
+        status: "requires_action",
+        failureStage: "unknown_post_submit",
+        requiresActionReason: "Provider submission outcome is ambiguous"
+      };
+    }
+  } });
+
+  const first = await world.service.runOnce();
+  const second = await world.service.runOnce();
+
+  assert.equal(first.status, "requires_action");
+  assert.equal(first.stopped, true);
+  assert.equal(second.status, "halted");
+  assert.equal(providerCalls, 1);
+  assert.equal(world.order.status, "requires_action");
+  assert.equal(world.orders[1].status, "waiting_for_executor");
+  assert.equal(first.report.outcome, "requires_action");
+  assert.equal(first.report.retryability, "not_retryable");
+  assert.equal(first.report.failure_stage, "unknown_post_submit");
+});
+
 test("an unexpected fake executor error is terminal and records a failed report", async () => {
   const world = makeCloudWorld({ orderCount: 2, executor: { async run() { throw new Error("fake failure"); } } });
   const result = await world.service.runOnce();
@@ -306,6 +333,20 @@ test("standalone cloud executor config is disabled and fail-closed by default", 
   } });
   assert.equal(configured.configured, true);
   assert.equal(configured.worker.autoStart, undefined);
+
+  const playwright = createCloudExecutorConfig({ root: "/tmp/hifly-cloud-executor-test", env: {
+    ...env, CLOUD_EXECUTOR_ENABLED: "true", CLOUD_EXECUTOR_MODE: "playwright", CLOUD_EXECUTOR_ID: CLOUD_EXECUTOR_ID,
+    CLOUD_EXECUTOR_ORGANIZATION_ID: ORGANIZATION_ID, CLOUD_EXECUTOR_WORKSPACE_ROOT: "/var/lib/hifly-cloud",
+    CLOUD_EXECUTOR_PROFILE_DIR: "/var/lib/hifly-profile"
+  } });
+  assert.equal(playwright.configured, true);
+  assert.deepEqual(playwright.workspace, {
+    root: "/var/lib/hifly-cloud",
+    profileDir: "/var/lib/hifly-profile",
+    assetsDir: "/var/lib/hifly-cloud/assets",
+    outputsDir: "/var/lib/hifly-cloud/outputs",
+    evidenceDir: "/var/lib/hifly-cloud/evidence"
+  });
 });
 
 test("cloud executor migration adds a separate identity without relaxing existing identities", async () => {
