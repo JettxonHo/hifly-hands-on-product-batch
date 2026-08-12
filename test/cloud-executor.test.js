@@ -142,6 +142,16 @@ test("cloud readiness is evaluated before any order claim", async () => {
   assert.equal(world.transitionCalls, 0);
 });
 
+test("low persistent storage blocks before listing, claiming, or creating an attempt", async () => {
+  const world = makeCloudWorld({ readiness: { ready: false, status: "storage_blocked", reason: "absolute path must stay private" } });
+  const result = await world.service.runOnce();
+  assert.equal(result.status, "storage_blocked");
+  assert.equal(result.reason, undefined);
+  assert.equal(world.listCalls, 0);
+  assert.equal(world.transitionCalls, 0);
+  assert.equal((await world.repository.listAttempts(ORGANIZATION_ID)).length, 0);
+});
+
 test("missing or expired Provider session maps to requires_login before claim", async () => {
   for (const sessionState of ["missing", "expired"]) {
     const world = makeCloudWorld({ mode: "playwright", executor: {
