@@ -4,9 +4,10 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
-## 2026-08-12 CE-06 / Issue #141 Cloud Executor 控制面投影与生产 UX（本地实现，发布待验证）
+## 2026-08-12 CE-06 / Issue #141 Cloud Executor 控制面投影与生产 UX（READY PR，待 Review）
 
 - 当前分支：`codex/ce-06-cloud-control-plane-ux`；基线：`main@1d6bc65`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
+- 实现提交：`141dcc8`；READY PR [#149](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/149)（Closes #141；OPEN、非 draft；未合并、未批准）。
 - 新增最小 Cloud Executor 控制面投影：Worker `offline/online`、受控 readiness、当前订单/attempt、归一化 progress、受控 terminal failure，以及 execution succeeded、A12 pending/passed、Work delivery 的独立状态。公共对象仅返回 allowlist 字段，不返回 raw exception、Profile/服务器路径、storage key、VNC、secret 或 token。
 - 新增默认 disabled/fail-closed 的 `/api/cloud-executor/status` 与可选 Bearer 鉴权的 `/internal/cloud-executor/v1/heartbeat`；heartbeat presence 为短期内存状态，执行事实继续读取现有 attempt/report/A12/Work/Delivery 合同，不在 HTTP 请求内运行浏览器任务。未改变 Local Agent 默认与进程归属。
 - 生产页已将 Cloud Executor status section 置于工单区之前，包含离线、重新登录飞影、低磁盘、待命、忙碌/进度、requires_action、失败与作品交付指导；历史人工/交接包面板保留为次级入口。核验作品只链接既有鉴权 Work/Delivery 页面，不新增未鉴权 artifact route。

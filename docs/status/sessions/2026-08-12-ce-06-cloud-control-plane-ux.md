@@ -10,6 +10,8 @@
 - Scope is CE-06 only. No Hifly/provider browser login, real provider HTTP,
   DeepSeek, points, production claim, deployment, or server action was
   authorized or performed.
+- Implementation commit: `141dcc8`; READY PR [#149](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/149),
+  `Closes #141`, open/non-draft, not merged or approved.
 
 ## Implemented
 
