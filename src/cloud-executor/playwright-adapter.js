@@ -109,9 +109,9 @@ async function taskFromPackageArchive(input, workspace, { attemptId, avatarMappi
   });
 }
 
-function safeArtifactPath(root, relativePath) {
+export function safeArtifactPath(root, relativePath) {
   const value = clean(relativePath).replaceAll("\\", "/");
-  if (!value || value.startsWith("/") || path.posix.isAbsolute(value) || value.split("/").includes("..")) {
+  if (!value || value.startsWith("/") || path.posix.isAbsolute(value) || path.win32.isAbsolute(value) || /^[A-Za-z]:\//.test(value) || value.split("/").includes("..")) {
     const error = new Error("Cloud Executor artifact path is invalid");
     error.code = "CLOUD_EXECUTOR_ARTIFACT_PATH_INVALID";
     throw error;

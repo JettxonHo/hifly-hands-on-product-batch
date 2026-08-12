@@ -13,7 +13,7 @@ services:
       DATABASE_SSL: ${DATABASE_SSL:-false}
       PUBLIC_HOST: ${PUBLIC_HOST:-pilot.example.invalid}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-https://pilot.example.invalid}
-      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-127.0.0.1,localhost,127.0.0.1:3000,localhost:3000}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-127.0.0.1,localhost,127.0.0.1:3000,localhost:3000,app:3000}
       TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-}
       INITIAL_ADMIN_ENABLED: ${INITIAL_ADMIN_ENABLED:-false}
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
@@ -29,6 +29,12 @@ services:
       LOCAL_AGENT_ORGANIZATION_ID: ${LOCAL_AGENT_ORGANIZATION_ID:-}
       LOCAL_AGENT_TOKEN: ${LOCAL_AGENT_TOKEN:-}
       LOCAL_AGENT_LEASE_MS: ${LOCAL_AGENT_LEASE_MS:-30000}
+      CLOUD_EXECUTOR_ENABLED: ${CLOUD_EXECUTOR_ENABLED:-false}
+      CLOUD_EXECUTOR_MODE: ${CLOUD_EXECUTOR_MODE:-fail_closed}
+      CLOUD_EXECUTOR_ID: ${CLOUD_EXECUTOR_ID:-}
+      CLOUD_EXECUTOR_ORGANIZATION_ID: ${CLOUD_EXECUTOR_ORGANIZATION_ID:-}
+      CLOUD_EXECUTOR_HEARTBEAT_TOKEN: ${CLOUD_EXECUTOR_HEARTBEAT_TOKEN:-}
+      CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS: ${CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS:-15000}
     expose:
       - "3000"
     volumes:
@@ -98,10 +104,82 @@ services:
       timeout: 5s
       retries: 12
 
+  cloud_executor:
+    build:
+      context: .
+      dockerfile: deploy/cloud-executor.Dockerfile
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hifly_pilot}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD_REQUIRED}@postgres:5432/${POSTGRES_DB:-hifly_pilot}
+      DATABASE_POOL_MAX: ${CLOUD_EXECUTOR_DATABASE_POOL_MAX:-3}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      CLOUD_EXECUTOR_ENABLED: ${CLOUD_EXECUTOR_ENABLED:-false}
+      CLOUD_EXECUTOR_MODE: ${CLOUD_EXECUTOR_MODE:-fail_closed}
+      CLOUD_EXECUTOR_ID: ${CLOUD_EXECUTOR_ID:-}
+      CLOUD_EXECUTOR_ORGANIZATION_ID: ${CLOUD_EXECUTOR_ORGANIZATION_ID:-}
+      CLOUD_EXECUTOR_HEARTBEAT_URL: ${CLOUD_EXECUTOR_HEARTBEAT_URL:-http://app:3000/internal/cloud-executor/v1/heartbeat}
+      CLOUD_EXECUTOR_HEARTBEAT_TOKEN: ${CLOUD_EXECUTOR_HEARTBEAT_TOKEN:-}
+      CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS: ${CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS:-15000}
+      CLOUD_EXECUTOR_CONCURRENCY: "1"
+      CLOUD_EXECUTOR_ROOT: /var/lib/hifly-executor
+      CLOUD_EXECUTOR_PROFILE_DIR: /var/lib/hifly-executor/profile
+      CLOUD_EXECUTOR_ASSETS_DIR: /var/lib/hifly-executor/assets
+      CLOUD_EXECUTOR_OUTPUTS_DIR: /var/lib/hifly-executor/outputs
+      CLOUD_EXECUTOR_EVIDENCE_DIR: /var/lib/hifly-executor/evidence
+      CLOUD_EXECUTOR_HANDOFF_DIR: /var/lib/hifly/manual-handoff-packages
+      CLOUD_EXECUTOR_MIN_FREE_BYTES: ${CLOUD_EXECUTOR_MIN_FREE_BYTES:-1073741824}
+      CLOUD_EXECUTOR_HIFLY_CONFIG_PATH: ${CLOUD_EXECUTOR_HIFLY_CONFIG_PATH:-}
+      CLOUD_EXECUTOR_AVATAR_MAPPING_FILE: ${CLOUD_EXECUTOR_AVATAR_MAPPING_FILE:-}
+      CLOUD_EXECUTOR_POLL_INTERVAL_MS: ${CLOUD_EXECUTOR_POLL_INTERVAL_MS:-1000}
+      CLOUD_EXECUTOR_LEASE_MS: ${CLOUD_EXECUTOR_LEASE_MS:-30000}
+      CLOUD_EXECUTOR_HEARTBEAT_INTERVAL_MS: ${CLOUD_EXECUTOR_HEARTBEAT_INTERVAL_MS:-5000}
+      CLOUD_EXECUTOR_HEALTH_HOST: 127.0.0.1
+      CLOUD_EXECUTOR_HEALTH_PORT: "3001"
+      CLOUD_EXECUTOR_DISPLAY: ${CLOUD_EXECUTOR_DISPLAY:-:99}
+      CLOUD_EXECUTOR_NOVNC_BIND_HOST: 127.0.0.1
+      CLOUD_EXECUTOR_NOVNC_PORT: "6080"
+    expose:
+      - "3001"
+    ports:
+      - "127.0.0.1:${CLOUD_EXECUTOR_NOVNC_HOST_PORT:-6080}:6080"
+    volumes:
+      - hifly_pilot_data:/var/lib/hifly:ro
+      - cloud_executor_profile:/var/lib/hifly-executor/profile
+      - cloud_executor_assets:/var/lib/hifly-executor/assets
+      - cloud_executor_outputs:/var/lib/hifly-executor/outputs
+      - cloud_executor_evidence:/var/lib/hifly-executor/evidence
+      - cloud_executor_batches:/var/lib/hifly-executor/batches
+      - cloud_executor_locks:/var/lib/hifly-executor/locks
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    networks:
+      - internal
+    restart: unless-stopped
+    init: true
+    mem_limit: 1024m
+    mem_reservation: 512m
+    cpus: 0.75
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
 volumes:
   hifly_pilot_data:
   hifly_pilot_postgres:
   hifly_pilot_backups:
+  cloud_executor_profile:
+  cloud_executor_assets:
+  cloud_executor_outputs:
+  cloud_executor_evidence:
+  cloud_executor_batches:
+  cloud_executor_locks:
 
 networks:
   edge:

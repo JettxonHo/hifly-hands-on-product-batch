@@ -69,6 +69,20 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
   const hiflyConfigPath = path.resolve(root, env.CLOUD_EXECUTOR_HIFLY_CONFIG_PATH || env.LOCAL_AGENT_HIFLY_CONFIG_PATH || "config.local.json");
   const display = env.CLOUD_EXECUTOR_DISPLAY?.trim() || ":99";
   const minFreeBytes = bytes(env.CLOUD_EXECUTOR_MIN_FREE_BYTES, "CLOUD_EXECUTOR_MIN_FREE_BYTES", DEFAULT_CLOUD_EXECUTOR_MIN_FREE_BYTES);
+  const heartbeatUrl = env.CLOUD_EXECUTOR_HEARTBEAT_URL?.trim() || null;
+  const heartbeatToken = env.CLOUD_EXECUTOR_HEARTBEAT_TOKEN?.trim() || null;
+  const heartbeatTimeoutMs = duration(env.CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS, "CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS", 15_000);
+  const handoffDir = path.resolve(root, env.CLOUD_EXECUTOR_HANDOFF_DIR || "/var/lib/hifly/manual-handoff-packages");
+  const healthHost = privateBindHost(env.CLOUD_EXECUTOR_HEALTH_HOST);
+  const healthPort = port(env.CLOUD_EXECUTOR_HEALTH_PORT, "CLOUD_EXECUTOR_HEALTH_PORT", 3001);
+  const databaseUrl = env.DATABASE_URL?.trim() || null;
+  const databasePoolMax = Number(env.CLOUD_EXECUTOR_DATABASE_POOL_MAX || env.DATABASE_POOL_MAX || 3);
+  if (!Number.isSafeInteger(databasePoolMax) || databasePoolMax < 1 || databasePoolMax > 16) {
+    throw Object.assign(new Error("CLOUD_EXECUTOR_DATABASE_POOL_MAX_INVALID"), { code: "CLOUD_EXECUTOR_DATABASE_POOL_MAX_INVALID" });
+  }
+  const databaseSsl = boolean(env.DATABASE_SSL, "DATABASE_SSL", false);
+  const concurrency = Number(env.CLOUD_EXECUTOR_CONCURRENCY || 1);
+  if (concurrency !== 1) throw Object.assign(new Error("CLOUD_EXECUTOR_CONCURRENCY_INVALID"), { code: "CLOUD_EXECUTOR_CONCURRENCY_INVALID" });
   const workspace = {
     root: workspaceRoot,
     profileDir,
@@ -102,10 +116,22 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
       access: "private",
       public: false
     },
+    databaseUrl,
+    databasePoolMax,
+    databaseSsl,
+    handoffDir,
+    heartbeat: {
+      enabled: enabled && configured && ["fake", "playwright"].includes(mode) && Boolean(heartbeatUrl && heartbeatToken),
+      url: heartbeatUrl,
+      token: heartbeatToken,
+      timeoutMs: heartbeatTimeoutMs
+    },
+    health: { host: healthHost, port: healthPort },
     worker: {
       pollIntervalMs: duration(env.CLOUD_EXECUTOR_POLL_INTERVAL_MS, "CLOUD_EXECUTOR_POLL_INTERVAL_MS", 1_000),
       leaseMs: duration(env.CLOUD_EXECUTOR_LEASE_MS, "CLOUD_EXECUTOR_LEASE_MS", 30_000),
-      heartbeatIntervalMs: duration(env.CLOUD_EXECUTOR_HEARTBEAT_INTERVAL_MS, "CLOUD_EXECUTOR_HEARTBEAT_INTERVAL_MS", 5_000)
+      heartbeatIntervalMs: duration(env.CLOUD_EXECUTOR_HEARTBEAT_INTERVAL_MS, "CLOUD_EXECUTOR_HEARTBEAT_INTERVAL_MS", 5_000),
+      concurrency
     }
   };
 }

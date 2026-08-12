@@ -3,6 +3,9 @@
 本文补充阿里云 Ubuntu 22.04 轻量服务器上的实机差异。应用合同、环境变量、migration、备份和恢复命令仍以
 `TENCENT_CLOUD_2C4G_DEPLOYMENT_RUNBOOK.md` 为准。云厂商变化不需要修改业务代码。
 
+Cloud Executor CE-07 的独立 Worker、disabled/standby 验收、持久卷、loopback noVNC、资源观察和回滚步骤见
+`ALIYUN_CLOUD_EXECUTOR_CE07_RUNBOOK.md`；本分支只交付代码与部署合同，实机由 Sol 在 PR 合并后执行。
+
 ## 已验证基线
 
 - 2 vCPU / 4 GiB、Ubuntu 22.04.5、约 50 GiB 系统盘。
