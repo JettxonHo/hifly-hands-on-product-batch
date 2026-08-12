@@ -255,7 +255,7 @@ test("production Compose and image define one disabled worker with persistent me
   const entrypoint = await readFile(new URL("../deploy/cloud-executor-entrypoint.sh", import.meta.url), "utf8");
   const envExample = await readFile(new URL("../.env.example", import.meta.url), "utf8");
 
-  assert.match(compose, /\n  cloud_executor:\n/);
+  assert.match(compose, /\r?\n  cloud_executor:\r?\n/);
   assert.match(compose, /dockerfile: deploy\/cloud-executor\.Dockerfile/);
   assert.match(compose, /CLOUD_EXECUTOR_ENABLED: \$\{CLOUD_EXECUTOR_ENABLED:-false\}/);
   assert.match(compose, /CLOUD_EXECUTOR_MODE: \$\{CLOUD_EXECUTOR_MODE:-fail_closed\}/);
