@@ -14,8 +14,8 @@
 - 新增由现有 ManualHandoffPackage service/worker 生成真实 zip 的 integration-shaped fake，证明 archive 可编译并进入现有 Hifly executor/page core。Cloud service 只向 adapter 转发 `{body, contentType}`，Buffer 之外失败关闭；archive、manifest/素材正文、secret、URL 和 port 额外字段不进入公开投影或日志。
 - 已验证：CE-03 adapter + CE-02 focused tests 20/20；真实包/编译相关 focused tests 36/36；Local Agent/core focused tests 127/127；`npm run check` 检查 220 个 JavaScript 文件；`npm test` 975 total / 961 pass / 14 existing environment skip / 0 fail（另以 dot reporter 完整重跑 exit 0）；`git diff --check` 通过。
 - 外部边界：0 次 Cloud Executor/真实 Hifly 浏览器启动、0 次 Hifly 访问、0 次外部真实 HTTP/DeepSeek、0 次 ProductionOrder real claim、0 次部署、0 次积分消耗；无真实批次、错误或下载产物路径。本轮新增路径仅使用 fake Playwright/page、fake executor 和本地 fixtures；全量回归中的既有本地 GUI/browser fixture tests 不属于 Cloud Executor 外部动作。
-- Implementation commits：`490b4b9`（初始实现）、`4d5b34a`（Sol Review follow-up）；READY PR [#146](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/146) 已创建并关联 `Closes #138`，当前 `OPEN`、非 draft。首轮 Ubuntu/PostgreSQL CI 通过，Windows 仅因 POSIX 路径断言失败；follow-up 已本地修复，待推送重跑。GitHub connector 创建权限返回 403，使用已认证 `gh` CLI。
-- 当前卡点/下一步：推送 follow-up 并等待 CI/独立 Review；不合并或审批自己的 PR，不做 CE-04+、部署或真实飞影动作。
+- Implementation commits：`490b4b9`（初始实现）、`4d5b34a`（Sol Review follow-up）；READY PR [#146](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/146) 已创建并关联 `Closes #138`，当前 `OPEN`、非 draft。follow-up code commit 的 Ubuntu Node 22、Windows Node 22、identity-postgres CI 全部通过，Windows portability 回归已有 CI 证明。GitHub connector 创建权限返回 403，使用已认证 `gh` CLI。
+- 当前卡点/下一步：等待独立 Review；不合并或审批自己的 PR，不做 CE-04+、部署或真实飞影动作。
 
 ## 2026-08-12 P0 Cloud Executor 正式架构纠偏启动
 
