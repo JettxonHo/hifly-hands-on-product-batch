@@ -7,7 +7,7 @@
 ## 2026-08-12 CE-05 / Issue #140 Cloud 持久素材、视频与磁盘门限（本地 READY，待独立 Review）
 
 - 当前分支：`codex/ce-05-cloud-persistent-media`；基线：`main@b78fe08`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
-- 实现提交：`3eca3db`；READY PR：[#148](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/148)（Closes #140；未合并、未批准）。
+- 实现提交：`3eca3db`；Sol Review 修复提交：`ec12499`；READY PR：[#148](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/148)（Closes #140；未合并、未批准）。
 - 已新增可复用 Cloud workspace/storage seam：启动/ready 前创建固定 `profile`、`assets`、`outputs`、`evidence` 目录；Profile 生命周期仍归 CE-04。未注入 candidate store 时，standalone runtime 复用现有 local object store，并将 Cloud 输出持久化到 `outputs`；注入 manual-execution candidate store 的现有组合保持不变。
 - 已新增 `CLOUD_EXECUTOR_MIN_FREE_BYTES`（默认 1 GiB）与 `statfs`/注入等价物检查。Sol Review follow-up 已将门限从单一 root 扩展到所有实际写入位置：root、assets、outputs、evidence、batches、locks；任一路径检查失败或低于门限都在订单 list/claim/attempt 创建前返回受控 `storage_blocked`。Profile 容量仍归 CE-04 login readiness；公开状态不暴露路径或磁盘容量细节。
 - 已新增 `deploy/cloud-executor-storage.yml` 与 `docs/deployment/CLOUD_EXECUTOR_STORAGE_CONTRACT.md`，显式挂载 assets/outputs/evidence named volumes；未新增 Cloud Executor 文件 route，视频继续复用 A12 verified output AssetVersion 与现有鉴权 Work preview/download 合同。
