@@ -1,6 +1,6 @@
 (async () => {
   const params = new URLSearchParams(location.search), projectId = params.get("project"), requestedProductId = params.get("product");
-  let project, product, runtime, workspace, cloudExecutor = null, execution = null, verification = null, packages = [], creating = false, packageBusy = false, packagePoll = null, verificationPoll = null, verificationReadError = "",
+  let project, product, runtime, workspace, cloudExecutor = null, cloudStatusRequest = null, execution = null, verification = null, packages = [], creating = false, packageBusy = false, packagePoll = null, verificationPoll = null, cloudStatusPoll = null, cloudStatusPollActive = false, cloudStatusPollInFlight = false, verificationReadError = "",
     manualBusy = false, manualUploadBusy = false, verificationBusy = false, manualCorrectionReportId = null, selectedOrderId = params.get("orderId") || null, pendingCreateKey = null, pendingPackageKey = null, pendingRetryKey = null;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
@@ -20,6 +20,9 @@
   const cloudVerificationLabels = { not_started: "未发起", pending: "等待 A12 核验", passed: "A12 核验通过", failed: "A12 核验未完成", requires_action: "A12 需要处理" };
   const cloudDeliveryLabels = { not_available: "未登记", pending_review: "等待作品检查", deliverable: "待交付", rework_required: "需要返工", delivered: "已交付" };
   const gateLabels = { approved_plan_missing: "视频方案尚未通过人工审核，不能创建工单", plan_review_not_approved: "视频方案尚未通过人工审核，不能创建工单", preflight_not_reviewable: "视频方案预检尚未达到可生产条件，不能创建工单", preflight_invalidated: "方案批准已失效，请返回视频方案重新确认", upstream_changed: "方案引用的商品、文案或人物信息已变化，请创建新方案版本", capability_snapshot_changed: "方案能力配置已变化，请返回视频方案重新确认", plan_not_current: "当前方案已不是有效版本，请返回视频方案查看最新版本", plan_not_frozen: "视频方案尚未固定，不能创建工单" };
+  const injectedCloudPollInterval = Number(window.__HIFLY_CLOUD_STATUS_POLL_INTERVAL_MS__);
+  const cloudStatusPollIntervalMs = Number.isFinite(injectedCloudPollInterval) && injectedCloudPollInterval >= 50
+    ? Math.min(injectedCloudPollInterval, 60_000) : 5_000;
 
   async function request(url, options = {}) {
     const method = String(options.method || "GET").toUpperCase();
@@ -340,16 +343,46 @@
       throw error;
     }
   }
-  async function loadCloudExecutorStatus({ render = true } = {}) {
-    try {
-      cloudExecutor = await request("/api/cloud-executor/status");
-    } catch (_error) {
-      cloudExecutor = { worker: { connection: "offline", last_heartbeat_at: null }, readiness: { status: "requires_action", reason_code: "CLOUD_EXECUTOR_STATUS_UNAVAILABLE" }, worker_state: "offline", current_order: null, current_attempt: null, progress: null, execution: { status: "pending" }, verification: { status: "not_started" }, work: null, delivery: { status: "not_available" }, failure: null };
-      if (render) renderCloudExecutor();
-      return null;
-    }
-    if (render) renderCloudExecutor();
-    return cloudExecutor;
+  async function loadCloudExecutorStatus() {
+    if (cloudStatusRequest) return cloudStatusRequest;
+    const pending = (async () => {
+      try {
+        cloudExecutor = await request("/api/cloud-executor/status");
+      } catch (_error) {
+        cloudExecutor = { worker: { connection: "offline", last_heartbeat_at: null }, readiness: { status: "requires_action", reason_code: "CLOUD_EXECUTOR_STATUS_UNAVAILABLE" }, worker_state: "offline", current_order: null, current_attempt: null, progress: null, execution: { status: "pending" }, verification: { status: "not_started" }, work: null, delivery: { status: "not_available" }, failure: null };
+        renderCloudExecutor();
+        return null;
+      }
+      renderCloudExecutor();
+      return cloudExecutor;
+    })();
+    cloudStatusRequest = pending;
+    try { return await pending; }
+    finally { if (cloudStatusRequest === pending) cloudStatusRequest = null; }
+  }
+  function scheduleCloudStatusPoll(delay = cloudStatusPollIntervalMs) {
+    if (!cloudStatusPollActive || cloudStatusPoll || cloudStatusPollInFlight) return;
+    cloudStatusPoll = setTimeout(async () => {
+      cloudStatusPoll = null;
+      if (!cloudStatusPollActive || cloudStatusPollInFlight) return;
+      cloudStatusPollInFlight = true;
+      let available = false;
+      try { available = Boolean(await loadCloudExecutorStatus()); }
+      finally {
+        cloudStatusPollInFlight = false;
+        scheduleCloudStatusPoll(available ? cloudStatusPollIntervalMs : Math.max(100, cloudStatusPollIntervalMs * 2));
+      }
+    }, delay);
+  }
+  function startCloudStatusPolling() {
+    if (cloudStatusPollActive) return;
+    cloudStatusPollActive = true;
+    scheduleCloudStatusPoll();
+  }
+  function stopCloudStatusPolling() {
+    cloudStatusPollActive = false;
+    if (cloudStatusPoll) clearTimeout(cloudStatusPoll);
+    cloudStatusPoll = null;
   }
   async function requestWorkVerification() {
     const latestReport = latestExecutionReport(), primaryId = latestReport?.primary_output?.upload_reference;
@@ -410,7 +443,7 @@
   function cancelManualOrder() { if (manualBusy || !selectedOrderId) return; element("#cancelManualError").textContent = ""; element("#cancelManualDialog").showModal(); }
   async function submitCancelManual(event) { event.preventDefault(); if (manualBusy || !selectedOrderId) return; manualBusy = true; element("#confirmCancelManualButton").disabled = true; try { await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/cancel`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: "{}" }); element("#cancelManualDialog").close(); await loadWorkspace(); } catch (error) { element("#cancelManualError").textContent = manualError(error); } finally { manualBusy = false; element("#confirmCancelManualButton").disabled = false; renderManualExecution(); } }
   function render() { renderContext(); renderGate(); renderCloudExecutor(); renderOrders(); renderDetail(); renderPackage(); renderManualExecution(); renderVerification(); element("#productionWorkspace").hidden = false; }
-  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadCloudExecutorStatus({ render: false }); await loadPackages({ render: false }); await loadExecution({ render: false }); try { await loadVerification({ render: false }); } catch (_error) { if (!runtime?.artifactVerificationEnabled || !selectedOrderId) throw _error; } render(); }
+  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadCloudExecutorStatus(); await loadPackages({ render: false }); await loadExecution({ render: false }); try { await loadVerification({ render: false }); } catch (_error) { if (!runtime?.artifactVerificationEnabled || !selectedOrderId) throw _error; } render(); }
   function openCreateOrder() { if (!workspace.gate.can_create || creating) return; pendingCreateKey = null; element("#createOrderError").textContent = ""; element("#createOrderForm").reset(); renderDialogSnapshot(); element("#createOrderDialog").showModal(); }
   function renderDialogSnapshot() { const plan = workspace.current_plan, upstream = plan?.upstream_snapshot || {}; element("#dialogSnapshot").replaceChildren(...[["商品快照", short(upstream.product_revision_id)], ["已批准文案", short(upstream.copy_version_id)], ["已确认人物", short(upstream.avatar_selection_id)], ["视频方案", plan ? `v${plan.version_number}` : "未就绪"]].map(([label, value]) => { const row = document.createElement("div"); row.className = "dialog-snapshot-row"; const name = document.createElement("strong"); name.textContent = label; const meta = document.createElement("span"); meta.textContent = value; row.append(name, meta); return row; })); }
   async function submitCreate(event) { event.preventDefault(); if (creating || !workspace.gate.can_create) return; const selected = document.querySelector("input[name=executionPurpose]:checked"); if (!selected) return; creating = true; const button = element("#confirmCreateOrder"); button.disabled = true; pendingCreateKey ||= crypto.randomUUID(); element("#createOrderError").textContent = "";
@@ -433,7 +466,9 @@
   document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => element(`#${button.dataset.closeDialog}`).close()));
   element("#mobileOrderTrigger").addEventListener("click", () => element("#orderDrawer").showModal()); element("#closeOrderDrawer").addEventListener("click", () => element("#orderDrawer").close()); element("#refreshProduction").addEventListener("click", () => loadWorkspace().catch(() => notice(element("#pageNotice"), "工单状态读取失败，请刷新重试。", "error")));
   element("#productSelector").addEventListener("change", async (event) => { product = project.products.find((item) => item.id === event.currentTarget.value); selectedOrderId = null; await loadWorkspace(); });
+  window.addEventListener("pagehide", stopCloudStatusPolling);
+  window.addEventListener("beforeunload", stopCloudStatusPolling);
   if (!projectId) { notice(element("#pageNotice"), "缺少项目上下文，请从项目页面重新进入。", "error"); return; }
-  try { runtime = await request("/api/runtime"); if (!runtime.productionOrdersEnabled) { notice(element("#pageNotice"), "生成与交付功能尚未开放。", "blocked"); return; } project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project; product = project.products.find((item) => item.id === requestedProductId) || project.products[0]; if (!product) return location.replace(`/project.html?id=${encodeURIComponent(project.id)}`); await loadWorkspace(); }
+  try { runtime = await request("/api/runtime"); if (!runtime.productionOrdersEnabled) { notice(element("#pageNotice"), "生成与交付功能尚未开放。", "blocked"); return; } project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project; product = project.products.find((item) => item.id === requestedProductId) || project.products[0]; if (!product) return location.replace(`/project.html?id=${encodeURIComponent(project.id)}`); await loadWorkspace(); startCloudStatusPolling(); }
   catch (_error) { notice(element("#pageNotice"), "生成与交付工作区加载失败，请刷新重试。", "error"); }
 })();

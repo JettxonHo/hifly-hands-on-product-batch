@@ -47,6 +47,13 @@
   or start a Worker. API tests prove anonymous status reads return
   `401 AUTH_REQUIRED`, cross-Organization reads stop before repository access,
   and runtime/public JSON never includes the heartbeat token.
+- Second independent review follow-up adds bounded Cloud status polling to the
+  production page. Production uses a five-second interval and backs off to ten
+  seconds after a read failure; failures render the controlled offline state
+  and continue recovery. A self-scheduling timeout plus one shared in-flight
+  request prevents timer stacking and concurrent reads. `pagehide` and
+  `beforeunload` stop future polls. Polling renders only the Cloud section and
+  never reloads the production workspace.
 
 ## Validation
 
@@ -62,6 +69,11 @@
   `production-order-browser` passed 22/22; `npm run check` checked 225 files;
   `NODE_OPTIONS=--test-reporter=dot npm test` exited 0; and
   `git diff --check` passed.
+- The final browser acceptance changes route state without `page.reload()` and
+  observes automatic busy, later progress, read-failure/offline, recovery,
+  requires_action/failure, A12-passed, and delivered Work-link updates. It
+  retains 1440/390 no-overflow assertions, proves max concurrent status reads
+  is one with a deliberately slow fixture, and proves navigation stops polls.
 - `npm audit --omit=dev --audit-level=high` against the official npm registry
   reported 7 existing dependency vulnerabilities (5 high, 2 moderate); no
   dependency change was made for CE-06. The configured mirror audit endpoint
