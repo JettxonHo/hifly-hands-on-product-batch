@@ -2,7 +2,18 @@
 
 > 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产化核心能力升级（D-033）；P1-01/P1-02/P1-03 已合并，P2-01 Hifly 公共人物目录同步正在交付；后续单条真实生成 standing authorization 剩余 4 次
+> 当前 Goal：生产化核心能力升级（D-033）；P1-01/P1-02/P1-03/P2-01 已合并，P2-02 Issue #128 企业人物素材登记已完成实现与独立审查；后续单条真实生成 standing authorization 剩余 4 次
+
+## 2026-08-12 P2-02 / Issue #128 企业人物素材登记（实现与独立审查完成）
+
+- 逻辑角色：`IMPLEMENTER`；自定义 Agent：`luna-worker`；配置文件：`~/.codex/agents/luna-worker.toml`；配置模型：`gpt-5.6-luna`；推理强度：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见：`UNVERIFIED_RUNTIME_MODEL`。
+- 已完成最小合同：资产上传 kind 显式支持 `avatar_image`，默认仍为 `product_image`，沿用现有 checksum/verification；管理员可登记同组织已核验可用人物版本，保存授权、说明、可选 Evidence 和归一化 `category_tags`，裸上传不自动声明能力。
+- `materials_accessible` 由关联 available asset version 派生，重复 material version 登记幂等并保持组织隔离；非 controlled enterprise 人物可由管理员禁用，历史选择保留且禁用后不可新确认。公共 Hifly 记录标签为空，controlled seed/public sync 不可被该管理动作改写。
+- 新增后置 work-verification migration `003_preserve_avatar_image_kind.sql`，不改已应用 001/002，最终保留 `product_image`、`avatar_image`、`work_video`；先行 assets migration 同样保留已有 `work_video`，避免升级顺序暂时收窄约束；memory/Postgres/API 安全投影均不返回 object key、上传 token 字段、provider ID 或 Mac 路径。
+- GUI 已支持管理员上传/登记/检查授权、能力标签、素材状态、分类标签和禁用；成员管理区只读。内部 Evidence reference 不在界面显示，公共同步人物与受控预置人物来源标签明确区分。Local Agent 私有映射支持 `npm run local-agent:avatar-map -- set|list|remove`，保持 `avatar_asset_version_paths` 与 package compiler 兼容，不产生云端路径上传。
+- 验证覆盖 memory service、API、资产 kind/安全投影、migration order、Local Agent mapping/compiler、GUI admin/non-admin browser acceptance；focused suite 69/69，PostgreSQL 16 隔离 schema 的 avatar migration/integration 1/1，完整受控并发回归 949 total / 935 pass / 14 既有 environment skip / 0 fail；`npm run check` 检查 213 个 JavaScript 文件，`git diff --check` 通过。
+- Sol 独立审查已收紧企业人物数据库状态为仅允许 `active -> disabled` 且 revision 精确加一；禁用后数据库直接恢复会被拒绝。未访问真实 Hifly/DeepSeek，未运行真实 Local Agent，积分消耗 0。
+- 当前边界：尚未部署到 PostgreSQL production，未做 P2-03 品类推荐、自动确认或真实人物 Provider 能力核验。
 
 ## 2026-08-12 P2-01 / Issue #126 Hifly 公共人物目录显式同步（本地实现待 Review）
 

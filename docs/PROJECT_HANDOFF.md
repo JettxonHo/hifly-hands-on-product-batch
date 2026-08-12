@@ -3,6 +3,16 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-12 P2-02 Issue #128 企业人物素材登记（实现与独立审查完成）
+
+- 本轮在 `codex/p2-02-enterprise-avatar-materials` 完成企业人物素材最小闭环：现有资产上传/核验支持显式 `avatar_image`，省略 kind 仍默认为 `product_image`，继续复用 SHA-256 checksum；裸上传不会声明手持商品能力。
+- 管理员可将同 Organization 内已核验、可用的 `avatar_image` 版本登记为 enterprise AvatarAsset，保存名称、说明、授权状态/到期时间、可选显式 verified capability Evidence，以及归一化 `category_tags`（去空格/去重，最多 12 项、每项最多 40 字符）。同一 material version 重复登记幂等；`materials_accessible` 从关联资产版本实时派生。普通成员只能读取/确认，不能登记或禁用。
+- 禁用只允许非 controlled enterprise AvatarAsset；历史选择和审计保留，禁用条目不能新确认；受控 seed 与公共同步记录不被修改。workspace/API 投影不带 `object_key`、上传 token 字段、provider ID、Mac 路径或内部 material link；公共 Hifly 条目保持空标签。
+- 生产 migration 顺序补上后置 `src/work-verification/migrations/003_preserve_avatar_image_kind.sql`，不修改已应用的 001/002；assets 的先行 migration 也保留已有 `work_video`，最终约束保留 `product_image`、`avatar_image`、`work_video`。AvatarSelection migration 003 增加 category tags、material link、enterprise 状态 revision 与必要的更新 guard。
+- `web/avatar.*` 新增管理员上传/登记/状态检查/禁用界面；非管理员只读。内部 Evidence reference 不在界面展示，公共同步人物不再误标为「受控预置」。Local Agent 新增本地-only `npm run local-agent:avatar-map -- set|list|remove`，写入现有 `avatar_asset_version_paths`，不向云端上传 Mac 路径。
+- 独立审查已将数据库企业人物状态约束收紧为仅允许 `active -> disabled` 且 revision 精确加一，禁用后不能经 SQL 恢复。验证：focused suite 69/69；PostgreSQL 16 隔离 schema 的 avatar migration/integration 1/1；完整受控并发回归 949 total / 935 pass / 14 既有 environment skip / 0 fail；`npm run check` 检查 213 个 JavaScript 文件，`git diff --check` 通过。
+- 当前实现未访问真实 Hifly/DeepSeek，未运行真实 Local Agent，积分消耗 0。尚未部署 production，也未实现 P2-03 品类推荐或真实 Provider 能力核验。
+
 ## 2026-08-12 P2-01 飞影公共人物目录同步完成本地实现与独立复核
 
 - Issue #126 的本地实现已完成：官方公共人物列表 client、provider-neutral 分页 adapter、组织级 AvatarAsset 幂等同步、管理员显式同步 API 和生产接线。普通 workspace 读取及服务启动均不会自动访问飞影。

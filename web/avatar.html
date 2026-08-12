@@ -47,6 +47,19 @@
           <p id="pageNotice" class="notice" role="status"></p>
           <button id="openCatalogDrawer" class="catalog-drawer-trigger secondary" type="button">人物目录</button>
 
+          <section id="enterpriseAvatarAdmin" class="surface enterprise-avatar-admin" aria-labelledby="enterpriseAvatarAdminTitle" hidden>
+            <div class="surface-header"><div><p class="eyebrow">管理员操作</p><h2 id="enterpriseAvatarAdminTitle">登记企业人物</h2><p>先用现有素材上传与核验，再将可用的 avatar_image 登记到当前企业。登记本身不会自动声明生产能力。</p></div></div>
+            <form id="enterpriseAvatarForm" class="enterprise-avatar-form">
+              <label for="enterpriseAvatarFile">人物图片<input id="enterpriseAvatarFile" type="file" accept="image/jpeg,image/png,image/webp" required></label>
+              <div class="form-grid-two"><label for="enterpriseAvatarName">显示名称<input id="enterpriseAvatarName" maxlength="120" required></label><label for="enterpriseAvatarDescription">说明<textarea id="enterpriseAvatarDescription" rows="2" maxlength="1000" required></textarea></label></div>
+              <div class="form-grid-two"><label for="enterpriseAvatarAuthorization">授权状态<select id="enterpriseAvatarAuthorization"><option value="valid">有效</option><option value="expiring">即将到期</option><option value="incomplete">待补全</option><option value="expired">已失效</option></select></label><label for="enterpriseAvatarExpiry">授权到期时间（可选）<input id="enterpriseAvatarExpiry" type="datetime-local"></label></div>
+              <label for="enterpriseAvatarTags">分类标签（可选）<input id="enterpriseAvatarTags" maxlength="512" placeholder="例如：美妆，护肤"></label>
+              <fieldset class="capability-fields"><legend>已验证能力 Evidence（可选）</legend><div class="form-grid-three"><label for="enterpriseAvatarCapabilityCode">能力代码<input id="enterpriseAvatarCapabilityCode" maxlength="120" placeholder="hands_on_product"></label><label for="enterpriseAvatarCapabilityLabel">能力名称<input id="enterpriseAvatarCapabilityLabel" maxlength="120" placeholder="手持商品图"></label><label for="enterpriseAvatarCapabilityEvidence">Evidence 引用<input id="enterpriseAvatarCapabilityEvidence" maxlength="120" placeholder="内部证据引用"></label></div><p class="muted">三项均填写才会记录一条 verified capability；留空则保持未声明。</p></fieldset>
+              <div class="actions"><button id="registerEnterpriseAvatar" type="submit">上传、核验并登记</button></div>
+            </form>
+            <p id="enterpriseAvatarStatus" class="notice" role="status"></p><p id="enterpriseAvatarError" class="notice error" role="alert"></p>
+          </section>
+
           <div id="avatarWorkspace" class="avatar-workspace">
             <aside class="surface catalog-panel" aria-labelledby="catalogTitle">
               <div class="surface-header"><div><h2 id="catalogTitle">人物目录</h2><p>按名称排序 · 仅已有对象</p></div></div>
@@ -60,9 +73,9 @@
               <div id="detailLoading" class="empty">选择人物后查看详情</div>
               <div id="detailContent" hidden>
                 <div id="avatarPreview" class="avatar-preview" aria-hidden="true"></div>
-                <div class="detail-heading"><div><p id="avatarSource" class="eyebrow"></p><h2 id="avatarDetailTitle"></h2></div><div class="status-cluster"><span id="avatarAvailability" class="state"></span><span id="avatarAuthorization" class="state"></span></div></div>
+                <div class="detail-heading"><div><p id="avatarSource" class="eyebrow"></p><h2 id="avatarDetailTitle"></h2></div><div class="status-cluster"><span id="avatarAvailability" class="state"></span><span id="avatarAuthorization" class="state"></span><button id="disableAvatar" class="secondary" type="button" hidden>禁用企业人物</button></div></div>
                 <p id="avatarDescription" class="detail-description"></p>
-                <dl class="avatar-facts"><div><dt>版本</dt><dd id="avatarVersion"></dd></div><div><dt>使用范围</dt><dd>当前 Organization</dd></div><div><dt>目录性质</dt><dd id="avatarSeed"></dd></div></dl>
+                <dl class="avatar-facts"><div><dt>版本</dt><dd id="avatarVersion"></dd></div><div><dt>使用范围</dt><dd>当前 Organization</dd></div><div><dt>目录性质</dt><dd id="avatarSeed"></dd></div><div><dt>必要素材</dt><dd id="avatarMaterialState"></dd></div><div><dt>分类标签</dt><dd id="avatarCategoryTags"></dd></div></dl>
                 <section class="capability-section"><h3>已验证能力</h3><div id="verifiedCapabilities" class="capability-list"></div></section>
                 <p id="detailNotice" class="notice" role="status"></p>
               </div>

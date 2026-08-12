@@ -46,6 +46,15 @@ test("production migrations run every A01-A14 schema in dependency order", async
   ]);
 });
 
+test("final work-verification migration preserves avatar_image after assets run first", async () => {
+  const assetMigration = await readFile(new URL("../src/assets/migrations/002_p2_02_avatar_image_kind.sql", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../src/work-verification/migrations/003_preserve_avatar_image_kind.sql", import.meta.url), "utf8");
+  assert.match(assetMigration, /CHECK \(kind IN \('product_image', 'avatar_image', 'work_video'\)\)/);
+  assert.match(migration, /DROP CONSTRAINT IF EXISTS asset_assets_kind_check/);
+  assert.match(migration, /CHECK \(kind IN \('product_image', 'avatar_image', 'work_video'\)\)/);
+  assert.ok(PRODUCTION_MIGRATION_ORDER.indexOf("assets") < PRODUCTION_MIGRATION_ORDER.indexOf("artifactVerification"));
+});
+
 test("database backup and restore commands require explicit paths and restore confirmation", () => {
   const outputFile = "/var/backups/hifly/hifly-20260809T010203Z.dump";
   const backup = buildBackupCommand({

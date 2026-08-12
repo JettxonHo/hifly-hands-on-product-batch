@@ -3,6 +3,12 @@ function actor(request) {
     actorRole: request.identity.membership.role };
 }
 
+function integerRevision(value) {
+  const revision = Number(value);
+  if (!Number.isInteger(revision) || revision < 1) throw Object.assign(new Error("INVALID_AVATAR_ASSET_REVISION"), { code: "INVALID_AVATAR_ASSET_REVISION" });
+  return revision;
+}
+
 function publicSelection(value) {
   if (!value) return null;
   return { id: value.id, product_id: value.product_id, copy_version_id: value.copy_version_id,
@@ -29,6 +35,24 @@ function publicWorkspace(value) {
 
 export async function registerAvatarSelectionRoutes(app, { service }) {
   app.post("/api/avatar-catalog/hifly-public/sync", async (request) => service.syncPublicCatalog(actor(request)));
+
+  app.post("/api/avatar-catalog/enterprise", async (request, reply) => {
+    const result = await service.registerEnterpriseAvatar({ ...actor(request),
+      materialAssetVersionId: request.body?.material_asset_version_id || request.body?.materialAssetVersionId,
+      displayName: request.body?.display_name || request.body?.displayName,
+      description: request.body?.description,
+      authorizationStatus: request.body?.authorization_status || request.body?.authorizationStatus,
+      authorizationExpiresAt: request.body?.authorization_expires_at || request.body?.authorizationExpiresAt,
+      categoryTags: request.body?.category_tags || request.body?.categoryTags,
+      capabilities: request.body?.capabilities || request.body?.verified_capabilities || request.body?.verifiedCapabilities
+    });
+    reply.code(result.replayed ? 200 : 201).send({ avatar: service.projectCatalogEntry(result) });
+  });
+
+  app.post("/api/avatar-catalog/enterprise/:assetId/disable", async (request) => ({
+    avatar: service.projectCatalogEntry(await service.disableEnterpriseAvatar({ ...actor(request), assetId: request.params.assetId,
+      expectedRevision: integerRevision(request.body?.expected_revision || request.body?.expectedRevision) }))
+  }));
 
   app.get("/api/products/:productId/avatar-workspace", async (request) => publicWorkspace(await service.getWorkspace({
     ...actor(request), productId: request.params.productId, copyVersionId: request.query?.copyVersionId

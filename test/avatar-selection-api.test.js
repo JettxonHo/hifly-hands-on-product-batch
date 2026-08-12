@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
+import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
+import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
 import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { activateAdmin, identityApp, identityHeaders, login } from "./helpers/identity-world.js";
@@ -198,4 +201,82 @@ test("public avatar sync maps provider failures without returning provider messa
   assert.equal(response.statusCode, 502);
   assert.deepEqual(response.json(), { error: "HIFLY_API_AUTH_INVALID" });
   assert.doesNotMatch(response.body, /provider token=secret/);
+});
+
+test("enterprise avatar API reuses verified upload, projects safe fields, and keeps management admin-only", async (t) => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const checksum = createHash("sha256").update(png).digest("hex");
+  const { app, repository: identityRepository } = await identityApp(t, {
+    assets: { enabled: true, repository: createMemoryAssetRepository(), objectStore: createMemoryObjectStore(), worker: { autoStart: false } },
+    avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository(), copyApprovalPort: approvalPort }
+  });
+  const admin = await activateAdmin(app);
+  const mutation = identityHeaders({ cookies: admin.cookies, csrf: admin.csrf, mutation: true });
+  const authorized = await app.inject({ method: "POST", url: "/api/assets/upload-authorizations",
+    headers: { ...mutation, "idempotency-key": "api-avatar-upload" },
+    payload: { filename: "avatar.png", content_type: "image/png", size: png.length, checksum_sha256: checksum, kind: "avatar_image" } });
+  assert.equal(authorized.statusCode, 201);
+  assert.equal(authorized.json().asset.kind, "avatar_image");
+  assert.equal(Object.hasOwn(authorized.json().upload, "token"), false);
+  assert.equal(authorized.body.includes("object_key"), false);
+  await app.inject({ method: "PUT", url: authorized.json().upload.url, headers: { ...mutation, "content-type": "image/png" }, payload: png });
+  await app.inject({ method: "POST", url: "/api/assets/upload-completions", headers: mutation,
+    payload: { upload_session_id: authorized.json().upload_session_id, idempotency_key: "api-avatar-complete" } });
+  await app.assets.service.runNextVerificationJob();
+
+  const registered = await app.inject({ method: "POST", url: "/api/avatar-catalog/enterprise", headers: mutation, payload: {
+    material_asset_version_id: authorized.json().asset_version.id, display_name: "API 企业人物", description: "企业人物说明",
+    authorization_status: "valid", authorization_expires_at: "2027-12-31T23:59:59.000Z", category_tags: [" 美妆 ", "美妆"],
+    capabilities: [{ code: "hands_on_product", label: "手持商品图", evidence_reference: "api:evidence:1" }]
+  } });
+  assert.equal(registered.statusCode, 201);
+  assert.deepEqual(registered.json().avatar.category_tags, ["美妆"]);
+  assert.equal(registered.json().avatar.materials_accessible, true);
+  assert.equal(registered.body.includes("object_key"), false);
+  assert.equal(registered.body.includes("upload_token"), false);
+  assert.equal(registered.body.includes("provider_key"), false);
+  assert.equal(registered.body.includes("/tmp/"), false);
+  const replay = await app.inject({ method: "POST", url: "/api/avatar-catalog/enterprise", headers: mutation, payload: {
+    material_asset_version_id: authorized.json().asset_version.id, display_name: "不同名字", description: "不应覆盖", authorization_status: "valid"
+  } });
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.json().avatar.id, registered.json().avatar.id);
+
+  const memberCreated = (await app.inject({ method: "POST", url: "/api/identity/members", headers: mutation,
+    payload: { email: "avatar-material-member@example.test", display_name: "Avatar Material Member", role: "member" } })).json();
+  const member = await login(app, { email: memberCreated.member.email, password: memberCreated.temporary_password });
+  await app.inject({ method: "POST", url: "/api/auth/change-password", headers: identityHeaders({ cookies: member.cookies, csrf: member.csrf, mutation: true }),
+    payload: { new_password: "Avatar-Material-Member-9!" } });
+  const memberMutation = identityHeaders({ cookies: member.cookies, csrf: member.csrf, mutation: true });
+  const forbidden = await app.inject({ method: "POST", url: "/api/avatar-catalog/enterprise", headers: memberMutation, payload: {
+    material_asset_version_id: authorized.json().asset_version.id, display_name: "成员人物", description: "x", authorization_status: "valid"
+  } });
+  assert.equal(forbidden.statusCode, 403);
+  assert.equal(forbidden.json().error, "AVATAR_REGISTRATION_FORBIDDEN");
+
+  const workspace = await app.inject({ method: "GET", url: "/api/products/product-a/avatar-workspace?copyVersionId=copy-a",
+    headers: identityHeaders({ cookies: member.cookies }) });
+  const enterprise = workspace.json().catalog.find((item) => item.display_name === "API 企业人物");
+  assert.equal(enterprise.category_tags[0], "美妆");
+  assert.equal(Object.hasOwn(enterprise, "material_asset_version_id"), false);
+  assert.equal(workspace.body.includes("enterprise:"), false);
+
+  const disabled = await app.inject({ method: "POST", url: `/api/avatar-catalog/enterprise/${encodeURIComponent(enterprise.id)}/disable`,
+    headers: mutation, payload: { expected_revision: enterprise.revision_number } });
+  assert.equal(disabled.statusCode, 200);
+  assert.equal(disabled.json().avatar.status, "disabled");
+  const controlled = workspace.json().catalog.find((item) => item.controlled_seed);
+  const controlledDisable = await app.inject({ method: "POST", url: `/api/avatar-catalog/enterprise/${controlled.id}/disable`,
+    headers: mutation, payload: { expected_revision: controlled.revision_number } });
+  assert.equal(controlledDisable.statusCode, 403);
+
+  await seedInitialAdmin(identityRepository, { organizationId: "org-avatar-material-other", organizationName: "Other",
+    adminEmail: "avatar-material-other@example.test", adminDisplayName: "Other", adminTempPassword: "Temporary-Other-Avatar-Material-9!" });
+  const other = await login(app, { email: "avatar-material-other@example.test", password: "Temporary-Other-Avatar-Material-9!" });
+  await app.inject({ method: "POST", url: "/api/auth/change-password", headers: identityHeaders({ cookies: other.cookies, csrf: other.csrf, mutation: true }),
+    payload: { new_password: "Other-Avatar-Material-9!" } });
+  const cross = await app.inject({ method: "POST", url: "/api/avatar-catalog/enterprise", headers: identityHeaders({ cookies: other.cookies, csrf: other.csrf, mutation: true }), payload: {
+    material_asset_version_id: authorized.json().asset_version.id, display_name: "跨组织", description: "x", authorization_status: "valid"
+  } });
+  assert.equal(cross.statusCode, 404);
 });

@@ -47,6 +47,10 @@ export function createMemoryAvatarSelectionRepository() {
       selection_revision: aggregate.row_version, history };
   }
 
+  function catalogEntry(asset, version) {
+    return { asset: clone(asset), asset_version: clone(version), capabilities: clone(capabilities.get(version.id) || []) };
+  }
+
   return {
     async initialize() {},
     async close() {},
@@ -56,11 +60,11 @@ export function createMemoryAvatarSelectionRepository() {
         const assetId = randomUUID(), versionId = randomUUID();
         assets.set(assetId, { id: assetId, organization_id: organizationId, source_type: item.source_type,
           display_name: item.display_name, description: item.description, status: "active", controlled_seed: true,
-          seed_key: item.key, seed_label: "Phase 1 受控预置", created_at: now, updated_at: now });
+          seed_key: item.key, seed_label: "Phase 1 受控预置", category_tags: [], revision_number: 1, created_at: now, updated_at: now });
         versions.set(versionId, { id: versionId, asset_id: assetId, organization_id: organizationId,
           version_number: 1, status: "available", authorization_status: item.authorization_status,
           authorization_expires_at: item.authorization_expires_at, authorization_scope: "current_organization",
-          capability_status: item.capability_status, materials_accessible: true, preview_kind: "controlled_placeholder",
+          capability_status: item.capability_status, materials_accessible: true, material_status: "available", material_asset_version_id: null, preview_kind: "controlled_placeholder",
           created_at: now, updated_at: now });
         capabilities.set(versionId, item.capabilities.map((value) => ({ ...value, verification_status: "verified" })));
       }
@@ -91,11 +95,11 @@ export function createMemoryAvatarSelectionRepository() {
         const assetId = randomUUID(), versionId = randomUUID();
         assets.set(assetId, { id: assetId, organization_id: organizationId, source_type: "public",
           display_name: entry.display_name, description: PUBLIC_CATALOG_DESCRIPTION, status: "active", controlled_seed: false,
-          seed_key: entry.provider_key, seed_label: PUBLIC_CATALOG_SEED_LABEL, created_at: now, updated_at: now });
+          seed_key: entry.provider_key, seed_label: PUBLIC_CATALOG_SEED_LABEL, category_tags: [], revision_number: 1, created_at: now, updated_at: now });
         versions.set(versionId, { id: versionId, asset_id: assetId, organization_id: organizationId, version_number: 1,
           status: "available", authorization_status: "incomplete", authorization_expires_at: null,
           authorization_scope: "current_organization", capability_status: "unverified", materials_accessible: false,
-          preview_kind: "none", created_at: now, updated_at: now });
+          material_status: "unavailable", material_asset_version_id: null, preview_kind: "none", created_at: now, updated_at: now });
         capabilities.set(versionId, []);
         created += 1;
       }
@@ -105,14 +109,47 @@ export function createMemoryAvatarSelectionRepository() {
       return [...assets.values()].filter((asset) => asset.organization_id === organizationId && asset.status !== "deleted")
         .map((asset) => {
           const version = [...versions.values()].find((value) => value.asset_id === asset.id);
-          return { asset: clone(asset), asset_version: clone(version), capabilities: clone(capabilities.get(version.id) || []) };
+          return catalogEntry(asset, version);
         }).sort((left, right) => left.asset.display_name.localeCompare(right.asset.display_name, "zh-CN"));
     },
     async getCatalogVersion(organizationId, assetVersionId) {
       const version = versions.get(assetVersionId);
       if (!version || version.organization_id !== organizationId) return null;
-      return { asset: clone(assets.get(version.asset_id)), asset_version: clone(version),
-        capabilities: clone(capabilities.get(version.id) || []) };
+      return catalogEntry(assets.get(version.asset_id), version);
+    },
+    async registerEnterpriseAvatar({ organizationId, actorMemberId = null, materialAssetVersionId, materialAsset, materialVersion,
+      displayName, description, authorizationStatus, authorizationExpiresAt = null, categoryTags = [], capabilities: verified = [], now }) {
+      if (!materialAsset || !materialVersion || materialAsset.organization_id !== organizationId || materialVersion.organization_id !== organizationId) {
+        throw failure("AVATAR_MATERIAL_VERSION_NOT_FOUND");
+      }
+      if (materialAsset.kind !== "avatar_image") throw failure("AVATAR_MATERIAL_KIND_INVALID");
+      if (materialAsset.status !== "active" || materialVersion.status !== "available") throw failure("AVATAR_MATERIAL_NOT_AVAILABLE");
+      const existing = [...versions.values()].find((version) => version.organization_id === organizationId && version.material_asset_version_id === materialAssetVersionId);
+      if (existing) return { ...catalogEntry(assets.get(existing.asset_id), existing), replayed: true };
+      const assetId = randomUUID(), versionId = randomUUID();
+      const asset = { id: assetId, organization_id: organizationId, source_type: "enterprise", display_name: displayName,
+        description, status: "active", controlled_seed: false, seed_key: `enterprise:${randomUUID()}`,
+        seed_label: "企业上传", category_tags: clone(categoryTags), revision_number: 1,
+        created_by_member_id: actorMemberId, created_at: now, updated_at: now };
+      const version = { id: versionId, asset_id: assetId, organization_id: organizationId, version_number: 1,
+        status: "available", authorization_status: authorizationStatus, authorization_expires_at: authorizationExpiresAt,
+        authorization_scope: "current_organization", capability_status: verified.length ? "verified" : "unverified",
+        materials_accessible: true, material_status: "available", material_asset_version_id: materialAssetVersionId,
+        preview_kind: "uploaded", created_at: now, updated_at: now };
+      assets.set(assetId, asset); versions.set(versionId, version); capabilities.set(versionId, clone(verified));
+      return { ...catalogEntry(asset, version), replayed: false };
+    },
+    async disableEnterpriseAvatar({ organizationId, assetId, expectedRevision, actorMemberId = null, now }) {
+      const asset = assets.get(assetId);
+      if (!asset || asset.organization_id !== organizationId) throw failure("AVATAR_ASSET_NOT_FOUND");
+      if (asset.source_type !== "enterprise" || asset.controlled_seed) throw failure("AVATAR_ASSET_DISABLE_FORBIDDEN");
+      if (asset.revision_number !== expectedRevision) throw failure("AVATAR_ASSET_VERSION_CONFLICT");
+      if (asset.status !== "active") throw failure("AVATAR_ASSET_NOT_ACTIVE");
+      asset.status = "disabled"; asset.revision_number += 1; asset.updated_at = now;
+      audits.push({ id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId,
+        event_type: "avatar.enterprise_disabled", asset_id: assetId, created_at: now });
+      const version = [...versions.values()].find((value) => value.asset_id === assetId);
+      return { ...catalogEntry(asset, version), replayed: false };
     },
     async getReceipt(receiptKey, fingerprint) { return receipt(receiptKey, fingerprint); },
     async updateReceiptResult(receiptKey, result) {

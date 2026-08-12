@@ -124,6 +124,41 @@ test("successful server verification makes the immutable version available", asy
   assert.equal(version.verified_checksum_sha256, SHA256);
 });
 
+test("asset upload defaults to product_image and accepts explicit avatar_image without changing checksum verification", async () => {
+  const w = world();
+  const product = await w.service.createUploadAuthorization({
+    organizationId: "org_kind", actorMemberId: "member_kind", idempotencyKey: "product-default",
+    filename: "product.png", contentType: "image/png", size: PNG.length, checksumSha256: SHA256
+  });
+  assert.equal(product.asset.kind, "product_image");
+
+  const avatar = await w.service.createUploadAuthorization({
+    organizationId: "org_kind", actorMemberId: "member_kind", idempotencyKey: "avatar-kind",
+    filename: "avatar.png", contentType: "image/png", size: PNG.length, checksumSha256: SHA256,
+    assetKind: "avatar_image"
+  });
+  assert.equal(avatar.asset.kind, "avatar_image");
+  await w.service.uploadObject({ organizationId: "org_kind", uploadToken: avatar.upload.token, body: PNG, contentType: "image/png" });
+  await w.service.completeUpload({ organizationId: "org_kind", uploadSessionId: avatar.upload_session_id, idempotencyKey: "avatar-complete" });
+  await w.service.runNextVerificationJob();
+  assert.equal((await w.service.getAssetVersion({ organizationId: "org_kind", assetVersionId: avatar.asset_version.id })).status, "available");
+
+  await assert.rejects(
+    () => w.service.createUploadAuthorization({
+      organizationId: "org_kind", actorMemberId: "member_kind", assetId: avatar.asset.id, idempotencyKey: "avatar-as-product",
+      filename: "new.png", contentType: "image/png", size: PNG.length, checksumSha256: SHA256
+    }),
+    { code: "ASSET_KIND_CONFLICT" }
+  );
+  await assert.rejects(
+    () => w.service.createUploadAuthorization({
+      organizationId: "org_kind", actorMemberId: "member_kind", assetKind: "unsupported_image", idempotencyKey: "unsupported-kind",
+      filename: "unsupported.png", contentType: "image/png", size: PNG.length, checksumSha256: SHA256
+    }),
+    { code: "ASSET_KIND_NOT_ALLOWED" }
+  );
+});
+
 for (const scenario of [
   ["missing object", async (w, created) => w.objectStore.remove(created.object_key), "OBJECT_MISSING"],
   ["real file type mismatch", async (w, created) => w.objectStore.replace(created.object_key, Buffer.from("not an image")), "FILE_TYPE_MISMATCH"],

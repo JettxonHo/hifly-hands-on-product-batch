@@ -35,7 +35,7 @@ export function createPostgresAssetRepository({ pool, ownsPool = false } = {}) {
   return {
     async initialize() { await assertAssetSchemaCurrent(pool); },
     async close() { if (ownsPool) await pool.end(); },
-    async authorizeUpload({ organizationId, actorMemberId, idempotencyKey, fingerprint, tokenDigest, asset, version, session, audit, now }) {
+    async authorizeUpload({ organizationId, actorMemberId, idempotencyKey, fingerprint, tokenDigest, asset, assetKind = "product_image", version, session, audit, now }) {
       return withTransaction(pool, async (client) => {
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`asset-upload:${organizationId}:${actorMemberId}:${idempotencyKey}`]);
         const receipt = one(await client.query(
@@ -70,6 +70,7 @@ export function createPostgresAssetRepository({ pool, ownsPool = false } = {}) {
           )));
           if (!targetAsset) throw failure("ASSET_NOT_FOUND");
           if (targetAsset.status !== "active") throw failure("ASSET_NOT_ACTIVE");
+          if (targetAsset.kind !== assetKind) throw failure("ASSET_KIND_CONFLICT");
           versionNumber = Number(one(await client.query("SELECT coalesce(max(version_number),0)+1 AS next FROM asset_versions WHERE asset_id=$1", [targetAsset.id])).next);
         }
         const insertedVersion = versionProjection(one(await client.query(

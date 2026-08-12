@@ -25,7 +25,7 @@ test("clean PostgreSQL avatar migration seeds controlled catalog and serializes 
   await runIdentityMigrations(pool); await runAssetMigrations(pool); await runProjectContentMigrations(pool);
   await runCopyGenerationMigrations(pool); await runCopyQualityMigrations(pool); await runCopyReviewMigrations(pool);
   await runAvatarSelectionMigrations(pool);
-  assert.equal((await pool.query("SELECT max(version)::integer version FROM avatar_selection_schema_migrations")).rows[0].version, 2);
+  assert.equal((await pool.query("SELECT max(version)::integer version FROM avatar_selection_schema_migrations")).rows[0].version, 3);
 
   const seeded = await seedInitialAdmin(createPostgresIdentityRepository({ pool, ownsPool: false }), {
     organizationId: "org-avatar-pg", organizationName: "Avatar PG", adminEmail: "avatar-pg@example.test",
@@ -33,6 +33,11 @@ test("clean PostgreSQL avatar migration seeds controlled catalog and serializes 
   });
   const ids = { project: randomUUID(), product: randomUUID(), revision: randomUUID(), copy: randomUUID() };
   const at = "2026-08-07T08:00:00.000Z";
+  const materialAssetId = randomUUID(), materialVersionId = randomUUID();
+  await pool.query(`INSERT INTO asset_assets(id,organization_id,kind,display_name,status,row_version,created_by_member_id,created_at,updated_at)
+    VALUES ($1,'org-avatar-pg','avatar_image','企业人物素材','active',1,$2,$3,$3)`, [materialAssetId, seeded.member.id, at]);
+  await pool.query(`INSERT INTO asset_versions(id,asset_id,organization_id,version_number,status,object_key,original_filename,expected_content_type,expected_size,expected_checksum_sha256,verified_content_type,verified_size,verified_checksum_sha256,verified_at,created_at,updated_at)
+    VALUES ($1,$2,'org-avatar-pg',1,'available','org-avatar-pg/material/avatar','avatar.png','image/png',1,$3,'image/png',1,$3,$4,$4,$4)`, [materialVersionId, materialAssetId, "a".repeat(64), at]);
   await pool.query("INSERT INTO project_content_projects(id,organization_id,name,created_by_member_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$5)", [ids.project,"org-avatar-pg","人物项目",seeded.member.id,at]);
   await pool.query("INSERT INTO project_content_products(id,organization_id,project_id,created_by_member_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$5)", [ids.product,"org-avatar-pg",ids.project,seeded.member.id,at]);
   await pool.query(`INSERT INTO project_content_product_revisions(id,organization_id,project_id,product_id,status,revision_number,product_name,created_by_member_id,created_at,updated_at,ready_at)
@@ -44,6 +49,27 @@ test("clean PostgreSQL avatar migration seeds controlled catalog and serializes 
   const repository = createPostgresAvatarSelectionRepository({ pool });
   await repository.initialize();
   await repository.ensureControlledCatalog("org-avatar-pg", at);
+  const enterpriseInput = { organizationId: "org-avatar-pg", actorMemberId: seeded.member.id, materialAssetVersionId: materialVersionId,
+    displayName: "PG 企业人物", description: "PG 企业人物素材", authorizationStatus: "valid",
+    authorizationExpiresAt: "2027-12-31T23:59:59.000Z", categoryTags: ["护肤"], capabilities: [
+      { code: "hands_on_product", label: "手持商品图", evidence_reference: "pg:evidence:1", verification_status: "verified" }
+    ], now: at };
+  const enterprise = await repository.registerEnterpriseAvatar(enterpriseInput);
+  const enterpriseReplay = await repository.registerEnterpriseAvatar({ ...enterpriseInput, displayName: "不应重复" });
+  assert.equal(enterpriseReplay.asset.id, enterprise.asset.id);
+  assert.equal(enterprise.asset_version.material_asset_version_id, materialVersionId);
+  assert.equal(enterprise.asset_version.materials_accessible, true);
+  assert.deepEqual(enterprise.asset.category_tags, ["护肤"]);
+  assert.equal((await repository.listCatalog("org-avatar-pg")).filter((entry) => entry.asset_version.material_asset_version_id === materialVersionId).length, 1);
+  const disabled = await repository.disableEnterpriseAvatar({ organizationId: "org-avatar-pg", assetId: enterprise.asset.id,
+    expectedRevision: enterprise.asset.revision_number, actorMemberId: seeded.member.id, now: at });
+  assert.equal(disabled.asset.status, "disabled");
+  await assert.rejects(pool.query("UPDATE avatar_assets SET status='active',row_version=row_version+1 WHERE id=$1", [enterprise.asset.id]),
+    /enterprise avatar metadata is append-only/);
+  await assert.rejects(repository.disableEnterpriseAvatar({ organizationId: "org-avatar-pg", assetId: enterprise.asset.id,
+    expectedRevision: enterprise.asset.revision_number, actorMemberId: seeded.member.id, now: at }), { code: "AVATAR_ASSET_VERSION_CONFLICT" });
+  await assert.rejects(repository.disableEnterpriseAvatar({ organizationId: "org-avatar-pg", assetId: enterprise.asset.id,
+    expectedRevision: disabled.asset.revision_number, actorMemberId: seeded.member.id, now: at }), { code: "AVATAR_ASSET_NOT_ACTIVE" });
   const publicEntries = [
     { provider_key: "hifly-public:pg-101", display_name: "PG 公共人物", source_type: "public" },
     { provider_key: "hifly-public:pg-102", display_name: "PG 第二人物", source_type: "public" }

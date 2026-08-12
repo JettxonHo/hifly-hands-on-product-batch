@@ -28,7 +28,7 @@ test("clean PostgreSQL asset migration and repository contract", { skip: !connec
   assert.equal((await pool.query("SELECT max(version)::integer version FROM identity_schema_migrations")).rows[0].version, 1);
   await runAssetMigrations(pool);
   assert.equal((await pool.query("SELECT max(version)::integer version FROM identity_schema_migrations")).rows[0].version, 1);
-  assert.equal((await pool.query("SELECT max(version)::integer version FROM asset_schema_migrations")).rows[0].version, 1);
+  assert.equal((await pool.query("SELECT max(version)::integer version FROM asset_schema_migrations")).rows[0].version, 2);
 
   const tables = (await pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'asset_%' ORDER BY tablename")).rows.map((row) => row.tablename);
   assert.deepEqual(tables, [

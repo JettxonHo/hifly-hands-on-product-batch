@@ -50,7 +50,11 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
   await runManualHandoffMigrations(pool);
   await runManualExecutionMigrations(pool);
   await runWorkVerificationMigrations(pool);
-  assert.deepEqual((await pool.query("SELECT version FROM work_verification_schema_migrations ORDER BY version")).rows.map((row) => row.version), [1, 2]);
+  assert.deepEqual((await pool.query("SELECT version FROM work_verification_schema_migrations ORDER BY version")).rows.map((row) => row.version), [1, 2, 3]);
+  const kindConstraint = (await pool.query("SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='asset_assets'::regclass AND conname='asset_assets_kind_check'")).rows[0]?.definition;
+  assert.match(kindConstraint, /product_image/);
+  assert.match(kindConstraint, /avatar_image/);
+  assert.match(kindConstraint, /work_video/);
 
   const identity = createPostgresIdentityRepository({ pool });
   const seeded = await seedInitialAdmin(identity, {
@@ -58,6 +62,8 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
     adminDisplayName: "A12 PG", adminTempPassword: "Temporary-A12-PG-9!"
   });
   const at = "2026-08-09T00:00:00.000Z";
+  await pool.query(`INSERT INTO asset_assets(id,organization_id,kind,display_name,status,row_version,created_by_member_id,created_at,updated_at)
+    VALUES ($1,'org-a12-pg','avatar_image','迁移回归人物素材','active',1,$2,$3,$3)`, [randomUUID(), seeded.member.id, at]);
   const ids = Object.fromEntries([
     "project", "product", "revision", "plan", "copy", "avatarAsset", "avatarVersion", "order", "package", "packageJob", "attempt", "report", "candidate"
   ].map((name) => [name, randomUUID()]));

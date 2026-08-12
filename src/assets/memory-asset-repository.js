@@ -20,7 +20,7 @@ export function createMemoryAssetRepository() {
   return {
     async initialize() {},
     async close() {},
-    async authorizeUpload({ organizationId, actorMemberId, idempotencyKey, fingerprint, tokenDigest, asset, version, session, audit, now }) {
+    async authorizeUpload({ organizationId, actorMemberId, idempotencyKey, fingerprint, tokenDigest, asset, assetKind = "product_image", version, session, audit, now }) {
       const receiptKey = `${organizationId}:${actorMemberId}:${idempotencyKey}`;
       const receipt = authorizationReceipts.get(receiptKey);
       if (receipt) {
@@ -38,6 +38,7 @@ export function createMemoryAssetRepository() {
       if (version.version_number == null) {
         targetAsset = owned(assets, version.asset_id, organizationId, "ASSET_NOT_FOUND");
         if (targetAsset.status !== "active") throw failure("ASSET_NOT_ACTIVE");
+        if (targetAsset.kind !== assetKind) throw failure("ASSET_KIND_CONFLICT");
         version.version_number = Math.max(0, ...[...versions.values()].filter((item) => item.asset_id === targetAsset.id).map((item) => item.version_number)) + 1;
       } else {
         assets.set(asset.id, clone(asset));

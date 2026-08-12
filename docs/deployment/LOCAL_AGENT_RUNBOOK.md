@@ -43,6 +43,16 @@ LOCAL_AGENT_HEARTBEAT_INTERVAL_MS=5000
 LOCAL_AGENT_HIFLY_CONFIG_PATH=/absolute/path/to/config.local.json
 ```
 
+人物映射也可以用仓库内 CLI 管理。命令只读写 Mac 本地 JSON，不调用云端、不上传 Mac 路径；配置仍兼容现有 `avatar_asset_version_paths`：
+
+```bash
+npm run local-agent:avatar-map -- set <avatar_asset_version_id> /absolute/path/to/person.png --config /absolute/path/to/config.local-agent.json
+npm run local-agent:avatar-map -- list --config /absolute/path/to/config.local-agent.json
+npm run local-agent:avatar-map -- remove <avatar_asset_version_id> --config /absolute/path/to/config.local-agent.json
+```
+
+`set` 要求人物文件已经存在且路径为绝对路径；省略 `--config` 时使用 `LOCAL_AGENT_AVATAR_MAPPING_FILE`，再回退到当前目录的 `config.local-agent.json`。映射 id 必须使用交接包 manifest 中的 `avatar_asset_version_id`，不要使用 provider key、上传 token 或 object key。
+
 ## 无积分检查
 
 默认命令只上报 Agent 在线，不领取工单，也不访问飞影：

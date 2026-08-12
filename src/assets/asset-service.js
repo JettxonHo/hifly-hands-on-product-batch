@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileTypeFromBuffer } from "file-type";
 
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_KINDS = new Set(["product_image", "avatar_image"]);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fail = (code) => { throw Object.assign(new Error(code), { code }); };
@@ -14,6 +15,9 @@ function validateCreate(input) {
   if (input.assetId != null && !UUID.test(input.assetId)) fail("INVALID_ASSET_ID");
   if (typeof input.actorMemberId !== "string" || !input.actorMemberId) fail("INVALID_ASSET_ACTOR");
   if (typeof input.idempotencyKey !== "string" || input.idempotencyKey.length < 1 || input.idempotencyKey.length > 128) fail("INVALID_IDEMPOTENCY_KEY");
+  const assetKind = input.assetKind == null ? "product_image" : input.assetKind;
+  if (!ALLOWED_KINDS.has(assetKind)) fail("ASSET_KIND_NOT_ALLOWED");
+  return assetKind;
 }
 
 function uploadFingerprint(input) {
@@ -22,7 +26,8 @@ function uploadFingerprint(input) {
     filename: input.filename.trim(),
     content_type: input.contentType,
     size: input.size,
-    checksum_sha256: input.checksumSha256
+    checksum_sha256: input.checksumSha256,
+    asset_kind: input.assetKind == null ? "product_image" : input.assetKind
   });
 }
 
@@ -37,14 +42,14 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
   const downloads = new Map();
 
   async function createUploadAuthorization(input) {
-    validateCreate(input);
+    const assetKind = validateCreate(input);
     const createdAt = timestamp();
     const assetId = input.assetId || randomUUID();
     const versionId = randomUUID();
     const sessionId = randomUUID();
     const token = randomBytes(24).toString("base64url");
     const objectKey = `${input.organizationId}/${assetId}/${versionId}`;
-    const asset = input.assetId ? null : { id: assetId, organization_id: input.organizationId, kind: "product_image", display_name: input.filename.trim(), status: "active", revision_number: 1, created_by_member_id: input.actorMemberId, created_at: createdAt, updated_at: createdAt };
+    const asset = input.assetId ? null : { id: assetId, organization_id: input.organizationId, kind: assetKind, display_name: input.filename.trim(), status: "active", revision_number: 1, created_by_member_id: input.actorMemberId, created_at: createdAt, updated_at: createdAt };
     const version = {
       id: versionId, asset_id: assetId, organization_id: input.organizationId, version_number: input.assetId ? null : 1,
       status: "upload_pending", object_key: objectKey, original_filename: input.filename.trim(),
@@ -58,6 +63,7 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
     const result = await repository.authorizeUpload({
       organizationId: input.organizationId, actorMemberId: input.actorMemberId, idempotencyKey: input.idempotencyKey,
       fingerprint: uploadFingerprint(input), tokenDigest: session.token_digest, asset, version, session, now: createdAt,
+      assetKind,
       audit: { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId, event_type: "asset.upload_authorized", asset_id: assetId, asset_version_id: versionId, created_at: createdAt }
     });
     return {
@@ -133,6 +139,7 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
   return {
     createUploadAuthorization, uploadObject, completeUpload, runNextVerificationJob, recoverVerificationJobs,
     getAssetVersion: ({ organizationId, assetVersionId }) => repository.getAssetVersion(organizationId, assetVersionId),
+    getAsset: ({ organizationId, assetId }) => repository.getAsset(organizationId, assetId),
     listAssets: ({ organizationId }) => repository.listAssets(organizationId),
     updateAssetMetadata: ({ organizationId, assetId, expectedRevision, displayName, actorMemberId = null }) => repository.updateAssetMetadata({ organizationId, assetId, expectedRevision, displayName: normalizeDisplayName(displayName), actorMemberId, now: timestamp() }),
     disableAsset: ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "disabled", now: timestamp() }),

@@ -1,7 +1,7 @@
 (async () => {
   const params = new URLSearchParams(location.search);
   const projectId = params.get("project"), requestedProductId = params.get("product");
-  let copyVersionId = params.get("copy") || "", project, product, workspace, runtime, selectedAvatar, submitting = false;
+  let copyVersionId = params.get("copy") || "", project, product, workspace, runtime, identityContext, selectedAvatar, submitting = false, adminSubmitting = false;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const sourceLabels = { public: "公共数字人物", enterprise: "企业数字人物" };
@@ -38,6 +38,7 @@
     return value ? new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value)) : "有效期待补全";
   }
   function avatarForVersion(id) { return workspace?.catalog.find((item) => item.asset_version.id === id) || null; }
+  function isAdmin() { return identityContext?.membership?.role === "admin"; }
 
   function updateLocation() {
     const next = new URL(location.href); next.searchParams.set("project", project.id); next.searchParams.set("product", product.id);
@@ -89,7 +90,9 @@
     state.textContent = item.gate.can_confirm ? "可确认" : "暂不可确认"; title.append(name,state);
     const meta = document.createElement("span"); meta.className = "avatar-row-meta";
     const source = document.createElement("span"); source.textContent = sourceLabels[item.source_type];
-    const seed = document.createElement("span"); seed.className = "seed-mini"; seed.textContent = "受控预置"; meta.append(source,seed);
+    const seed = document.createElement("span"); seed.className = "seed-mini";
+    seed.textContent = item.source_type === "enterprise" ? "企业登记" : item.controlled_seed ? "受控预置" : "公共目录";
+    meta.append(source,seed);
     copy.append(title,meta); button.append(thumb,copy);
     button.addEventListener("click", () => { selectedAvatar = item; render(); if (mobile) element("#catalogDialog").close(); });
     return button;
@@ -118,6 +121,8 @@
     element("#avatarDescription").textContent = selectedAvatar.description;
     element("#avatarVersion").textContent = `v${selectedAvatar.asset_version.version_number} · ${selectedAvatar.asset_version.status === "available" ? "资产可用" : "资产不可用"}`;
     element("#avatarSeed").textContent = selectedAvatar.seed_label;
+    element("#avatarMaterialState").textContent = selectedAvatar.materials_accessible ? `可访问 · ${selectedAvatar.material_status || "available"}` : `不可访问 · ${selectedAvatar.material_status || "unavailable"}`;
+    element("#avatarCategoryTags").textContent = selectedAvatar.category_tags?.length ? selectedAvatar.category_tags.join("、") : "未设置";
     const availability = element("#avatarAvailability"); availability.className = `state ${selectedAvatar.gate.can_confirm ? "available" : "unavailable"}`;
     availability.textContent = selectedAvatar.gate.can_confirm ? "可确认" : "暂不可确认";
     const authorization = element("#avatarAuthorization"); authorization.className = `state ${selectedAvatar.authorization_status}`;
@@ -134,7 +139,12 @@
     } else if (!selectedAvatar.gate.can_confirm) {
       setNotice(element("#detailNotice"), reasonLabels[selectedAvatar.gate.reasons[0]] || "当前人物暂不可确认。", "blocked");
     } else setNotice(element("#detailNotice"));
+    const disable = element("#disableAvatar");
+    disable.hidden = !isAdmin() || selectedAvatar.source_type !== "enterprise" || selectedAvatar.controlled_seed || selectedAvatar.status !== "active";
+    disable.disabled = adminSubmitting;
   }
+
+  function renderAdminPanel() { element("#enterpriseAvatarAdmin").hidden = !isAdmin() || runtime?.assetsEnabled !== true; }
 
   function gateItem(label, allowed, reason) {
     const item = document.createElement("li"); item.className = allowed ? "allowed" : "blocked";
@@ -178,7 +188,7 @@
     }));
   }
 
-  function render() { renderContext(); renderCatalog(); renderDetail(); renderSelection(); }
+  function render() { renderContext(); renderAdminPanel(); renderCatalog(); renderDetail(); renderSelection(); }
 
   async function loadWorkspace({ keepSelection = false } = {}) {
     const before = keepSelection ? selectedAvatar?.asset_version.id : null;
@@ -217,6 +227,65 @@
     } finally { submitting = false; element("#submitConfirmAvatar").disabled = false; renderSelection(); }
   }
 
+  async function checksum(file) {
+    const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function waitForMaterial(assetVersionId) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const result = await request(`/api/asset-versions/${encodeURIComponent(assetVersionId)}`);
+      const status = result.asset_version?.status;
+      if (status === "available") return result.asset_version;
+      if (status === "verification_failed" || status === "unavailable") throw new Error("AVATAR_MATERIAL_VERIFICATION_FAILED");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error("AVATAR_MATERIAL_VERIFICATION_TIMEOUT");
+  }
+
+  async function registerEnterpriseAvatar(event) {
+    event.preventDefault();
+    if (adminSubmitting || !isAdmin()) return;
+    const file = element("#enterpriseAvatarFile").files?.[0];
+    if (!file) return;
+    adminSubmitting = true; element("#registerEnterpriseAvatar").disabled = true;
+    element("#enterpriseAvatarError").textContent = ""; setNotice(element("#enterpriseAvatarStatus"), "正在上传并核验人物图片...", "");
+    try {
+      const authorized = await request("/api/assets/upload-authorizations", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ filename: file.name, content_type: file.type, size: file.size, checksum_sha256: await checksum(file), kind: "avatar_image" }) });
+      await request(authorized.upload.url, { method: "PUT", headers: { "content-type": file.type }, body: file });
+      await request("/api/assets/upload-completions", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ upload_session_id: authorized.upload_session_id, idempotency_key: crypto.randomUUID() }) });
+      const material = await waitForMaterial(authorized.asset_version.id);
+      const tags = element("#enterpriseAvatarTags").value.split(/[，,\n]/).map((item) => item.trim()).filter(Boolean);
+      const code = element("#enterpriseAvatarCapabilityCode").value.trim(), label = element("#enterpriseAvatarCapabilityLabel").value.trim(), evidence = element("#enterpriseAvatarCapabilityEvidence").value.trim();
+      const capabilities = code || label || evidence ? [{ code, label, evidence_reference: evidence }] : [];
+      setNotice(element("#enterpriseAvatarStatus"), "素材已核验，正在登记企业人物...", "");
+      const result = await request("/api/avatar-catalog/enterprise", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        material_asset_version_id: material.id, display_name: element("#enterpriseAvatarName").value, description: element("#enterpriseAvatarDescription").value,
+        authorization_status: element("#enterpriseAvatarAuthorization").value, authorization_expires_at: element("#enterpriseAvatarExpiry").value || null,
+        category_tags: tags, capabilities
+      }) });
+      await loadWorkspace({ keepSelection: true });
+      selectedAvatar = workspace.catalog.find((item) => item.id === result.avatar.id) || selectedAvatar;
+      render(); element("#enterpriseAvatarForm").reset(); setNotice(element("#enterpriseAvatarStatus"), "企业人物已登记；生产能力仅按明确 Evidence 展示。", "success");
+    } catch (error) {
+      if (error.message !== "AUTH_REQUIRED") setNotice(element("#enterpriseAvatarError"), error.message === "AVATAR_MATERIAL_VERIFICATION_TIMEOUT" ? "图片核验超时，请稍后刷新素材状态。" : "人物上传或登记未完成，请检查信息后重试。", "error");
+    } finally { adminSubmitting = false; element("#registerEnterpriseAvatar").disabled = false; renderDetail(); }
+  }
+
+  async function disableEnterpriseAvatar() {
+    if (!isAdmin() || !selectedAvatar || selectedAvatar.source_type !== "enterprise" || selectedAvatar.controlled_seed) return;
+    if (!window.confirm(`确定禁用“${selectedAvatar.display_name}”？历史选择会保留，但不能新确认。`)) return;
+    adminSubmitting = true; renderDetail();
+    try {
+      await request(`/api/avatar-catalog/enterprise/${encodeURIComponent(selectedAvatar.id)}/disable`, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expected_revision: selectedAvatar.revision_number }) });
+      await loadWorkspace({ keepSelection: true }); setNotice(element("#pageNotice"), "企业人物已禁用；历史选择仍保留。", "success");
+    } catch (error) { if (error.message !== "AUTH_REQUIRED") setNotice(element("#pageNotice"), "人物禁用未完成，请刷新后重试。", "error"); }
+    finally { adminSubmitting = false; render(); }
+  }
+
   function openCatalog() {
     element("#mobileCatalogFilters").append(element(".catalog-panel .catalog-filters"));
     element("#catalogDialog").showModal();
@@ -231,6 +300,8 @@
   element("#refreshAvatar").addEventListener("click", () => loadWorkspace({ keepSelection: true }).catch(() => setNotice(element("#pageNotice"), "人物状态读取失败，请稍后重试。", "error")));
   element("#productSelector").addEventListener("change", async (event) => { product = project.products.find((item) => item.id === event.currentTarget.value); copyVersionId = ""; await loadWorkspace(); });
   element("#confirmAvatar").addEventListener("click", openConfirmation);
+  element("#enterpriseAvatarForm").addEventListener("submit", registerEnterpriseAvatar);
+  element("#disableAvatar").addEventListener("click", disableEnterpriseAvatar);
   element("#confirmAvatarForm").addEventListener("submit", async (event) => { event.preventDefault(); await confirmSelection(); });
   element("#closeConfirmAvatar").addEventListener("click", () => element("#confirmAvatarDialog").close());
   element("#cancelConfirmAvatar").addEventListener("click", () => element("#confirmAvatarDialog").close());
@@ -238,8 +309,8 @@
 
   if (!projectId) return setNotice(element("#pageNotice"), "缺少项目上下文，请从项目页面重新进入。", "error");
   try {
-    [project, runtime] = await Promise.all([
-      request(`/api/projects/${encodeURIComponent(projectId)}`).then((body) => body.project), request("/api/runtime")
+    [project, runtime, identityContext] = await Promise.all([
+      request(`/api/projects/${encodeURIComponent(projectId)}`).then((body) => body.project), request("/api/runtime"), request("/api/auth/me")
     ]);
     product = project.products.find((item) => item.id === requestedProductId) || project.products[0];
     if (!product) return location.replace(`/project.html?id=${encodeURIComponent(project.id)}`);
