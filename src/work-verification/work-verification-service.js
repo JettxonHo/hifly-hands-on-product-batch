@@ -142,7 +142,12 @@ export function createWorkVerificationService({ repository, orderPort, execution
     if (reportedOutput.role !== "primary_video" || reportedOutput.media_type !== candidate.media_type || Number(reportedOutput.size) !== Number(candidate.size)) {
       throw failure("WORK_VERIFICATION_REPORT_OUTPUT_MISMATCH");
     }
-    const packageRecord = await packagePort.getPackage({ organizationId: job.organization_id, packageId: attempt.package_id });
+    const packageRecord = await packagePort.getPackage({
+      organizationId: job.organization_id,
+      actorMemberId: job.requested_by_member_id,
+      actorRole: job.requested_by_role,
+      packageId: attempt.package_id
+    });
     if (!packageRecord || packageRecord.organization_id !== job.organization_id || packageRecord.production_order_id !== order.id ||
       packageRecord.package_version !== attempt.package_version || packageRecord.manifest_hash !== attempt.manifest_hash) throw failure("WORK_VERIFICATION_PACKAGE_MISMATCH");
     return { input, order, attempt, report, candidate, packageRecord, source: sourceSnapshot(order) };

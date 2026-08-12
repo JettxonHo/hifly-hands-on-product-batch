@@ -2,7 +2,18 @@
 
 > 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，第八次真实 Local Agent 已按单条授权执行并被点击上传后出现的账号级失败弹窗残留阻断；未重试；无积分修复与完整测试已通过，等待合并并登录正确的外部 Profile；后续单条真实生成 standing authorization 剩余 5 次
+> 当前 Goal：生产能力补齐，第九次真实 Local Agent 已成功生成并上传飞影作品 `696679`；A12 云端核验因内部交接包读取缺少 actor 上下文而技术失败，正在无积分修复并准备只重试既有候选核验；后续单条真实生成 standing authorization 剩余 4 次
+
+## 2026-08-12 第九次真实执行已出片，A12 核验技术失败待无积分恢复
+
+- PR #116 已合并到 `main@04aac4b`：真实页面命中点击外层上传后才出现的失败残留时，只走“重新编辑”回到上传态；Playwright lazy executor 尊重 `LOCAL_AGENT_HIFLY_CONFIG_PATH` 及其相对 Profile；游客态登录信号在 heartbeat/claim 前失败关闭。
+- 使用同一外部配置重新登录后，无副作用预检返回 `ready / playwright`。通过正式云端 API 创建 reproduction 工单 `970cc09d-2f33-4c9c-9b2a-72136bdc8988`；交接包 `89e14d98-5619-456c-b82a-88112a823949` 为 `ready / v1`，创建后全组织只有该工单活跃、attempt 数为 0。
+- 本轮正式使用 standing authorization 的第 1/5 次，只运行一次 real 双门禁。自动化真实命中失败残留恢复、上传并校验当前人物/商品、点击一次手持图生成、确认、填写并回读 72 字批准文案、点击一次外层视频生成；飞影作品 `696679`（`2026-08-12 08:57:44`）生成完成，并通过稳定作品身份点击安全下载按钮。
+- Local Agent attempt `5c093c19-19b5-456e-8028-60ff2ec03459` 为 `succeeded`，报告 `e2c523e9-a5c6-4d7b-b825-61b5f7aba96b` 为 `completed`；候选 `e6d33671-f662-458a-a200-cfb4e85d5f7a` 已上传，大小 `41874377` bytes、`video/mp4`。真实命令正常退出 0，没有第二次生成。
+- A12 worker 随后以技术错误 `MANUAL_HANDOFF_CONTEXT_REQUIRED` 失败：核验 job `bd0789ed-e152-49fa-8931-17bb58e0a422` 为 `failed / technical`，candidate 为 `pending_verification / failed`，工单仍为 `running`，Work 0。根因是内部 authoritative package lookup 未传递 job 已有的 `requested_by_member_id / requested_by_role`，不是飞影或候选视频失败。
+- 无积分 TDD 修复已完成：A12 authoritative package lookup 会转发 verification job 中已有的 `actorMemberId / actorRole`，不降低交接包服务的权限校验。实现由 `luna-worker` 完成，主控独立 review 未发现 blocker。验证：`npm run check` 检查 204 个 JavaScript 文件；`npm test` 共 879 项，865 pass / 14 environment skip / 0 fail；`git diff --check` 通过。
+- 下一步只允许合并、部署并对既有 candidate 的技术核验 job 发起 retry；不得再次调用飞影。真实生成授权计数已扣除 1 次，standing authorization 剩余 4 次。本轮已点击飞影计费动作，实际积分以飞影后台流水为准。
+- 详细记录见 `docs/status/sessions/2026-08-12-ninth-real-local-agent-output-verification-failure.md`。
 
 ## 2026-08-12 第八次真实执行被点击上传后出现的失败弹窗残留阻断，已停止且未重试
 
