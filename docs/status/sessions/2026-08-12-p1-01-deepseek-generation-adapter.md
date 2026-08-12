@@ -40,6 +40,6 @@
 
 ## 下一步
 
-1. 完成全量门禁、独立 Sol review 和 CI。
-2. 合并后关闭 Issue #121。
+1. PR #123 的 Ubuntu、Windows、PostgreSQL CI 均通过；独立 Sol Review 无任何级别发现，结论 `APPROVED`。
+2. 按 Owner 已授予的顺序合并权限合并 PR #123，并关闭 Issue #121。
 3. 进入 P1-02：确定性质量规则与 DeepSeek 语义质检；不得把生成成功等同于质检或人工批准。

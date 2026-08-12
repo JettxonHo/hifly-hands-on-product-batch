@@ -4,7 +4,7 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：生产化核心能力升级（D-033）；P0 重基线进行中，随后进入真实 DeepSeek 文案与语义质检；后续单条真实生成 standing authorization 剩余 4 次
 
-## 2026-08-12 P1-01 / Issue #121 DeepSeek 官方文案适配（实现中）
+## 2026-08-12 P1-01 / Issue #121 DeepSeek 官方文案适配（待合并）
 
 - 逻辑角色：`IMPLEMENTER`；自定义 Agent：`luna-worker`；配置：`~/.codex/agents/luna-worker.toml`；配置模型：`gpt-5.6-luna`；推理：`max`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
 - 基准：`origin/main@1eca202`；独立分支：`codex/p1-01-deepseek-generation`。
@@ -12,7 +12,8 @@
 - 当前边界：只交付可选择 adapter 与配置，不切换已部署环境，不实现 QC/改写，不修改 UI、数据库、Hifly/Local Agent/视频代码；activation pending。
 - 已验证：官方 `api-docs.deepseek.com` 只读文档 curl（无 API 调用）；DeepSeek 定向测试、生产启动测试、现有 copy-generation 回归共 33 项通过；`npm run check` 检查 207 个 JavaScript 文件；全量 `npm test` 共 894 项、880 pass / 14 environment skip / 0 fail；`git diff --check` 通过。
 - 真实外部调用：0 次 DeepSeek，0 次 Hifly，0 费用/积分；未使用真实 key，未写入 secret、raw response、prompt 正文或文案日志。
-- 下一步：提交、push、创建 ready PR；等待独立 Sol Review/CI，禁止实现者自行批准或合并。
+- PR #123 已创建；CI 的 Ubuntu、Windows、PostgreSQL 三组均通过。独立 Sol Review 无任何级别发现，结论 `APPROVED`。
+- 下一步：按 Owner 已授予的顺序合并权限合并 PR #123、关闭 Issue #121，再进入 P1-02；已部署环境仍保持受控 Provider，真实 DeepSeek activation 尚未执行。
 
 ## 2026-08-12 生产化核心能力升级 Goal 启动
 
