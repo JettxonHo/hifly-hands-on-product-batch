@@ -4,6 +4,20 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
+## 2026-08-12 CE-06 / Issue #141 Cloud Executor 控制面投影与生产 UX（READY PR，待 Review）
+
+- 当前分支：`codex/ce-06-cloud-control-plane-ux`；基线：`main@1d6bc65`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
+- 实现提交：`141dcc8`；READY PR [#149](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/149)（Closes #141；OPEN、非 draft；未合并、未批准）。
+- 新增最小 Cloud Executor 控制面投影：Worker `offline/online`、受控 readiness、当前订单/attempt、归一化 progress、受控 terminal failure，以及 execution succeeded、A12 pending/passed、Work delivery 的独立状态。公共对象仅返回 allowlist 字段，不返回 raw exception、Profile/服务器路径、storage key、VNC、secret 或 token。
+- 新增默认 disabled/fail-closed 的 `/api/cloud-executor/status` 与可选 Bearer 鉴权的 `/internal/cloud-executor/v1/heartbeat`；heartbeat presence 为短期内存状态，执行事实继续读取现有 attempt/report/A12/Work/Delivery 合同，不在 HTTP 请求内运行浏览器任务。未改变 Local Agent 默认与进程归属。
+- Sol 独立审查 follow-up 已修复两个合并阻塞项：生产 Web 现在从既有 `CLOUD_EXECUTOR_ENABLED/MODE/ID/ORGANIZATION_ID` 加载纯控制面配置，并新增 `CLOUD_EXECUTOR_HEARTBEAT_TOKEN`、`CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS`；启用时缺少 org/executor/token 会在建 pool 前失败关闭。`production-start` 只向 `buildApp` 传控制面对象，不解析 Worker poll、不开 Chrome、不 claim/start。架构保护测试保留并精确断言 decorator/状态 route 可存在但没有 worker/service/runOnce，`worker.autoStart` 不触发 poll。
+- 身份与租户边界已补充 API 证据：未登录 `/api/cloud-executor/status` 返回 `401 AUTH_REQUIRED`；登录到非目标 Organization 时返回 disabled 空投影，且在 organization scope 不匹配时不读取 Cloud attempt/report repository；`/api/runtime` 仅返回 enabled/configured/mode，不返回 heartbeat bearer token。
+- 生产页已将 Cloud Executor status section 置于工单区之前，包含离线、重新登录飞影、低磁盘、待命、忙碌/进度、requires_action、失败与作品交付指导；历史人工/交接包面板保留为次级入口。核验作品只链接既有鉴权 Work/Delivery 页面，不新增未鉴权 artifact route。
+- 第二轮独立审查 follow-up 已增加有界 Cloud status polling：生产默认 5 秒；读取失败显示离线安全态，并按 10 秒低频恢复；使用自调度 timeout 与共享 in-flight request，避免并发重入和 timer 叠加；`pagehide` / `beforeunload` 均停止 polling。轮询只更新 Cloud 区域，不重载 production workspace。
+- 验证：原 focused `167/167`；第二轮最终指定 focused `node --test test/production-start.test.js test/cloud-executor-control-plane.test.js test/production-order-browser.test.js` 为 22/22；`npm run check` 通过（225 个 JavaScript 文件）；`NODE_OPTIONS=--test-reporter=dot npm test` 0 退出；`git diff --check` 通过。浏览器测试不调用 reload，自动覆盖 busy→后续 progress→status read failure/offline→恢复→requires_action/failure→A12 passed/delivered Work link，保持 1440/390 无横向溢出；慢响应下最大并发 status request 为 1，离页后不再发请求。
+- 依赖审计：官方 npm registry `npm audit --omit=dev --audit-level=high` 报告 7 个既有漏洞（5 high/2 moderate），未在 CE-06 范围内升级依赖；当前镜像 registry 的 audit endpoint 返回 `NOT_IMPLEMENTED`。
+- 外部边界：0 次 Hifly/真实浏览器 Provider 页面/DeepSeek/外部 HTTP，0 次真实 claim、部署或积分消耗；只使用 in-memory/fake/local browser fixture。CE-07 仍需目标云环境对独立 Worker、heartbeat/readiness、disabled/fail-closed standby、持久 volume、重启恢复和资源/磁盘做 live proof；CE-08 仍需另行授权真实纯云端出片。
+
 ## 2026-08-12 CE-05 / Issue #140 Cloud 持久素材、视频与磁盘门限（本地 READY，待独立 Review）
 
 - 当前分支：`codex/ce-05-cloud-persistent-media`；基线：`main@b78fe08`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。

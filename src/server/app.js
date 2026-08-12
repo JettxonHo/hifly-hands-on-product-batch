@@ -73,6 +73,8 @@ import { createPostgresWorkDeliveryRepository } from "../work-delivery/postgres-
 import { runWorkDeliveryMigrations } from "../work-delivery/postgres.js";
 import { registerWorkDeliveryRoutes } from "./routes/work-delivery.js";
 import { registerHiflyProviderRoutes } from "./routes/hifly-provider.js";
+import { createCloudExecutorControlPlane } from "../cloud-executor/control-plane.js";
+import { createCloudExecutorBearerGuard, registerCloudExecutorRoutes } from "./routes/cloud-executor.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -316,6 +318,7 @@ export async function buildApp({
   localAgentExecution: localAgentExecutionOptions = null,
   artifactVerification: artifactVerificationOptions = null,
   workDelivery: workDeliveryOptions = null,
+  cloudExecutor: cloudExecutorOptions = null,
   hiflyApi: hiflyApiOptions = null,
   idempotencyMaxEntries,
   idempotencyTtlMs,
@@ -340,6 +343,9 @@ export async function buildApp({
   const localAgentExecutionEnabled = localAgentExecutionOptions?.enabled === true;
   const artifactVerificationEnabled = artifactVerificationOptions?.enabled === true;
   const worksEnabled = workDeliveryOptions?.enabled === true;
+  const cloudExecutorMode = cloudExecutorOptions?.mode || "fail_closed";
+  const cloudExecutorEnabled = cloudExecutorOptions?.enabled === true;
+  const cloudExecutorConfigured = cloudExecutorOptions?.configured ?? Boolean(cloudExecutorOptions?.organizationId && cloudExecutorOptions?.executorCloudId);
   const hiflyApiEnabled = hiflyApiOptions?.enabled === true;
   const manualExecutionMaxCandidateBytes = manualExecutionOptions?.maxCandidateBytes ?? DEFAULT_MANUAL_EXECUTION_MAX_CANDIDATE_BYTES;
   const localAgentReadiness = localAgentExecutionEnabled
@@ -372,6 +378,7 @@ export async function buildApp({
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !manualHandoffEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_MANUAL_HANDOFF"), { code: "ARTIFACT_VERIFICATION_REQUIRE_MANUAL_HANDOFF" });
   if (artifactVerificationEnabled && !artifactVerificationOptions.service && !manualExecutionEnabled) throw Object.assign(new Error("ARTIFACT_VERIFICATION_REQUIRE_MANUAL_EXECUTION"), { code: "ARTIFACT_VERIFICATION_REQUIRE_MANUAL_EXECUTION" });
   if (worksEnabled && !identityEnabled) throw Object.assign(new Error("WORK_DELIVERY_REQUIRE_IDENTITY"), { code: "WORK_DELIVERY_REQUIRE_IDENTITY" });
+  if (cloudExecutorEnabled && !identityEnabled) throw Object.assign(new Error("CLOUD_EXECUTOR_REQUIRE_IDENTITY"), { code: "CLOUD_EXECUTOR_REQUIRE_IDENTITY" });
   if (hiflyApiEnabled && !identityEnabled) throw Object.assign(new Error("HIFLY_API_REQUIRES_IDENTITY"), { code: "HIFLY_API_REQUIRES_IDENTITY" });
   if (hiflyApiEnabled && typeof hiflyApiOptions.client?.getAccountCredit !== "function") {
     throw Object.assign(new Error("HIFLY_API_CLIENT_REQUIRED"), { code: "HIFLY_API_CLIENT_REQUIRED" });
@@ -472,9 +479,9 @@ export async function buildApp({
       manualHandoffEnabled,
       manualExecutionEnabled,
       localAgentExecutionEnabled,
-      cloudExecutorEnabled: false,
-      cloudExecutorConfigured: false,
-      cloudExecutorMode: "fail_closed",
+      cloudExecutorEnabled,
+      cloudExecutorConfigured,
+      cloudExecutorMode,
       artifactVerificationEnabled,
       worksEnabled,
       hiflyApiEnabled,
@@ -781,6 +788,24 @@ export async function buildApp({
     app.addHook("onClose", async () => repository?.close?.());
     await registerWorkDeliveryRoutes(app, { service });
   }
+
+  const cloudExecutorControlPlane = createCloudExecutorControlPlane({
+    enabled: cloudExecutorEnabled,
+    configured: cloudExecutorConfigured,
+    mode: cloudExecutorMode,
+    organizationId: cloudExecutorOptions?.organizationId,
+    executorCloudId: cloudExecutorOptions?.executorCloudId,
+    repository: cloudExecutorOptions?.repository || app.manualExecution?.repository || null,
+    orderPort: cloudExecutorOptions?.orderPort || app.productionOrders?.service || null,
+    verificationPort: cloudExecutorOptions?.verificationPort || app.artifactVerification?.service || null,
+    deliveryPort: cloudExecutorOptions?.deliveryPort || app.workDelivery?.service || null,
+    heartbeatTimeoutMs: cloudExecutorOptions?.heartbeatTimeoutMs,
+    now
+  });
+  const cloudExecutorInternalGuard = cloudExecutorEnabled && cloudExecutorOptions?.internal?.enabled === true
+    ? createCloudExecutorBearerGuard(cloudExecutorOptions.internal) : null;
+  app.decorate("cloudExecutor", { controlPlane: cloudExecutorControlPlane, internalGuard: cloudExecutorInternalGuard });
+  await registerCloudExecutorRoutes(app, { controlPlane: cloudExecutorControlPlane, internalGuard: cloudExecutorInternalGuard });
 
   await registerBatchRoutes(app, { store });
   await registerCaptureRoutes(app, { batchRoot, store, generationConfig, captureLive });

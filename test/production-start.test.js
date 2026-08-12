@@ -166,7 +166,7 @@ test("production build disables database startup migrations but still checks rep
   assert.equal(untrustedHealth.statusCode, 403);
 });
 
-test("web app never owns or starts the Cloud Executor runtime", async (t) => {
+test("web app owns only the Cloud Executor control plane and never polls or starts its Worker runtime", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-production-web-only-"));
   const identity = createMemoryIdentityRepository();
   const pool = migrationProbePool();
@@ -207,7 +207,15 @@ test("web app never owns or starts the Cloud Executor runtime", async (t) => {
   await new Promise((resolve) => setTimeout(resolve, 10));
 
   assert.equal(cloudOrderPolls, 0);
-  assert.equal(app.hasDecorator("cloudExecutor"), false);
+  assert.equal(app.hasDecorator("cloudExecutor"), true);
+  assert.equal(typeof app.cloudExecutor.controlPlane.getStatus, "function");
+  assert.equal("worker" in app.cloudExecutor, false);
+  assert.equal("service" in app.cloudExecutor, false);
+  assert.equal("runOnce" in app.cloudExecutor, false);
+  const status = await app.inject({ method: "GET", url: "/api/cloud-executor/status", headers: { host: "pilot.test" } });
+  assert.equal(status.statusCode, 401);
+  const heartbeat = await app.inject({ method: "POST", url: "/internal/cloud-executor/v1/heartbeat", headers: { host: "pilot.test", "content-type": "application/json" }, payload: {} });
+  assert.equal(heartbeat.statusCode, 404);
 });
 
 test("enabled local-agent wiring registers bearer routes without changing member routes", async (t) => {
@@ -264,7 +272,15 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   assert.equal(config.hiflyApi.enabled, false);
   assert.equal(config.localAgentExecution.enabled, false);
   assert.equal(config.localAgentExecution.token, null);
-  assert.equal(config.cloudExecutor, undefined);
+  assert.deepEqual(config.cloudExecutor, {
+    enabled: false,
+    configured: false,
+    mode: "fail_closed",
+    organizationId: null,
+    executorCloudId: null,
+    heartbeatTimeoutMs: 15_000,
+    internal: { enabled: false, organizationId: null, executorCloudId: null, token: null }
+  });
   assert.equal(config.identity.cookieSecure, true);
   assert.equal(config.featureFlags.A14, true);
   assert.equal(config.generationConfig.uploadLimits.maxBatchBytes, 128 * 1024 * 1024);
@@ -298,6 +314,49 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   });
   assert.equal(withLocalAgent.localAgentExecution.enabled, true);
   assert.equal(withLocalAgent.localAgentExecution.agentId, "agent-1");
+
+  const withCloudControlPlane = createProductionConfig({
+    root: "/tmp/hifly-production-test",
+    env: productionEnv({
+      CLOUD_EXECUTOR_ENABLED: "true",
+      CLOUD_EXECUTOR_MODE: "playwright",
+      CLOUD_EXECUTOR_ID: "cloud-web-1",
+      CLOUD_EXECUTOR_ORGANIZATION_ID: "org_pilot",
+      CLOUD_EXECUTOR_HEARTBEAT_TOKEN: "cloud-heartbeat-secret",
+      CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS: "22000",
+      CLOUD_EXECUTOR_POLL_INTERVAL_MS: "not-a-duration"
+    })
+  });
+  assert.deepEqual(withCloudControlPlane.cloudExecutor, {
+    enabled: true,
+    configured: true,
+    mode: "playwright",
+    organizationId: "org_pilot",
+    executorCloudId: "cloud-web-1",
+    heartbeatTimeoutMs: 22_000,
+    internal: {
+      enabled: true,
+      organizationId: "org_pilot",
+      executorCloudId: "cloud-web-1",
+      token: "cloud-heartbeat-secret"
+    }
+  });
+  assert.equal("worker" in withCloudControlPlane.cloudExecutor, false);
+  for (const missing of ["CLOUD_EXECUTOR_ID", "CLOUD_EXECUTOR_ORGANIZATION_ID", "CLOUD_EXECUTOR_HEARTBEAT_TOKEN"]) {
+    const env = productionEnv({
+      CLOUD_EXECUTOR_ENABLED: "true",
+      CLOUD_EXECUTOR_MODE: "playwright",
+      CLOUD_EXECUTOR_ID: "cloud-web-1",
+      CLOUD_EXECUTOR_ORGANIZATION_ID: "org_pilot",
+      CLOUD_EXECUTOR_HEARTBEAT_TOKEN: "cloud-heartbeat-secret"
+    });
+    delete env[missing];
+    assert.throws(
+      () => createProductionConfig({ root: "/tmp/hifly-production-test", env }),
+      { code: "CLOUD_EXECUTOR_CONTROL_PLANE_CONFIG_REQUIRED" },
+      `missing ${missing} must fail closed before production startup`
+    );
+  }
 
   await assert.rejects(
     createProductionExecutor().createAsset({ task_id: "pilot-task" }),
@@ -580,7 +639,11 @@ test("production server binds once on 0.0.0.0 without opening a browser", async 
     env: productionEnv({
       PORT: "4319",
       CLOUD_EXECUTOR_ENABLED: "true",
-      CLOUD_EXECUTOR_MODE: "unsupported-for-web",
+      CLOUD_EXECUTOR_MODE: "playwright",
+      CLOUD_EXECUTOR_ID: "cloud-web-1",
+      CLOUD_EXECUTOR_ORGANIZATION_ID: "org_pilot",
+      CLOUD_EXECUTOR_HEARTBEAT_TOKEN: "cloud-heartbeat-secret",
+      CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS: "22000",
       CLOUD_EXECUTOR_POLL_INTERVAL_MS: "not-a-duration"
     }),
     handleSignals: false,
@@ -600,7 +663,21 @@ test("production server binds once on 0.0.0.0 without opening a browser", async 
   assert.equal(buildOptions.closeDatabasePool, false);
   assert.equal(buildOptions.startupMigrations, false);
   assert.equal(buildOptions.localAgentExecution.enabled, false);
-  assert.equal(buildOptions.cloudExecutor, undefined);
+  assert.deepEqual(buildOptions.cloudExecutor, {
+    enabled: true,
+    configured: true,
+    mode: "playwright",
+    organizationId: "org_pilot",
+    executorCloudId: "cloud-web-1",
+    heartbeatTimeoutMs: 22_000,
+    internal: {
+      enabled: true,
+      organizationId: "org_pilot",
+      executorCloudId: "cloud-web-1",
+      token: "cloud-heartbeat-secret"
+    }
+  });
+  assert.equal("worker" in buildOptions.cloudExecutor, false);
   assert.equal(buildOptions.openBrowser, null);
   assert.equal(buildOptions.identity.listenHost, "0.0.0.0");
   await assert.rejects(buildOptions.executor.submitVideo({ task_id: "pilot-task" }), { code: "EXECUTOR_UNAVAILABLE" });

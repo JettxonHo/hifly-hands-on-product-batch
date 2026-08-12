@@ -71,6 +71,10 @@ function isLocalAgentRoute(request) {
   return request.url.split("?", 1)[0].startsWith("/api/agent/v1/");
 }
 
+function isCloudExecutorRoute(request) {
+  return request.url.split("?", 1)[0].startsWith("/internal/cloud-executor/v1/");
+}
+
 export function createRequestSecurity({ allowedHost = null } = {}) {
   const token = randomBytes(32).toString("base64url");
 
@@ -145,7 +149,7 @@ export function createCloudRequestSecurity({ trustedHosts, trustedOrigins } = {}
       reject(reply, 403, "TRUSTED_HOST_REQUIRED");
       return;
     }
-    if (isLocalAgentRoute(request)) {
+    if (isLocalAgentRoute(request) || isCloudExecutorRoute(request)) {
       if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method) && !validMutationContentType(request)) {
         reject(reply, 415, "JSON_OR_MULTIPART_REQUIRED");
         return;

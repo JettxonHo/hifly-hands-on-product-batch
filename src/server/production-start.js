@@ -111,6 +111,7 @@ function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFet
     manualHandoff: config.manualHandoff,
     manualExecution: config.manualExecution,
     localAgentExecution: config.localAgentExecution,
+    cloudExecutor: config.cloudExecutor,
     artifactVerification: config.artifactVerification,
     workDelivery: config.workDelivery,
     hiflyApi: hiflyClient ? { enabled: true, client: hiflyClient } : { enabled: false }
