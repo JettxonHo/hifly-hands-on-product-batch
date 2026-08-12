@@ -18,13 +18,24 @@ same filesystem from a fresh temporary directory. Chrome owns the remaining Prof
 contents; cookies, LocalStorage, tokens and page data are never copied to the repository,
 database, public API, logs or snapshots.
 
-The display contract for a future CE-07 deployment is:
+The CE-04 login image contract is implemented by
+`deploy/cloud-executor-login.Dockerfile` and
+`deploy/cloud-executor-login-entrypoint.sh`. The dedicated image installs Playwright
+Chromium plus Xvfb, x11vnc, noVNC/websockify and launches them before the login command.
+It is a buildable contract for CE-07, not evidence that the image was built or deployed.
+
+The display and ingress contract is:
 
 - Chrome runs headful under Xvfb, default `DISPLAY=:99`.
-- noVNC binds to `127.0.0.1` by default. A private RFC1918 bind address is allowed by
-  configuration; a public address, wildcard bind, and public port publishing are rejected.
-- The noVNC endpoint is reached only through an SSH tunnel, VPN, or another restricted
-  private management path. The login overlay has no public `ports:` mapping.
+- x11vnc listens only on container loopback port `5900`. websockify listens on
+  container-local `0.0.0.0:6080`, which is required for Docker port forwarding and is
+  fixed in the entrypoint rather than controlled by user configuration.
+- Compose publishes only `127.0.0.1:6080:6080` on the host. The Cloud Executor product
+  configuration remains `access=private` and `public=false`; wildcard/public bind values
+  are rejected and cannot change the Compose host mapping.
+- An operator reaches noVNC through an SSH tunnel such as
+  `ssh -L 6080:127.0.0.1:6080 operator@cloud-host`, then opens
+  `http://127.0.0.1:6080/vnc.html`. There is no public host listener.
 - Login mode starts no Worker poller, constructs no Cloud Executor claim service, and
   cannot call `runOnce`, `claim`, upload, generation, or points-bearing operations.
 - After the operator finishes the browser login, the command reuses the existing Hifly

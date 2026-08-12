@@ -29,4 +29,12 @@
 - Implementation commit：`62854cb`。分支已推送，READY PR [#147](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/147) 为 `OPEN`、非 draft、base `main`、body 关联 `Closes #139`。
 - PR 初次 CI：Ubuntu Node 22 `pass`、Windows Node 22 `pass`、identity-postgres `pass`。
 - 当前等待独立 Review；不合并、不审批、不部署、不访问 Hifly、不使用真实 Profile/登录态，不执行真实 Provider 或积分动作。
-- 不合并、不审批、不部署、不访问 Hifly、不使用真实 Profile/登录态，不执行真实 Provider 或积分动作。
+
+## Sol Review follow-up
+
+- 修复 noVNC 可达性合同：compose 不再使用仅 `expose` 的内部端口，改为固定宿主机 loopback `127.0.0.1:6080:6080`。因此 operator 可通过 `ssh -L 6080:127.0.0.1:6080 operator@cloud-host` 到达；没有 `0.0.0.0` 或用户插值的 host mapping。
+- 容器内 websockify 固定监听 `0.0.0.0:6080` 以接收 Docker 转发，但该地址只存在于容器 namespace，不能由 `CLOUD_EXECUTOR_NOVNC_BIND_HOST` 覆盖；x11vnc 只监听容器 loopback `127.0.0.1:5900`。产品配置继续投影 `private` / `public=false`，并拒绝 wildcard/public bind。
+- 新增 `deploy/cloud-executor-login.Dockerfile` 和 `deploy/cloud-executor-login-entrypoint.sh`：专用 image contract 安装 Playwright Chromium、Xvfb、x11vnc、noVNC/websockify、x11-utils，并按 Xvfb readiness → x11vnc → websockify → `node scripts/cloud-executor.js login` 启动。compose 已引用该 Dockerfile；CE-07 仍负责最终 live image、orchestration 与部署验证。
+- Login runtime 未修改；原有测试继续证明它没有 service、worker、`runOnce` 或 claim seam。
+- TDD：先由 compose/Dockerfile/entrypoint static tests 复现两项失败，再完成最小 contract 修复。Cloud focused 31/31；`npm run check` 检查 223 个 JavaScript 文件；`npm test` 986 total / 972 pass / 14 existing environment skip / 0 fail；`docker compose -f deploy/cloud-executor-login.yml config`、`sh -n deploy/cloud-executor-login-entrypoint.sh`、`git diff --check` 均通过。
+- 未执行 Docker build/pull/download、容器启动、服务器部署、真实浏览器/Hifly 页面访问、上传、生成、下载、DeepSeek、real claim 或积分动作。依赖审计仍报告既有 7 项（5 high/2 moderate），本 follow-up 未改依赖。

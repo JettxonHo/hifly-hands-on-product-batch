@@ -157,28 +157,52 @@ test("cloud login configuration is explicit and keeps noVNC private by default",
   });
 });
 
-test("cloud login configuration rejects a public noVNC bind host", () => {
-  assert.throws(
-    () => createCloudExecutorConfig({
-      root: "/tmp/cloud-executor-login-test",
-      env: {
-        CLOUD_EXECUTOR_ENABLED: "true",
-        CLOUD_EXECUTOR_MODE: "login",
-        CLOUD_EXECUTOR_NOVNC_BIND_HOST: "0.0.0.0"
-      }
-    }),
-    { code: "CLOUD_EXECUTOR_NOVNC_BIND_HOST_PUBLIC" }
-  );
+test("cloud login configuration rejects wildcard and public noVNC bind hosts", () => {
+  for (const bindHost of ["0.0.0.0", "::", "203.0.113.10"]) {
+    assert.throws(
+      () => createCloudExecutorConfig({
+        root: "/tmp/cloud-executor-login-test",
+        env: {
+          CLOUD_EXECUTOR_ENABLED: "true",
+          CLOUD_EXECUTOR_MODE: "login",
+          CLOUD_EXECUTOR_NOVNC_BIND_HOST: bindHost
+        }
+      }),
+      { code: "CLOUD_EXECUTOR_NOVNC_BIND_HOST_PUBLIC" },
+      bindHost
+    );
+  }
 });
 
-test("login deployment fragment keeps Profile persistent and noVNC private", async () => {
+test("login deployment fragment maps noVNC only to host loopback and uses the dedicated image", async () => {
   const compose = await readFile(new URL("../deploy/cloud-executor-login.yml", import.meta.url), "utf8");
-  assert.match(compose, /command: \["node", "scripts\/cloud-executor\.js", "login"\]/);
+  assert.match(compose, /dockerfile: deploy\/cloud-executor-login\.Dockerfile/);
   assert.match(compose, /cloud_executor_profile:\/var\/lib\/hifly-executor\/profile/);
   assert.match(compose, /CLOUD_EXECUTOR_NOVNC_BIND_HOST: "127\.0\.0\.1"/);
   assert.match(compose, /CLOUD_EXECUTOR_MODE: "login"/);
   assert.match(compose, /internal: true/);
-  assert.doesNotMatch(compose, /^\s+ports:/m);
+  assert.match(compose, /^\s+ports:\n\s+- "127\.0\.0\.1:6080:6080"/m);
+  assert.doesNotMatch(compose, /(?:0\.0\.0\.0|\$\{[^}]+\}):6080:6080/);
+});
+
+test("dedicated login image installs the visual browser stack and launches the controlled chain", async () => {
+  const dockerfile = await readFile(new URL("../deploy/cloud-executor-login.Dockerfile", import.meta.url), "utf8");
+  const entrypoint = await readFile(new URL("../deploy/cloud-executor-login-entrypoint.sh", import.meta.url), "utf8");
+
+  assert.match(dockerfile, /FROM node:22-bookworm-slim/);
+  for (const packageName of ["xvfb", "x11vnc", "novnc", "websockify", "x11-utils"]) {
+    assert.match(dockerfile, new RegExp(`\\b${packageName}\\b`), packageName);
+  }
+  assert.match(dockerfile, /playwright install --with-deps chromium/);
+  assert.match(dockerfile, /ENTRYPOINT \["\/app\/deploy\/cloud-executor-login-entrypoint\.sh"\]/);
+
+  assert.match(entrypoint, /export DISPLAY/);
+  assert.match(entrypoint, /Xvfb "\$DISPLAY"/);
+  assert.match(entrypoint, /x11vnc [^\n]*-listen 127\.0\.0\.1/);
+  assert.match(entrypoint, /x11vnc [^\n]*-rfbport 5900/);
+  assert.match(entrypoint, /websockify .*"0\.0\.0\.0:\$NOVNC_PORT" "127\.0\.0\.1:5900"/);
+  assert.match(entrypoint, /exec node scripts\/cloud-executor\.js login/);
+  assert.doesNotMatch(entrypoint, /CLOUD_EXECUTOR_NOVNC_BIND_HOST/);
 });
 
 function fakeContext(page) {

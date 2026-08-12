@@ -14,6 +14,9 @@
 - 已验证：CE-04 + CE-02/03 focused 30/30；`npm run check` 检查 223 个 JavaScript 文件；最终全量 `npm test` 985 total / 971 pass / 14 existing environment skip / 0 fail；`git diff --check` 通过。官方 registry 的 `npm audit --omit=dev --audit-level=high` 报告 7 个既有依赖漏洞（5 high/2 moderate），未在本任务扩大范围修复；镜像 registry 的 audit endpoint 不支持。
 - 外部边界：0 次 Hifly 访问、0 次真实浏览器页面访问、0 次上传/生成/下载、0 次 DeepSeek、0 次积分、0 次 real claim、0 次部署；全部 CE-04 测试使用 fake page/executor/filesystem marker。
 - Implementation commit：`62854cb`；READY PR [#147](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/147) 已创建，`OPEN`、非 draft、目标 `main`，body 关联 `Closes #139`。CI 初次运行的 Ubuntu Node 22、Windows Node 22、identity-postgres 全部通过；不合并、不审批、不部署、不执行真实登录或 Provider 动作。
+- Sol Review follow-up 已修复两项部署合同正确性：compose 使用固定宿主机 loopback `127.0.0.1:6080:6080`，可由 SSH tunnel 实际到达且没有公网 listener；容器内 websockify 使用固定、不可由产品配置覆盖的 `0.0.0.0:6080` 接收 Docker 转发，x11vnc 仍只监听容器 loopback。产品配置继续为 `private` / `public=false` 并拒绝 wildcard/public bind。
+- 新增 CE-04 专用 login Dockerfile/entrypoint contract，安装 Playwright Chromium、Xvfb、x11vnc、noVNC/websockify 与显示检查工具，按 Xvfb → VNC → noVNC → login command 顺序启动；最终 live image/orchestration 仍归 CE-07。本 follow-up 只做 static/fake 验证，没有 build/download image、启动容器、部署或访问 Hifly。
+- Follow-up 验证：Cloud focused 31/31；`npm run check` 检查 223 个 JavaScript 文件；`npm test` 986 total / 972 pass / 14 existing environment skip / 0 fail；`docker compose ... config`、`sh -n`、`git diff --check` 通过。依赖审计仍为前述 7 个既有项，未改依赖。
 - 当前卡点/下一步：等待独立 Review；若 Review 无新要求，不再扩大 CE-04 范围。
 
 ## 2026-08-12 CE-03 / Issue #138 Cloud Playwright adapter（Sol Review follow-up 已实现）
