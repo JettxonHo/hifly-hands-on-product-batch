@@ -213,6 +213,7 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   assert.equal(config.generationConfig.rpa.realLive.batch.enabled, false);
   assert.equal(config.copyGeneration.provider, "phase1_controlled_test_double");
   assert.equal(config.copyGeneration.deepseek, null);
+  assert.equal(config.copyQuality.evaluator, "phase1_controlled_test_double");
   assert.equal(config.hiflyApi.enabled, false);
   assert.equal(config.localAgentExecution.enabled, false);
   assert.equal(config.localAgentExecution.token, null);
@@ -256,6 +257,23 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   );
 });
 
+test("production config rejects unsupported copy provider and quality evaluator values", () => {
+  assert.throws(
+    () => createProductionConfig({
+      root: "/tmp/hifly-production-test",
+      env: productionEnv({ COPY_GENERATION_PROVIDER: "unsupported" })
+    }),
+    { code: "COPY_GENERATION_PROVIDER_UNSUPPORTED" }
+  );
+  assert.throws(
+    () => createProductionConfig({
+      root: "/tmp/hifly-production-test",
+      env: productionEnv({ COPY_QUALITY_EVALUATOR: "unsupported" })
+    }),
+    { code: "COPY_QUALITY_EVALUATOR_UNSUPPORTED" }
+  );
+});
+
 test("production DeepSeek selection fails closed without a server-side key", async () => {
   assert.throws(
     () => createProductionConfig({
@@ -270,6 +288,29 @@ test("production DeepSeek selection fails closed without a server-side key", asy
     startProductionServer({
       root: "/tmp/hifly-production-test",
       env: productionEnv({ COPY_GENERATION_PROVIDER: "deepseek" }),
+      handleSignals: false,
+      createPool: () => { poolCalls += 1; return { async end() {} }; },
+      buildAppImpl: async () => ({ async listen() {}, async close() {} })
+    }),
+    { code: "DEEPSEEK_API_KEY_REQUIRED" }
+  );
+  assert.equal(poolCalls, 0);
+});
+
+test("production DeepSeek hybrid quality selection fails closed before creating a pool without a server-side key", async () => {
+  assert.throws(
+    () => createProductionConfig({
+      root: "/tmp/hifly-production-test",
+      env: productionEnv({ COPY_QUALITY_EVALUATOR: "deepseek_hybrid" })
+    }),
+    { code: "DEEPSEEK_API_KEY_REQUIRED" }
+  );
+
+  let poolCalls = 0;
+  await assert.rejects(
+    startProductionServer({
+      root: "/tmp/hifly-production-test",
+      env: productionEnv({ COPY_QUALITY_EVALUATOR: "deepseek_hybrid" }),
       handleSignals: false,
       createPool: () => { poolCalls += 1; return { async end() {} }; },
       buildAppImpl: async () => ({ async listen() {}, async close() {} })
@@ -303,6 +344,7 @@ test("production wiring can select the DeepSeek adapter without making a request
 
   assert.equal(fetchCalls, 0);
   assert.equal(buildOptions.copyGeneration.provider.kind, "deepseek_official");
+  assert.equal(buildOptions.copyQuality.evaluator.kind, "controlled_test_double");
   assert.equal(buildOptions.copyGeneration.deepseek.model, "deepseek-v4-flash");
   assert.deepEqual(
     await buildOptions.copyGeneration.provider.generateCopy({
@@ -317,6 +359,62 @@ test("production wiring can select the DeepSeek adapter without making a request
     { body: "测试文案" }
   );
   assert.equal(fetchCalls, 1);
+  await server.close();
+});
+
+test("production wiring independently selects a DeepSeek hybrid quality evaluator without making a request during startup", async () => {
+  const pool = { async end() {} };
+  const app = { async listen() {}, async stopExecutions() {}, async close() {} };
+  let buildOptions;
+  let fetchCalls = 0;
+  const server = await startProductionServer({
+    root: "/tmp/hifly-production-test",
+    env: productionEnv({
+      COPY_GENERATION_PROVIDER: "phase1_controlled_test_double",
+      COPY_QUALITY_EVALUATOR: "deepseek_hybrid",
+      DEEPSEEK_API_KEY: "unit-test-key"
+    }),
+    handleSignals: false,
+    createPool: () => pool,
+    deepseekFetch: async (url, init) => {
+      fetchCalls += 1;
+      assert.equal(url, "https://api.deepseek.com/chat/completions");
+      assert.equal(init.headers.authorization, "Bearer unit-test-key");
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ findings: [{
+        dimension: "factuality",
+        finding_type: "semantic_risk",
+        severity_suggestion: "high",
+        matched_excerpt: "全网最好",
+        claim_summary: "模型语义风险",
+        evidence_refs: ["model-only-reference"],
+        reason: "需要人工复核",
+        confidence: "high",
+        remediation: "调整表达"
+      }] }) } }] }), { status: 200 });
+    },
+    buildAppImpl: async (options) => {
+      buildOptions = options;
+      return app;
+    }
+  });
+
+  assert.equal(fetchCalls, 0);
+  assert.equal(buildOptions.copyGeneration.provider.kind, "phase1_controlled_test_double");
+  assert.equal(buildOptions.copyQuality.evaluator.kind, "hybrid_quality_qc");
+
+  const result = await buildOptions.copyQuality.evaluator.evaluate({
+    copyVersion: { body: "这款商品全网最好。" },
+    productRevision: {
+      product_name: "测试商品",
+      selling_points: [{ text: "轻便", confirmed: true }]
+    }
+  });
+  assert.equal(fetchCalls, 1);
+  const semanticFinding = result.findings.find((finding) => finding.rule_source === "llm_semantic_qc");
+  assert.equal(semanticFinding?.kind, "review");
+  assert.equal(semanticFinding?.code, "SEMANTIC_REVIEW_1");
+  assert.equal(semanticFinding?.matched_text, "全网最好");
+
   await server.close();
 });
 
