@@ -4,12 +4,12 @@
 
 ## 当前最高优先级
 
-当前正式交付目标是 `GOAL.md` 定义的 **Vertical Slice A 企业内容生产人工闭环**。
-`VSA-A01 / Issue #57`（企业身份与 Organization 上下文）已完成并合并。下一开发波次是
-`VSA-A02 / Issue #58` 与 `VSA-A03 / Issue #59` 的边界确认和独立授权；未获授权前不得开始实现。
+当前正式交付目标是 `GOAL.md` 定义的 **生产化核心能力升级**，按 D-033 和
+`docs/product/PRODUCTIONIZATION_UPGRADE_PLAN.md` 的 P0→P6 顺序推进。Vertical Slice A 已完成，
+单条 Local Agent / 飞影真实闭环已经验证；当前第一项代码工作是 DeepSeek Provider Adapter。
 
-原本地 GUI 与 Playwright 生产链路是已验证的兼容基线和运维兜底，不得被 VSA 开发破坏；但它不再是当前新增功能的
-最高优先级，也不等于新的 Cloud/SaaS 产品已经实现。任何真实飞影调用仍须单独获得积分授权。
+本地 GUI 与 Playwright/Local Agent 生产链路是已验证的兼容基线和当前「手里有货」执行器，不得被后续升级破坏。
+单条成功不等于小批量、完整人物/声音/场景能力或正式生产 SLA 已完成。真实费用继续执行对应授权门禁。
 
 ## 必读接力文档
 
@@ -43,7 +43,7 @@ docs/PROJECT_HANDOFF.md      ← 仅在需要历史背景时阅读
 1. 逻辑角色、实际模型、线程、Issue、分支和权限必须分开记录。
 2. 无法从运行时确认模型时，写 `UNVERIFIED_RUNTIME_MODEL`，不得按角色名假装模型已启用。
 3. 主控/策划/最终审查由 ORCHESTRATOR_REVIEWER 承担；实现优先交给独立 IMPLEMENTER。
-4. Luna 不可用时可以使用 Terra 或明确授权的其他模型回退，但必须记录替换，质量标准不变。
+4. 实现任务使用准确名称 `luna-worker`；不可用时必须失败关闭并报告，不得自动回退 Terra。
 5. 实现者不得最终批准或合并自己的 PR；Review 必须读取实际 diff、测试与 CI，而不是只看描述。
 6. 每个实现任务原则上对应一个 Issue、一个独立分支和一个主 PR；并行任务必须有不冲突的文件与接口边界。
 7. 完整规则和任务包格式见 `docs/agent-collaboration.md`。

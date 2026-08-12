@@ -1,62 +1,60 @@
-# 当前 Goal：Vertical Slice A 企业内容生产人工闭环
+# 当前 Goal：生产化核心能力升级
 
-> 状态：GOAL_APPROVED（VSA-A01～A14 已全部合并，对应 Issues #57～#70 已关闭）
+> 状态：GOAL_APPROVED / ACTIVE
 > Owner：JettxonHo
-> 最后更新：2026-08-09
-> 权威规划：`docs/product/VERTICAL_SLICE_A_DELIVERY_PLAN.md`（D-030）
+> 启动日期：2026-08-12
+> 前置里程碑：Vertical Slice A（A01～A14）已完成；单条真实飞影执行闭环已验证
+> 权威规划：`docs/product/PRODUCTIONIZATION_UPGRADE_PLAN.md`（D-033）
 
 ## 最终目标
 
-在不依赖真实 Hifly 自动执行的前提下，交付一条可审计、可恢复、具备 Organization 隔离的企业内容生产人工闭环：
+在保留现有 Cloud Web、Local Agent 与 Playwright「手里有货」真实链路的前提下，把当前单条试运行能力升级为可供运营团队稳定使用的小批量生产系统：
 
 ```text
-企业登录 → 项目与商品事实 → 文案生成/质检/批准 → 已有人物选择
-→ VideoPlan/Preflight/批准 → ProductionOrder → 人工交接包
-→ manual ExecutionAttempt/报告 → 候选产物核验 → Work → 检查与交付记录
+真实 DeepSeek 文案与语义质检
+→ 可维护的人物目录与品类选择
+→ 3 条商品 / 2 个人物的小批量生产验收
+→ 声音、背景、场景、姿势能力证据与受控配置
+→ 可安装常驻 Local Agent
+→ 生产级存储、数据库、域名、监控与恢复
 ```
 
-## 当前范围与非目标
+## 已确认基线
 
-- 当前范围：D-030 的 VSA-A01～A14，对应 GitHub Issues #57～#70。
-- 当前阶段：A01～A14 均已合并并关闭对应 Issue；A14 的 Kimi K3 UX 审计通过 PR #93 合并，
-  全链路验收与加固通过 PR #94 squash merge（`ba687de`），Ubuntu、Windows、PostgreSQL CI 全绿。
-- 非目标：真实 Hifly 接入、Local Agent 自动执行、Playwright/影刀作为新 SaaS 主流程、SSO/MFA、多 Organization 切换、完整 RBAC、自动发布和客户计费。
-- 旧本地 GUI/Playwright 链路保持兼容，不作为 Slice A 完成条件。
-- Q-018、HIFLY-001、SPK-018 继续按 Evidence 管理，不因 Slice A 测试替身而关闭。
+- VSA-A01～A14 的企业登录、项目、商品、文案版本、QC、人工审核、人物选择、VideoPlan、ProductionOrder、交接包、执行报告、作品核验和交付流程已经进入 `main`。
+- 单条云端真实工单已经完成 Mac Local Agent → 飞影「手里有货」→ 下载 → 云端回传 → 核验 → Work 登记。
+- 当前生产文案生成、语义 QC 与改写仍使用 `phase1_controlled_test_double`，不能宣称真实 AI 文案能力已经上线。
+- 人物仅完成受控目录与本地映射；公共/自有人物同步、品类推荐、声音和场景控制仍未形成生产能力。
+- 当前阿里云 2C4G 是内部试运行环境，不代表正式容量、SLA、高可用或灾备完成。
 
-## 里程碑与依赖
+## 里程碑
 
-| 波次 | Issue | 结果 | 状态 |
+| 波次 | 交付结果 | 当前状态 | 真实外部调用门禁 |
 |---|---|---|---|
-| 1 | A01 / #57 | 企业身份与单 Organization 上下文 | 已合并，Issue 已关闭 |
-| 2 | A02 / #58 ‖ A03 / #59 | 商品权威快照 ‖ 素材上传核验 | 已合并，Issues 已关闭，Wave 2 验收通过 |
-| 3-5 | A04 / #60、A05 / #61、A06 / #62、A07 / #63 | 文案生成、质检、批准与已有人物选择 | 已合并，Issues 已关闭 |
-| 6-8 | A08 / #64、A09 / #65、A10 / #66 | 方案、工单与人工交接包 | 已合并，Issues 已关闭 |
-| 9-11 | A11 / #67、A12 / #68、A13 / #69 | 人工执行、产物核验、作品交付 | 已合并，Issues 已关闭；A13 PR #91 CI 全绿 |
-| 12 | A14 / #70 | Slice A 端到端验收与加固 | 已合并，Issue 已关闭；PR #94 CI 全绿 |
+| P0 | 路线图、Evidence、Goal 与现状重基线 | 进行中 | 无 |
+| P1 | DeepSeek 官方文案生成与语义 QC/改写接入 | 待开始 | 真实模型 smoke 前需明确费用边界 |
+| P2 | 人物目录同步、运营上传和品类选择策略 | 待开始 | 飞影账号只读列表验证前需执行授权 |
+| P3 | 3 条商品、2 个人物的串行小批量验收与恢复 | 待开始 | 使用现有 standing authorization；每条仍须过门禁 |
+| P4 | 声音、背景、场景、姿势和构图 Evidence 与受控参数 | 待开始 | 任何生成试验均计入真实授权 |
+| P5 | macOS/Windows 可安装常驻 Local Agent 与诊断 | 待开始 | 无积分；安装/权限由环境验收 |
+| P6 | 对象存储、托管 PostgreSQL、可信域名、监控和恢复 | 待开始 | 需要实际云资源和凭据时由 Owner 提供 |
 
-详细依赖、对象边界和每项 DoD 以 D-030 与对应 GitHub Issue 为准；本文件只维护 Goal 级快照，不复制全部规范。
+## 执行规则
 
-## 完成标准
+1. 按 P0→P6 顺序推进；前一波次的业务合同和验收证据稳定后再扩大下一波次。
+2. 一个边界明确的任务对应一个 GitHub Issue、分支和 PR；实现使用 `luna-worker`，最终审查由 Sol 独立完成。
+3. 不把所有升级塞进一个 PR，不以测试替身、配置存在或本地绿测冒充真实 Provider/生产 Evidence。
+4. 真实 Hifly 生成继续遵守唯一工单、零 attempt、交接包 ready、登录态 ready、单条执行、失败即停、不自动重试。
+5. 用户此前授予的 standing authorization 当前剩余 4 条；仅 P3/P4 中满足门禁的真实生成可消耗该额度。
+6. DeepSeek、Hifly API、云资源的真实调用与部署证据分别记录，不相互替代。
+7. 遵守工程克制：只校验真实核心风险，不引入无必要 SHA-256，不为基本不可能出现的 case 扩张范围。
 
-1. #57～#70 的业务结果均通过正式 UI 或服务 API 可达，且各自独立 Review、测试和 CI 通过。
-2. 完整主路径不需要直接改数据库、不依赖未合并分支、不冒充 Hifly/Local Agent 能力。
-3. Organization 隔离、权限、不可变历史、幂等、并发、失败恢复和审计满足 D-030 的 Slice 级反向测试。
-4. 全新测试 Organization 的端到端验收通过，文档与 Evidence 状态一致。
-5. Goal 级 Review 给出 `GOAL_APPROVED` 或 `GOAL_APPROVED_WITH_FOLLOW_UPS`。
+## Goal 完成标准
 
-## 主要风险与人工确认条件
-
-- 身份/权限逻辑、不可逆 Migration、生产数据、真实 Secret、真实 Hifly 积分、主要技术栈或产品方向变更必须人工确认。
-- A02/A03 后可能出现共享数据库 Migration 冲突；并行前必须固定表归属与合并顺序。
-- Q-018 未决，禁止把 Hifly Token/Cookie/Profile 迁移到云端设计中。
-- 不进行攻防论文式过度防御；只有真实核心风险阻塞合并，低概率非核心风险记录后续项。
-
-## 最终结论
-
-`GOAL_APPROVED`。VSA-A01～A14 已形成从全新企业登录、空项目建档到 Work 检查与交付记录的完整
-人工闭环，全部通过独立 Review、自动测试与 CI，并已进入 `main`。A14 验收没有使用服务层捷径预置
-视频方案，浏览器主路径从正式 UI 空状态完成创建与后续流程。
-
-真实 Hifly、Provider、Capture HTTP、Local Agent 自动执行与积分生产仍是本 Goal 之外的后续能力，
-任何真实执行继续要求单独明确授权。
+1. 运营可从真实商品事实生成文案、执行确定性与语义 QC，并经人工审核进入视频方案。
+2. 运营可查看和选择可用人物，系统可按品类给出可解释建议，但不静默替用户确认。
+3. 至少 3 个不同商品、2 个人物完成串行真实生产；失败恢复不重复提交和扣分。
+4. 声音/背景/场景/姿势能力均有明确 Evidence：支持的进入受控配置，不支持的在产品中如实提示。
+5. Local Agent 可安装、常驻、升级和诊断；默认仍失败关闭，真实执行保持双门禁。
+6. 正式环境使用对象存储与托管 PostgreSQL，具备可信域名、监控、备份和恢复演练证据。
+7. 文档、Issue、代码、测试、CI、部署与真实运行证据一致，不宣称未验证能力。
