@@ -4,16 +4,18 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
-## 2026-08-12 CE-03 / Issue #138 Cloud Playwright adapter（本地实现，待 Review）
+## 2026-08-12 CE-03 / Issue #138 Cloud Playwright adapter（Sol Review follow-up 已实现）
 
 - 当前分支：`codex/ce-03-cloud-playwright-adapter`；基线：`origin/main@d912d93`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置：`~/.codex/agents/luna-worker.toml`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
 - 新增独立 `src/cloud-executor/playwright-adapter.js`：Cloud Executor 自己拥有 persistent Playwright context/page 的 composition 与 close 生命周期，显式接收 workspace/profile/assets/outputs/evidence 路径；通过现有 `HiflyHandsOnProductPage`、`createHiflyExecutor` 与 `runBatch` 组成执行链，没有复制 selector 或页面流程。运行时 `mode=playwright` 只在 standalone Cloud Executor runtime 中构造它；Web/Fastify 没有新增浏览器生命周期或 worker wiring。
 - 受控进度阶段固定为 `pre_submit`、`submitted`、`wait_download`、`unknown_post_submit`，由既有 Hifly checkpoint 映射；提交后无唯一稳定证据、提交超时或结果含糊时统一返回 `requires_action`，停止 adapter/worker，禁止 Provider submit 重试。CE-02 service 现在持久化该结论为 `requires_action` / `not_retryable`，不领取下一条订单。
 - Cloud config 新增显式 workspace/profile 派生配置，默认仍为 `disabled` / `fail_closed`；未修改或新增 migration，未改 Local Agent 与 Web/API 进程归属。
-- 已验证：CE-03 adapter + CE-02 focused tests 18/18；Local Agent/core focused tests 127/127；`npm run check` 检查 220 个 JavaScript 文件；`npm test` 973 total / 959 pass / 14 existing environment skip / 0 fail；`git diff --check` 通过。
+- Sol Review follow-up 已修复 Windows 路径可移植性和真实 handoff contract：Playwright 模式通过最小 Cloud package port 下载已领取 ready archive，adapter 在 attempt workspace 内复用 `extractHandoffPackage` / `loadAvatarMappings` / `compilePackageToBatchItem` 编译真实 `product_revision`、`copy_snapshot`、`avatar_snapshot`、`video_plan_snapshot`、`asset_references`，不再依赖伪造 `package.task`。人物映射通过 `CLOUD_EXECUTOR_AVATAR_MAPPING_FILE` 或测试注入显式配置。
+- 新增由现有 ManualHandoffPackage service/worker 生成真实 zip 的 integration-shaped fake，证明 archive 可编译并进入现有 Hifly executor/page core。Cloud service 只向 adapter 转发 `{body, contentType}`，Buffer 之外失败关闭；archive、manifest/素材正文、secret、URL 和 port 额外字段不进入公开投影或日志。
+- 已验证：CE-03 adapter + CE-02 focused tests 20/20；真实包/编译相关 focused tests 36/36；Local Agent/core focused tests 127/127；`npm run check` 检查 220 个 JavaScript 文件；`npm test` 975 total / 961 pass / 14 existing environment skip / 0 fail（另以 dot reporter 完整重跑 exit 0）；`git diff --check` 通过。
 - 外部边界：0 次 Cloud Executor/真实 Hifly 浏览器启动、0 次 Hifly 访问、0 次外部真实 HTTP/DeepSeek、0 次 ProductionOrder real claim、0 次部署、0 次积分消耗；无真实批次、错误或下载产物路径。本轮新增路径仅使用 fake Playwright/page、fake executor 和本地 fixtures；全量回归中的既有本地 GUI/browser fixture tests 不属于 Cloud Executor 外部动作。
-- Implementation commit：`490b4b9` 已提交并推送；READY PR [#146](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/146) 已创建并关联 `Closes #138`，当前 `OPEN`、非 draft，CI（Ubuntu/Windows/PostgreSQL）均 queued，独立 Review/CI pending。GitHub connector 创建权限返回 403，已用已认证 `gh` CLI 完成创建。
-- 当前卡点/下一步：等待独立 Review/CI；不合并或审批自己的 PR，不做 CE-04+、部署或真实飞影动作。
+- Implementation commits：`490b4b9`（初始实现）、`4d5b34a`（Sol Review follow-up）；READY PR [#146](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/146) 已创建并关联 `Closes #138`，当前 `OPEN`、非 draft。首轮 Ubuntu/PostgreSQL CI 通过，Windows 仅因 POSIX 路径断言失败；follow-up 已本地修复，待推送重跑。GitHub connector 创建权限返回 403，使用已认证 `gh` CLI。
+- 当前卡点/下一步：推送 follow-up 并等待 CI/独立 Review；不合并或审批自己的 PR，不做 CE-04+、部署或真实飞影动作。
 
 ## 2026-08-12 P0 Cloud Executor 正式架构纠偏启动
 
