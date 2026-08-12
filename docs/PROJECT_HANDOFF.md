@@ -3,11 +3,19 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-12 P3 阿里云升级与 Local Agent standby 完成
+
+- Owner 明确授权数据库备份、production migration、应用重建和无副作用 standby；明确禁止本轮真实飞影生成。
+- 阿里云从 `cf13679` 升级到 `main@d6e1f50`。升级前备份 `hifly-20260812T073732Z.dump`（444 KB、非空），回滚镜像 `hifly-pilot-app:rollback-cf13679`。服务器 GitHub 443 超时后改用本机 Git bundle 经 SSH 传输并 `--ff-only` 更新，未修改业务提交。
+- 新镜像构建成功，13 组 production migration 全部通过；app/postgres/proxy healthy，内外网 HTTPS health 均通过，远端 Git 工作树干净。
+- Mac 默认 Local Agent `run-once` 仅 heartbeat HTTP 200 并返回 `standby`。未 claim、未启用 fake/real executor、未访问 Hifly/DeepSeek、未消耗积分。
+- 下一步：登记第 2 张仓库外合成人物候选，取得云端 AssetVersion ID 后写入 Mac 私有映射，再准备三条串行真实工单。详细记录见 `docs/status/sessions/2026-08-12-p3-cloud-deployment-and-standby.md`。
+
 ## 2026-08-12 P3 Issue #132 小批量真实验收准备
 
 - P1/P2 代码均已进入 main；P3 目标为 3 个不同商品、至少 2 个人物，通过 Cloud → Local Agent → 飞影 → 回传 → A12 → Work 的串行真实验收。推荐只提供建议，人物仍由运营显式确认。
 - 已有商品图：iPad、吉伊卡哇玩偶、熊玩偶；本机私有人物映射只有 1 个。仓库外已准备第 2 张合成男性人物候选（PNG、941x1672、约 1.76 MB），但尚未完成企业人物登记和本地映射；不得提交该素材或记录其私有路径。
-- 阿里云尚未部署含 P2 migration/GUI 的 `main@b0e47ab`。部署前需 Owner 明确授权；部署后先跑 migration、健康检查和无副作用 standby，再创建 3 条一商品一工单的批准链。
+- 阿里云已部署含 P2 migration/GUI 的 `main@d6e1f50`，健康检查和无副作用 standby 通过；下一步登记/映射第 2 个人物，再创建 3 条一商品一工单的批准链。
 - standing authorization 剩余 4 次；P3 最多计划使用其中 3 次，每次单独过唯一工单/零 attempt/ready package/人物映射/登录态门禁。首失败立即停止，不自动重试。
 - 本轮只建立 Issue #132 和 readiness 记录，没有部署、Hifly/DeepSeek 调用、工单领取或积分消耗。详见 `docs/status/sessions/2026-08-12-p3-small-batch-readiness.md`。
 

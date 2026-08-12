@@ -4,12 +4,20 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：生产化核心能力升级（D-033）；P1 与 P2 代码已全部合并，P3 Issue #132 小批量真实验收正在准备；后续单条真实生成 standing authorization 剩余 4 次
 
+## 2026-08-12 P3 阿里云部署与 standby 检查完成（无飞影生成）
+
+- 阿里云 `/opt/hifly-pilot` 已从 `cf13679` 升级到 `main@d6e1f50`。升级前数据库备份为 `hifly-20260812T073732Z.dump`（444 KB、非空），旧应用镜像保留为 `hifly-pilot-app:rollback-cf13679`。
+- 服务器访问 GitHub 443 一度超时；未重复撞公网，而是从本机生成仅含九个提交的 Git bundle，经 SSH 传输并在远端 `--ff-only` 更新。服务器 Git 工作树最终干净。
+- 新镜像构建成功；13 组 production migration 全部成功。app、postgres、proxy 均 healthy，内外网 HTTPS `/healthz` 均返回 `{"status":"ok"}`，新应用日志显示监听 `0.0.0.0:3000`，未出现启动/schema 错误。
+- Mac Local Agent 使用既有私有配置执行默认 `run-once`，只上报 heartbeat（HTTP 200）并返回 `standby`；没有领取工单、没有开启 fake/real executor、没有访问飞影或 DeepSeek，积分消耗 0。
+- P3 下一步是通过已部署 GUI/API 登记第 2 个人物候选并建立本地映射，然后准备三条批准链。真实生成仍使用既有 standing authorization 和逐条运行门禁。
+
 ## 2026-08-12 P3 / Issue #132 小批量真实验收准备（无副作用）
 
 - 验收目标固定为 3 个不同商品、至少 2 个不同人物，按一商品一 ProductionOrder 串行执行；每条继续要求唯一可领取工单、零 attempt、交接包 ready、人物映射存在、飞影登录预检 ready。任何首个失败立即停止，禁止自动重试。
 - 本机已有 3 个可用商品图：iPad、吉伊卡哇玩偶、熊玩偶；本机私有目录已有 1 个已映射人物，并已在仓库外准备第 2 张合成男性人物候选。第 2 个人物仍需在部署后完成企业人物登记和本地映射，不能把本地图片存在视为云端可选。
-- P2-02/P2-03 已进入 `main@b0e47ab`，但阿里云试运行环境尚未部署这些 migration 和 GUI；当前不能把本地合并状态视为云端人物目录/推荐可用。
-- 下一门禁：Owner 需要明确授权部署当前 main 到阿里云。部署、migration、standby 检查以及第 2 个人物登记/映射完成后，才逐条准备 3 个批准工单并使用 standing authorization；本轮未部署、未访问飞影、未领取工单、积分消耗 0。
+- P2-02/P2-03 已随 `main@d6e1f50` 部署到阿里云试运行环境，migration、三容器健康和无副作用 standby 均已通过；尚未执行真实飞影目录同步或生产生成。
+- 下一门禁：完成第 2 个人物登记/映射后，逐条准备 3 个批准工单并使用 standing authorization；部署与 standby 阶段未访问飞影、未领取工单、积分消耗 0。
 - 详细合同见 Issue #132 与 `docs/status/sessions/2026-08-12-p3-small-batch-readiness.md`。P4 不在本轮提前开始。
 
 ## 2026-08-12 P2-03 / Issue #130 人物品类推荐（实现与独立审查完成）
