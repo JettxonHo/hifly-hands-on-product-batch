@@ -86,3 +86,27 @@ test("completed report verification creates one Work and then succeeds its Produ
   assert.equal(state.order.status, "succeeded");
   assert.equal((await repository.listWorks(actor.organizationId)).length, 1);
 });
+
+test("worker-side authoritative package lookup forwards the verification actor context", async () => {
+  const state = world();
+  const packageCalls = [];
+  state.packagePort.getPackage = async (input) => {
+    packageCalls.push(input);
+    if (input.actorMemberId !== actor.actorMemberId || input.actorRole !== actor.actorRole) return null;
+    return structuredClone(state.packageRecord);
+  };
+  await state.objectStore.put({ key: state.candidate.object_key, body: state.body, contentType: state.candidate.media_type, metadata: { organizationId: actor.organizationId, candidateOutputId: state.candidate.id } });
+  const repository = createMemoryWorkVerificationRepository();
+  const service = createWorkVerificationService({ repository, ...state, now: () => Date.parse("2026-08-09T00:00:00.000Z") });
+
+  await service.requestVerification({ ...actor, productionOrderId: state.order.id, executionAttemptId: state.attempt.id, reportId: state.report.id, candidateId: state.candidate.id, idempotencyKey: "actor-context" });
+  const result = await service.runNextVerificationJob();
+
+  assert.equal(result.job.verification_status, "passed");
+  assert.deepEqual(packageCalls, [{
+    organizationId: actor.organizationId,
+    actorMemberId: actor.actorMemberId,
+    actorRole: actor.actorRole,
+    packageId: state.attempt.package_id
+  }]);
+});
