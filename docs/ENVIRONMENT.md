@@ -151,6 +151,20 @@ PostgreSQL pool，但分别使用 `identity_schema_migrations`、`asset_schema_m
 `avatar_selection_schema_migrations` 和 `video_planning_schema_migrations`。默认生成器、质检器、改写器和预检器的
 `phase1_controlled_test_double` 只用于 Slice A 本地验收，不访问真实模型或飞影。
 
+### DeepSeek 文案 Provider（P1-01，默认关闭）
+
+生产配置默认保持 `COPY_GENERATION_PROVIDER=phase1_controlled_test_double`，不会访问外部模型。
+只有在服务端明确设置 `COPY_GENERATION_PROVIDER=deepseek` 时，启动配置才要求服务端环境变量
+`DEEPSEEK_API_KEY`；缺少该变量会在服务启动前失败关闭，不会回退到受控替身、其他模型或其他 Provider。
+适配器使用 DeepSeek 官方 OpenAI-compatible endpoint `https://api.deepseek.com/chat/completions`、默认模型
+`deepseek-v4-flash`、`thinking.type=disabled` 和 `response_format={"type":"json_object"}`。请求只投影已确认
+商品文字事实与规范化 ContentBrief，不发送图片、图片 URL、本地路径、Hifly 凭据、Cookie 或浏览器会话。
+
+官方参数说明以 [DeepSeek API 文档](https://api-docs.deepseek.com/api/create-chat-completion) 为准；本项目只在
+输出为空、非法、截断或不满足 `{ "body": "string" }` 最小结构时对同一 Provider/模型重试一次。HTTP、认证、
+限流和服务端错误不自动切换模型或 Provider。当前 PR 只交付可选择的 adapter 与配置，未执行真实 DeepSeek
+smoke、未切换已部署环境；真实模型 activation pending。
+
 本地数据库验证完成后可清理：
 
 ```bash
