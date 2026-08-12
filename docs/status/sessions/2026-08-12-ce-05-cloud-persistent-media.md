@@ -45,6 +45,8 @@
 - `git diff --check`: passed.
 - Sol Review follow-up `npm test`: passed, 993 tests / 979 pass / 14
   existing environment skips / 0 fail.
+- PR #148 follow-up head `e4936c8`: Ubuntu Node 22, Windows Node 22, and
+  identity-postgres CI all passed.
 
 ## Remaining boundary
 

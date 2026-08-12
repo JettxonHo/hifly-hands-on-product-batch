@@ -13,6 +13,7 @@
 - 已新增 `deploy/cloud-executor-storage.yml` 与 `docs/deployment/CLOUD_EXECUTOR_STORAGE_CONTRACT.md`，显式挂载 assets/outputs/evidence named volumes；未新增 Cloud Executor 文件 route，视频继续复用 A12 verified output AssetVersion 与现有鉴权 Work preview/download 合同。
 - 已新增第二 runtime/service/store 共享临时持久根的重启测试：商品/人物素材、Evidence、candidate 元数据与视频字节保留；通过现有 verified output registration 和鉴权 Work 下载路径返回原始视频字节。公开 Cloud result 不含绝对路径、raw storage key、signed URL、cookie 或 token。
 - Sol Review follow-up 最终验证：CE-02/03/04 + CE-05 focused `38/38`；`npm run check` 检查 223 个 JavaScript 文件；`npm test` `993` tests / `979` pass / `14` existing environment skips / `0` fail；`git diff --check` 通过；CE-05 Compose fragment `docker compose -f deploy/cloud-executor-storage.yml config` 通过。
+- PR #148 follow-up head `e4936c8` 的 CI 已通过：Ubuntu Node 22、Windows Node 22、identity-postgres 全部 success。
 - 外部边界：0 次 Hifly/真实浏览器/Provider/DeepSeek/HTTP，0 次真实 ProductionOrder claim，0 次部署，飞影积分消耗 0。CE-07 仍需目标云环境的真实 volume/bind、disabled/fail-closed standby、磁盘/readiness 与重启恢复证明；CE-08 仍需另行授权真实纯云端出片。
 
 ## 2026-08-12 CE-04 / Issue #139 Cloud Profile 与受控登录（READY PR 待 Review）
