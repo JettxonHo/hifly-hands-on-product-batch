@@ -11,13 +11,16 @@ claim 或积分验证。
 ```text
 CLOUD_EXECUTOR_ENABLED=false
 CLOUD_EXECUTOR_MODE=fail_closed
+CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED=false
 CLOUD_EXECUTOR_CONCURRENCY=1
 CLOUD_EXECUTOR_NOVNC_BIND_HOST=127.0.0.1
 ```
 
-在此状态下 Worker 只启动 no-side-effect standby/disabled 进程和本机 `/healthz`；不创建 PostgreSQL
-连接、不读取 Hifly config、不构造浏览器、不运行 Provider preflight、不列出或 claim production order，
-也不伪造 `available`。健康结果中的 `readiness=disabled` 与 `claim_enabled=false` 是禁用语义。
+在此状态下 Worker 只准备本地持久 workspace 目录与固定、非敏感 Profile marker，并启动
+no-side-effect standby/disabled 进程和本机 `/healthz`；不创建 PostgreSQL 连接、不读取 Hifly config、
+不构造浏览器、不运行 Provider preflight、不列出或 claim production order，也不伪造 `available`。
+workspace 无法准备时只进入 `storage_blocked`，marker 内容异常时进入 `requires_action`，两者都不会进入
+执行路径。健康结果中的 `readiness=disabled` 与 `claim_enabled=false` 是禁用语义。
 
 只有完成独立授权和密钥注入后，才可把 `CLOUD_EXECUTOR_ENABLED=true`、设置 `mode=playwright`、
 `CLOUD_EXECUTOR_ID`、组织 ID、heartbeat URL/token 与外部 Hifly config 路径。真实执行不属于本轮
@@ -37,8 +40,9 @@ POSTGRES_PASSWORD='use-a-local-shell-value' \
 
 `docker compose config` 只解析 Compose，不启动容器，不产生 Provider 请求。确认 `cloud_executor`
 只有一个 service 实例，`CLOUD_EXECUTOR_CONCURRENCY=1`，noVNC 宿主机映射为
-`127.0.0.1:6080:6080`，没有 `0.0.0.0` 宿主机映射；Worker 的 health 只通过 internal network
-访问 Web heartbeat route。
+`127.0.0.1:6080:6080`，没有 `0.0.0.0` 宿主机映射。Worker 同时连接 `internal` 与
+`executor_egress`：前者只用于 `app:3000`/PostgreSQL，后者只提供未来 Playwright 所需的出站网络；
+两者都不发布 Worker health，`3001` 仅为容器内 healthcheck，noVNC 仍只有宿主机 loopback 映射。
 
 ## 显式 migration 与启动顺序
 
@@ -68,12 +72,30 @@ docker compose -p hifly-pilot -f docker-compose.production.yml logs --tail=50 cl
 
 期望健康 JSON 只包含 `status`、`runtime`、`readiness`、`worker`、`concurrency`、`claim_enabled`，
 并在默认配置下看到 `readiness=disabled`、`claim_enabled=false`。不要以网页“online”或容器 healthy
-推断 Worker 可用；heartbeat 只有在显式启用且通过真实鉴权后才上报受控 readiness/progress。
+推断 Worker 可用。
+
+若本轮需要验证 app/Worker 配对，可显式设置下列无执行权限的 heartbeat-only 模式；ID、Organization
+与 token 必须同时配置，URL 保持 Compose 内部地址，`TRUSTED_HOSTS` 必须保留 `app:3000`：
+
+```text
+CLOUD_EXECUTOR_ENABLED=false
+CLOUD_EXECUTOR_MODE=fail_closed
+CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED=true
+CLOUD_EXECUTOR_ID=<stable-cloud-executor-id>
+CLOUD_EXECUTOR_ORGANIZATION_ID=<organization-id>
+CLOUD_EXECUTOR_HEARTBEAT_TOKEN=<secret-from-private-env>
+CLOUD_EXECUTOR_HEARTBEAT_URL=http://app:3000/internal/cloud-executor/v1/heartbeat
+```
+
+该模式只周期上报 `readiness=disabled`、`progress=standby`；Web 可显示 Worker online，但 readiness
+仍为 disabled。控制面拒绝此路径上报 `available`/`busy`，Worker 仍没有 DB、Hifly、browser、order list
+或 claim seam。验证结束后可把 pairing flag 恢复为 `false`。
 
 ## 持久卷、重启与 noVNC
 
-Profile、assets、outputs、evidence、batches、locks 分别使用 named volume；共享的
-`/var/lib/hifly/manual-handoff-packages` 以只读方式来自 Web app 数据卷。检查目录和非敏感重启 marker：
+Profile、assets、outputs、evidence、batches、locks 分别使用 Worker named volume；handoff 不是独立
+named volume，`/var/lib/hifly/manual-handoff-packages` 是 Web app 数据卷 `/var/lib/hifly` 在 Worker
+容器内的只读子目录。检查目录和非敏感重启 marker：
 
 ```bash
 docker compose -p hifly-pilot -f docker-compose.production.yml exec cloud_executor \
@@ -94,6 +116,20 @@ ssh -N -L 6080:127.0.0.1:6080 <user>@<aliyun-host>
 
 浏览器打开本地 `http://127.0.0.1:6080/`；不要在安全组开放 6080，不要把 Compose 映射改为
 `0.0.0.0`，不要把 websockify 的 container-local bind 误当成公网授权。
+
+需要运行 CE-04 登录命令时，先停止默认 Worker，使用同一镜像显式切换 login mode，并让 Compose
+发布既有 loopback noVNC 端口：
+
+```bash
+docker compose -p hifly-pilot -f docker-compose.production.yml stop cloud_executor
+CLOUD_EXECUTOR_ENABLED=true CLOUD_EXECUTOR_MODE=login \
+  docker compose -p hifly-pilot -f docker-compose.production.yml run --rm --service-ports cloud_executor login
+docker compose -p hifly-pilot -f docker-compose.production.yml up -d cloud_executor
+```
+
+entrypoint 的 `login` 分支只调用 `scripts/cloud-executor.js login`；该 CE-04 runtime 没有 service、Worker、
+order list、claim 或生成接口。登录会访问 Provider 页面，因此不属于本轮无外部访问验证，只有经独立
+授权的操作者才能实际执行上述命令。
 
 ## 健康、内存与磁盘观察
 
@@ -127,8 +163,8 @@ docker compose -p hifly-pilot -f docker-compose.production.yml up -d cloud_execu
 
 若新 migration 已执行，不能假定降级镜像可读旧 schema；需要数据库恢复时，停止写入流量、确认备份和
 目标库，再由有权限的操作者显式执行 `npm run db:restore -- --input <backup> --confirm`，随后重新按
-schema/health 顺序启动。不要删除 named volumes 作为普通回滚步骤；Profile、handoff、outputs、
-evidence 与数据库备份需先取得独立保留/恢复确认。
+schema/health 顺序启动。不要删除 named volumes 作为普通回滚步骤；Worker Profile/outputs/evidence、
+Web app 数据卷中的 handoff 与数据库备份需先取得独立保留/恢复确认。
 
 任何回滚后都复核：Worker health 为 disabled/fail_closed 或明确受控状态、无 claim 新增、无 Hifly
 访问、无 Provider 请求；本轮部署不提供真实出片或积分结算证据。

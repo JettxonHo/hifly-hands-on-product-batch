@@ -35,6 +35,7 @@ services:
       CLOUD_EXECUTOR_ORGANIZATION_ID: ${CLOUD_EXECUTOR_ORGANIZATION_ID:-}
       CLOUD_EXECUTOR_HEARTBEAT_TOKEN: ${CLOUD_EXECUTOR_HEARTBEAT_TOKEN:-}
       CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS: ${CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS:-15000}
+      CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED: ${CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED:-false}
     expose:
       - "3000"
     volumes:
@@ -120,6 +121,7 @@ services:
       CLOUD_EXECUTOR_HEARTBEAT_URL: ${CLOUD_EXECUTOR_HEARTBEAT_URL:-http://app:3000/internal/cloud-executor/v1/heartbeat}
       CLOUD_EXECUTOR_HEARTBEAT_TOKEN: ${CLOUD_EXECUTOR_HEARTBEAT_TOKEN:-}
       CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS: ${CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS:-15000}
+      CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED: ${CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED:-false}
       CLOUD_EXECUTOR_CONCURRENCY: "1"
       CLOUD_EXECUTOR_ROOT: /var/lib/hifly-executor
       CLOUD_EXECUTOR_PROFILE_DIR: /var/lib/hifly-executor/profile
@@ -157,6 +159,7 @@ services:
         condition: service_healthy
     networks:
       - internal
+      - executor_egress
     restart: unless-stopped
     init: true
     mem_limit: 1024m
@@ -183,5 +186,6 @@ volumes:
 
 networks:
   edge:
+  executor_egress:
   internal:
     internal: true

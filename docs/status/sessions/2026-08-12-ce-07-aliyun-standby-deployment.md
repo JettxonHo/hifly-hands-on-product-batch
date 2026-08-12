@@ -36,12 +36,15 @@
 
 Validation completed:
 
-- Focused CE-02..CE-07 and production command — 75/75 passed, including 10/10
-  CE-07 deployment tests.
+- Independent-review follow-up focused command — 44/44 passed, covering
+  deployment, control-plane heartbeat, login, and production-start contracts.
 - `npm run check` — 229 JavaScript files checked.
-- `npm test` — 1,009 tests / 995 passed / 14 existing environment skips / 0
+- `npm test` — 1,012 tests / 998 passed / 14 existing environment skips / 0
   failed.
-- `git diff --check` — passed.
+- One preceding full run hit the existing CI-003 temporary-directory cleanup
+  race (`ENOTEMPTY`) outside CE-07; its file reran 17/17 and the subsequent
+  full `npm test` completed with the green result above. No RPA code changed.
+- Entrypoint shell syntax and `git diff --check` — passed.
 - `POSTGRES_PASSWORD=<shell-only-placeholder> docker compose -f
   docker-compose.production.yml config` — static parse passed.
 - Secret/artifact audit found no real secret, Profile, media, or generated log
@@ -54,12 +57,27 @@ Completed handoff:
   (`Closes #142`) is open, non-draft, and not merged or approved.
 - The implementer will not approve, merge, or close the PR.
 
+Independent-review follow-up:
+
+- Added a non-internal `executor_egress` network for future Playwright outbound
+  access while keeping health container-only and noVNC host-loopback only.
+- Disabled/fail-closed startup now creates only persistent workspace directories
+  and the fixed non-secret Profile marker; preparation failure stays controlled
+  and never constructs DB/Hifly/browser/order/claim wiring.
+- Added explicit, default-off heartbeat-only standby pairing. It can report
+  disabled/unconfigured/storage-blocked state to `app:3000`; the disabled Web
+  control plane rejects available/busy on this path.
+- The production entrypoint now dispatches an explicit `login` command to the
+  existing CE-04 login-only runtime after starting Xvfb/noVNC; default execution
+  remains the standalone Worker.
+
 Live deployment, container health, actual volume/restart persistence, real
 heartbeat, and any provider/Hifly readiness remain unverified and are not
 claimed by this implementation.
 
 ## Current blocker and next step
 
-No Sol decision blocker is known. Finish proportional local gates, inspect the
-diff for unrelated changes/secrets, commit only CE-07 files, push the branch,
-and open a READY (non-draft) PR without approving, merging, or closing it.
+No Sol decision blocker is known. Local implementation and static gates are
+complete; PR #150 remains READY for independent review. Sol owns post-merge
+Alibaba Cloud deployment/live proof. The implementer will not approve, merge,
+or close the PR or Issue.

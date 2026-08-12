@@ -99,3 +99,38 @@ export function createCloudExecutorHeartbeatClient({ enabled = false, url = null
     }
   };
 }
+
+export function createCloudExecutorStandbyHeartbeat({ heartbeatPort, intervalMs = 5_000,
+  onError = () => undefined } = {}) {
+  if (typeof heartbeatPort?.report !== "function") throw new TypeError("cloud executor heartbeat port is required");
+  if (!Number.isSafeInteger(intervalMs) || intervalMs < 1_000) throw new TypeError("heartbeat interval must be at least one second");
+  let timer = null;
+  let state = null;
+
+  async function report() {
+    try {
+      await heartbeatPort.report(state);
+    } catch {
+      onError(Object.assign(new Error("CLOUD_EXECUTOR_HEARTBEAT_FAILED"), { code: "CLOUD_EXECUTOR_HEARTBEAT_FAILED" }));
+    }
+  }
+
+  return {
+    async start(value) {
+      if (timer) return;
+      state = validateState(value);
+      const publicState = {
+        readinessStatus: state.readiness_status,
+        ...(state.progress_phase ? { progressPhase: state.progress_phase } : {})
+      };
+      state = publicState;
+      await report();
+      timer = setInterval(() => { void report(); }, intervalMs);
+      timer.unref?.();
+    },
+    stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+    }
+  };
+}

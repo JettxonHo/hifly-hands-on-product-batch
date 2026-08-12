@@ -71,6 +71,11 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
   const minFreeBytes = bytes(env.CLOUD_EXECUTOR_MIN_FREE_BYTES, "CLOUD_EXECUTOR_MIN_FREE_BYTES", DEFAULT_CLOUD_EXECUTOR_MIN_FREE_BYTES);
   const heartbeatUrl = env.CLOUD_EXECUTOR_HEARTBEAT_URL?.trim() || null;
   const heartbeatToken = env.CLOUD_EXECUTOR_HEARTBEAT_TOKEN?.trim() || null;
+  const standbyHeartbeatEnabled = boolean(
+    env.CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED,
+    "CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED",
+    false
+  );
   const heartbeatTimeoutMs = duration(env.CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS, "CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS", 15_000);
   const handoffDir = path.resolve(root, env.CLOUD_EXECUTOR_HANDOFF_DIR || "/var/lib/hifly/manual-handoff-packages");
   const healthHost = privateBindHost(env.CLOUD_EXECUTOR_HEALTH_HOST);
@@ -95,6 +100,12 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
       ? Boolean(workspace.root && workspace.profileDir)
       : ["fake", "playwright"].includes(mode) && Boolean(executorCloudId && organizationId && workspace.root && workspace.profileDir)
   );
+  if (standbyHeartbeatEnabled && (!heartbeatUrl || !heartbeatToken || !executorCloudId || !organizationId)) {
+    throw Object.assign(new Error("CLOUD_EXECUTOR_STANDBY_HEARTBEAT_CONFIG_REQUIRED"), {
+      code: "CLOUD_EXECUTOR_STANDBY_HEARTBEAT_CONFIG_REQUIRED"
+    });
+  }
+  const activeHeartbeatEnabled = enabled && configured && ["fake", "playwright"].includes(mode);
   return {
     enabled,
     configured,
@@ -121,7 +132,8 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
     databaseSsl,
     handoffDir,
     heartbeat: {
-      enabled: enabled && configured && ["fake", "playwright"].includes(mode) && Boolean(heartbeatUrl && heartbeatToken),
+      enabled: Boolean(heartbeatUrl && heartbeatToken) && (activeHeartbeatEnabled || standbyHeartbeatEnabled),
+      standbyEnabled: standbyHeartbeatEnabled,
       url: heartbeatUrl,
       token: heartbeatToken,
       timeoutMs: heartbeatTimeoutMs

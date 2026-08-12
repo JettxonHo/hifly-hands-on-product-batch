@@ -9,10 +9,10 @@ import { createPostgresManualExecutionRepository } from "../manual-execution/pos
 import { createManualHandoffPackageService } from "../manual-handoff/manual-handoff-package-service.js";
 import { createPostgresManualHandoffRepository } from "../manual-handoff/postgres-manual-handoff-repository.js";
 import { createPostgresProductionOrderRepository } from "../production-orders/postgres-production-order-repository.js";
-import { createCloudExecutorHeartbeatClient } from "./heartbeat.js";
+import { createCloudExecutorHeartbeatClient, createCloudExecutorStandbyHeartbeat } from "./heartbeat.js";
 import { createCloudExecutorConfig } from "./config.js";
 import { createCloudExecutorRuntime } from "./runtime.js";
-import { createCloudWorkspaceConfig } from "./workspace.js";
+import { createCloudWorkspaceConfig, ensureCloudExecutorWorkspace } from "./workspace.js";
 import { loadConfig } from "../config.js";
 import { createPostgresWorkVerificationRepository } from "../work-verification/postgres-work-verification-repository.js";
 
@@ -212,10 +212,23 @@ function shouldAssemble(config) {
   return config?.enabled === true && config.configured === true && ACTIVE_MODES.has(config.mode);
 }
 
+function workspaceFailureStatus(error) {
+  return error?.code === "CLOUD_EXECUTOR_PROFILE_MARKER_INVALID" ? "requires_action" : "storage_blocked";
+}
+
+function inactiveHeartbeatState(status) {
+  if (["disabled", "fail_closed"].includes(status)) return { readinessStatus: "disabled", progressPhase: "standby" };
+  if (status === "unconfigured") return { readinessStatus: "unconfigured", progressPhase: "standby" };
+  if (status === "storage_blocked") return { readinessStatus: "storage_blocked", progressPhase: "requires_action" };
+  return { readinessStatus: "requires_action", progressPhase: "requires_action" };
+}
+
 export async function createCloudExecutorProductionRuntime({ root = process.cwd(), env = process.env, config = null,
   configFactory = createCloudExecutorConfig, createPool = createIdentityPool,
   portsFactory = createCloudExecutorProductionPorts, runtimeFactory = createCloudExecutorRuntime,
   heartbeatFactory = createCloudExecutorHeartbeatClient, loadHiflyConfig = loadConfig,
+  standbyHeartbeatFactory = createCloudExecutorStandbyHeartbeat,
+  workspaceFactory = createCloudWorkspaceConfig, ensureWorkspace = ensureCloudExecutorWorkspace,
   fetchImpl = globalThis.fetch, now = Date.now, onError = () => undefined } = {}) {
   const selectedConfig = config || configFactory({ root, env });
   const base = { config: selectedConfig, startup: null, runtime: null, pool: null, ports: null, verificationWorker: null };
@@ -225,9 +238,40 @@ export async function createCloudExecutorProductionRuntime({ root = process.cwd(
   else if (selectedConfig.heartbeat?.enabled !== true) guardedConfig = inactiveConfig(selectedConfig, "unconfigured");
 
   if (guardedConfig !== selectedConfig) {
+    let preparationStatus = null;
+    try {
+      await ensureWorkspace(workspaceFactory(selectedConfig.workspace));
+    } catch (error) {
+      preparationStatus = workspaceFailureStatus(error);
+    }
     const runtime = runtimeFactory({ config: guardedConfig, now, onError });
-    const startup = await runtime.start();
-    return { ...base, runtime, startup, close: () => runtime.close() };
+    const runtimeStartup = await runtime.start();
+    const startup = preparationStatus
+      ? { status: preparationStatus, ready: false, claimed: false }
+      : runtimeStartup;
+    let standbyHeartbeat = null;
+    if (selectedConfig.heartbeat?.standbyEnabled === true && selectedConfig.heartbeat?.enabled === true) {
+      const heartbeatPort = await heartbeatFactory({ ...selectedConfig.heartbeat, fetchImpl });
+      standbyHeartbeat = standbyHeartbeatFactory({
+        heartbeatPort,
+        intervalMs: selectedConfig.worker?.heartbeatIntervalMs,
+        onError
+      });
+      await standbyHeartbeat.start(inactiveHeartbeatState(startup.status));
+    }
+    let closed = false;
+    return {
+      ...base,
+      runtime,
+      startup,
+      standbyHeartbeat,
+      async close() {
+        if (closed) return;
+        closed = true;
+        standbyHeartbeat?.stop();
+        await runtime.close();
+      }
+    };
   }
 
   const databaseUrl = clean(selectedConfig.databaseUrl || env.DATABASE_URL);

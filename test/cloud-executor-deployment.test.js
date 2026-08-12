@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,7 +21,7 @@ import { safeArtifactPath } from "../src/cloud-executor/playwright-adapter.js";
 const ORGANIZATION_ID = "org-ce07";
 const EXECUTOR_ID = "cloud-executor-ce07";
 
-function disabledConfig() {
+function disabledConfig(workspace = null) {
   return {
     enabled: false,
     configured: false,
@@ -29,30 +29,98 @@ function disabledConfig() {
     executorType: "cloud_executor",
     organizationId: null,
     executorCloudId: null,
+    workspace,
+    storage: workspace ? { root: workspace.root, minFreeBytes: 0 } : null,
+    heartbeat: { enabled: false, standbyEnabled: false, url: null, token: null, timeoutMs: 15_000 },
     worker: { pollIntervalMs: 1000, leaseMs: 30_000, heartbeatIntervalMs: 5000, concurrency: 1 },
     health: { host: "127.0.0.1", port: 0 }
   };
 }
 
 test("disabled production worker is a long-lived healthy standby without DB, Hifly, browser, or claim wiring", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ce07-disabled-workspace-"));
+  const workspace = createCloudWorkspaceConfig({ root, profileDir: path.join(root, "profile") });
   let poolCalls = 0;
   let portsCalls = 0;
   let hiflyConfigReads = 0;
-  const handle = await createCloudExecutorProductionRuntime({
-    config: disabledConfig(),
-    createPool: () => { poolCalls += 1; throw new Error("disabled worker must not create a pool"); },
-    portsFactory: async () => { portsCalls += 1; throw new Error("disabled worker must not assemble ports"); },
-    loadHiflyConfig: () => { hiflyConfigReads += 1; throw new Error("disabled worker must not read Hifly config"); }
-  });
+  try {
+    const first = await createCloudExecutorProductionRuntime({
+      config: disabledConfig(workspace),
+      createPool: () => { poolCalls += 1; throw new Error("disabled worker must not create a pool"); },
+      portsFactory: async () => { portsCalls += 1; throw new Error("disabled worker must not assemble ports"); },
+      loadHiflyConfig: () => { hiflyConfigReads += 1; throw new Error("disabled worker must not read Hifly config"); }
+    });
 
-  assert.equal(handle.startup.status, "disabled");
-  assert.equal(handle.runtime.status, "disabled");
+    assert.equal(first.startup.status, "disabled");
+    assert.equal(first.runtime.status, "disabled");
+    assert.equal(first.runtime.service, null);
+    assert.equal(first.runtime.worker, null);
+    const marker = await readFile(workspace.profileMarkerPath, "utf8");
+    await first.close();
+
+    const restarted = await createCloudExecutorProductionRuntime({ config: disabledConfig(workspace) });
+    assert.equal(await readFile(workspace.profileMarkerPath, "utf8"), marker);
+    await restarted.close();
+    assert.equal(poolCalls, 0);
+    assert.equal(portsCalls, 0);
+    assert.equal(hiflyConfigReads, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("inactive production workspace failure stays no-side-effect and reports a controlled readiness", async () => {
+  let poolCalls = 0;
+  const config = disabledConfig(createCloudWorkspaceConfig({ root: "/tmp/ce07-blocked", profileDir: "/tmp/ce07-blocked/profile" }));
+  const handle = await createCloudExecutorProductionRuntime({
+    config,
+    ensureWorkspace: async () => { throw Object.assign(new Error("private path"), { code: "EACCES" }); },
+    createPool: () => { poolCalls += 1; throw new Error("inactive worker must not create a pool"); }
+  });
+  assert.equal(handle.startup.status, "storage_blocked");
   assert.equal(handle.runtime.service, null);
   assert.equal(handle.runtime.worker, null);
   assert.equal(poolCalls, 0);
-  assert.equal(portsCalls, 0);
-  assert.equal(hiflyConfigReads, 0);
   await handle.close();
+});
+
+test("explicit standby pairing reports disabled without DB, browser, Hifly, order, or claim wiring", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ce07-standby-heartbeat-"));
+  const workspace = createCloudWorkspaceConfig({ root, profileDir: path.join(root, "profile") });
+  const reports = [];
+  let poolCalls = 0;
+  let portsCalls = 0;
+  let hiflyConfigReads = 0;
+  try {
+    const config = {
+      ...disabledConfig(workspace),
+      executorCloudId: EXECUTOR_ID,
+      organizationId: ORGANIZATION_ID,
+      heartbeat: {
+        enabled: true,
+        standbyEnabled: true,
+        url: "http://app:3000/internal/cloud-executor/v1/heartbeat",
+        token: "standby-test-token",
+        timeoutMs: 15_000
+      }
+    };
+    const handle = await createCloudExecutorProductionRuntime({
+      config,
+      heartbeatFactory: () => ({ async report(value) { reports.push(value); } }),
+      createPool: () => { poolCalls += 1; throw new Error("standby must not create a pool"); },
+      portsFactory: () => { portsCalls += 1; throw new Error("standby must not create ports"); },
+      loadHiflyConfig: () => { hiflyConfigReads += 1; throw new Error("standby must not read Hifly config"); }
+    });
+    assert.deepEqual(reports, [{ readinessStatus: "disabled", progressPhase: "standby" }]);
+    assert.equal(handle.runtime.service, null);
+    assert.equal(handle.runtime.worker, null);
+    assert.equal(poolCalls, 0);
+    assert.equal(portsCalls, 0);
+    assert.equal(hiflyConfigReads, 0);
+    await handle.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("active production runtime assembles the standalone Worker with DB, ports, and heartbeat only", async () => {
@@ -193,6 +261,22 @@ test("standalone configuration fixes concurrency at one and rejects unsafe heart
   });
   assert.equal(config.worker.concurrency, 1);
   assert.equal(config.databaseUrl, "postgresql://worker@db/pilot");
+  assert.equal(config.heartbeat.standbyEnabled, false);
+  const paired = createCloudExecutorConfig({ env: {
+    CLOUD_EXECUTOR_ENABLED: "false",
+    CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED: "true",
+    CLOUD_EXECUTOR_ID: EXECUTOR_ID,
+    CLOUD_EXECUTOR_ORGANIZATION_ID: ORGANIZATION_ID,
+    CLOUD_EXECUTOR_HEARTBEAT_URL: "http://app:3000/internal/cloud-executor/v1/heartbeat",
+    CLOUD_EXECUTOR_HEARTBEAT_TOKEN: "test-token"
+  } });
+  assert.equal(paired.heartbeat.enabled, true);
+  assert.equal(paired.heartbeat.standbyEnabled, true);
+  assert.throws(() => createCloudExecutorConfig({ env: {
+    CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED: "true",
+    CLOUD_EXECUTOR_HEARTBEAT_URL: "http://app:3000/internal/cloud-executor/v1/heartbeat",
+    CLOUD_EXECUTOR_HEARTBEAT_TOKEN: "test-token"
+  } }), { code: "CLOUD_EXECUTOR_STANDBY_HEARTBEAT_CONFIG_REQUIRED" });
   assert.throws(() => createCloudExecutorConfig({ env: { CLOUD_EXECUTOR_CONCURRENCY: "2" } }), { code: "CLOUD_EXECUTOR_CONCURRENCY_INVALID" });
   assert.throws(() => createCloudExecutorHeartbeatClient({ enabled: true, url: "https://pilot.test/internal/cloud-executor/v1/heartbeat?token=secret", token: "test" }), { code: "CLOUD_EXECUTOR_HEARTBEAT_URL_INVALID" });
 });
@@ -254,12 +338,20 @@ test("production Compose and image define one disabled worker with persistent me
   const dockerfile = await readFile(new URL("../deploy/cloud-executor.Dockerfile", import.meta.url), "utf8");
   const entrypoint = await readFile(new URL("../deploy/cloud-executor-entrypoint.sh", import.meta.url), "utf8");
   const envExample = await readFile(new URL("../.env.example", import.meta.url), "utf8");
+  const runbook = await readFile(new URL("../docs/deployment/ALIYUN_CLOUD_EXECUTOR_CE07_RUNBOOK.md", import.meta.url), "utf8");
 
   assert.match(compose, /\r?\n  cloud_executor:\r?\n/);
   assert.match(compose, /dockerfile: deploy\/cloud-executor\.Dockerfile/);
   assert.match(compose, /CLOUD_EXECUTOR_ENABLED: \$\{CLOUD_EXECUTOR_ENABLED:-false\}/);
   assert.match(compose, /CLOUD_EXECUTOR_MODE: \$\{CLOUD_EXECUTOR_MODE:-fail_closed\}/);
   assert.match(compose, /CLOUD_EXECUTOR_CONCURRENCY: "1"/);
+  const cloudService = compose.slice(compose.indexOf("\n  cloud_executor:"), compose.indexOf("\nvolumes:"));
+  assert.match(cloudService, /networks:\r?\n      - internal\r?\n      - executor_egress/);
+  assert.doesNotMatch(cloudService, /(?:0\.0\.0\.0|\$\{[^}]*\}):3001:3001/);
+  assert.match(compose, /\n  executor_egress:\r?\n/);
+  assert.match(compose, /TRUSTED_HOSTS: \$\{TRUSTED_HOSTS:-[^\r\n]*app:3000/);
+  assert.equal(compose.match(/CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED: \$\{CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED:-false\}/g)?.length, 2);
+  assert.match(cloudService, /CLOUD_EXECUTOR_HEARTBEAT_URL: \$\{CLOUD_EXECUTOR_HEARTBEAT_URL:-http:\/\/app:3000\/internal\/cloud-executor\/v1\/heartbeat\}/);
   assert.match(compose, /cloud_executor_profile:\/var\/lib\/hifly-executor\/profile/);
   assert.match(compose, /cloud_executor_assets:\/var\/lib\/hifly-executor\/assets/);
   assert.match(compose, /cloud_executor_outputs:\/var\/lib\/hifly-executor\/outputs/);
@@ -279,14 +371,17 @@ test("production Compose and image define one disabled worker with persistent me
   assert.match(entrypoint, /Xvfb "\$DISPLAY"/);
   assert.match(entrypoint, /x11vnc [^\n]*-listen 127\.0\.0\.1/);
   assert.match(entrypoint, /websockify .*"0\.0\.0\.0:\$NOVNC_PORT" "127\.0\.0\.1:5900"/);
-  assert.match(entrypoint, /exec node scripts\/cloud-executor-worker\.js/);
+  assert.match(entrypoint, /login\)[\s\S]*exec node scripts\/cloud-executor\.js login/);
+  assert.match(entrypoint, /worker\|''\)[\s\S]*exec node scripts\/cloud-executor-worker\.js/);
   assert.doesNotMatch(entrypoint, /migrate:production|runProductionMigrations/);
+  assert.match(runbook, /stop cloud_executor[\s\S]*run --rm --service-ports cloud_executor login[\s\S]*up -d cloud_executor/);
 
   for (const line of [
     "CLOUD_EXECUTOR_ENABLED=false",
     "CLOUD_EXECUTOR_MODE=fail_closed",
+    "CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED=false",
     "CLOUD_EXECUTOR_CONCURRENCY=1",
-    "CLOUD_EXECUTOR_HEARTBEAT_URL=",
+    "CLOUD_EXECUTOR_HEARTBEAT_URL=http://app:3000/internal/cloud-executor/v1/heartbeat",
     "CLOUD_EXECUTOR_HEARTBEAT_TOKEN=",
     "CLOUD_EXECUTOR_PROFILE_DIR=/var/lib/hifly-executor/profile",
     "CLOUD_EXECUTOR_ASSETS_DIR=/var/lib/hifly-executor/assets",

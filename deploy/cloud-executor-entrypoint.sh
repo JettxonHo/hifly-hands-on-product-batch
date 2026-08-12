@@ -52,4 +52,25 @@ if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
 fi
 
 trap - EXIT INT TERM
-exec node scripts/cloud-executor-worker.js
+case "${1:-}" in
+  login)
+    shift
+    if [ "$#" -ne 0 ]; then
+      echo "CLOUD_EXECUTOR_COMMAND_INVALID" >&2
+      exit 2
+    fi
+    exec node scripts/cloud-executor.js login
+    ;;
+  worker|'')
+    if [ "${1:-}" = "worker" ]; then shift; fi
+    if [ "$#" -ne 0 ]; then
+      echo "CLOUD_EXECUTOR_COMMAND_INVALID" >&2
+      exit 2
+    fi
+    exec node scripts/cloud-executor-worker.js
+    ;;
+  *)
+    echo "CLOUD_EXECUTOR_COMMAND_INVALID" >&2
+    exit 2
+    ;;
+esac

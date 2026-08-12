@@ -12,8 +12,9 @@
 - 已新增 allowlist heartbeat client/Worker progress 上报：Bearer 只来自 env header，HTTP body/health JSON/error callback 不包含 token、raw exception、Profile/path、storage key 或媒体；默认 disabled/fail_closed 为长期 healthy standby，不读取 Hifly config、不创建 browser、不访问 Provider、不列单、不 claim。
 - 已新增 production Compose/image/entrypoint：Chrome/Playwright、Xvfb、loopback-only noVNC、Profile/assets/outputs/evidence/batches/locks/handoff volume、1-instance/resource/healthcheck 合同；新增阿里云 CE-07 runbook，包含显式 migration、重启 marker、内存/磁盘观察、SSH tunnel 和 rollback。
 - 本轮无 Sol 决策 blocker；实机部署与 live proof 明确留给 Sol 在 PR 合并后执行，当前不做 SSH、不访问飞影/Provider、不调用真实 heartbeat 外部服务、不 claim、不消耗积分。
-- 当前验证已通过：CE-07 deployment tests `10/10`；CE-02～CE-07 + production focused tests `75/75`；`npm run check` 检查 229 个 JavaScript 文件；`npm test` 为 1,009 tests / 995 pass / 14 existing environment skips / 0 fail；`git diff --check` 通过；`docker compose -f docker-compose.production.yml config` 静态解析通过。
+- 当前验证已通过：独立 Review follow-up focused tests `44/44`；`npm run check` 检查 229 个 JavaScript 文件；`npm test` 为 1,012 tests / 998 pass / 14 existing environment skips / 0 fail；entrypoint shell syntax 与 `git diff --check` 通过；`docker compose -f docker-compose.production.yml config` 静态解析通过。
 - 实现提交：`0c0209d`；READY PR [#150](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/150)（Closes #142；OPEN、非 draft、未合并、未批准）。实现者不批准或合并自己的 PR。
+- 独立 Review follow-up 已补齐 4 个部署阻断合同：Worker 同时接入 internal 与非 internal egress network，只有 loopback noVNC 对宿主机发布且 health 不发布；disabled/fail_closed 启动会准备持久 workspace/非敏感 marker，失败受控为 `storage_blocked/requires_action`；显式、默认关闭的 heartbeat-only pairing 可向 `app:3000` 上报 disabled/unconfigured 状态且控制面禁止伪报 available；production entrypoint 可显式 dispatch CE-04 login command，默认仍启动 Worker。
 - 专用接力记录：`docs/status/sessions/2026-08-12-ce-07-aliyun-standby-deployment.md`。
 
 ## 2026-08-12 CE-06 / Issue #141 Cloud Executor 控制面投影与生产 UX（READY PR，待 Review）

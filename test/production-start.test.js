@@ -342,6 +342,26 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
     }
   });
   assert.equal("worker" in withCloudControlPlane.cloudExecutor, false);
+  const withStandbyPairing = createProductionConfig({
+    root: "/tmp/hifly-production-test",
+    env: productionEnv({
+      CLOUD_EXECUTOR_ENABLED: "false",
+      CLOUD_EXECUTOR_MODE: "fail_closed",
+      CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED: "true",
+      CLOUD_EXECUTOR_ID: "cloud-web-standby",
+      CLOUD_EXECUTOR_ORGANIZATION_ID: "org_pilot",
+      CLOUD_EXECUTOR_HEARTBEAT_TOKEN: "cloud-standby-secret"
+    })
+  });
+  assert.equal(withStandbyPairing.cloudExecutor.enabled, false);
+  assert.equal(withStandbyPairing.cloudExecutor.configured, false);
+  assert.equal(withStandbyPairing.cloudExecutor.standbyHeartbeatEnabled, true);
+  assert.deepEqual(withStandbyPairing.cloudExecutor.internal, {
+    enabled: true,
+    organizationId: "org_pilot",
+    executorCloudId: "cloud-web-standby",
+    token: "cloud-standby-secret"
+  });
   for (const missing of ["CLOUD_EXECUTOR_ID", "CLOUD_EXECUTOR_ORGANIZATION_ID", "CLOUD_EXECUTOR_HEARTBEAT_TOKEN"]) {
     const env = productionEnv({
       CLOUD_EXECUTOR_ENABLED: "true",

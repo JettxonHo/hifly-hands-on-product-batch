@@ -166,7 +166,13 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
   const cloudExecutorId = env.CLOUD_EXECUTOR_ID?.trim() || null;
   const cloudExecutorOrganizationId = env.CLOUD_EXECUTOR_ORGANIZATION_ID?.trim() || null;
   const cloudExecutorHeartbeatToken = env.CLOUD_EXECUTOR_HEARTBEAT_TOKEN?.trim() || null;
-  if (cloudExecutorRequested && (!cloudExecutorId || !cloudExecutorOrganizationId || !cloudExecutorHeartbeatToken)) {
+  const cloudExecutorStandbyHeartbeatEnabled = boolean(
+    env.CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED,
+    "CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED",
+    false
+  );
+  if ((cloudExecutorRequested || cloudExecutorStandbyHeartbeatEnabled) &&
+    (!cloudExecutorId || !cloudExecutorOrganizationId || !cloudExecutorHeartbeatToken)) {
     throw Object.assign(new Error("CLOUD_EXECUTOR_CONTROL_PLANE_CONFIG_REQUIRED"), { code: "CLOUD_EXECUTOR_CONTROL_PLANE_CONFIG_REQUIRED" });
   }
   const cloudExecutorHeartbeatTimeoutMs = duration(
@@ -276,8 +282,9 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
       organizationId: cloudExecutorOrganizationId,
       executorCloudId: cloudExecutorId,
       heartbeatTimeoutMs: cloudExecutorHeartbeatTimeoutMs,
+      ...(cloudExecutorStandbyHeartbeatEnabled ? { standbyHeartbeatEnabled: true } : {}),
       internal: {
-        enabled: cloudExecutorRequested,
+        enabled: cloudExecutorRequested || cloudExecutorStandbyHeartbeatEnabled,
         organizationId: cloudExecutorOrganizationId,
         executorCloudId: cloudExecutorId,
         token: cloudExecutorHeartbeatToken

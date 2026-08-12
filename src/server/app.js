@@ -799,10 +799,11 @@ export async function buildApp({
     orderPort: cloudExecutorOptions?.orderPort || app.productionOrders?.service || null,
     verificationPort: cloudExecutorOptions?.verificationPort || app.artifactVerification?.service || null,
     deliveryPort: cloudExecutorOptions?.deliveryPort || app.workDelivery?.service || null,
+    standbyHeartbeatEnabled: cloudExecutorOptions?.standbyHeartbeatEnabled === true,
     heartbeatTimeoutMs: cloudExecutorOptions?.heartbeatTimeoutMs,
     now
   });
-  const cloudExecutorInternalGuard = cloudExecutorEnabled && cloudExecutorOptions?.internal?.enabled === true
+  const cloudExecutorInternalGuard = cloudExecutorOptions?.internal?.enabled === true
     ? createCloudExecutorBearerGuard(cloudExecutorOptions.internal) : null;
   app.decorate("cloudExecutor", { controlPlane: cloudExecutorControlPlane, internalGuard: cloudExecutorInternalGuard });
   await registerCloudExecutorRoutes(app, { controlPlane: cloudExecutorControlPlane, internalGuard: cloudExecutorInternalGuard });
