@@ -23,6 +23,7 @@ import { safeArtifactPath } from "../src/cloud-executor/playwright-adapter.js";
 const ORGANIZATION_ID = "org-ce07";
 const EXECUTOR_ID = "cloud-executor-ce07";
 const ENTRYPOINT_PATH = fileURLToPath(new URL("../deploy/cloud-executor-entrypoint.sh", import.meta.url));
+const POSIX_ENTRYPOINT_SKIP = process.platform === "win32" ? "requires POSIX /tmp and process semantics" : false;
 let displayCounter = 0;
 
 async function writeExecutable(filePath, contents) {
@@ -159,7 +160,7 @@ function assertStartupEvents(events, terminalCommand) {
   ]);
 }
 
-test("production entrypoint removes stale display lock/socket before Xvfb and dispatches the default worker", async () => {
+test("production entrypoint removes stale display lock/socket before Xvfb and dispatches the default worker", { skip: POSIX_ENTRYPOINT_SKIP }, async () => {
   const fixture = await createEntrypointFixture();
   try {
     await writeFile(fixture.lockPath, "  2147483647  \t\n");
@@ -181,7 +182,7 @@ test("production entrypoint removes stale display lock/socket before Xvfb and di
   }
 });
 
-test("production entrypoint preserves a padded live PID when the display probe fails", async () => {
+test("production entrypoint preserves a padded live PID when the display probe fails", { skip: POSIX_ENTRYPOINT_SKIP }, async () => {
   const fixture = await createEntrypointFixture();
   try {
     const paddedPid = `${String(process.pid).padStart(10, " ")}\n`;
@@ -201,7 +202,7 @@ test("production entrypoint preserves a padded live PID when the display probe f
   }
 });
 
-test("production entrypoint dispatches login after the same display startup sequence", async () => {
+test("production entrypoint dispatches login after the same display startup sequence", { skip: POSIX_ENTRYPOINT_SKIP }, async () => {
   const fixture = await createEntrypointFixture();
   try {
     await writeFile(fixture.lockPath, "2147483647\n");
