@@ -120,3 +120,82 @@ test("avatar API maps business gate, idempotency and concurrency failures", asyn
   assert.equal(idempotencyConflict.statusCode, 409);
   assert.equal(idempotencyConflict.json().error, "IDEMPOTENCY_CONFLICT");
 });
+
+test("public avatar sync is an explicit admin-only API and never exposes provider identifiers", async (t) => {
+  let calls = 0;
+  const repository = createMemoryAvatarSelectionRepository();
+  const { app } = await identityApp(t, {
+    avatarSelection: {
+      enabled: true,
+      repository,
+      copyApprovalPort: approvalPort,
+      publicAvatarCatalog: {
+        async list() {
+          calls += 1;
+          return [{ provider_key: "hifly-public:api-101", display_name: "API 公共人物", source_type: "public" }];
+        }
+      }
+    }
+  });
+  const admin = await activateAdmin(app);
+  const mutation = identityHeaders({ cookies: admin.cookies, csrf: admin.csrf, mutation: true });
+  const synced = await app.inject({ method: "POST", url: "/api/avatar-catalog/hifly-public/sync", headers: mutation, payload: {} });
+  assert.equal(synced.statusCode, 200);
+  assert.deepEqual(synced.json(), {
+    total: 1, created: 1, updated: 0, unchanged: 0, synced_at: synced.json().synced_at
+  });
+  assert.equal(calls, 1);
+  assert.equal(synced.body.includes("api-101"), false);
+
+  const workspace = await app.inject({ method: "GET", url: "/api/products/product-a/avatar-workspace?copyVersionId=copy-a",
+    headers: identityHeaders({ cookies: admin.cookies }) });
+  assert.equal(workspace.statusCode, 200);
+  assert.equal(workspace.body.includes("api-101"), false);
+  assert.equal(workspace.json().catalog.find((item) => item.display_name === "API 公共人物").gate.can_confirm, false);
+
+  const memberCreated = (await app.inject({ method: "POST", url: "/api/identity/members", headers: mutation,
+    payload: { email: "public-sync-member@example.test", display_name: "Public Sync Member", role: "member" } })).json();
+  const member = await login(app, { email: "public-sync-member@example.test", password: memberCreated.temporary_password });
+  await app.inject({ method: "POST", url: "/api/auth/change-password", headers: identityHeaders({ cookies: member.cookies, csrf: member.csrf, mutation: true }),
+    payload: { new_password: "Public-Sync-Member-Password-9!" } });
+  const forbidden = await app.inject({ method: "POST", url: "/api/avatar-catalog/hifly-public/sync",
+    headers: identityHeaders({ cookies: member.cookies, csrf: member.csrf, mutation: true }), payload: {} });
+  assert.equal(forbidden.statusCode, 403);
+  assert.equal(forbidden.json().error, "HIFLY_PUBLIC_AVATAR_SYNC_FORBIDDEN");
+  assert.equal(calls, 1);
+});
+
+test("public avatar sync without a provider client fails stably and ordinary workspace reads do not call a provider", async (t) => {
+  let calls = 0;
+  const { app } = await identityApp(t, {
+    avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository(), copyApprovalPort: approvalPort,
+      publicAvatarCatalog: { async list() { calls += 1; return []; } } }
+  });
+  const admin = await activateAdmin(app);
+  const read = await app.inject({ method: "GET", url: "/api/products/product-a/avatar-workspace?copyVersionId=copy-a",
+    headers: identityHeaders({ cookies: admin.cookies }) });
+  assert.equal(read.statusCode, 200);
+  assert.equal(calls, 0);
+
+  const { app: noProvider } = await identityApp(t, {
+    avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository(), copyApprovalPort: approvalPort }
+  });
+  const noProviderAdmin = await activateAdmin(noProvider);
+  const response = await noProvider.inject({ method: "POST", url: "/api/avatar-catalog/hifly-public/sync",
+    headers: identityHeaders({ cookies: noProviderAdmin.cookies, csrf: noProviderAdmin.csrf, mutation: true }), payload: {} });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().error, "HIFLY_PUBLIC_AVATAR_SYNC_UNAVAILABLE");
+});
+
+test("public avatar sync maps provider failures without returning provider messages", async (t) => {
+  const { app } = await identityApp(t, {
+    avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository(), copyApprovalPort: approvalPort,
+      publicAvatarCatalog: { async list() { throw Object.assign(new Error("provider token=secret"), { code: "HIFLY_API_AUTH_INVALID" }); } } }
+  });
+  const admin = await activateAdmin(app);
+  const response = await app.inject({ method: "POST", url: "/api/avatar-catalog/hifly-public/sync",
+    headers: identityHeaders({ cookies: admin.cookies, csrf: admin.csrf, mutation: true }), payload: {} });
+  assert.equal(response.statusCode, 502);
+  assert.deepEqual(response.json(), { error: "HIFLY_API_AUTH_INVALID" });
+  assert.doesNotMatch(response.body, /provider token=secret/);
+});

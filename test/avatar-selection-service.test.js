@@ -200,3 +200,61 @@ test("A06 adapter resolves the newest current effective approved copy for a prod
   assert.deepEqual(await port.resolveCurrentApprovedCopy({ organizationId: "org-a", actorMemberId: "member-a", productId: "product-a" }),
     { copy_version_id: "copy-current", product_revision_id: "revision-current", current_valid: true });
 });
+
+test("admin public avatar sync is idempotent, renames in place, isolates organizations, and stays non-confirmable", async () => {
+  const state = world();
+  let entries = [
+    { provider_key: "hifly-public:101", display_name: "公共人物一", source_type: "public" },
+    { provider_key: "hifly-public:102", display_name: "公共人物二", source_type: "public" }
+  ];
+  const service = createAvatarSelectionService({
+    repository: state.repository,
+    copyApprovalPort: state.service ? {
+      async getCurrentApprovedCopy() { return { copy_version_id: "copy-a", product_revision_id: "revision-a", current_valid: true }; },
+      async resolveCurrentApprovedCopy() { return { copy_version_id: "copy-a", product_revision_id: "revision-a", current_valid: true }; }
+    } : null,
+    publicAvatarCatalog: { async list() { return entries; } },
+    now: () => Date.parse("2026-08-12T00:00:00.000Z")
+  });
+
+  const first = await service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "admin-a", actorRole: "admin" });
+  assert.deepEqual(first, { total: 2, created: 2, updated: 0, unchanged: 0, synced_at: "2026-08-12T00:00:00.000Z" });
+  const replay = await service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "admin-a", actorRole: "admin" });
+  assert.deepEqual(replay, { total: 2, created: 0, updated: 0, unchanged: 2, synced_at: "2026-08-12T00:00:00.000Z" });
+
+  entries = [{ ...entries[0], display_name: "公共人物一改名" }, entries[1]];
+  const renamed = await service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "admin-a", actorRole: "admin" });
+  assert.deepEqual(renamed, { total: 2, created: 0, updated: 1, unchanged: 1, synced_at: "2026-08-12T00:00:00.000Z" });
+  const catalog = await state.repository.listCatalog("org-a");
+  const renamedEntry = catalog.find((entry) => entry.asset.display_name === "公共人物一改名");
+  assert.ok(renamedEntry);
+  assert.equal(renamedEntry.asset.controlled_seed, false);
+  assert.equal(renamedEntry.asset.source_type, "public");
+  assert.equal(renamedEntry.asset.seed_key, "hifly-public:101");
+  assert.equal(renamedEntry.asset_version.materials_accessible, false);
+  assert.equal(renamedEntry.asset_version.capability_status, "unverified");
+  assert.deepEqual(renamedEntry.capabilities, []);
+
+  const workspace = await service.getWorkspace({ ...actor, productId: "product-a", copyVersionId: "copy-a" });
+  const publicEntry = workspace.catalog.find((entry) => entry.display_name === "公共人物一改名");
+  assert.equal(publicEntry.gate.can_confirm, false);
+  assert.equal(JSON.stringify(workspace).includes("hifly-public:101"), false);
+  await assert.rejects(service.confirmSelection({ ...actor, productId: "product-a", copyVersionId: "copy-a",
+    assetVersionId: publicEntry.asset_version.id, expectedRevision: 0, idempotencyKey: "public-blocked" }),
+  { code: "AVATAR_SELECTION_GATE_BLOCKED" });
+
+  await service.syncPublicCatalog({ organizationId: "org-b", actorMemberId: "admin-b", actorRole: "admin" });
+  assert.equal((await state.repository.listCatalog("org-b")).filter((entry) => entry.asset.seed_key === "hifly-public:101").length, 1);
+  assert.equal((await state.repository.listCatalog("org-a")).filter((entry) => entry.asset.seed_key === "hifly-public:101").length, 1);
+});
+
+test("public avatar sync is admin-only and fails closed without a provider", async () => {
+  const state = world();
+  const service = createAvatarSelectionService({ repository: state.repository, copyApprovalPort: state.service && {
+    async getCurrentApprovedCopy() { return null; }
+  } });
+  await assert.rejects(service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "member" }),
+    { code: "HIFLY_PUBLIC_AVATAR_SYNC_FORBIDDEN" });
+  await assert.rejects(service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "admin-a", actorRole: "admin" }),
+    { code: "HIFLY_PUBLIC_AVATAR_SYNC_UNAVAILABLE" });
+});

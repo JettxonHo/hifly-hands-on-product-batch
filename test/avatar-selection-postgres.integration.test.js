@@ -25,7 +25,7 @@ test("clean PostgreSQL avatar migration seeds controlled catalog and serializes 
   await runIdentityMigrations(pool); await runAssetMigrations(pool); await runProjectContentMigrations(pool);
   await runCopyGenerationMigrations(pool); await runCopyQualityMigrations(pool); await runCopyReviewMigrations(pool);
   await runAvatarSelectionMigrations(pool);
-  assert.equal((await pool.query("SELECT max(version)::integer version FROM avatar_selection_schema_migrations")).rows[0].version, 1);
+  assert.equal((await pool.query("SELECT max(version)::integer version FROM avatar_selection_schema_migrations")).rows[0].version, 2);
 
   const seeded = await seedInitialAdmin(createPostgresIdentityRepository({ pool, ownsPool: false }), {
     organizationId: "org-avatar-pg", organizationName: "Avatar PG", adminEmail: "avatar-pg@example.test",
@@ -44,6 +44,24 @@ test("clean PostgreSQL avatar migration seeds controlled catalog and serializes 
   const repository = createPostgresAvatarSelectionRepository({ pool });
   await repository.initialize();
   await repository.ensureControlledCatalog("org-avatar-pg", at);
+  const publicEntries = [
+    { provider_key: "hifly-public:pg-101", display_name: "PG 公共人物", source_type: "public" },
+    { provider_key: "hifly-public:pg-102", display_name: "PG 第二人物", source_type: "public" }
+  ];
+  assert.deepEqual(await repository.syncPublicCatalog({ organizationId: "org-avatar-pg", entries: publicEntries, now: at }),
+    { total: 2, created: 2, updated: 0, unchanged: 0 });
+  assert.deepEqual(await repository.syncPublicCatalog({ organizationId: "org-avatar-pg", entries: publicEntries, now: at }),
+    { total: 2, created: 0, updated: 0, unchanged: 2 });
+  assert.deepEqual(await repository.syncPublicCatalog({ organizationId: "org-avatar-pg", entries: [
+    { ...publicEntries[0], display_name: "PG 公共人物改名" }, publicEntries[1]
+  ], now: at }), { total: 2, created: 0, updated: 1, unchanged: 1 });
+  const synced = (await repository.listCatalog("org-avatar-pg")).find((entry) => entry.asset.seed_key === "hifly-public:pg-101");
+  assert.ok(synced);
+  assert.equal(synced.asset.display_name, "PG 公共人物改名");
+  assert.equal(synced.asset.controlled_seed, false);
+  assert.equal(synced.asset_version.materials_accessible, false);
+  assert.equal(synced.asset_version.capability_status, "unverified");
+  assert.deepEqual(synced.capabilities, []);
   const catalog = await repository.listCatalog("org-avatar-pg");
   assert.ok(catalog.length >= 6);
   assert.deepEqual(new Set(catalog.map((entry) => entry.asset.source_type)), new Set(["public", "enterprise"]));

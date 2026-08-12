@@ -3,6 +3,13 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-12 P2-01 飞影公共人物目录同步完成本地实现与独立复核
+
+- Issue #126 的本地实现已完成：官方公共人物列表 client、provider-neutral 分页 adapter、组织级 AvatarAsset 幂等同步、管理员显式同步 API 和生产接线。普通 workspace 读取及服务启动均不会自动访问飞影。
+- Provider 标识只保留在服务端 `seed_key` 映射；普通 workspace 与同步响应不暴露 Provider/request ID。由于官方列表不提供人物素材、预览或「手里有货」能力证据，同步条目保持不可确认，不会误导运营直接用于生产。
+- 独立验证：定向 40/40、PostgreSQL 隔离 schema 1/1、完整受控并发回归 937 total / 923 pass / 14 既有 environment skip / 0 fail；静态检查 212 个 JavaScript 文件及 diff check 通过。
+- 本轮真实 Hifly/DeepSeek 请求 0，未运行 Playwright/Capture/Local Agent，积分消耗 0。详细记录见 `docs/status/sessions/2026-08-12-p2-01-hifly-public-avatar-sync.md`。
+
 ## 2026-08-12 新云端系统最小真实执行器闭环已跑通
 
 - PR #117 已合并并部署到阿里云 `main@eaf64c9`。部署前备份：`/var/backups/hifly/hifly-20260812T012109Z.dump`；回滚镜像：`hifly-pilot-app:rollback-e9c0df2`。13 组 migration、三个容器健康检查和 HTTPS `/healthz` 均通过。

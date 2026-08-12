@@ -38,7 +38,7 @@ export function createCurrentApprovedCopyPort({ copyService, copyReviewService }
 }
 
 export function createAvatarSelectionService({ repository, copyApprovalPort, now = Date.now,
-  confirmationReturnBarrier = async () => {} } = {}) {
+  confirmationReturnBarrier = async () => {}, publicAvatarCatalog = null } = {}) {
   if (!repository || !copyApprovalPort) throw new TypeError("repository and copyApprovalPort are required");
   const timestamp = () => new Date(now()).toISOString();
 
@@ -47,6 +47,24 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       await copyApprovalPort.resolveCurrentApprovedCopy?.(input);
     return copy?.current_valid === true ? { approved: true, reasons: [], copy } :
       { approved: false, reasons: ["approved_copy_missing"], copy: null };
+  }
+
+  async function syncPublicCatalog(input = {}) {
+    if (!clean(input.organizationId) || !clean(input.actorMemberId)) throw failure("HIFLY_PUBLIC_AVATAR_SYNC_CONTEXT_REQUIRED");
+    if (input.actorRole !== "admin") throw failure("HIFLY_PUBLIC_AVATAR_SYNC_FORBIDDEN");
+    const collect = publicAvatarCatalog?.list || publicAvatarCatalog?.listPublicAvatars;
+    if (typeof collect !== "function") throw failure("HIFLY_PUBLIC_AVATAR_SYNC_UNAVAILABLE");
+    let entries;
+    try {
+      entries = await collect.call(publicAvatarCatalog);
+    } catch (error) {
+      if (typeof error?.code === "string" && error.code.startsWith("HIFLY_API_")) throw failure(error.code);
+      throw failure("HIFLY_API_UNAVAILABLE");
+    }
+    if (!Array.isArray(entries)) throw failure("HIFLY_PUBLIC_AVATAR_CATALOG_INVALID");
+    const syncedAt = timestamp();
+    const summary = await repository.syncPublicCatalog({ organizationId: input.organizationId, entries, now: syncedAt });
+    return { ...summary, synced_at: syncedAt };
   }
 
   function catalogGate(entry, approvedGate) {
@@ -93,6 +111,8 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
   }
 
   return {
+    syncPublicCatalog,
+    syncHiflyPublicCatalog: syncPublicCatalog,
     async getWorkspace(input) {
       validateContext(input);
       const at = timestamp();

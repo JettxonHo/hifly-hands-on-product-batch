@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const failure = (code) => Object.assign(new Error(code), { code });
+export const PUBLIC_CATALOG_SEED_LABEL = "飞影公共目录（能力待核验）";
+export const PUBLIC_CATALOG_DESCRIPTION = "飞影公共目录同步条目；官方列表未提供预览或手里有货能力证据。";
 
 export const CONTROLLED_AVATARS = [
   { key: "public-linxiaoman", source_type: "public", display_name: "林小满", description: "知性自然的中文口播人物形象。",
@@ -63,6 +65,41 @@ export function createMemoryAvatarSelectionRepository() {
         capabilities.set(versionId, item.capabilities.map((value) => ({ ...value, verification_status: "verified" })));
       }
       seededOrganizations.add(organizationId);
+    },
+    async syncPublicCatalog({ organizationId, entries = [], now } = {}) {
+      const unique = new Map();
+      for (const entry of entries) {
+        if (!entry || entry.source_type !== "public" || typeof entry.provider_key !== "string" ||
+          !entry.provider_key.startsWith("hifly-public:") || typeof entry.display_name !== "string" || !entry.display_name.trim()) {
+          throw failure("HIFLY_PUBLIC_AVATAR_CATALOG_INVALID");
+        }
+        unique.set(entry.provider_key, { provider_key: entry.provider_key, display_name: entry.display_name.trim() });
+      }
+      let created = 0, updated = 0, unchanged = 0;
+      for (const entry of unique.values()) {
+        const existing = [...assets.values()].find((asset) => asset.organization_id === organizationId && asset.seed_key === entry.provider_key);
+        if (existing) {
+          if (existing.source_type !== "public" || existing.controlled_seed !== false) throw failure("AVATAR_CATALOG_KEY_CONFLICT");
+          const changed = existing.display_name !== entry.display_name || existing.description !== PUBLIC_CATALOG_DESCRIPTION ||
+            existing.seed_label !== PUBLIC_CATALOG_SEED_LABEL;
+          if (!changed) { unchanged += 1; continue; }
+          assets.set(existing.id, { ...existing, display_name: entry.display_name, description: PUBLIC_CATALOG_DESCRIPTION,
+            seed_label: PUBLIC_CATALOG_SEED_LABEL, updated_at: now });
+          updated += 1;
+          continue;
+        }
+        const assetId = randomUUID(), versionId = randomUUID();
+        assets.set(assetId, { id: assetId, organization_id: organizationId, source_type: "public",
+          display_name: entry.display_name, description: PUBLIC_CATALOG_DESCRIPTION, status: "active", controlled_seed: false,
+          seed_key: entry.provider_key, seed_label: PUBLIC_CATALOG_SEED_LABEL, created_at: now, updated_at: now });
+        versions.set(versionId, { id: versionId, asset_id: assetId, organization_id: organizationId, version_number: 1,
+          status: "available", authorization_status: "incomplete", authorization_expires_at: null,
+          authorization_scope: "current_organization", capability_status: "unverified", materials_accessible: false,
+          preview_kind: "none", created_at: now, updated_at: now });
+        capabilities.set(versionId, []);
+        created += 1;
+      }
+      return { total: unique.size, created, updated, unchanged };
     },
     async listCatalog(organizationId) {
       return [...assets.values()].filter((asset) => asset.organization_id === organizationId && asset.status !== "deleted")
