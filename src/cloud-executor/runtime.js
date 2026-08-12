@@ -45,6 +45,8 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
       hiflyPageFactory: config.hiflyPageFactory,
       executorFactory: config.executorFactory,
       taskFactory: config.taskFactory,
+      avatarMappingPath: config.avatarMappingPath,
+      avatarMappings: config.avatarMappings,
       onProgress: config.onProgress
     })
     : createFakeCloudExecutor());

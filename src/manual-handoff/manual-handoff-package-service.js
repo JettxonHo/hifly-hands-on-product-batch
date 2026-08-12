@@ -293,6 +293,17 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
     return { body, contentType: MANUAL_HANDOFF_PACKAGE_CONTENT_TYPE, package: value };
   }
 
+  async function downloadPackageForCloudExecutor(input) {
+    const value = await getPackageForCloudExecutor(input);
+    if (value.status !== "ready") throw failure("MANUAL_HANDOFF_PACKAGE_NOT_DOWNLOADABLE");
+    const body = await packageStore.get(value.storage_key);
+    if (!body) throw failure("MANUAL_HANDOFF_PACKAGE_OBJECT_MISSING");
+    await repository.appendAudit?.({ id: randomUUID(), organization_id: input.organizationId, actor_member_id: null,
+      package_id: value.id, event_type: "manual_handoff.cloud_executor_downloaded",
+      metadata: { executor_cloud_id: input.executorCloudId, package_version: value.package_version }, created_at: timestamp() });
+    return { body, contentType: MANUAL_HANDOFF_PACKAGE_CONTENT_TYPE };
+  }
+
   async function transitionPackage(input) {
     validateActor(input);
     if (!MANUAL_HANDOFF_PACKAGE_STATES.includes(input.status)) throw failure("MANUAL_HANDOFF_PACKAGE_STATE_INVALID");
@@ -322,6 +333,7 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
     authorizeDownload,
     downloadPackage,
     downloadPackageForAgent,
+    downloadPackageForCloudExecutor,
     transitionPackage,
     publicPackage,
     packageStorageKey

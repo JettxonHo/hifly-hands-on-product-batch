@@ -9,6 +9,7 @@ import { createExecutionSnapshot } from "../core/execution-snapshot.js";
 import { runBatch } from "../core/batch-runner.js";
 import { createHiflyExecutor } from "../executors/hifly-executor.js";
 import { HiflyHandsOnProductPage } from "../hifly-page.js";
+import { compilePackageToBatchItem, extractHandoffPackage, loadAvatarMappings } from "../local-agent/package-compiler.js";
 
 export const CLOUD_PLAYWRIGHT_PROGRESS = Object.freeze({
   PRE_SUBMIT: "pre_submit",
@@ -101,18 +102,30 @@ function assertExecutor(executor) {
   return executor;
 }
 
-function taskFromInput(input, workspace) {
-  const selected = input.task || input.package?.task || input.package?.execution_task || input.package?.manifest?.task;
-  if (!selected || typeof selected !== "object" || Array.isArray(selected)) {
-    const error = new Error("Cloud Executor task materialization is required");
-    error.code = "CLOUD_EXECUTOR_TASK_REQUIRED";
-    throw error;
-  }
+function cloudTask(selected, input, workspace) {
   return {
     ...selected,
     task_id: clean(selected.task_id) || clean(input.attempt?.id) || clean(input.order?.id) || "cloud-task",
     __cloud_workspace_root: workspace.root
   };
+}
+
+async function taskFromPackageArchive(input, workspace, { attemptId, avatarMappingPath, avatarMappings }) {
+  const body = input.packageArchive?.body;
+  if (!Buffer.isBuffer(body)) {
+    const error = new Error("Cloud Executor package archive is required");
+    error.code = "CLOUD_EXECUTOR_PACKAGE_ARCHIVE_REQUIRED";
+    throw error;
+  }
+  const extractionRoot = path.join(workspace.assetsDir, attemptId, "package");
+  const extracted = await extractHandoffPackage(body, extractionRoot);
+  const mappings = avatarMappings || await loadAvatarMappings(avatarMappingPath);
+  return compilePackageToBatchItem({
+    manifest: extracted.manifest,
+    extractionRoot: extracted.directory,
+    avatarMappings: mappings,
+    taskId: attemptId
+  });
 }
 
 function safeArtifactPath(root, relativePath) {
@@ -171,6 +184,8 @@ export function createCloudPlaywrightAdapter({
   hiflyPageFactory = (page, config, logger) => new HiflyHandsOnProductPage(page, config, logger),
   executorFactory = createHiflyExecutor,
   taskFactory = null,
+  avatarMappingPath = null,
+  avatarMappings = null,
   batchStoreFactory = createBatchStore,
   lockFactory = acquireExecutionLock,
   snapshotFactory = createExecutionSnapshot,
@@ -234,7 +249,6 @@ export function createCloudPlaywrightAdapter({
         requiresActionReason: "The Cloud Executor is halted pending Provider reconciliation."
       };
     }
-    const executor = await ensureDelegate();
     const progress = typeof input.progress === "function" ? input.progress : onProgress;
     const progressTrace = [];
     let lastProgress = null;
@@ -279,10 +293,25 @@ export function createCloudPlaywrightAdapter({
       }
     };
 
-    const task = await (typeof taskFactory === "function"
-      ? taskFactory({ ...input, workspace: cloudWorkspace })
-      : taskFromInput(input, cloudWorkspace));
     const attemptId = clean(input.attempt?.id) || randomUUID();
+    let task;
+    try {
+      const selected = await (typeof taskFactory === "function"
+        ? taskFactory({ ...input, workspace: cloudWorkspace })
+        : taskFromPackageArchive(input, cloudWorkspace, { attemptId, avatarMappingPath, avatarMappings }));
+      task = cloudTask(selected, input, cloudWorkspace);
+    } catch (error) {
+      if (error?.outcome === "requires_action") {
+        return {
+          status: "requires_action",
+          failureStage: "package_materialization",
+          requiresActionReason: error.code || "CLOUD_EXECUTOR_PACKAGE_REQUIRES_ACTION",
+          checkpoints: progressTrace
+        };
+      }
+      throw error;
+    }
+    const executor = await ensureDelegate();
     const confirmedAt = new Date(now()).toISOString();
     const execution = {
       version: "cloud-executor-playwright",

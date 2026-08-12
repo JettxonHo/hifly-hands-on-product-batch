@@ -73,6 +73,9 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
   if (!packagePort?.listPackagesForCloudExecutor || !packagePort?.getPackageForCloudExecutor) {
     throw new TypeError("cloud executor handoff package port is required");
   }
+  if (mode === "playwright" && typeof packagePort.downloadPackageForCloudExecutor !== "function") {
+    throw new TypeError("cloud executor handoff package archive port is required");
+  }
   if (!candidateStore?.put || !candidateStore?.head || !candidateStore?.get) throw new TypeError("cloud executor candidate store is required");
   validateDuration(leaseMs, "leaseMs");
   validateDuration(heartbeatIntervalMs, "heartbeatIntervalMs");
@@ -118,6 +121,12 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     const value = await packagePort.getPackageForCloudExecutor({ ...identity, packageId });
     if (!value || value.organization_id !== identity.organizationId) throw failure("CLOUD_EXECUTOR_PACKAGE_NOT_FOUND");
     return value;
+  }
+
+  async function downloadPackageArchive(packageId) {
+    const value = await packagePort.downloadPackageForCloudExecutor({ ...identity, packageId });
+    if (!Buffer.isBuffer(value?.body)) throw failure("CLOUD_EXECUTOR_PACKAGE_ARCHIVE_INVALID");
+    return { body: value.body, contentType: clean(value.contentType) || null };
   }
 
   function attemptOwned(attempt) {
@@ -334,8 +343,10 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       timer.unref?.();
       try {
         if (!['fake', 'playwright'].includes(mode) || typeof executor?.run !== "function") throw failure("CLOUD_EXECUTOR_FAIL_CLOSED");
+        const packageArchive = mode === "playwright" ? await downloadPackageArchive(packageRecord.id) : null;
         const result = await executor.run({ organizationId: identity.organizationId, executorCloudId: identity.executorCloudId,
-          order: executionOrder, attempt, package: packageRecord, progress: reportProgress, checkpoint: reportProgress });
+          order: executionOrder, attempt, package: packageRecord,
+          ...(packageArchive ? { packageArchive } : {}), progress: reportProgress, checkpoint: reportProgress });
         if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
         const currentAttempt = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
         if (result?.status === "requires_action" || result?.outcome === "requires_action") {

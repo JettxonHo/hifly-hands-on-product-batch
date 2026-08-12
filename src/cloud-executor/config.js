@@ -27,6 +27,9 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
   const storageRoot = path.resolve(root, env.CLOUD_EXECUTOR_ROOT || DEFAULT_ROOT);
   const profileDir = path.resolve(root, env.CLOUD_EXECUTOR_PROFILE_DIR || path.join(storageRoot, "profile"));
   const workspaceRoot = path.resolve(root, env.CLOUD_EXECUTOR_WORKSPACE_ROOT || storageRoot);
+  const avatarMappingPath = env.CLOUD_EXECUTOR_AVATAR_MAPPING_FILE?.trim()
+    ? path.resolve(root, env.CLOUD_EXECUTOR_AVATAR_MAPPING_FILE.trim())
+    : null;
   const workspace = {
     root: workspaceRoot,
     profileDir,
@@ -43,6 +46,7 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
     organizationId,
     executorCloudId,
     workspace,
+    avatarMappingPath,
     profileDir,
     storageRoot: workspaceRoot,
     worker: {

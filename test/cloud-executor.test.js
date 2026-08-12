@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
 
 import { createCloudExecutorService } from "../src/cloud-executor/cloud-executor-service.js";
@@ -79,6 +80,14 @@ function makeCloudWorld({ enabled = true, mode = "fake", readiness = { ready: tr
     async getPackageForCloudExecutor(input) {
       const value = [...packages.values()].find((candidate) => candidate.id === input.packageId);
       return clone(value);
+    },
+    async downloadPackageForCloudExecutor(input) {
+      const value = [...packages.values()].find((candidate) => candidate.id === input.packageId);
+      return value ? {
+        body: Buffer.from("sensitive-package-marker https://private.example/package"),
+        contentType: "application/zip",
+        privateUrl: "https://private.example/package"
+      } : null;
     }
   };
   const repository = createMemoryManualExecutionRepository();
@@ -226,6 +235,24 @@ test("uncertain post-submit outcome requires action, stops the worker, and never
   assert.equal(first.report.failure_stage, "unknown_post_submit");
 });
 
+test("playwright mode downloads the claimed package archive for the executor without projecting its contents", async () => {
+  let received;
+  const world = makeCloudWorld({ mode: "playwright", executor: {
+    async run(input) {
+      received = input;
+      return { body: Buffer.from("video") };
+    }
+  } });
+
+  const result = await world.service.runOnce();
+
+  assert.equal(received.packageArchive.body.toString(), "sensitive-package-marker https://private.example/package");
+  assert.equal(received.packageArchive.contentType, "application/zip");
+  assert.equal(received.packageArchive.privateUrl, undefined);
+  assert.equal(/sensitive-package-marker|private\.example/i.test(JSON.stringify(result)), false);
+  assert.equal(result.status, "succeeded");
+});
+
 test("an unexpected fake executor error is terminal and records a failed report", async () => {
   const world = makeCloudWorld({ orderCount: 2, executor: { async run() { throw new Error("fake failure"); } } });
   const result = await world.service.runOnce();
@@ -337,15 +364,18 @@ test("standalone cloud executor config is disabled and fail-closed by default", 
   const playwright = createCloudExecutorConfig({ root: "/tmp/hifly-cloud-executor-test", env: {
     ...env, CLOUD_EXECUTOR_ENABLED: "true", CLOUD_EXECUTOR_MODE: "playwright", CLOUD_EXECUTOR_ID: CLOUD_EXECUTOR_ID,
     CLOUD_EXECUTOR_ORGANIZATION_ID: ORGANIZATION_ID, CLOUD_EXECUTOR_WORKSPACE_ROOT: "/var/lib/hifly-cloud",
-    CLOUD_EXECUTOR_PROFILE_DIR: "/var/lib/hifly-profile"
+    CLOUD_EXECUTOR_PROFILE_DIR: "/var/lib/hifly-profile", CLOUD_EXECUTOR_AVATAR_MAPPING_FILE: "/etc/hifly/avatar-mappings.json"
   } });
   assert.equal(playwright.configured, true);
+  const workspaceRoot = path.resolve("/var/lib/hifly-cloud");
+  const profileDir = path.resolve("/var/lib/hifly-profile");
+  assert.equal(playwright.avatarMappingPath, path.resolve("/etc/hifly/avatar-mappings.json"));
   assert.deepEqual(playwright.workspace, {
-    root: "/var/lib/hifly-cloud",
-    profileDir: "/var/lib/hifly-profile",
-    assetsDir: "/var/lib/hifly-cloud/assets",
-    outputsDir: "/var/lib/hifly-cloud/outputs",
-    evidenceDir: "/var/lib/hifly-cloud/evidence"
+    root: workspaceRoot,
+    profileDir,
+    assetsDir: path.join(workspaceRoot, "assets"),
+    outputsDir: path.join(workspaceRoot, "outputs"),
+    evidenceDir: path.join(workspaceRoot, "evidence")
   });
 });
 
