@@ -26,5 +26,7 @@
 
 ## 当前状态与下一步
 
-- 当前仍未提交、未推送、未创建 PR；全量回归已完成，下一步检查 diff/status，提交并推送本分支，创建非 draft READY PR 并在 body 中 `Closes #139`。
+- Implementation commit：`62854cb`。分支已推送，READY PR [#147](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/147) 为 `OPEN`、非 draft、base `main`、body 关联 `Closes #139`。
+- PR 初次 CI：Ubuntu Node 22 `pass`、Windows Node 22 `pass`、identity-postgres `pass`。
+- 当前等待独立 Review；不合并、不审批、不部署、不访问 Hifly、不使用真实 Profile/登录态，不执行真实 Provider 或积分动作。
 - 不合并、不审批、不部署、不访问 Hifly、不使用真实 Profile/登录态，不执行真实 Provider 或积分动作。
