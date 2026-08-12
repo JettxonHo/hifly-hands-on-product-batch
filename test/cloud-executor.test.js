@@ -4,9 +4,11 @@ import test from "node:test";
 
 import { createCloudExecutorService } from "../src/cloud-executor/cloud-executor-service.js";
 import { createCloudExecutorWorker } from "../src/cloud-executor/cloud-executor-worker.js";
+import { createCloudExecutorConfig } from "../src/cloud-executor/config.js";
+import { createCloudExecutorRuntime } from "../src/cloud-executor/runtime.js";
+import { startCloudExecutorRuntime } from "../src/cloud-executor/start.js";
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryManualExecutionRepository } from "../src/manual-execution/memory-manual-execution-repository.js";
-import { createProductionConfig } from "../src/server/production-config.js";
 
 const ORGANIZATION_ID = "org-cloud";
 const CLOUD_EXECUTOR_ID = "cloud-executor-1";
@@ -82,17 +84,26 @@ function makeCloudWorld({ enabled = true, mode = "fake", readiness = { ready: tr
   const repository = createMemoryManualExecutionRepository();
   const candidateStore = createMemoryObjectStore();
   const verificationCalls = [];
-  const service = createCloudExecutorService({
+  const readinessPort = { async check() { return readiness; } };
+  const verificationPort = {
+    async requestVerification(input) { verificationCalls.push(input); return { job: { id: `job-${verificationCalls.length}` }, replayed: false }; },
+    async wake() { verificationCalls.push({ wake: true }); }
+  };
+  const selectedExecutor = executor || { async run() { return executorResult; } };
+  const serviceOptions = {
     enabled, mode, organizationId: ORGANIZATION_ID, executorCloudId: CLOUD_EXECUTOR_ID,
-    repository, orderPort, packagePort, candidateStore, readinessPort: { async check() { return readiness; } },
-    verificationPort: {
-      async requestVerification(input) { verificationCalls.push(input); return { job: { id: `job-${verificationCalls.length}` }, replayed: false }; },
-      async wake() { verificationCalls.push({ wake: true }); }
-    },
-    executor: executor || { async run() { return executorResult; } }, leaseMs, heartbeatIntervalMs, now: () => nowValue
-  });
+    repository, orderPort, packagePort, candidateStore, readinessPort, verificationPort,
+    executor: selectedExecutor, leaseMs, heartbeatIntervalMs, now: () => nowValue
+  };
+  const service = createCloudExecutorService(serviceOptions);
   return { service, order: orders[0], orders, packages, repository, candidateStore, verificationCalls,
-    orderPort, packagePort, advance(ms) { nowValue += ms; }, get listCalls() { return listCalls; },
+    orderPort, packagePort, runtimeOptions: {
+      config: { enabled, configured: enabled && mode === "fake", mode, organizationId: ORGANIZATION_ID,
+        executorCloudId: CLOUD_EXECUTOR_ID, worker: { pollIntervalMs: 1, leaseMs, heartbeatIntervalMs } },
+      repository, orderPort, packagePort, candidateStore, readinessPort, verificationPort, executor: selectedExecutor,
+      now: () => nowValue
+    },
+    advance(ms) { nowValue += ms; }, get listCalls() { return listCalls; },
     get transitionCalls() { return transitionCalls; } };
 }
 
@@ -118,6 +129,31 @@ test("cloud readiness is evaluated before any order claim", async () => {
   assert.equal(result.status, "requires_login");
   assert.equal(world.listCalls, 0);
   assert.equal(world.transitionCalls, 0);
+});
+
+test("standalone Cloud Executor runtime owns fake service and worker without starting on construction", async () => {
+  const world = makeCloudWorld();
+  const runtime = createCloudExecutorRuntime(world.runtimeOptions);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(world.listCalls, 0);
+  assert.equal(runtime.executorType, "cloud_executor");
+  assert.equal(typeof runtime.service.runOnce, "function");
+  assert.equal(typeof runtime.worker.runNext, "function");
+
+  const result = await runtime.runOnce();
+  assert.equal(result.status, "succeeded");
+  assert.equal(world.listCalls, 1);
+  await runtime.close();
+});
+
+test("standalone runtime entrypoint requires explicit config and stays fail-closed when disabled", async () => {
+  assert.throws(() => createCloudExecutorRuntime(), { code: "CLOUD_EXECUTOR_RUNTIME_CONFIG_REQUIRED" });
+  const { runtime, startup } = await startCloudExecutorRuntime({ config: { enabled: false, mode: "fail_closed" } });
+  assert.equal(startup.status, "disabled");
+  assert.equal(runtime.status, "disabled");
+  assert.equal(runtime.service, null);
+  assert.equal(runtime.worker, null);
+  await runtime.close();
 });
 
 test("fake success claims one order, reports a cloud identity, and triggers A12 once", async () => {
@@ -243,26 +279,33 @@ test("cloud lease expiry becomes requires_action and never auto-creates another 
   assert.equal((await world.service.runOnce()).status, "halted");
 });
 
-test("production cloud executor config is disabled and fail-closed by default", () => {
+test("standalone cloud executor config is disabled and fail-closed by default", () => {
   const env = {
     DATABASE_URL: "postgresql://pilot:secret@postgres:5432/hifly_pilot",
     PUBLIC_HOST: "pilot.example.test",
     PUBLIC_ORIGIN: "https://pilot.example.test",
     INITIAL_ADMIN_ENABLED: "false"
   };
-  const config = createProductionConfig({ root: "/tmp/hifly-cloud-executor-test", env });
-  assert.equal(config.cloudExecutor.enabled, false);
-  assert.equal(config.cloudExecutor.configured, false);
-  assert.equal(config.cloudExecutor.mode, "fail_closed");
-  assert.equal(config.cloudExecutor.executorType, "cloud_executor");
-  assert.equal(config.cloudExecutor.worker.autoStart, false);
+  const config = createCloudExecutorConfig({ root: "/tmp/hifly-cloud-executor-test", env });
+  assert.equal(config.enabled, false);
+  assert.equal(config.configured, false);
+  assert.equal(config.mode, "fail_closed");
+  assert.equal(config.executorType, "cloud_executor");
+  assert.equal(config.worker.autoStart, undefined);
 
-  const unconfigured = createProductionConfig({ root: "/tmp/hifly-cloud-executor-test", env: {
+  const unconfigured = createCloudExecutorConfig({ root: "/tmp/hifly-cloud-executor-test", env: {
     ...env, CLOUD_EXECUTOR_ENABLED: "true", CLOUD_EXECUTOR_MODE: "fake"
   } });
-  assert.equal(unconfigured.cloudExecutor.enabled, true);
-  assert.equal(unconfigured.cloudExecutor.configured, false);
-  assert.equal(unconfigured.cloudExecutor.worker.autoStart, false);
+  assert.equal(unconfigured.enabled, true);
+  assert.equal(unconfigured.configured, false);
+  assert.equal(unconfigured.worker.autoStart, undefined);
+
+  const configured = createCloudExecutorConfig({ root: "/tmp/hifly-cloud-executor-test", env: {
+    ...env, CLOUD_EXECUTOR_ENABLED: "true", CLOUD_EXECUTOR_MODE: "fake", CLOUD_EXECUTOR_ID: CLOUD_EXECUTOR_ID,
+    CLOUD_EXECUTOR_ORGANIZATION_ID: ORGANIZATION_ID
+  } });
+  assert.equal(configured.configured, true);
+  assert.equal(configured.worker.autoStart, undefined);
 });
 
 test("cloud executor migration adds a separate identity without relaxing existing identities", async () => {

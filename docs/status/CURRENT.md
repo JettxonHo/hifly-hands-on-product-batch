@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 本地实现待 PR；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
+> 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
 ## 2026-08-12 P0 Cloud Executor 正式架构纠偏启动
 
@@ -12,14 +12,15 @@
 - 阿里云只读复核：服务器代码 `d6e1f50`、工作树干净；app/postgres/proxy 均 healthy；app 正在使用新镜像，且不同于回滚镜像；内外 HTTPS health 均 `ok`；13 个 migration ledger 表存在；运行时 `PRODUCTION_EXECUTOR=fail_closed`。旧 `LOCAL_AGENT_ENABLED=true` 尚未擅自修改，后续由 Cloud Executor 实施/部署任务显式收敛。
 - 本轮没有 claim、没有打开 Hifly、没有运行生成、没有 DeepSeek 调用，飞影积分消耗 0。CE-01 阶段不能宣称 Cloud Executor 已实现或纯云端可用；CE-02 的本地实现不等于 runtime/deployment proof。
 
-## 2026-08-12 CE-02 / Issue #137 Cloud Executor runtime（本地实现，待 PR）
+## 2026-08-12 CE-02 / Issue #137 Cloud Executor runtime（PR #145 Review 纠正）
 
 - 当前分支：`codex/ce-02-cloud-executor-runtime`；权威基线：`origin/main@deec74ec67261a931994ca9e072432c978ea5d0b`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置：`~/.codex/agents/luna-worker.toml`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见：`UNVERIFIED_RUNTIME_MODEL`。
 - CE-02 已在本地实现但尚未宣称部署或运行时证明：新增 additive migration `004_cloud_executor_identity.sql` 与 memory/PostgreSQL repository cloud identity seams；`manual`、`local_agent`、`cloud_executor` 三者保持互斥身份，候选/报告也保持 exact-one uploader/submitter。新增 `src/cloud-executor/` fake-only service、serial Worker、readiness 和 fake executor，默认 `disabled`/`fail_closed`。
 - Worker loop 为单进程 concurrency=1：readiness 先于 claim；每次最多领取一条 handoff-ready order；执行 start、lease/heartbeat（以 `progress_phase` 作为 bounded checkpoint）、fake candidate/report、A12 exactly-once trigger；fake failure 立即停机且不领取下一条；lease expiry 进入 `requires_action`，不自动创建或重试 attempt。Cloud Executor 使用独立 `cloud_executor` service seams，不使用 Local Agent bearer route、浏览器/Hifly/Playwright/DeepSeek 或真实 HTTP。
-- 配置/启动 wiring 已接入 production config、`production-start`、app decorator/worker lifecycle、Compose/.env 示例；enabled 仅允许 `fake`，缺少 cloud id/organization 时保持 unconfigured，不启动 claim loop。未修改已应用 migration，未部署。
-- 验证：`node --test test/cloud-executor.test.js` 为 11/11；`npm run check` 检查 216 个 JavaScript 文件；`npm test` 为 965 total / 951 pass / 14 existing environment skip / 0 fail；`git diff --check` 待提交前复核。
-- 本轮外部动作与费用：0 次 Hifly、0 次 DeepSeek、0 次真实 HTTP、0 次 ProductionOrder real claim、0 次部署、飞影积分消耗 0。提交 `64a12a29ee50486347cdc571124cd5f2b0ad3e81` 已 push；READY PR [#145](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/145) 已创建并引用/关闭 #137。未审批、未合并、未部署；CI 与运行时/部署证明仍待完成，CE-03 未开始。
+- Sol Review 指出的进程归属阻断项已纠正：Fastify `buildApp` 不再接收、构造、decorate 或启动 Cloud Executor；`startProductionServer` 不再传入 Cloud Executor 配置；Web production config 完全忽略 `CLOUD_EXECUTOR_*`，即使这些变量无效也不影响 Web 启动。`/api/runtime` 仅保留固定 disabled/fail_closed 的只读 seam。
+- 新增独立 `src/cloud-executor/config.js`、`runtime.js` 与 `start.js`。只有显式调用 standalone runtime entrypoint 并传入独立配置/ports 时，才会构造并拥有 Cloud Executor service + worker；构造本身不启动，disabled/fail_closed/unconfigured 不构造 worker。Compose/.env 中原先误接到 app service 的 Cloud Executor 配置已移除，独立 Docker service 部署仍归 CE-07。
+- Review 纠正验证：focused `cloud-executor + production-start + manual-execution PostgreSQL` 为 29 total / 28 pass / 1 environment skip / 0 fail；`npm run check` 检查 219 个 JavaScript 文件；`npm test` 为 968 total / 954 pass / 14 existing environment skip / 0 fail；`git diff --check` 通过。
+- 本轮外部动作与费用：0 次 Hifly、0 次 DeepSeek、0 次真实 HTTP、0 次 ProductionOrder real claim、0 次部署、飞影积分消耗 0。READY PR [#145](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/145) 由本次纠正提交更新；未回复/resolve Review thread、未审批、未合并、未部署；运行时/部署证明仍待后续范围完成，CE-03 未开始。
 
 ## 2026-08-12 P3 阿里云部署与 standby 检查完成（无飞影生成）
 
