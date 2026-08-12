@@ -255,6 +255,12 @@ function apiError(error, request = null) {
   if (["HIFLY_API_AUTH_INVALID", "HIFLY_API_UNAVAILABLE", "HIFLY_API_RESPONSE_INVALID", "HIFLY_API_REQUEST_FAILED"].includes(error?.code)) {
     return { statusCode: 502, code: error.code };
   }
+  if (error?.code === "HIFLY_PUBLIC_AVATAR_SYNC_FORBIDDEN") return { statusCode: 403, code: error.code };
+  if (error?.code === "HIFLY_PUBLIC_AVATAR_SYNC_CONTEXT_REQUIRED") return { statusCode: 400, code: error.code };
+  if (error?.code === "HIFLY_PUBLIC_AVATAR_SYNC_UNAVAILABLE") return { statusCode: 503, code: error.code };
+  if (["HIFLY_PUBLIC_AVATAR_CATALOG_INVALID", "HIFLY_PUBLIC_AVATAR_CATALOG_KEY_CONFLICT"].includes(error?.code)) {
+    return { statusCode: error.code === "HIFLY_PUBLIC_AVATAR_CATALOG_KEY_CONFLICT" ? 409 : 502, code: error.code };
+  }
   if (error?.code === "UPLOAD_AUTHORIZATION_EXPIRED") return { statusCode: 410, code: "UPLOAD_AUTHORIZATION_EXPIRED" };
   if (["INVALID_ASSET_PAYLOAD", "ASSET_TYPE_NOT_ALLOWED", "ASSET_SIZE_NOT_ALLOWED", "INVALID_ASSET_CHECKSUM", "INVALID_ASSET_ID", "INVALID_ASSET_ACTOR", "INVALID_ASSET_DISPLAY_NAME", "INVALID_ASSET_REVISION", "INVALID_UPLOAD_BODY", "UPLOAD_CONTENT_TYPE_MISMATCH", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) {
     return { statusCode: 400, code: error.code };
@@ -588,7 +594,8 @@ export async function buildApp({
     const copyApprovalPort = avatarSelectionOptions.copyApprovalPort || createCurrentApprovedCopyPort({
       copyService: app.copyGeneration.service, copyReviewService: app.copyReview.service
     });
-    const service = createAvatarSelectionService({ repository, copyApprovalPort, now });
+    const service = createAvatarSelectionService({ repository, copyApprovalPort, now,
+      publicAvatarCatalog: avatarSelectionOptions.publicAvatarCatalog || null });
     app.decorate("avatarSelection", { repository, service, copyApprovalPort });
     app.addHook("onClose", async () => repository.close?.());
     await registerAvatarSelectionRoutes(app, { service });

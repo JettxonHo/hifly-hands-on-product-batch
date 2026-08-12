@@ -38,7 +38,7 @@ function migrationProbePool() {
     },
     async query(sql) {
       this.queryCalls += 1;
-      const version = String(sql).includes("work_verification_schema_migrations") ? 2 : 1;
+      const version = String(sql).includes("work_verification_schema_migrations") || String(sql).includes("avatar_selection_schema_migrations") ? 2 : 1;
       return { rows: [{ version }], rowCount: 1 };
     },
     async end() {}
@@ -390,6 +390,26 @@ test("production wiring can select the DeepSeek adapter without making a request
     { body: "测试文案" }
   );
   assert.equal(fetchCalls, 1);
+  await server.close();
+});
+
+test("production Hifly public avatar wiring is token-gated and makes no startup request", async () => {
+  const pool = { async end() {} };
+  const app = { async listen() {}, async stopExecutions() {}, async close() {} };
+  let buildOptions;
+  let fetchCalls = 0;
+  const server = await startProductionServer({
+    root: "/tmp/hifly-production-test",
+    env: productionEnv({ HIFLY_API_TOKEN: "unit-test-hifly-token" }),
+    handleSignals: false,
+    createPool: () => pool,
+    hiflyFetch: async () => { fetchCalls += 1; throw new Error("must not fetch during startup"); },
+    buildAppImpl: async (options) => { buildOptions = options; return app; }
+  });
+
+  assert.equal(fetchCalls, 0);
+  assert.equal(typeof buildOptions.avatarSelection.publicAvatarCatalog.list, "function");
+  assert.equal(typeof buildOptions.hiflyApi.client.listPublicAvatars, "function");
   await server.close();
 });
 

@@ -15,6 +15,7 @@ import { createFetchTransport } from "../llm/http-transport.js";
 import { createControlledPreflightEvaluator } from "../video-planning/controlled-preflight-evaluator.js";
 import { createDisabledLiveTransport } from "../rpa/capture/real-live-http-client.js";
 import { createHiflyApiClient } from "../providers/hifly-api-client.js";
+import { createHiflyPublicAvatarCatalog } from "../avatar-selection/hifly-public-avatar-catalog.js";
 import { buildApp } from "./app.js";
 import { createProductionConfig, createProductionExecutor } from "./production-config.js";
 
@@ -74,6 +75,11 @@ function copyQualityRewriter(config, deepseekFetch) {
 }
 
 function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFetch) {
+  const hiflyClient = config.hiflyApi.enabled ? createHiflyApiClient({
+    token: config.hiflyApi.token,
+    timeoutMs: config.hiflyApi.timeoutMs,
+    fetchImpl: hiflyFetch
+  }) : null;
   return {
     root: config.dataDir,
     webRoot: path.join(projectRoot, "web"),
@@ -98,7 +104,8 @@ function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFet
       rewriter: copyQualityRewriter(config, deepseekFetch)
     },
     copyReview: config.copyReview,
-    avatarSelection: config.avatarSelection,
+    avatarSelection: { ...config.avatarSelection,
+      publicAvatarCatalog: hiflyClient ? createHiflyPublicAvatarCatalog({ client: hiflyClient }) : null },
     videoPlanning: { ...config.videoPlanning, evaluator: createControlledPreflightEvaluator() },
     productionOrders: config.productionOrders,
     manualHandoff: config.manualHandoff,
@@ -106,14 +113,7 @@ function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFet
     localAgentExecution: config.localAgentExecution,
     artifactVerification: config.artifactVerification,
     workDelivery: config.workDelivery,
-    hiflyApi: config.hiflyApi.enabled ? {
-      enabled: true,
-      client: createHiflyApiClient({
-        token: config.hiflyApi.token,
-        timeoutMs: config.hiflyApi.timeoutMs,
-        fetchImpl: hiflyFetch
-      })
-    } : { enabled: false }
+    hiflyApi: hiflyClient ? { enabled: true, client: hiflyClient } : { enabled: false }
   };
 }
 

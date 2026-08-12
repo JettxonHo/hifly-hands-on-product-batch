@@ -2,7 +2,16 @@
 
 > 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产化核心能力升级（D-033）；P1-01/P1-02 已合并，P1-03 DeepSeek 文案改写正在交付；后续单条真实生成 standing authorization 剩余 4 次
+> 当前 Goal：生产化核心能力升级（D-033）；P1-01/P1-02/P1-03 已合并，P2-01 Hifly 公共人物目录同步正在交付；后续单条真实生成 standing authorization 剩余 4 次
+
+## 2026-08-12 P2-01 / Issue #126 Hifly 公共人物目录显式同步（本地实现待 Review）
+
+- 逻辑角色：`IMPLEMENTER`；自定义 Agent：`luna-worker`；配置文件：`~/.codex/agents/luna-worker.toml`；配置模型：`gpt-5.6-luna`；推理强度：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见：`UNVERIFIED_RUNTIME_MODEL`。
+- 已完成最小合同：Hifly API client 新增文档分页 `GET /api/v2/hifly/avatar/list?page=&size=&kind=2`；新增 fake-only provider-neutral 多页 adapter；memory/PostgreSQL AvatarAsset 同步 upsert 复用 `seed_key=hifly-public:<avatar>`，重复同步幂等、标题变化更新同一内部 asset，并保持组织隔离。
+- 同步条目固定为 `source_type=public`、`controlled_seed=false`、无预览/本地人物素材/手里有货证据，故 `materials_accessible=false`、`capability_status=unverified`、无 verified capability、不可确认；provider key 仅留服务端 `seed_key`，不进入 workspace/UI 投影。
+- 新增 admin-only `POST /api/avatar-catalog/hifly-public/sync`；读取 workspace 不触发 provider；无 Hifly provider client 稳定返回 `HIFLY_PUBLIC_AVATAR_SYNC_UNAVAILABLE`；生产仅在 `HIFLY_API_TOKEN` 存在时接入 client/adapter，启动不发请求。为支持受控公共目录标题更新，新增最小 avatar migration 002，保留其他 asset/版本/能力/选择记录 append-only。
+- 当前验证：定向 40/40 通过；PostgreSQL integration 使用本地隔离 schema 1/1 通过；A11、A14 浏览器验收分别单独通过；完整回归以受控并发运行，937 total / 923 pass / 14 既有 environment skip / 0 fail；`npm run check` 检查 212 个 JavaScript 文件通过；`git diff --check` 通过。默认全并发曾因本机同时存在大量浏览器进程而长时间停在 A11，终止该次运行后用 `--test-concurrency=4` 完整通过，未把资源争用误记为代码失败。
+- 真实外部调用：0 次 Hifly；未运行 Playwright/Capture/Local Agent；飞影积分消耗 0。实现尚未 commit/push、建 PR、合并或关闭 Issue #126；下一步由主控独立 Review，并在带 PostgreSQL 的 CI/环境验证 migration 002 与 PG upsert。
 
 ## 2026-08-12 P1-03 / Issue #122 DeepSeek 质检改写（待提交）
 

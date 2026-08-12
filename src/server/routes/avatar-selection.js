@@ -28,6 +28,8 @@ function publicWorkspace(value) {
 }
 
 export async function registerAvatarSelectionRoutes(app, { service }) {
+  app.post("/api/avatar-catalog/hifly-public/sync", async (request) => service.syncPublicCatalog(actor(request)));
+
   app.get("/api/products/:productId/avatar-workspace", async (request) => publicWorkspace(await service.getWorkspace({
     ...actor(request), productId: request.params.productId, copyVersionId: request.query?.copyVersionId
   })));

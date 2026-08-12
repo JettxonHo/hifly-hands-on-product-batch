@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { withTransaction } from "../identity/postgres.js";
-import { CONTROLLED_AVATARS } from "./memory-avatar-selection-repository.js";
+import { CONTROLLED_AVATARS, PUBLIC_CATALOG_DESCRIPTION, PUBLIC_CATALOG_SEED_LABEL } from "./memory-avatar-selection-repository.js";
 import { assertAvatarSelectionSchemaCurrent } from "./postgres.js";
 
 const failure = (code) => Object.assign(new Error(code), { code });
@@ -39,6 +39,45 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
           for (const capability of item.capabilities) await client.query(`INSERT INTO avatar_verified_capabilities(id,organization_id,asset_version_id,capability_code,capability_label,verification_status,evidence_reference,created_at)
             VALUES ($1,$2,$3,$4,$5,'verified',$6,$7)`, [randomUUID(),organizationId,versionId,capability.code,capability.label,capability.evidence_reference,now]);
         }
+      });
+    },
+    async syncPublicCatalog({ organizationId, entries = [], now } = {}) {
+      const unique = new Map();
+      for (const entry of entries) {
+        if (!entry || entry.source_type !== "public" || typeof entry.provider_key !== "string" ||
+          !entry.provider_key.startsWith("hifly-public:") || typeof entry.display_name !== "string" || !entry.display_name.trim()) {
+          throw failure("HIFLY_PUBLIC_AVATAR_CATALOG_INVALID");
+        }
+        unique.set(entry.provider_key, { provider_key: entry.provider_key, display_name: entry.display_name.trim() });
+      }
+      return withTransaction(pool, async (client) => {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-public-sync:${organizationId}`]);
+        let created = 0, updated = 0, unchanged = 0;
+        for (const entry of unique.values()) {
+          const existing = (await client.query(
+            "SELECT * FROM avatar_assets WHERE organization_id=$1 AND seed_key=$2 FOR UPDATE",
+            [organizationId, entry.provider_key]
+          )).rows[0];
+          if (existing) {
+            if (existing.source_type !== "public" || existing.controlled_seed !== false) throw failure("AVATAR_CATALOG_KEY_CONFLICT");
+            const changed = existing.display_name !== entry.display_name || existing.description !== PUBLIC_CATALOG_DESCRIPTION ||
+              existing.seed_label !== PUBLIC_CATALOG_SEED_LABEL;
+            if (!changed) { unchanged += 1; continue; }
+            await client.query(`UPDATE avatar_assets SET display_name=$3,description=$4,seed_label=$5,updated_at=$6
+              WHERE organization_id=$1 AND id=$2`, [organizationId, existing.id, entry.display_name, PUBLIC_CATALOG_DESCRIPTION, PUBLIC_CATALOG_SEED_LABEL, now]);
+            updated += 1;
+            continue;
+          }
+          const assetId = randomUUID(), versionId = randomUUID();
+          await client.query(`INSERT INTO avatar_assets(id,organization_id,source_type,display_name,description,status,controlled_seed,seed_key,seed_label,created_at,updated_at)
+            VALUES ($1,$2,'public',$3,$4,'active',false,$5,$6,$7,$7)`,
+          [assetId, organizationId, entry.display_name, PUBLIC_CATALOG_DESCRIPTION, entry.provider_key, PUBLIC_CATALOG_SEED_LABEL, now]);
+          await client.query(`INSERT INTO avatar_asset_versions(id,asset_id,organization_id,version_number,status,authorization_status,authorization_scope,capability_status,materials_accessible,preview_kind,created_at,updated_at)
+            VALUES ($1,$2,$3,1,'available','incomplete','current_organization','unverified',false,'none',$4,$4)`,
+          [versionId, assetId, organizationId, now]);
+          created += 1;
+        }
+        return { total: unique.size, created, updated, unchanged };
       });
     },
     async listCatalog(organizationId) {
