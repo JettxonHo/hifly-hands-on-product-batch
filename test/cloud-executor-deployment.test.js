@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { access, chmod, mkdtemp, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
@@ -20,6 +22,206 @@ import { safeArtifactPath } from "../src/cloud-executor/playwright-adapter.js";
 
 const ORGANIZATION_ID = "org-ce07";
 const EXECUTOR_ID = "cloud-executor-ce07";
+const ENTRYPOINT_PATH = fileURLToPath(new URL("../deploy/cloud-executor-entrypoint.sh", import.meta.url));
+let displayCounter = 0;
+
+async function writeExecutable(filePath, contents) {
+  await writeFile(filePath, contents);
+  await chmod(filePath, 0o755);
+}
+
+function runEntrypoint({ fixture, args = [] }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("sh", [ENTRYPOINT_PATH, ...args], {
+      cwd: path.dirname(ENTRYPOINT_PATH),
+      env: fixture.env,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal, stdout, stderr }));
+  });
+}
+
+async function createEntrypointFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ce07-entrypoint-"));
+  const bin = path.join(root, "bin");
+  await mkdir(bin);
+  const eventLog = path.join(root, "events.log");
+  const xvfbReady = path.join(root, "xvfb-ready");
+  const stopFile = path.join(root, "stop");
+  const activeServer = path.join(root, "active-server");
+  const displayNumber = 1000 + ((process.pid + displayCounter++) % 1000);
+  const display = `:${displayNumber}`;
+  const lockPath = path.join("/tmp", `.X${displayNumber}-lock`);
+  const socketPath = path.join("/tmp", ".X11-unix", `X${displayNumber}`);
+  const socketDirectory = path.dirname(socketPath);
+  let createdSocketDirectory = false;
+  try {
+    await access(socketDirectory);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    await mkdir(socketDirectory, { recursive: true });
+    createdSocketDirectory = true;
+  }
+
+  await writeExecutable(path.join(bin, "xdpyinfo"), `#!/bin/sh
+set -eu
+printf '%s\\n' xdpyinfo >> "$FAKE_EVENT_LOG"
+if [ -f "$FAKE_ACTIVE_SERVER" ] || [ -f "$FAKE_XVFB_READY" ]; then
+  exit 0
+fi
+exit 1
+`);
+  await writeExecutable(path.join(bin, "Xvfb"), `#!/bin/sh
+set -eu
+exec >/dev/null 2>&1
+printf '%s\\n' Xvfb >> "$FAKE_EVENT_LOG"
+if [ -e "$FAKE_LOCK_PATH" ] || [ -e "$FAKE_SOCKET_PATH" ]; then
+  printf '%s\\n' artifacts-present >> "$FAKE_EVENT_LOG"
+  exit 42
+fi
+: > "$FAKE_XVFB_READY"
+while [ ! -f "$FAKE_STOP_FILE" ]; do sleep 0.01; done
+`);
+  for (const command of ["x11vnc", "websockify"]) {
+    await writeExecutable(path.join(bin, command), `#!/bin/sh
+set -eu
+exec >/dev/null 2>&1
+printf '%s\\n' ${command} >> "$FAKE_EVENT_LOG"
+while [ ! -f "$FAKE_STOP_FILE" ]; do sleep 0.01; done
+`);
+  }
+  await writeExecutable(path.join(bin, "node"), `#!/bin/sh
+set -eu
+printf 'node:%s:%s\\n' "$1" "\${2:-}" >> "$FAKE_EVENT_LOG"
+`);
+
+  const env = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH || "/usr/bin:/bin"}`,
+    CLOUD_EXECUTOR_DISPLAY: display,
+    CLOUD_EXECUTOR_NOVNC_PORT: "6080",
+    FAKE_EVENT_LOG: eventLog,
+    FAKE_XVFB_READY: xvfbReady,
+    FAKE_STOP_FILE: stopFile,
+    FAKE_ACTIVE_SERVER: activeServer,
+    FAKE_LOCK_PATH: lockPath,
+    FAKE_SOCKET_PATH: socketPath
+  };
+
+  return {
+    env,
+    eventLog,
+    activeServer,
+    lockPath,
+    socketPath,
+    stopFile,
+    async stop() {
+      await writeFile(stopFile, "stop");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    },
+    async close() {
+      await this.stop();
+      await rm(root, { recursive: true, force: true });
+      await rm(lockPath, { force: true });
+      await rm(socketPath, { force: true });
+      if (createdSocketDirectory) {
+        try {
+          await rmdir(socketDirectory);
+        } catch (error) {
+          if (!["ENOENT", "ENOTEMPTY"].includes(error.code)) throw error;
+        }
+      }
+    }
+  };
+}
+
+async function assertMissing(filePath) {
+  await assert.rejects(access(filePath), { code: "ENOENT" });
+}
+
+function assertStartupEvents(events, terminalCommand) {
+  const xvfbIndex = events.indexOf("Xvfb");
+  assert.ok(xvfbIndex > 0, `Xvfb did not start after display preparation: ${events.join(",")}`);
+  assert.ok(events.slice(0, xvfbIndex).every((event) => event === "xdpyinfo"));
+  assert.deepEqual(events.slice(xvfbIndex), [
+    "Xvfb",
+    "xdpyinfo",
+    "x11vnc",
+    "websockify",
+    terminalCommand
+  ]);
+}
+
+test("production entrypoint removes stale display lock/socket before Xvfb and dispatches the default worker", async () => {
+  const fixture = await createEntrypointFixture();
+  try {
+    await writeFile(fixture.lockPath, "2147483647\n");
+    await writeFile(fixture.socketPath, "stale X11 socket");
+
+    const result = await runEntrypoint({ fixture });
+    await fixture.stop();
+
+    assert.equal(result.code, 0, result.stderr);
+    await assertMissing(fixture.lockPath);
+    await assertMissing(fixture.socketPath);
+    assertStartupEvents(
+      (await readFile(fixture.eventLog, "utf8")).trim().split("\n"),
+      "node:scripts/cloud-executor-worker.js:"
+    );
+  } finally {
+    await fixture.stop();
+    await fixture.close();
+  }
+});
+
+test("production entrypoint leaves an active display untouched and fails before starting another Xvfb", async () => {
+  const fixture = await createEntrypointFixture();
+  try {
+    await writeFile(fixture.lockPath, `${process.pid}\n`);
+    await writeFile(fixture.socketPath, "active X11 socket");
+    await writeFile(fixture.activeServer, "active");
+
+    const result = await runEntrypoint({ fixture });
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /CLOUD_EXECUTOR_XVFB_ALREADY_RUNNING/);
+    assert.deepEqual((await readFile(fixture.eventLog, "utf8")).trim().split("\n"), ["xdpyinfo"]);
+    assert.equal(await readFile(fixture.lockPath, "utf8"), `${process.pid}\n`);
+    assert.equal(await readFile(fixture.socketPath, "utf8"), "active X11 socket");
+  } finally {
+    await fixture.stop();
+    await fixture.close();
+  }
+});
+
+test("production entrypoint dispatches login after the same display startup sequence", async () => {
+  const fixture = await createEntrypointFixture();
+  try {
+    await writeFile(fixture.lockPath, "2147483647\n");
+    await writeFile(fixture.socketPath, "stale X11 socket");
+
+    const result = await runEntrypoint({ fixture, args: ["login"] });
+    await fixture.stop();
+
+    assert.equal(result.code, 0, result.stderr);
+    await assertMissing(fixture.lockPath);
+    await assertMissing(fixture.socketPath);
+    assertStartupEvents(
+      (await readFile(fixture.eventLog, "utf8")).trim().split("\n"),
+      "node:scripts/cloud-executor.js:login"
+    );
+  } finally {
+    await fixture.stop();
+    await fixture.close();
+  }
+});
 
 function disabledConfig(workspace = null) {
   return {

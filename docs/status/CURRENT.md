@@ -4,6 +4,15 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
+## 2026-08-13 CE-07 / Issue #142 Cloud Executor 重启恢复修复（READY PR）
+
+- 基于已合并的 `main@e95a1ff`，分支 `codex/ce-07-xvfb-restart-recovery`；角色 `IMPLEMENTER`，请求自定义 Agent `luna-worker`，配置 `gpt-5.6-luna` / `max`，配置状态 `CONFIG_VERIFIED`，运行时模型元数据不可见（`UNVERIFIED_RUNTIME_MODEL`）。
+- 根因：容器重启后本容器 `/tmp/.X99-lock` 与 `/tmp/.X11-unix/X99` 残留，入口直接启动 Xvfb，进入 `Server is already active for display 99` / `CLOUD_EXECUTOR_XVFB_UNAVAILABLE` restart loop。
+- 修复：入口在 Xvfb 前探测活动 display；活动 X server 或 lock PID 仍存活时 fail-closed 并保留文件；确认 stale 后只清理当前 DISPLAY 对应的 lock/socket，再保持 Xvfb → x11vnc → websockify → login/worker 顺序。
+- 回归覆盖 stale 清理、启动顺序、活动 display 不误删，以及默认 worker/login 两条 dispatch 路径。验证：focused `15/15`、`sh -n`、`npm run check`（229 JS）、`NODE_OPTIONS=--test-reporter=dot npm test` exit 0、`git diff --check`。
+- 本轮未 SSH、未访问 Hifly/Provider、未启动真实 provider、未 claim、未消耗积分；阿里云实机重启/live proof仍待独立部署授权与 Review，不在本 PR 声称已验证。
+- Session：`docs/status/sessions/2026-08-13-ce-07-xvfb-restart-recovery.md`。
+
 ## 2026-08-12 CE-07 / Issue #142 阿里云 standalone Cloud Executor Worker（READY PR，待 Review）
 
 - 当前分支：`codex/ce-07-aliyun-standby-deployment`；基线：`main@9dd35ab`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。

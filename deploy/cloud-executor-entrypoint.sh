@@ -16,11 +16,49 @@ if [ "$NOVNC_PORT" -lt 1 ] || [ "$NOVNC_PORT" -gt 65535 ]; then
   exit 1
 fi
 
+DISPLAY_NUMBER="${DISPLAY#:}"
+case "$DISPLAY_NUMBER" in
+  *[!0-9]*|'')
+    echo "CLOUD_EXECUTOR_DISPLAY_INVALID" >&2
+    exit 1
+    ;;
+esac
+
+DISPLAY_LOCK="/tmp/.X${DISPLAY_NUMBER}-lock"
+DISPLAY_SOCKET="/tmp/.X11-unix/X${DISPLAY_NUMBER}"
+
+# Never kill an existing X server; only remove artifacts after the display and lock PID checks are stale.
+prepare_display() {
+  if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+    echo "CLOUD_EXECUTOR_XVFB_ALREADY_RUNNING" >&2
+    exit 1
+  fi
+
+  if [ -f "$DISPLAY_LOCK" ]; then
+    lock_pid=$(sed -n '1p' "$DISPLAY_LOCK" 2>/dev/null || true)
+    case "$lock_pid" in
+      ''|*[!0-9]*|0)
+        ;;
+      *)
+        if kill -0 "$lock_pid" 2>/dev/null; then
+          echo "CLOUD_EXECUTOR_XVFB_ALREADY_RUNNING" >&2
+          exit 1
+        fi
+        ;;
+    esac
+  fi
+
+  if [ -e "$DISPLAY_LOCK" ] || [ -e "$DISPLAY_SOCKET" ]; then
+    rm -f "$DISPLAY_LOCK" "$DISPLAY_SOCKET"
+  fi
+}
+
 cleanup() {
   kill "${NOVNC_PID:-}" "${VNC_PID:-}" "${XVFB_PID:-}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
+prepare_display
 Xvfb "$DISPLAY" -screen 0 1440x900x24 -nolisten tcp &
 XVFB_PID=$!
 
