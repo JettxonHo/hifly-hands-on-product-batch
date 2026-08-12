@@ -133,11 +133,42 @@ test("disabled cloud executor is fail-closed before readiness or claim", async (
 });
 
 test("cloud readiness is evaluated before any order claim", async () => {
-  const world = makeCloudWorld({ readiness: { ready: false, status: "requires_login" } });
+  const world = makeCloudWorld({ readiness: { ready: false, status: "requires_login", reason: "session-detail=private-value" } });
   const result = await world.service.runOnce();
   assert.equal(result.status, "requires_login");
+  assert.equal(result.reason, undefined);
+  assert.doesNotMatch(JSON.stringify(result), /private-value|session-detail/i);
   assert.equal(world.listCalls, 0);
   assert.equal(world.transitionCalls, 0);
+});
+
+test("missing or expired Provider session maps to requires_login before claim", async () => {
+  for (const sessionState of ["missing", "expired"]) {
+    const world = makeCloudWorld({ mode: "playwright", executor: {
+      async preflight() {
+        throw Object.assign(new Error("login details must stay private"), {
+          code: "LOGIN_REQUIRED",
+          sessionState
+        });
+      },
+      async run() {
+        throw new Error("login readiness must stop before execution");
+      }
+    } });
+    const runtime = createCloudExecutorRuntime({
+      ...world.runtimeOptions,
+      readinessPort: null,
+      config: { ...world.runtimeOptions.config, configured: true }
+    });
+
+    const result = await runtime.runOnce();
+    assert.equal(result.status, "requires_login");
+    assert.equal(result.ready, false);
+    assert.equal(world.listCalls, 0, sessionState);
+    assert.equal(world.transitionCalls, 0, sessionState);
+    assert.doesNotMatch(JSON.stringify(result), /login details|sessionState|cookie|token|profile/i);
+    await runtime.close();
+  }
 });
 
 test("standalone Cloud Executor runtime owns fake service and worker without starting on construction", async () => {

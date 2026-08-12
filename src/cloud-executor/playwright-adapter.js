@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 
@@ -10,6 +10,7 @@ import { runBatch } from "../core/batch-runner.js";
 import { createHiflyExecutor } from "../executors/hifly-executor.js";
 import { HiflyHandsOnProductPage } from "../hifly-page.js";
 import { compilePackageToBatchItem, extractHandoffPackage, loadAvatarMappings } from "../local-agent/package-compiler.js";
+import { ensureCloudExecutorWorkspace } from "./workspace.js";
 
 export const CLOUD_PLAYWRIGHT_PROGRESS = Object.freeze({
   PRE_SUBMIT: "pre_submit",
@@ -53,7 +54,8 @@ export function createCloudWorkspaceConfig(workspace = {}) {
   const evidenceDir = requiredAbsolute(workspace.evidenceDir || path.join(root, "evidence"), "workspace.evidenceDir");
   const batchDir = requiredAbsolute(workspace.batchDir || path.join(root, "batches"), "workspace.batchDir");
   const lockDir = requiredAbsolute(workspace.lockDir || path.join(root, "locks"), "workspace.lockDir");
-  return Object.freeze({ root, profileDir, assetsDir, outputsDir, evidenceDir, batchDir, lockDir });
+  return Object.freeze({ root, profileDir, assetsDir, outputsDir, evidenceDir, batchDir, lockDir,
+    profileMarkerPath: path.join(profileDir, ".cloud-executor-profile.marker") });
 }
 
 function hiflyConfigFor(workspace, config = {}) {
@@ -203,20 +205,13 @@ export function createCloudPlaywrightAdapter({
 
   let context = null;
   let page = null;
+  let hiflyPage = null;
   let delegate = null;
   let closed = false;
   let halted = false;
 
   async function ensureWorkspace() {
-    await Promise.all([
-      mkdir(cloudWorkspace.root, { recursive: true }),
-      mkdir(cloudWorkspace.profileDir, { recursive: true }),
-      mkdir(cloudWorkspace.assetsDir, { recursive: true }),
-      mkdir(cloudWorkspace.outputsDir, { recursive: true }),
-      mkdir(cloudWorkspace.evidenceDir, { recursive: true }),
-      mkdir(cloudWorkspace.batchDir, { recursive: true }),
-      mkdir(cloudWorkspace.lockDir, { recursive: true })
-    ]);
+    await ensureCloudExecutorWorkspace(cloudWorkspace);
   }
 
   async function ensureDelegate() {
@@ -231,13 +226,26 @@ export function createCloudPlaywrightAdapter({
       ? await pageFactory({ context, workspace: cloudWorkspace, config })
       : context.pages?.()[0] || await context.newPage();
     page?.setDefaultTimeout?.(config.batch.defaultTimeoutMs);
-    const hiflyPage = hiflyPageFactory(page, config, logger);
+    hiflyPage = hiflyPageFactory(page, config, logger);
     delegate = assertExecutor(executorFactory({ hiflyPage, page, config, workspace: cloudWorkspace, logger }));
     return delegate;
   }
 
   async function preflight() {
     return (await ensureDelegate()).preflight();
+  }
+
+  async function login({ waitForInput = async () => undefined } = {}) {
+    await ensureDelegate();
+    if (typeof hiflyPage?.openWorkbench !== "function") {
+      const error = new Error("Cloud Executor login surface is unavailable");
+      error.code = "CLOUD_EXECUTOR_LOGIN_SURFACE_UNAVAILABLE";
+      throw error;
+    }
+    await hiflyPage.openWorkbench();
+    await waitForInput();
+    const result = await delegate.preflight();
+    return { status: result?.status || "ready" };
   }
 
   async function run(input = {}) {
@@ -390,6 +398,7 @@ export function createCloudPlaywrightAdapter({
     workspace: cloudWorkspace,
     config,
     preflight,
+    login,
     run,
     close,
     get halted() { return halted; },

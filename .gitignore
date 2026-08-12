@@ -6,6 +6,8 @@ node_modules
 node_modules/
 playwright/.auth/
 playwright/profile/
+cloud-executor/profile/
+.cloud-executor-profile.marker
 downloads/*
 !downloads/.gitkeep
 logs/*

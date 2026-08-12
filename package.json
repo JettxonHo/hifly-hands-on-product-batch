@@ -13,6 +13,7 @@
     "demo:stop": "node scripts/demo-stop.mjs",
     "demo:reset": "node scripts/demo-reset.mjs",
     "login": "node src/login.js",
+    "cloud-executor:login": "node --env-file-if-exists=.env scripts/cloud-executor.js login",
     "local-agent:run-once": "node scripts/local-agent.js run-once",
     "local-agent:avatar-map": "node scripts/local-agent.js avatar-map",
     "migrate:identity": "node scripts/migrate-identity.mjs",

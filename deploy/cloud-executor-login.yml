@@ -1,0 +1,31 @@
+# CE-04 contract fragment only. CE-07 owns image build, service deployment and live validation.
+# This file intentionally has no `ports:` mapping: reach noVNC through private ingress/SSH tunnel.
+services:
+  cloud_executor_login:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["node", "scripts/cloud-executor.js", "login"]
+    environment:
+      CLOUD_EXECUTOR_ENABLED: "true"
+      CLOUD_EXECUTOR_MODE: "login"
+      CLOUD_EXECUTOR_ROOT: "/var/lib/hifly-executor"
+      CLOUD_EXECUTOR_PROFILE_DIR: "/var/lib/hifly-executor/profile"
+      CLOUD_EXECUTOR_DISPLAY: ":99"
+      CLOUD_EXECUTOR_NOVNC_BIND_HOST: "127.0.0.1"
+      CLOUD_EXECUTOR_NOVNC_PORT: "6080"
+      DISPLAY: ":99"
+    volumes:
+      - cloud_executor_profile:/var/lib/hifly-executor/profile
+    expose:
+      - "6080"
+    networks:
+      - cloud_executor_private
+    restart: "no"
+
+volumes:
+  cloud_executor_profile:
+
+networks:
+  cloud_executor_private:
+    internal: true

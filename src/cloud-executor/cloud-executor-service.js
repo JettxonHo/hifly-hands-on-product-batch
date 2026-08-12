@@ -9,6 +9,9 @@ const DEFAULT_LEASE_MS = 30_000;
 const MAX_LEASE_MS = 30 * 60 * 1000;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000;
 const PROGRESS_PHASE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+const READINESS_STATUSES = new Set(["disabled", "fail_closed", "unconfigured", "requires_login", "storage_blocked",
+  "available", "busy", "requires_action"]);
+const SAFE_REASON = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 function validateIdentity({ organizationId, executorCloudId }) {
   if (!clean(organizationId) || !clean(executorCloudId)) throw failure("CLOUD_EXECUTOR_CONTEXT_REQUIRED");
@@ -44,6 +47,13 @@ function readyPackage(packages) {
 
 function hasExpiredLease(attempt, at) {
   return ["claimed", "running"].includes(attempt?.status) && attempt.lease_expires_at && Date.parse(attempt.lease_expires_at) <= at;
+}
+
+function publicReadiness(state) {
+  if (state === true || state?.ready === true) return { ready: true };
+  const status = READINESS_STATUSES.has(state?.status) ? state.status : "requires_action";
+  const reason = typeof state?.reason === "string" && SAFE_REASON.test(state.reason) ? state.reason : null;
+  return { ready: false, status, ...(reason ? { reason } : {}) };
 }
 
 export function createCloudExecutorReadiness({ enabled = false, mode = "fail_closed", configured = false,
@@ -403,12 +413,8 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     if (!identity.organizationId || !identity.executorCloudId) return { status: "unconfigured", ready: false, claimed: false };
     cloudContext(input);
     if (halted) return { status: "halted", stopped: true };
-    const state = await readiness.check({ ...identity });
-    if (state === true) {
-      // A boolean readiness result is accepted as the smallest test seam.
-    } else if (!state?.ready) {
-      return { status: state?.status || "requires_action", ready: false, reason: state?.reason || null };
-    }
+    const state = publicReadiness(await readiness.check({ ...identity }));
+    if (!state.ready) return { status: state.status, ready: false, ...(state.reason ? { reason: state.reason } : {}) };
     const active = await expireOwnActiveAttempt();
     if (active?.expired) return { status: "requires_action", stopped: true, attempt: publicAttempt(active.attempt) };
     if (active?.busy) return { status: "busy", attempt: publicAttempt(active.attempt) };

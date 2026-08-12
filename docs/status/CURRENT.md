@@ -4,6 +4,17 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
+## 2026-08-12 CE-04 / Issue #139 Cloud Profile 与受控登录（本地实现待提交）
+
+- 当前分支：`codex/ce-04-cloud-login-readiness`；基线：`main@678aa48`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
+- 已新增 Cloud Executor 独立 login mode/command：默认仍为 `disabled` / `fail_closed`；启用 login mode 只构造 login runtime，返回值没有 `service`、`worker`、`runOnce` 或 claim seam。登录命令只允许 `login`，仅复用现有 Cloud Playwright adapter、`HiflyHandsOnProductPage.openWorkbench()` 与 executor `preflight()`，不上传、不生成、不消耗积分。
+- 已新增持久 Profile/workspace contract：默认 `/var/lib/hifly/cloud-executor/profile`，Profile 目录创建固定非敏感 marker；fake adapter 重启后 marker 与 readiness 保持。Cookie、LocalStorage、Token、Profile 内容不写入 Git、数据库、公共 API、日志或快照；仓库内同名 cloud Profile/marker 已忽略。
+- 已新增 login-only 的 Xvfb/noVNC 配置与 CE-07 contract fragment：默认 `DISPLAY=:99`、noVNC `127.0.0.1:6080`、`private`/`public=false`；只接受 loopback/RFC1918 bind，fragment 无 public `ports:` 映射，实际镜像/部署仍归 CE-07。
+- readiness 在 claim 前调用既有 Playwright preflight；`LOGIN_REQUIRED` 以及 fake 的 missing/expired session 都只返回受控 `requires_login`，不列订单、不 transition、不 claim；公开 readiness 与命令日志不携带原始 preflight/error 细节。
+- 已验证：CE-04 + CE-02/03 focused 30/30；`npm run check` 检查 223 个 JavaScript 文件；最终全量 `npm test` 985 total / 971 pass / 14 existing environment skip / 0 fail；`git diff --check` 通过。官方 registry 的 `npm audit --omit=dev --audit-level=high` 报告 7 个既有依赖漏洞（5 high/2 moderate），未在本任务扩大范围修复；镜像 registry 的 audit endpoint 不支持。
+- 外部边界：0 次 Hifly 访问、0 次真实浏览器页面访问、0 次上传/生成/下载、0 次 DeepSeek、0 次积分、0 次 real claim、0 次部署；全部 CE-04 测试使用 fake page/executor/filesystem marker。
+- 当前卡点/下一步：提交、推送并创建关联 `Closes #139` 的 READY PR；不合并、不审批、不部署、不执行真实登录或 Provider 动作。
+
 ## 2026-08-12 CE-03 / Issue #138 Cloud Playwright adapter（Sol Review follow-up 已实现）
 
 - 当前分支：`codex/ce-03-cloud-playwright-adapter`；基线：`origin/main@d912d93`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置：`~/.codex/agents/luna-worker.toml`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
