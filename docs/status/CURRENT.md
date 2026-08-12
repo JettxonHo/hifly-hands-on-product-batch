@@ -4,6 +4,16 @@
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
 
+## 2026-08-12 CE-06 / Issue #141 Cloud Executor 控制面投影与生产 UX（本地实现，发布待验证）
+
+- 当前分支：`codex/ce-06-cloud-control-plane-ux`；基线：`main@1d6bc65`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
+- 新增最小 Cloud Executor 控制面投影：Worker `offline/online`、受控 readiness、当前订单/attempt、归一化 progress、受控 terminal failure，以及 execution succeeded、A12 pending/passed、Work delivery 的独立状态。公共对象仅返回 allowlist 字段，不返回 raw exception、Profile/服务器路径、storage key、VNC、secret 或 token。
+- 新增默认 disabled/fail-closed 的 `/api/cloud-executor/status` 与可选 Bearer 鉴权的 `/internal/cloud-executor/v1/heartbeat`；heartbeat presence 为短期内存状态，执行事实继续读取现有 attempt/report/A12/Work/Delivery 合同，不在 HTTP 请求内运行浏览器任务。未改变 Local Agent 默认与进程归属。
+- 生产页已将 Cloud Executor status section 置于工单区之前，包含离线、重新登录飞影、低磁盘、待命、忙碌/进度、requires_action、失败与作品交付指导；历史人工/交接包面板保留为次级入口。核验作品只链接既有鉴权 Work/Delivery 页面，不新增未鉴权 artifact route。
+- 验证：focused `node --test test/cloud-executor-control-plane.test.js test/production-order-browser.test.js test/state-machine.test.js test/server-api.test.js test/batch-runner.test.js` 为 167/167；浏览器断言覆盖 1440/390、offline/busy/uploading/requires_login/storage_blocked/requires_action/failure/delivered Work 与无横向溢出。`npm run check` 通过（225 个 JavaScript 文件），`git diff --check` 通过。全量 `npm test -- --test-reporter=dot` 已执行但以 1 失败退出：998 tests、983 pass、14 skip、1 fail；失败测试名因长 reporter 输出截断未保留，未将该红灯伪装为绿色，也未扩大范围重跑。
+- 依赖审计：官方 npm registry `npm audit --omit=dev --audit-level=high` 报告 7 个既有漏洞（5 high/2 moderate），未在 CE-06 范围内升级依赖；当前镜像 registry 的 audit endpoint 返回 `NOT_IMPLEMENTED`。
+- 外部边界：0 次 Hifly/真实浏览器 Provider 页面/DeepSeek/外部 HTTP，0 次真实 claim、部署或积分消耗；只使用 in-memory/fake/local browser fixture。CE-07 仍需目标云环境对独立 Worker、heartbeat/readiness、disabled/fail-closed standby、持久 volume、重启恢复和资源/磁盘做 live proof；CE-08 仍需另行授权真实纯云端出片。
+
 ## 2026-08-12 CE-05 / Issue #140 Cloud 持久素材、视频与磁盘门限（本地 READY，待独立 Review）
 
 - 当前分支：`codex/ce-05-cloud-persistent-media`；基线：`main@b78fe08`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。

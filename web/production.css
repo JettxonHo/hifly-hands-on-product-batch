@@ -1,4 +1,17 @@
 .production-page-content { width: min(100% - 48px, 1400px); }
+.cloud-executor-panel { min-width: 0; margin-top: var(--space-4); }
+.cloud-executor-panel .surface-header { align-items: center; }
+.cloud-executor-summary { max-width: 72ch; margin-bottom: var(--space-4); color: var(--n-800); font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.cloud-executor-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--n-200); border-bottom: 1px solid var(--n-200); }
+.cloud-executor-fact { display: grid; min-width: 0; gap: 3px; padding: 12px 14px; }
+.cloud-executor-fact + .cloud-executor-fact { border-left: 1px solid var(--n-200); }
+.cloud-executor-fact span, .cloud-executor-outcome span { color: var(--n-500); font-size: 12px; }
+.cloud-executor-fact strong, .cloud-executor-outcome strong { min-width: 0; color: var(--n-800); overflow-wrap: anywhere; }
+.cloud-executor-outcome { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--space-4); border-top: 1px solid var(--n-200); border-bottom: 1px solid var(--n-200); }
+.cloud-executor-outcome > div { display: grid; min-width: 0; gap: 3px; padding: 12px 14px; }
+.cloud-executor-outcome > div + div { border-left: 1px solid var(--n-200); }
+.cloud-executor-panel .button-link { margin-top: var(--space-4); }
+.cloud-executor-panel > .notice { max-width: 72ch; }
 .production-workspace { display: grid; grid-template-columns: minmax(214px, 270px) minmax(0, 1fr) minmax(290px, 360px); gap: var(--space-4); align-items: start; margin-top: var(--space-5); }
 .production-workspace .surface { min-width: 0; margin-top: 0; }
 .order-panel, .package-panel { position: sticky; top: 68px; max-height: calc(100dvh - 92px); overflow: auto; }
@@ -118,6 +131,11 @@
 
 @media (max-width: 760px) {
   .production-page-content { width: min(100% - 32px, 1400px); }
+  .cloud-executor-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cloud-executor-fact:nth-child(odd) { border-left: 0; }
+  .cloud-executor-fact:nth-child(n + 3) { border-top: 1px solid var(--n-200); }
+  .cloud-executor-outcome { grid-template-columns: 1fr; }
+  .cloud-executor-outcome > div + div { border-top: 1px solid var(--n-200); border-left: 0; }
   .production-workspace { grid-template-columns: 1fr; margin-top: var(--space-3); }
   .order-panel { display: none; }
   .mobile-order-trigger { display: block; }

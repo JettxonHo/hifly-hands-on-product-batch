@@ -1,6 +1,6 @@
 (async () => {
   const params = new URLSearchParams(location.search), projectId = params.get("project"), requestedProductId = params.get("product");
-  let project, product, runtime, workspace, execution = null, verification = null, packages = [], creating = false, packageBusy = false, packagePoll = null, verificationPoll = null, verificationReadError = "",
+  let project, product, runtime, workspace, cloudExecutor = null, execution = null, verification = null, packages = [], creating = false, packageBusy = false, packagePoll = null, verificationPoll = null, verificationReadError = "",
     manualBusy = false, manualUploadBusy = false, verificationBusy = false, manualCorrectionReportId = null, selectedOrderId = params.get("orderId") || null, pendingCreateKey = null, pendingPackageKey = null, pendingRetryKey = null;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
@@ -14,6 +14,11 @@
   const planLabels = { frozen: "已批准方案", draft: "草稿方案", superseded: "已被替代" };
   const outcomeLabels = { completed: "已完成，等待核验", requires_action: "需要处理", failed: "执行失败", cancelled: "已取消" };
   const verificationLabels = { queued: "等待核验", running: "核验中", passed: "核验通过", failed: "核验未完成", requires_action: "需要处理" };
+  const cloudReadinessLabels = { disabled: "未启用", unconfigured: "未配置", requires_login: "需要重新登录飞影", storage_blocked: "磁盘不足", available: "待命", busy: "执行中", requires_action: "需要人工处理" };
+  const cloudConnectionLabels = { online: "在线", offline: "离线" };
+  const cloudExecutionLabels = { pending: "未开始", succeeded: "执行成功", failed: "执行失败", requires_action: "需要处理" };
+  const cloudVerificationLabels = { not_started: "未发起", pending: "等待 A12 核验", passed: "A12 核验通过", failed: "A12 核验未完成", requires_action: "A12 需要处理" };
+  const cloudDeliveryLabels = { not_available: "未登记", pending_review: "等待作品检查", deliverable: "待交付", rework_required: "需要返工", delivered: "已交付" };
   const gateLabels = { approved_plan_missing: "视频方案尚未通过人工审核，不能创建工单", plan_review_not_approved: "视频方案尚未通过人工审核，不能创建工单", preflight_not_reviewable: "视频方案预检尚未达到可生产条件，不能创建工单", preflight_invalidated: "方案批准已失效，请返回视频方案重新确认", upstream_changed: "方案引用的商品、文案或人物信息已变化，请创建新方案版本", capability_snapshot_changed: "方案能力配置已变化，请返回视频方案重新确认", plan_not_current: "当前方案已不是有效版本，请返回视频方案查看最新版本", plan_not_frozen: "视频方案尚未固定，不能创建工单" };
 
   async function request(url, options = {}) {
@@ -31,11 +36,61 @@
   }
   function notice(target, message = "", tone = "") { target.className = `notice${tone ? ` ${tone}` : ""}`; target.textContent = message; }
   function stateClass(status) { return ["succeeded", "ready"].includes(status) ? "ready" : ["queued", "running", "pending", "waiting_for_executor", "claimed"].includes(status) ? "waiting_for_executor" : ["requires_action"].includes(status) ? "blocked" : ["failed"].includes(status) ? "failure" : ["cancelled", "superseded"].includes(status) ? "superseded" : ""; }
+  function cloudStateClass(status) { return status === "available" ? "ready" : status === "busy" ? "waiting_for_executor" : ["requires_login", "storage_blocked", "requires_action"].includes(status) ? "blocked" : status === "disabled" || status === "unconfigured" ? "disabled" : ""; }
   function badge(target, status) { target.textContent = statusLabels[status] || "状态待确认"; target.className = `state ${stateClass(status)}`; }
   function short(value) { return value ? value.slice(0, 8) : "未就绪"; }
   function formatTime(value) { return value ? new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "时间待确认"; }
   function planHref() { return `/plan.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`; }
   function updateLocation() { const next = new URL(location.href); next.searchParams.set("project", project.id); next.searchParams.set("product", product.id); if (selectedOrderId) next.searchParams.set("orderId", selectedOrderId); else next.searchParams.delete("orderId"); history.replaceState(null, "", next); }
+
+  function renderCloudExecutor() {
+    const value = cloudExecutor || { worker: { connection: "offline" }, readiness: { status: "requires_action" }, execution: { status: "pending" }, verification: { status: "not_started" }, delivery: { status: "not_available" } };
+    const readiness = value.readiness?.status || "requires_action", connection = value.worker?.connection || "offline", executionStatus = value.execution?.status || "pending";
+    const readinessTarget = element("#cloudExecutorReadiness"); readinessTarget.textContent = cloudReadinessLabels[readiness] || "状态待确认"; readinessTarget.className = `state ${cloudStateClass(readiness)}`;
+    element("#cloudExecutorConnection").textContent = cloudConnectionLabels[connection] || "状态待确认";
+    element("#cloudExecutorOrder").textContent = value.current_order?.id ? `${short(value.current_order.id)} · ${statusLabels[value.current_order.status] || "状态待确认"}` : "无当前工单";
+    element("#cloudExecutorAttempt").textContent = value.current_attempt?.id ? `${short(value.current_attempt.id)} · ${statusLabels[value.current_attempt.status] || "状态待确认"}` : "无当前尝试";
+    element("#cloudExecutorProgress").textContent = value.progress?.label || "待命";
+    element("#cloudExecutorExecution").textContent = cloudExecutionLabels[executionStatus] || "状态待确认";
+    element("#cloudExecutorVerification").textContent = cloudVerificationLabels[value.verification?.status] || "状态待确认";
+    element("#cloudExecutorDelivery").textContent = cloudDeliveryLabels[value.delivery?.status] || "状态待确认";
+    const summary = element("#cloudExecutorSummary"), statusNotice = element("#cloudExecutorNotice");
+    let summaryText = "Cloud Executor 当前状态待确认。", noticeText = "", noticeTone = "";
+    if (readiness === "disabled") {
+      summaryText = "Cloud Executor 当前未启用；生产主路径不会自动改为本地 Agent。";
+    } else if (readiness === "unconfigured") {
+      summaryText = "Cloud Executor 尚未配置，请完成云端执行器配置后再提交生产。";
+    } else if (readiness === "requires_login") {
+      summaryText = "需要重新登录飞影";
+      noticeText = "云端飞影登录态已失效，请通过受控登录入口重新登录飞影。"; noticeTone = "blocked";
+    } else if (readiness === "storage_blocked") {
+      summaryText = "云端磁盘空间不足";
+      noticeText = "低于安全门限，已暂停领取新工单。"; noticeTone = "blocked";
+    } else if (connection !== "online") {
+      summaryText = "云端执行器离线";
+      noticeText = "暂未收到 Cloud Executor 心跳，不会自动切换为本地 Agent。"; noticeTone = "blocked";
+    } else if (readiness === "busy" || executionStatus === "pending" && value.current_attempt) {
+      summaryText = "Cloud Executor 正在执行";
+      noticeText = value.progress?.label ? `当前进度：${value.progress.label}。正在持续更新当前工单进度。` : "正在持续更新当前工单进度。";
+    } else if (readiness === "requires_action") {
+      summaryText = "需要人工处理";
+      noticeText = "当前云端执行已暂停；请按处理提示完成核对，不会自动重试。"; noticeTone = "blocked";
+    } else if (readiness === "available") {
+      summaryText = "Cloud Executor 已连接并待命，可领取下一条工单。";
+    }
+    if (value.failure && !["requires_login", "storage_blocked"].includes(readiness)) {
+      noticeText = value.failure.message || "Cloud Executor 执行失败；不会自动重试。"; noticeTone = "error";
+    }
+    summary.textContent = summaryText; notice(statusNotice, noticeText, noticeTone);
+    const failureTarget = element("#cloudExecutorFailure");
+    if (value.failure && !["requires_login", "storage_blocked"].includes(readiness)) { failureTarget.textContent = value.failure.message || "Cloud Executor 执行失败；不会自动重试。"; failureTarget.hidden = false; }
+    else { failureTarget.textContent = ""; failureTarget.hidden = true; }
+    const workLink = element("#cloudExecutorWorkLink");
+    if (value.work?.id && value.verification?.status === "passed") {
+      workLink.href = `/works.html?work=${encodeURIComponent(value.work.id)}&project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
+      workLink.hidden = false;
+    } else { workLink.hidden = true; workLink.removeAttribute("href"); }
+  }
 
   function renderContext() {
     element("#projectBreadcrumb").textContent = project.name; element("#projectBreadcrumb").href = `/project.html?id=${encodeURIComponent(project.id)}`;
@@ -51,7 +106,7 @@
     element("#contextSummary").textContent = plan ? `方案 v${plan.version_number} · ${workspace.gate.can_create ? "已批准" : "批准已失效"}` : "请先完成方案审核";
     const summary = plan ? `文案 ${short(plan.upstream_snapshot?.copy_version_id)} · 人物 ${short(plan.upstream_snapshot?.avatar_selection_id)}` : "等待当前有效已批准方案";
     element("#planContextLink").textContent = plan ? "查看方案 →" : "返回视频方案 →"; element("#contextSummary").title = summary;
-    if (workspace.execution_environment.online === false) notice(element("#executorNotice"), "当前没有可用的执行环境，工单将等待人工执行；不影响创建工单与交接包。", "blocked"); else notice(element("#executorNotice"));
+    if (runtime?.manualHandoffEnabled || runtime?.manualExecutionEnabled) notice(element("#executorNotice"), "历史人工执行与交接包入口仍保留在下方；生产主路径由 Cloud Executor 状态决定。", ""); else notice(element("#executorNotice"));
     const createDisabled = !workspace.gate.can_create;
     for (const selector of ["#createOrderButton", "#createOrderEmpty"]) { const button = element(selector); button.disabled = createDisabled; button.title = createDisabled ? (gateLabels[reasons[0]] || "当前条件不满足，无法创建工单") : ""; }
     if (createDisabled) notice(element("#pageNotice"), reasons.map((reason) => gateLabels[reason] || "当前方案不可创建工单").join("；") + "。请返回视频方案处理。", "blocked"); else if (!element("#pageNotice").textContent || element("#pageNotice").classList.contains("blocked")) notice(element("#pageNotice"));
@@ -82,7 +137,7 @@
       snapshotCard("视频方案", `v${plan.version_number || "?"} · 已批准`, planHref())
     );
     element("#orderCreatedMeta").textContent = `创建于 ${formatTime(order.created_at)} · 工单输入只读固定。`;
-    notice(element("#orderDetailNotice"), order.status === "waiting_for_executor" ? "工单将等待人工执行，不会自动开始生产。" : "");
+    notice(element("#orderDetailNotice"), order.status === "waiting_for_executor" ? "工单已提交，等待 Cloud Executor 领取；不会自动开始其他执行路径。" : "");
   }
   function packageStateClass(status) { return status === "ready" ? "ready" : status === "generating" ? "waiting_for_executor" : status === "generation_failed" ? "failure" : status === "expired" ? "blocked" : status === "superseded" || status === "revoked" ? "superseded" : ""; }
   function currentPackage() { return packages[0] || null; }
@@ -285,6 +340,17 @@
       throw error;
     }
   }
+  async function loadCloudExecutorStatus({ render = true } = {}) {
+    try {
+      cloudExecutor = await request("/api/cloud-executor/status");
+    } catch (_error) {
+      cloudExecutor = { worker: { connection: "offline", last_heartbeat_at: null }, readiness: { status: "requires_action", reason_code: "CLOUD_EXECUTOR_STATUS_UNAVAILABLE" }, worker_state: "offline", current_order: null, current_attempt: null, progress: null, execution: { status: "pending" }, verification: { status: "not_started" }, work: null, delivery: { status: "not_available" }, failure: null };
+      if (render) renderCloudExecutor();
+      return null;
+    }
+    if (render) renderCloudExecutor();
+    return cloudExecutor;
+  }
   async function requestWorkVerification() {
     const latestReport = latestExecutionReport(), primaryId = latestReport?.primary_output?.upload_reference;
     if (verificationBusy || !selectedOrderId || latestReport?.outcome !== "completed" || !primaryId) return;
@@ -343,12 +409,12 @@
   async function reenterManualExecution() { const attempt = execution?.current_attempt; if (manualBusy || !attempt) return; manualBusy = true; renderManualExecution(); try { await request(`/api/manual-execution-attempts/${encodeURIComponent(attempt.id)}/reenter`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: "{}" }); await loadWorkspace(); } catch (error) { notice(element("#manualExecutionNotice"), manualError(error), "error"); } finally { manualBusy = false; renderManualExecution(); } }
   function cancelManualOrder() { if (manualBusy || !selectedOrderId) return; element("#cancelManualError").textContent = ""; element("#cancelManualDialog").showModal(); }
   async function submitCancelManual(event) { event.preventDefault(); if (manualBusy || !selectedOrderId) return; manualBusy = true; element("#confirmCancelManualButton").disabled = true; try { await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/cancel`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: "{}" }); element("#cancelManualDialog").close(); await loadWorkspace(); } catch (error) { element("#cancelManualError").textContent = manualError(error); } finally { manualBusy = false; element("#confirmCancelManualButton").disabled = false; renderManualExecution(); } }
-  function render() { renderContext(); renderGate(); renderOrders(); renderDetail(); renderPackage(); renderManualExecution(); renderVerification(); element("#productionWorkspace").hidden = false; }
-  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadPackages({ render: false }); await loadExecution({ render: false }); try { await loadVerification({ render: false }); } catch (_error) { if (!runtime?.artifactVerificationEnabled || !selectedOrderId) throw _error; } render(); }
+  function render() { renderContext(); renderGate(); renderCloudExecutor(); renderOrders(); renderDetail(); renderPackage(); renderManualExecution(); renderVerification(); element("#productionWorkspace").hidden = false; }
+  async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadCloudExecutorStatus({ render: false }); await loadPackages({ render: false }); await loadExecution({ render: false }); try { await loadVerification({ render: false }); } catch (_error) { if (!runtime?.artifactVerificationEnabled || !selectedOrderId) throw _error; } render(); }
   function openCreateOrder() { if (!workspace.gate.can_create || creating) return; pendingCreateKey = null; element("#createOrderError").textContent = ""; element("#createOrderForm").reset(); renderDialogSnapshot(); element("#createOrderDialog").showModal(); }
   function renderDialogSnapshot() { const plan = workspace.current_plan, upstream = plan?.upstream_snapshot || {}; element("#dialogSnapshot").replaceChildren(...[["商品快照", short(upstream.product_revision_id)], ["已批准文案", short(upstream.copy_version_id)], ["已确认人物", short(upstream.avatar_selection_id)], ["视频方案", plan ? `v${plan.version_number}` : "未就绪"]].map(([label, value]) => { const row = document.createElement("div"); row.className = "dialog-snapshot-row"; const name = document.createElement("strong"); name.textContent = label; const meta = document.createElement("span"); meta.textContent = value; row.append(name, meta); return row; })); }
   async function submitCreate(event) { event.preventDefault(); if (creating || !workspace.gate.can_create) return; const selected = document.querySelector("input[name=executionPurpose]:checked"); if (!selected) return; creating = true; const button = element("#confirmCreateOrder"); button.disabled = true; pendingCreateKey ||= crypto.randomUUID(); element("#createOrderError").textContent = "";
-    try { const result = await request(`/api/products/${encodeURIComponent(product.id)}/production-orders`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": pendingCreateKey }, body: JSON.stringify({ video_plan_version_id: workspace.current_plan.id, execution_purpose: selected.value }) }); selectedOrderId = result.order.id; element("#createOrderDialog").close(); await loadWorkspace(); notice(element("#pageNotice"), result.replayed ? "创建请求已受理，已为你打开对应工单。" : "生产工单已创建，正在等待人工执行。", "success"); pendingCreateKey = null; }
+    try { const result = await request(`/api/products/${encodeURIComponent(product.id)}/production-orders`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": pendingCreateKey }, body: JSON.stringify({ video_plan_version_id: workspace.current_plan.id, execution_purpose: selected.value }) }); selectedOrderId = result.order.id; element("#createOrderDialog").close(); await loadWorkspace(); notice(element("#pageNotice"), result.replayed ? "创建请求已受理，已为你打开对应工单。" : "生产工单已创建，已提交 Cloud Executor 等待领取。", "success"); pendingCreateKey = null; }
     catch (error) { if (error.status === 409) element("#createOrderError").textContent = "创建信息已变化或请求已冲突，请刷新后重新确认。"; else if (error.status === 422) element("#createOrderError").textContent = (error.body?.reasons || []).map((reason) => gateLabels[reason] || "当前方案不可创建工单").join("；") || "当前方案不可创建工单，请返回视频方案处理。"; else element("#createOrderError").textContent = "创建未完成（技术原因），你的操作未生效；可以使用同一目的重试。"; }
     finally { creating = false; button.disabled = !document.querySelector("input[name=executionPurpose]:checked"); }
   }

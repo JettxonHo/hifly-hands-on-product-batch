@@ -13,12 +13,30 @@
       <aside class="app-sidebar"><a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a><nav class="app-nav" aria-label="主导航"><a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a><a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a><a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a></nav></aside>
       <div class="app-frame"><header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
         <main id="mainContent" class="page-content production-page-content">
-          <div class="page-header"><div><p class="eyebrow"><a href="/projects.html">项目</a> / <a id="projectBreadcrumb" href="/projects.html">当前项目</a> / 生成与交付</p><h1>生成与交付</h1><p class="page-description">从当前有效的已批准视频方案创建生产工单，安排人工执行。</p></div><div class="page-actions"><button id="refreshProduction" class="secondary" type="button">刷新</button></div></div>
+          <div class="page-header"><div><p class="eyebrow"><a href="/projects.html">项目</a> / <a id="projectBreadcrumb" href="/projects.html">当前项目</a> / 生成与交付</p><h1>生成与交付</h1><p class="page-description">提交生产工单，跟踪 Cloud Executor 云端执行、核验与作品交付。</p></div><div class="page-actions"><button id="refreshProduction" class="secondary" type="button">刷新</button></div></div>
           <nav class="stage-strip stage-desktop" aria-label="项目阶段"><a id="factsStageLink" href="/projects.html"><span>✓</span>商品与目标</a><a id="copyStageLink" href="/copy.html"><span>✓</span>文案与质检</a><a id="avatarStageLink" href="/avatar.html"><span>✓</span>人物与素材</a><a id="planStageLink" href="/plan.html"><span>✓</span>视频方案</a><strong aria-current="step"><span>5</span>生成与交付</strong></nav>
           <details class="stage-mobile"><summary>阶段 5/5 · 生成与交付</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品与目标</a></li><li><a id="mobileCopyStageLink" href="/copy.html">文案与质检</a></li><li><a id="mobileAvatarStageLink" href="/avatar.html">人物与素材</a></li><li><a id="mobilePlanStageLink" href="/plan.html">视频方案</a></li><li aria-current="step">生成与交付</li></ol></details>
           <section class="product-context" aria-labelledby="productContextTitle"><label id="productContextTitle" for="productSelector">当前商品</label><select id="productSelector" aria-label="切换商品"></select><div class="product-context-meta"><span id="planState" class="state">读取中</span><span id="contextSummary" class="muted">等待读取方案</span></div><a id="planContextLink" href="/plan.html">查看方案 →</a></section>
           <p id="pageNotice" class="notice" role="status"></p>
           <p id="executorNotice" class="notice blocked" role="status"></p>
+          <section id="cloudExecutorPanel" class="surface cloud-executor-panel" aria-labelledby="cloudExecutorTitle">
+            <div class="surface-header"><div><p class="eyebrow">生产执行环境</p><h2 id="cloudExecutorTitle">Cloud Executor</h2></div><span id="cloudExecutorReadiness" class="state">读取中</span></div>
+            <p id="cloudExecutorSummary" class="cloud-executor-summary">正在读取云端执行器状态。</p>
+            <div id="cloudExecutorFacts" class="cloud-executor-facts" aria-live="polite">
+              <div class="cloud-executor-fact"><span>连接</span><strong id="cloudExecutorConnection">读取中</strong></div>
+              <div class="cloud-executor-fact"><span>当前工单</span><strong id="cloudExecutorOrder">无</strong></div>
+              <div class="cloud-executor-fact"><span>当前尝试</span><strong id="cloudExecutorAttempt">无</strong></div>
+              <div class="cloud-executor-fact"><span>进度</span><strong id="cloudExecutorProgress">待命</strong></div>
+            </div>
+            <p id="cloudExecutorNotice" class="notice" role="status"></p>
+            <div id="cloudExecutorOutcome" class="cloud-executor-outcome" aria-label="执行结果状态">
+              <div><span>执行结果</span><strong id="cloudExecutorExecution">未开始</strong></div>
+              <div><span>A12 核验</span><strong id="cloudExecutorVerification">未发起</strong></div>
+              <div><span>作品交付</span><strong id="cloudExecutorDelivery">未登记</strong></div>
+            </div>
+            <p id="cloudExecutorFailure" class="notice error" role="alert" hidden></p>
+            <a id="cloudExecutorWorkLink" class="button-link" href="#" hidden>打开已核验作品（预览/下载） →</a>
+          </section>
           <button id="mobileOrderTrigger" class="mobile-order-trigger secondary" type="button" hidden>▦ 工单（0）· 当前：无</button>
           <div id="productionWorkspace" class="production-workspace" hidden>
             <aside id="orderPanel" class="surface order-panel" aria-labelledby="orderPanelTitle"><div class="surface-header"><div><h2 id="orderPanelTitle">工单</h2><p>所有工单按真实状态保留</p></div><button id="createOrderButton" class="secondary" type="button">+ 创建工单</button></div><div id="orderList" class="order-list" aria-live="polite"></div><div id="orderListEmpty" class="empty" hidden>还没有生产工单</div></aside>
