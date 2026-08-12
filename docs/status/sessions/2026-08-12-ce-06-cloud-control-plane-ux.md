@@ -34,6 +34,19 @@
   existing authenticated `/works.html` preview/download workflow.
 - Added API leak tests and browser DOM assertions. Browser fixtures cover 1440
   and 390 viewports, abnormal states, safe Work links, and horizontal overflow.
+- Sol review follow-up wires a Web-only production control-plane config through
+  `production-config` and `production-start`. It reuses
+  `CLOUD_EXECUTOR_ENABLED`, `CLOUD_EXECUTOR_MODE`, `CLOUD_EXECUTOR_ID`, and
+  `CLOUD_EXECUTOR_ORGANIZATION_ID`, and adds
+  `CLOUD_EXECUTOR_HEARTBEAT_TOKEN` plus
+  `CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS`. Enabled configuration requires the
+  Organization, executor ID, and bearer token. The Web config deliberately has
+  no Worker, poll, claim, browser, or `runOnce` field.
+- The retained architecture test now permits the control-plane decorator and
+  status route while proving that even injected `worker.autoStart` cannot poll
+  or start a Worker. API tests prove anonymous status reads return
+  `401 AUTH_REQUIRED`, cross-Organization reads stop before repository access,
+  and runtime/public JSON never includes the heartbeat token.
 
 ## Validation
 
@@ -43,11 +56,12 @@
   test/production-order-browser.test.js` — 167/167 passed.
 - `npm run check` passed and checked 225 JavaScript files; `git diff --check`
   passed.
-- Full `npm test -- --test-reporter=dot` completed with 998 tests, 983 passed,
-  14 skipped, and 1 failed. The long TAP output was truncated before the
-  failing test name was retained; this is an explicitly disclosed release
-  risk, not a claimed green gate. A second reporter run was stopped when the
-  user requested no more long-running full-suite work.
+- The original full-suite failure was the stale production architecture
+  assertion identified by Sol. After the follow-up, the requested focused
+  command over `production-start`, `cloud-executor-control-plane`, and
+  `production-order-browser` passed 22/22; `npm run check` checked 225 files;
+  `NODE_OPTIONS=--test-reporter=dot npm test` exited 0; and
+  `git diff --check` passed.
 - `npm audit --omit=dev --audit-level=high` against the official npm registry
   reported 7 existing dependency vulnerabilities (5 high, 2 moderate); no
   dependency change was made for CE-06. The configured mirror audit endpoint

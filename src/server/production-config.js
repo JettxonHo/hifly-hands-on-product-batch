@@ -42,6 +42,7 @@ const DEFAULT_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const COPY_GENERATION_PROVIDERS = new Set(["phase1_controlled_test_double", "deepseek"]);
 const COPY_QUALITY_EVALUATORS = new Set(["phase1_controlled_test_double", "deepseek_hybrid"]);
 const COPY_QUALITY_REWRITERS = new Set(["phase1_controlled_test_double", "deepseek"]);
+const CLOUD_EXECUTOR_CONTROL_PLANE_MODES = new Set(["fail_closed", "fake", "playwright", "login"]);
 
 function required(env, name) {
   const value = env[name];
@@ -157,6 +158,22 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
   if (localAgentRequested && (!localAgentId || !localAgentOrganizationId || !localAgentToken)) {
     throw Object.assign(new Error("LOCAL_AGENT_CONFIG_REQUIRED"), { code: "LOCAL_AGENT_CONFIG_REQUIRED" });
   }
+  const cloudExecutorRequested = boolean(env.CLOUD_EXECUTOR_ENABLED, "CLOUD_EXECUTOR_ENABLED", false);
+  const cloudExecutorMode = env.CLOUD_EXECUTOR_MODE?.trim() || "fail_closed";
+  if (!CLOUD_EXECUTOR_CONTROL_PLANE_MODES.has(cloudExecutorMode)) {
+    throw Object.assign(new Error("CLOUD_EXECUTOR_MODE_UNSUPPORTED"), { code: "CLOUD_EXECUTOR_MODE_UNSUPPORTED" });
+  }
+  const cloudExecutorId = env.CLOUD_EXECUTOR_ID?.trim() || null;
+  const cloudExecutorOrganizationId = env.CLOUD_EXECUTOR_ORGANIZATION_ID?.trim() || null;
+  const cloudExecutorHeartbeatToken = env.CLOUD_EXECUTOR_HEARTBEAT_TOKEN?.trim() || null;
+  if (cloudExecutorRequested && (!cloudExecutorId || !cloudExecutorOrganizationId || !cloudExecutorHeartbeatToken)) {
+    throw Object.assign(new Error("CLOUD_EXECUTOR_CONTROL_PLANE_CONFIG_REQUIRED"), { code: "CLOUD_EXECUTOR_CONTROL_PLANE_CONFIG_REQUIRED" });
+  }
+  const cloudExecutorHeartbeatTimeoutMs = duration(
+    env.CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS,
+    "CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS",
+    15_000
+  );
   const generationConfig = {
     executionBackend: executionMode,
     rpa: {
@@ -251,6 +268,20 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
       organizationId: localAgentOrganizationId,
       token: localAgentToken,
       leaseMs: duration(env.LOCAL_AGENT_LEASE_MS, "LOCAL_AGENT_LEASE_MS", 30_000)
+    },
+    cloudExecutor: {
+      enabled: cloudExecutorRequested,
+      configured: cloudExecutorRequested && Boolean(cloudExecutorId && cloudExecutorOrganizationId && cloudExecutorHeartbeatToken),
+      mode: cloudExecutorMode,
+      organizationId: cloudExecutorOrganizationId,
+      executorCloudId: cloudExecutorId,
+      heartbeatTimeoutMs: cloudExecutorHeartbeatTimeoutMs,
+      internal: {
+        enabled: cloudExecutorRequested,
+        organizationId: cloudExecutorOrganizationId,
+        executorCloudId: cloudExecutorId,
+        token: cloudExecutorHeartbeatToken
+      }
     },
     artifactVerification: { enabled: true, worker },
     workDelivery: { enabled: true },

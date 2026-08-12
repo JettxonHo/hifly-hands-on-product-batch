@@ -210,9 +210,19 @@ test("authenticated internal heartbeat updates the public projection and never e
   const auth = await activateAdmin(app);
   const headers = identityHeaders({ cookies: auth.cookies });
 
+  const anonymous = await app.inject({ method: "GET", url: "/api/cloud-executor/status", headers: identityHeaders() });
+  assert.equal(anonymous.statusCode, 401);
+  assert.deepEqual(anonymous.json(), { error: "AUTH_REQUIRED" });
+
   const before = await app.inject({ method: "GET", url: "/api/cloud-executor/status", headers });
   assert.equal(before.statusCode, 200);
   assert.equal(before.json().worker.connection, "offline");
+  const runtime = await app.inject({ method: "GET", url: "/api/runtime", headers });
+  assert.equal(runtime.statusCode, 200);
+  assert.equal(runtime.json().cloudExecutorEnabled, true);
+  assert.equal(runtime.json().cloudExecutorConfigured, true);
+  assert.equal(runtime.json().cloudExecutorMode, "fake");
+  assert.equal(JSON.stringify(runtime.json()).includes(cloud.internal.token), false);
 
   const unauthorized = await app.inject({ method: "POST", url: "/internal/cloud-executor/v1/heartbeat", headers, payload: {} });
   assert.equal(unauthorized.statusCode, 401);
@@ -233,4 +243,29 @@ test("authenticated internal heartbeat updates the public projection and never e
   assert.equal(JSON.stringify(after.json()).includes(cloud.internal.token), false);
   assert.doesNotMatch(JSON.stringify(after.json()), /private|object_key|profile|server|playwright_execution|token/i);
   assert.equal(after.json().current_attempt.progress_phase, "uploading");
+});
+
+test("Cloud Executor status is organization-scoped before repository reads", async (t) => {
+  let repositoryReads = 0;
+  const cloud = {
+    enabled: true,
+    configured: true,
+    mode: "playwright",
+    organizationId: "org_other",
+    executorCloudId: EXECUTOR_ID,
+    repository: {
+      async listAttempts() { repositoryReads += 1; return [cloudAttempt("running", "uploading_product")]; },
+      async listReports() { repositoryReads += 1; return []; }
+    },
+    internal: { enabled: true, organizationId: "org_other", executorCloudId: EXECUTOR_ID, token: "other-org-heartbeat-secret" }
+  };
+  const { app } = await identityApp(t, { cloudExecutor: cloud });
+  const auth = await activateAdmin(app);
+  const response = await app.inject({ method: "GET", url: "/api/cloud-executor/status", headers: identityHeaders({ cookies: auth.cookies }) });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().readiness.status, "disabled");
+  assert.equal(response.json().current_order, null);
+  assert.equal(response.json().current_attempt, null);
+  assert.equal(repositoryReads, 0);
 });
