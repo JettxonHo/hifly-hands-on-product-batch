@@ -19,6 +19,10 @@
 - `test/cloud-executor-deployment.test.js` runs the shell entrypoint with local
   fake display/VNC commands and covers stale cleanup, startup order, active
   display preservation, default worker dispatch, and login dispatch.
+- Important review follow-up normalizes POSIX whitespace on the first lock PID
+  line before numeric validation and `kill -0`. Regression coverage proves a
+  padded live PID is preserved and blocks Xvfb even when `xdpyinfo` fails, while
+  a padded stale PID is still cleaned before startup.
 
 ## Validation and evidence boundary
 

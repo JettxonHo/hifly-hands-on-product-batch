@@ -35,7 +35,7 @@ prepare_display() {
   fi
 
   if [ -f "$DISPLAY_LOCK" ]; then
-    lock_pid=$(sed -n '1p' "$DISPLAY_LOCK" 2>/dev/null || true)
+    lock_pid=$(sed -n '1p' "$DISPLAY_LOCK" 2>/dev/null | tr -d '[:space:]' || true)
     case "$lock_pid" in
       ''|*[!0-9]*|0)
         ;;

@@ -162,7 +162,7 @@ function assertStartupEvents(events, terminalCommand) {
 test("production entrypoint removes stale display lock/socket before Xvfb and dispatches the default worker", async () => {
   const fixture = await createEntrypointFixture();
   try {
-    await writeFile(fixture.lockPath, "2147483647\n");
+    await writeFile(fixture.lockPath, "  2147483647  \t\n");
     await writeFile(fixture.socketPath, "stale X11 socket");
 
     const result = await runEntrypoint({ fixture });
@@ -181,19 +181,19 @@ test("production entrypoint removes stale display lock/socket before Xvfb and di
   }
 });
 
-test("production entrypoint leaves an active display untouched and fails before starting another Xvfb", async () => {
+test("production entrypoint preserves a padded live PID when the display probe fails", async () => {
   const fixture = await createEntrypointFixture();
   try {
-    await writeFile(fixture.lockPath, `${process.pid}\n`);
+    const paddedPid = `${String(process.pid).padStart(10, " ")}\n`;
+    await writeFile(fixture.lockPath, paddedPid);
     await writeFile(fixture.socketPath, "active X11 socket");
-    await writeFile(fixture.activeServer, "active");
 
     const result = await runEntrypoint({ fixture });
 
     assert.equal(result.code, 1);
     assert.match(result.stderr, /CLOUD_EXECUTOR_XVFB_ALREADY_RUNNING/);
     assert.deepEqual((await readFile(fixture.eventLog, "utf8")).trim().split("\n"), ["xdpyinfo"]);
-    assert.equal(await readFile(fixture.lockPath, "utf8"), `${process.pid}\n`);
+    assert.equal(await readFile(fixture.lockPath, "utf8"), paddedPid);
     assert.equal(await readFile(fixture.socketPath, "utf8"), "active X11 socket");
   } finally {
     await fixture.stop();
