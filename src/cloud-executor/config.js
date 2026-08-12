@@ -1,6 +1,6 @@
 import path from "node:path";
 
-const MODES = new Set(["fail_closed", "fake"]);
+const MODES = new Set(["fail_closed", "fake", "playwright"]);
 const DEFAULT_ROOT = "/var/lib/hifly/cloud-executor";
 
 function boolean(value, name, fallback = false) {
@@ -25,7 +25,19 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
   const executorCloudId = env.CLOUD_EXECUTOR_ID?.trim() || null;
   const organizationId = env.CLOUD_EXECUTOR_ORGANIZATION_ID?.trim() || null;
   const storageRoot = path.resolve(root, env.CLOUD_EXECUTOR_ROOT || DEFAULT_ROOT);
-  const configured = enabled && mode === "fake" && Boolean(executorCloudId && organizationId);
+  const profileDir = path.resolve(root, env.CLOUD_EXECUTOR_PROFILE_DIR || path.join(storageRoot, "profile"));
+  const workspaceRoot = path.resolve(root, env.CLOUD_EXECUTOR_WORKSPACE_ROOT || storageRoot);
+  const avatarMappingPath = env.CLOUD_EXECUTOR_AVATAR_MAPPING_FILE?.trim()
+    ? path.resolve(root, env.CLOUD_EXECUTOR_AVATAR_MAPPING_FILE.trim())
+    : null;
+  const workspace = {
+    root: workspaceRoot,
+    profileDir,
+    assetsDir: path.resolve(root, env.CLOUD_EXECUTOR_ASSETS_DIR || path.join(workspaceRoot, "assets")),
+    outputsDir: path.resolve(root, env.CLOUD_EXECUTOR_OUTPUTS_DIR || path.join(workspaceRoot, "outputs")),
+    evidenceDir: path.resolve(root, env.CLOUD_EXECUTOR_EVIDENCE_DIR || path.join(workspaceRoot, "evidence"))
+  };
+  const configured = enabled && ["fake", "playwright"].includes(mode) && Boolean(executorCloudId && organizationId && workspace.root && workspace.profileDir);
   return {
     enabled,
     configured,
@@ -33,8 +45,10 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
     executorType: "cloud_executor",
     organizationId,
     executorCloudId,
-    profileDir: path.join(storageRoot, "profile"),
-    storageRoot,
+    workspace,
+    avatarMappingPath,
+    profileDir,
+    storageRoot: workspaceRoot,
     worker: {
       pollIntervalMs: duration(env.CLOUD_EXECUTOR_POLL_INTERVAL_MS, "CLOUD_EXECUTOR_POLL_INTERVAL_MS", 1_000),
       leaseMs: duration(env.CLOUD_EXECUTOR_LEASE_MS, "CLOUD_EXECUTOR_LEASE_MS", 30_000),
