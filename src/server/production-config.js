@@ -41,6 +41,7 @@ const DEFAULT_DATA_DIR = "/var/lib/hifly";
 const DEFAULT_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const COPY_GENERATION_PROVIDERS = new Set(["phase1_controlled_test_double", "deepseek"]);
 const COPY_QUALITY_EVALUATORS = new Set(["phase1_controlled_test_double", "deepseek_hybrid"]);
+const COPY_QUALITY_REWRITERS = new Set(["phase1_controlled_test_double", "deepseek"]);
 
 function required(env, name) {
   const value = env[name];
@@ -139,7 +140,11 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
   if (!COPY_QUALITY_EVALUATORS.has(copyQualityEvaluator)) {
     throw Object.assign(new Error("COPY_QUALITY_EVALUATOR_UNSUPPORTED"), { code: "COPY_QUALITY_EVALUATOR_UNSUPPORTED" });
   }
-  const deepseek = copyGenerationProvider === "deepseek" || copyQualityEvaluator === "deepseek_hybrid"
+  const copyQualityRewriter = env.COPY_QUALITY_REWRITER?.trim() || "phase1_controlled_test_double";
+  if (!COPY_QUALITY_REWRITERS.has(copyQualityRewriter)) {
+    throw Object.assign(new Error("COPY_QUALITY_REWRITER_UNSUPPORTED"), { code: "COPY_QUALITY_REWRITER_UNSUPPORTED" });
+  }
+  const deepseek = copyGenerationProvider === "deepseek" || copyQualityEvaluator === "deepseek_hybrid" || copyQualityRewriter === "deepseek"
     ? { apiKey: required(env, "DEEPSEEK_API_KEY"), model: "deepseek-v4-flash" }
     : null;
 
@@ -229,8 +234,8 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
       profileVersion: "commerce-cn-v1",
       ruleVersion: "rules-pilot-controlled",
       evaluator: copyQualityEvaluator,
-      deepseek: copyQualityEvaluator === "deepseek_hybrid" ? deepseek : null,
-      rewriter: "phase1_controlled_test_double",
+      deepseek: copyQualityEvaluator === "deepseek_hybrid" || copyQualityRewriter === "deepseek" ? deepseek : null,
+      rewriter: copyQualityRewriter,
       worker
     },
     copyReview: { enabled: true },

@@ -318,8 +318,58 @@ test("AI rewrite is persistent async work and concurrent same-key requests execu
   assert.equal(completed.copy_version.parent_copy_version_id, ctx.copy.id);
   assert.equal(completed.copy_version.status, "frozen");
   assert.equal(completed.quality_run.status, "queued");
+  assert.equal(completed.quality_run.copy_version_id, completed.copy_version.id);
+  const parent = await ctx.copyService.getCopyVersion({ ...actor, copyVersionId: ctx.copy.id });
+  assert.equal(parent.id, ctx.copy.id);
+  assert.equal(parent.body, ctx.copy.body);
+  assert.equal(parent.parent_copy_version_id, null);
   assert.equal((await ctx.service.getQualityRun({ ...actor, qualityRunId: started.quality_run.id })).quality_findings.length, 1);
   assert.equal((await ctx.copyService.listCopyVersions({ ...actor, productRevisionId: snapshot.id })).length, 2);
+});
+
+test("rewrite worker passes the current ProductRevision snapshot to the rewriter", async () => {
+  let received;
+  const ctx = await world({ rewrite: async (input) => {
+    received = input;
+    return { body: "带有当前事实快照的改写文案。" };
+  } });
+  await ctx.service.startQualityCheck({ ...actor, copyVersionId: ctx.copy.id,
+    expectedRevision: ctx.copy.row_version, idempotencyKey: "qc-before-rewrite-snapshot" });
+  const requested = await ctx.service.requestCopyRewrite({ ...actor, copyVersionId: ctx.copy.id,
+    scope: "full", instruction: "整体改得更自然", idempotencyKey: "rewrite-snapshot" });
+
+  await ctx.rewriteWorker.runNext();
+
+  assert.deepEqual(received.productRevision, snapshot);
+  assert.equal(received.copyVersion.status, "frozen");
+  assert.equal(received.scope, "full");
+  assert.equal(received.instruction, "整体改得更自然");
+  assert.equal((await ctx.service.getRewriteJob({ ...actor, rewriteJobId: requested.rewrite_job.id })).rewrite_job.status, "succeeded");
+});
+
+test("empty and unchanged rewrite output creates no child and remains manually retryable", async (t) => {
+  const cases = [
+    { name: "empty", body: () => "", code: "COPY_REWRITE_EMPTY_RESULT" },
+    { name: "unchanged", body: ({ copyVersion }) => copyVersion.body, code: "COPY_REWRITE_NO_CHANGE" }
+  ];
+
+  for (const current of cases) await t.test(current.name, async () => {
+    const ctx = await world({ rewrite: async (input) => ({ body: current.body(input) }) });
+    await ctx.service.startQualityCheck({ ...actor, copyVersionId: ctx.copy.id,
+      expectedRevision: ctx.copy.row_version, idempotencyKey: `qc-before-invalid-rewrite-${current.name}` });
+    const requested = await ctx.service.requestCopyRewrite({ ...actor, copyVersionId: ctx.copy.id,
+      scope: "full", instruction: "整体改得更自然", idempotencyKey: `rewrite-invalid-${current.name}` });
+
+    await ctx.rewriteWorker.runNext();
+
+    const failed = await ctx.service.getRewriteJob({ ...actor, rewriteJobId: requested.rewrite_job.id });
+    assert.equal(failed.rewrite_job.status, "failed");
+    assert.equal(failed.rewrite_job.failure_code, current.code);
+    assert.equal(failed.copy_version, null);
+    assert.equal((await ctx.copyService.listCopyVersions({ ...actor, productRevisionId: snapshot.id })).length, 1);
+    assert.equal((await ctx.service.retryCopyRewrite({ ...actor, rewriteJobId: requested.rewrite_job.id,
+      idempotencyKey: `retry-invalid-${current.name}` })).rewrite_job.status, "queued");
+  });
 });
 
 test("AI rewrite exposes running state and supports explicit failure retry", async () => {

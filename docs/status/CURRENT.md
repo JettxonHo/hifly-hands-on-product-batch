@@ -2,9 +2,19 @@
 
 > 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产化核心能力升级（D-033）；P1 DeepSeek 文案已合并，语义质检正在交付；后续单条真实生成 standing authorization 剩余 4 次
+> 当前 Goal：生产化核心能力升级（D-033）；P1-01/P1-02 已合并，P1-03 DeepSeek 文案改写正在交付；后续单条真实生成 standing authorization 剩余 4 次
 
-## 2026-08-12 P1-02 / Issue #120 确定性规则与 DeepSeek 语义质检（待提交）
+## 2026-08-12 P1-03 / Issue #122 DeepSeek 质检改写（待提交）
+
+- 基准：`main@a72f2fd`；独立分支：`codex/p1-03-deepseek-rewrite`。
+- 已完成：DeepSeek 改写 adapter、受控输入投影、结构输出校验与一次结构重试；现有异步 rewrite worker 保留父文案，只创建一个子草稿并对新草稿重新执行完整 QC。
+- 生产配置可显式选择 `COPY_QUALITY_REWRITER=deepseek`；默认仍为 `phase1_controlled_test_double`。文案生成、质检和改写可独立选择，共用服务端 DeepSeek Key；缺 Key 在建 pool 前失败关闭，启动零外呼。
+- Provider 只接收冻结文案、当前商品修订中的已确认文字事实、规范化 ContentBrief、改写范围/指令与被选 Finding 的最小字段，不发送素材 URL/路径、组织/成员标识、Provider evidence 或浏览器凭据。
+- 已验证：改写器、服务和生产启动定向测试 50/50；`npm run check` 检查 211 个 JavaScript 文件；全量 `npm test` 927 项、913 pass / 14 environment skip / 0 fail；`git diff --check` 通过。
+- 真实外部调用：0 次 DeepSeek，0 次 Hifly，0 费用/积分。详细记录见 `docs/status/sessions/2026-08-12-p1-03-deepseek-rewrite.md`。
+- 下一步：全量回归、PR、CI 与独立审查通过后按 standing merge authorization 合并并关闭 Issue #122；随后进入 P2 人物目录与品类选择。
+
+## 2026-08-12 P1-02 / Issue #120 确定性规则与 DeepSeek 语义质检（已合并）
 
 - 基准：`main@33fe790`；独立分支：`codex/p1-02-deepseek-quality`。
 - 已完成：确定性已确认事实/数字/直接矛盾规则、显式平台规则注入、DeepSeek 语义 evaluator、服务端权限收敛与混合 evaluator；模型 finding 只能成为 `review`，确定性 `fact_gate/hard_block` 仍掌握阻断权。
@@ -12,7 +22,7 @@
 - QualityRun 技术失败不创建 QualityResult；现有服务端继续聚合 `blocked/needs_review/passed`，HumanReview 仍是唯一 `approved` 命令。
 - 已验证：evaluator 定向 17/17、生产启动 11/11；`npm run check` 210 个 JavaScript 文件；全量 `npm test` 914 项、900 pass / 14 environment skip / 0 fail；`git diff --check` 通过。
 - 真实外部调用：0 次 DeepSeek，0 次 Hifly，0 费用/积分。详细记录见 `docs/status/sessions/2026-08-12-p1-02-deepseek-quality.md`。
-- 下一步：提交 PR、CI 与独立审查通过后按 standing merge authorization 合并并关闭 Issue #120，再进入 P1-03 / Issue #122。
+- PR #124 已合并到 `main@a72f2fd`，Issue #120 已关闭；Ubuntu、Windows、PostgreSQL CI 全绿。
 
 ## 2026-08-12 P1-01 / Issue #121 DeepSeek 官方文案适配（已合并）
 

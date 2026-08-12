@@ -177,6 +177,19 @@ smoke、未切换已部署环境；真实模型 activation pending。
 技术失败会让 QualityRun 失败，不创建虚假的 `passed` QualityResult。真实 DeepSeek activation 仍需
 单独执行 smoke 并记录费用，当前默认部署配置不访问模型。
 
+### DeepSeek 质检改写（P1-03，默认关闭）
+
+生产配置默认保持 `COPY_QUALITY_REWRITER=phase1_controlled_test_double`。只有服务端显式设置
+`COPY_QUALITY_REWRITER=deepseek` 时，异步改写 worker 才调用 DeepSeek；该模式要求
+`DEEPSEEK_API_KEY`，缺失时在数据库 pool 创建前失败关闭。生成、质检和改写三个选择器彼此独立，
+但共用同一个服务端 Key。
+
+改写请求只投影冻结文案正文、当前商品修订中的已确认文字事实、规范化 ContentBrief、改写范围与指令，
+以及被选质检 Finding 的最小文本字段。结构输出必须满足 `{ "body": "string" }`，结构错误最多重试一次；
+HTTP、认证、限流和未知 Provider 错误不重试。成功结果不会覆盖原文案，而是由现有服务创建一个子草稿并
+重新排队完整 QC；空结果、原文不变或非法结构都不会创建子版本，可由运营显式重试。真实 DeepSeek
+activation 仍需单独执行 smoke 并记录费用，当前默认部署配置不访问模型。
+
 本地数据库验证完成后可清理：
 
 ```bash
