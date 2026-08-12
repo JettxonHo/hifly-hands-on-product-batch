@@ -2,9 +2,19 @@
 
 > 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产化核心能力升级（D-033）；P0 重基线进行中，随后进入真实 DeepSeek 文案与语义质检；后续单条真实生成 standing authorization 剩余 4 次
+> 当前 Goal：生产化核心能力升级（D-033）；P1 DeepSeek 文案已合并，语义质检正在交付；后续单条真实生成 standing authorization 剩余 4 次
 
-## 2026-08-12 P1-01 / Issue #121 DeepSeek 官方文案适配（待合并）
+## 2026-08-12 P1-02 / Issue #120 确定性规则与 DeepSeek 语义质检（待提交）
+
+- 基准：`main@33fe790`；独立分支：`codex/p1-02-deepseek-quality`。
+- 已完成：确定性已确认事实/数字/直接矛盾规则、显式平台规则注入、DeepSeek 语义 evaluator、服务端权限收敛与混合 evaluator；模型 finding 只能成为 `review`，确定性 `fact_gate/hard_block` 仍掌握阻断权。
+- 生产配置可显式选择 `COPY_QUALITY_EVALUATOR=deepseek_hybrid`；默认仍为 `phase1_controlled_test_double`，与文案生成 Provider 可独立选择，缺 `DEEPSEEK_API_KEY` 在建 pool 前失败关闭，启动零外呼。
+- QualityRun 技术失败不创建 QualityResult；现有服务端继续聚合 `blocked/needs_review/passed`，HumanReview 仍是唯一 `approved` 命令。
+- 已验证：evaluator 定向 17/17、生产启动 11/11；`npm run check` 210 个 JavaScript 文件；全量 `npm test` 914 项、900 pass / 14 environment skip / 0 fail；`git diff --check` 通过。
+- 真实外部调用：0 次 DeepSeek，0 次 Hifly，0 费用/积分。详细记录见 `docs/status/sessions/2026-08-12-p1-02-deepseek-quality.md`。
+- 下一步：提交 PR、CI 与独立审查通过后按 standing merge authorization 合并并关闭 Issue #120，再进入 P1-03 / Issue #122。
+
+## 2026-08-12 P1-01 / Issue #121 DeepSeek 官方文案适配（已合并）
 
 - 逻辑角色：`IMPLEMENTER`；自定义 Agent：`luna-worker`；配置：`~/.codex/agents/luna-worker.toml`；配置模型：`gpt-5.6-luna`；推理：`max`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
 - 基准：`origin/main@1eca202`；独立分支：`codex/p1-01-deepseek-generation`。
@@ -12,8 +22,8 @@
 - 当前边界：只交付可选择 adapter 与配置，不切换已部署环境，不实现 QC/改写，不修改 UI、数据库、Hifly/Local Agent/视频代码；activation pending。
 - 已验证：官方 `api-docs.deepseek.com` 只读文档 curl（无 API 调用）；DeepSeek 定向测试、生产启动测试、现有 copy-generation 回归共 33 项通过；`npm run check` 检查 207 个 JavaScript 文件；全量 `npm test` 共 894 项、880 pass / 14 environment skip / 0 fail；`git diff --check` 通过。
 - 真实外部调用：0 次 DeepSeek，0 次 Hifly，0 费用/积分；未使用真实 key，未写入 secret、raw response、prompt 正文或文案日志。
-- PR #123 已创建；CI 的 Ubuntu、Windows、PostgreSQL 三组均通过。独立 Sol Review 无任何级别发现，结论 `APPROVED`。
-- 下一步：按 Owner 已授予的顺序合并权限合并 PR #123、关闭 Issue #121，再进入 P1-02；已部署环境仍保持受控 Provider，真实 DeepSeek activation 尚未执行。
+- PR #123 已由 squash commit `33fe790` 合并，Issue #121 已关闭；CI 的 Ubuntu、Windows、PostgreSQL 三组均通过。独立 Sol Review 无任何级别发现，结论 `APPROVED`。
+- 已部署环境仍保持受控 Provider，真实 DeepSeek activation 尚未执行。
 
 ## 2026-08-12 生产化核心能力升级 Goal 启动
 

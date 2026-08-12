@@ -165,6 +165,18 @@ PostgreSQL pool，但分别使用 `identity_schema_migrations`、`asset_schema_m
 限流和服务端错误不自动切换模型或 Provider。当前 PR 只交付可选择的 adapter 与配置，未执行真实 DeepSeek
 smoke、未切换已部署环境；真实模型 activation pending。
 
+### DeepSeek 语义质检（P1-02，默认关闭）
+
+生产配置默认保持 `COPY_QUALITY_EVALUATOR=phase1_controlled_test_double`。只有服务端显式设置
+`COPY_QUALITY_EVALUATOR=deepseek_hybrid` 时，质检 worker 才组合确定性事实/平台规则与 DeepSeek
+语义质检；该模式同样要求 `DEEPSEEK_API_KEY`，缺失时在数据库 pool 创建前失败关闭。文案生成与
+质检可独立选择，但共用同一个服务端 Key。
+
+确定性规则掌握 `fact_gate` 与 `hard_block`；模型 finding 只会映射为 `review`，不能创建阻断结论、
+不能批准文案。语义调用只发送文案正文、已确认商品文字事实、规范化 ContentBrief 与质检版本标识；
+技术失败会让 QualityRun 失败，不创建虚假的 `passed` QualityResult。真实 DeepSeek activation 仍需
+单独执行 smoke 并记录费用，当前默认部署配置不访问模型。
+
 本地数据库验证完成后可清理：
 
 ```bash

@@ -5,6 +5,9 @@ import { createControlledCopyProvider } from "../copy-generation/controlled-prov
 import { createDeepSeekCopyProvider } from "../copy-generation/deepseek-provider.js";
 import { createControlledQualityEvaluator } from "../copy-quality/controlled-evaluator.js";
 import { createControlledCopyRewriter } from "../copy-quality/controlled-rewriter.js";
+import { createDeepSeekQualityEvaluator } from "../copy-quality/deepseek-evaluator.js";
+import { createDeterministicQualityEvaluator } from "../copy-quality/deterministic-evaluator.js";
+import { createHybridQualityEvaluator } from "../copy-quality/hybrid-evaluator.js";
 import { createIdentityPool } from "../identity/postgres.js";
 import { createDeepSeekClient } from "../llm/deepseek-client.js";
 import { createFetchTransport } from "../llm/http-transport.js";
@@ -40,6 +43,22 @@ function copyGenerationProvider(config, deepseekFetch) {
   throw Object.assign(new Error("COPY_GENERATION_PROVIDER_UNSUPPORTED"), { code: "COPY_GENERATION_PROVIDER_UNSUPPORTED" });
 }
 
+function copyQualityEvaluator(config, deepseekFetch) {
+  if (config.copyQuality.evaluator === "phase1_controlled_test_double") return createControlledQualityEvaluator();
+  if (config.copyQuality.evaluator === "deepseek_hybrid") {
+    const client = createDeepSeekClient({
+      apiKey: config.copyQuality.deepseek?.apiKey,
+      model: config.copyQuality.deepseek?.model,
+      transport: createFetchTransport({ fetchImpl: deepseekFetch })
+    });
+    return createHybridQualityEvaluator({
+      deterministicEvaluator: createDeterministicQualityEvaluator(),
+      semanticEvaluator: createDeepSeekQualityEvaluator({ client })
+    });
+  }
+  throw Object.assign(new Error("COPY_QUALITY_EVALUATOR_UNSUPPORTED"), { code: "COPY_QUALITY_EVALUATOR_UNSUPPORTED" });
+}
+
 function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFetch) {
   return {
     root: config.dataDir,
@@ -61,7 +80,7 @@ function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFet
     copyGeneration: { ...config.copyGeneration, provider: copyGenerationProvider(config, deepseekFetch) },
     copyQuality: {
       ...config.copyQuality,
-      evaluator: createControlledQualityEvaluator(),
+      evaluator: copyQualityEvaluator(config, deepseekFetch),
       rewriter: createControlledCopyRewriter()
     },
     copyReview: config.copyReview,

@@ -40,6 +40,7 @@ const DEFAULT_PORT = 3000;
 const DEFAULT_DATA_DIR = "/var/lib/hifly";
 const DEFAULT_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const COPY_GENERATION_PROVIDERS = new Set(["phase1_controlled_test_double", "deepseek"]);
+const COPY_QUALITY_EVALUATORS = new Set(["phase1_controlled_test_double", "deepseek_hybrid"]);
 
 function required(env, name) {
   const value = env[name];
@@ -134,7 +135,11 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
   if (!COPY_GENERATION_PROVIDERS.has(copyGenerationProvider)) {
     throw Object.assign(new Error("COPY_GENERATION_PROVIDER_UNSUPPORTED"), { code: "COPY_GENERATION_PROVIDER_UNSUPPORTED" });
   }
-  const deepseek = copyGenerationProvider === "deepseek"
+  const copyQualityEvaluator = env.COPY_QUALITY_EVALUATOR?.trim() || "phase1_controlled_test_double";
+  if (!COPY_QUALITY_EVALUATORS.has(copyQualityEvaluator)) {
+    throw Object.assign(new Error("COPY_QUALITY_EVALUATOR_UNSUPPORTED"), { code: "COPY_QUALITY_EVALUATOR_UNSUPPORTED" });
+  }
+  const deepseek = copyGenerationProvider === "deepseek" || copyQualityEvaluator === "deepseek_hybrid"
     ? { apiKey: required(env, "DEEPSEEK_API_KEY"), model: "deepseek-v4-flash" }
     : null;
 
@@ -213,12 +218,18 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
       worker
     },
     projectContent: { enabled: true },
-    copyGeneration: { enabled: true, provider: copyGenerationProvider, deepseek, worker },
+    copyGeneration: {
+      enabled: true,
+      provider: copyGenerationProvider,
+      deepseek: copyGenerationProvider === "deepseek" ? deepseek : null,
+      worker
+    },
     copyQuality: {
       enabled: true,
       profileVersion: "commerce-cn-v1",
       ruleVersion: "rules-pilot-controlled",
-      evaluator: "phase1_controlled_test_double",
+      evaluator: copyQualityEvaluator,
+      deepseek: copyQualityEvaluator === "deepseek_hybrid" ? deepseek : null,
       rewriter: "phase1_controlled_test_double",
       worker
     },
