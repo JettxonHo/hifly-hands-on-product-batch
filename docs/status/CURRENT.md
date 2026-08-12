@@ -9,10 +9,10 @@
 - 当前分支：`codex/ce-05-cloud-persistent-media`；基线：`main@b78fe08`；逻辑角色：`IMPLEMENTER`；请求自定义 Agent：`luna-worker`；配置模型：`gpt-5.6-luna`；推理：`max`；配置状态：`CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
 - 实现提交：`3eca3db`；READY PR：[#148](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/148)（Closes #140；未合并、未批准）。
 - 已新增可复用 Cloud workspace/storage seam：启动/ready 前创建固定 `profile`、`assets`、`outputs`、`evidence` 目录；Profile 生命周期仍归 CE-04。未注入 candidate store 时，standalone runtime 复用现有 local object store，并将 Cloud 输出持久化到 `outputs`；注入 manual-execution candidate store 的现有组合保持不变。
-- 已新增 `CLOUD_EXECUTOR_MIN_FREE_BYTES`（默认 1 GiB）与 `statfs`/注入等价物检查。readiness 低于门限或 statfs 不可用时返回 `storage_blocked`，在订单 list/claim/attempt 创建前失败关闭；公开状态不暴露路径或磁盘实现细节。
+- 已新增 `CLOUD_EXECUTOR_MIN_FREE_BYTES`（默认 1 GiB）与 `statfs`/注入等价物检查。Sol Review follow-up 已将门限从单一 root 扩展到所有实际写入位置：root、assets、outputs、evidence、batches、locks；任一路径检查失败或低于门限都在订单 list/claim/attempt 创建前返回受控 `storage_blocked`。Profile 容量仍归 CE-04 login readiness；公开状态不暴露路径或磁盘容量细节。
 - 已新增 `deploy/cloud-executor-storage.yml` 与 `docs/deployment/CLOUD_EXECUTOR_STORAGE_CONTRACT.md`，显式挂载 assets/outputs/evidence named volumes；未新增 Cloud Executor 文件 route，视频继续复用 A12 verified output AssetVersion 与现有鉴权 Work preview/download 合同。
 - 已新增第二 runtime/service/store 共享临时持久根的重启测试：商品/人物素材、Evidence、candidate 元数据与视频字节保留；通过现有 verified output registration 和鉴权 Work 下载路径返回原始视频字节。公开 Cloud result 不含绝对路径、raw storage key、signed URL、cookie 或 token。
-- 已验证：CE-02/03/04 + CE-05 focused `38/38`；`npm run check` 检查 223 个 JavaScript 文件；`npm test` `993` tests / `979` pass / `14` existing environment skips / `0` fail；`git diff --check` 通过；CE-05 Compose fragment `docker compose -f deploy/cloud-executor-storage.yml config` 通过。
+- Sol Review follow-up 最终验证：CE-02/03/04 + CE-05 focused `38/38`；`npm run check` 检查 223 个 JavaScript 文件；`npm test` `993` tests / `979` pass / `14` existing environment skips / `0` fail；`git diff --check` 通过；CE-05 Compose fragment `docker compose -f deploy/cloud-executor-storage.yml config` 通过。
 - 外部边界：0 次 Hifly/真实浏览器/Provider/DeepSeek/HTTP，0 次真实 ProductionOrder claim，0 次部署，飞影积分消耗 0。CE-07 仍需目标云环境的真实 volume/bind、disabled/fail-closed standby、磁盘/readiness 与重启恢复证明；CE-08 仍需另行授权真实纯云端出片。
 
 ## 2026-08-12 CE-04 / Issue #139 Cloud Profile 与受控登录（READY PR 待 Review）

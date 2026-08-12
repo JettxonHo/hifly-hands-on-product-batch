@@ -109,6 +109,7 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
     }
   });
   const storageReadiness = workspace && config.storage ? createCloudExecutorStorageReadiness({
+    workspace,
     root: config.storage?.root || workspace.root,
     minFreeBytes: config.storage?.minFreeBytes,
     statfsImpl: config.storage?.statfsImpl || config.storage?.statfs

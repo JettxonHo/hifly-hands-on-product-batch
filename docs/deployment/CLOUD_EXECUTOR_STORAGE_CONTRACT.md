@@ -3,14 +3,16 @@
 Status: CE-05 local contract only. This document does not prove a deployed
 worker, a restart in production, or a real Hifly generation.
 
-The Cloud Executor workspace is one configured persistent root. Its fixed child
-directories are:
+The Cloud Executor workspace has explicit writable directories. They may share
+one filesystem locally or be separate volume/bind mounts in deployment:
 
 ```text
 <root>/profile
 <root>/assets
 <root>/outputs
 <root>/evidence
+<root>/batches
+<root>/locks
 ```
 
 The Profile mount and login lifecycle remain the CE-04 contract. CE-05 adds
@@ -26,10 +28,13 @@ store for Cloud Executor output, A12 object verification, verified output
 `AssetVersion` registration, and the existing authenticated Work delivery
 download. Cloud Executor does not add a file route or expose a storage key.
 
-`CLOUD_EXECUTOR_MIN_FREE_BYTES` configures the one free-space gate. The gate
-uses `statfs` (or the injected equivalent) and runs before order listing or
-attempt creation. A failed or below-threshold check returns the controlled
-`storage_blocked` readiness state.
+`CLOUD_EXECUTOR_MIN_FREE_BYTES` configures one threshold applied to every
+writable workspace location: the configured root plus `assets`, `outputs`,
+`evidence`, `batches`, and `locks`. The gate uses `statfs` (or the injected
+equivalent) and runs before order listing or attempt creation. An error or a
+below-threshold result from any checked location returns the controlled,
+path-free `storage_blocked` readiness state. Profile capacity remains part of
+the CE-04 login/readiness lifecycle.
 
 Public Cloud Executor results contain ids and controlled output metadata only.
 Absolute paths, signed URLs, raw object keys, cookies, and tokens remain

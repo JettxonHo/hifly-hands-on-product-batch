@@ -56,17 +56,22 @@ test("cloud storage readiness uses injected statfs capacity and blocks below the
   assert.equal(blocked.status, "storage_blocked");
 });
 
-test("runtime low-disk readiness blocks before listing or creating an attempt", async () => {
+test("runtime checks every writable workspace mount and blocks when only outputs is low", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "cloud-executor-storage-blocked-"));
   const workspace = createCloudWorkspaceConfig({ root, profileDir: path.join(root, "profile") });
+  const repository = createMemoryManualExecutionRepository();
+  const checkedPaths = [];
   let listCalls = 0;
   let transitionCalls = 0;
   const runtime = createCloudExecutorRuntime({
     config: {
       enabled: true, configured: true, mode: "fake", organizationId: "org_test", executorCloudId: "cloud-executor-storage-blocked",
-      workspace, storage: { root, minFreeBytes: 1, statfsImpl: async () => ({ availableBytes: 0 }) }, worker: { pollIntervalMs: 1 }
+      workspace, storage: { root, minFreeBytes: 100, statfsImpl: async (target) => {
+        checkedPaths.push(target);
+        return { availableBytes: target === workspace.outputsDir ? 99 : 1_000 };
+      } }, worker: { pollIntervalMs: 1 }
     },
-    repository: createMemoryManualExecutionRepository(),
+    repository,
     orderPort: {
       async listOrdersForCloudExecutor() { listCalls += 1; return []; },
       async getOrderForCloudExecutor() { return null; },
@@ -83,6 +88,13 @@ test("runtime low-disk readiness blocks before listing or creating an attempt", 
     assert.equal(result.status, "storage_blocked");
     assert.equal(listCalls, 0);
     assert.equal(transitionCalls, 0);
+    assert.equal((await repository.listAttempts("org_test")).length, 0);
+    assert.deepEqual(new Set(checkedPaths), new Set([
+      root, workspace.assetsDir, workspace.outputsDir, workspace.evidenceDir, workspace.batchDir, workspace.lockDir
+    ]));
+    assert.equal(checkedPaths.includes(workspace.profileDir), false);
+    assert.equal(JSON.stringify(result).includes(root), false);
+    assert.equal(JSON.stringify(result).includes("availableBytes"), false);
   } finally {
     await runtime.close();
     await rm(root, { recursive: true, force: true });

@@ -65,7 +65,18 @@ export async function checkCloudExecutorStorage({ root, minFreeBytes = DEFAULT_C
 
 export function createCloudExecutorStorageReadiness({ workspace = null, root = workspace?.root,
   minFreeBytes = DEFAULT_CLOUD_EXECUTOR_MIN_FREE_BYTES, statfsImpl = readStatfs, statfs = null } = {}) {
-  return { check: () => checkCloudExecutorStorage({ root, minFreeBytes, statfsImpl, statfs }) };
+  const targets = workspace ? [root, workspace.assetsDir, workspace.outputsDir, workspace.evidenceDir,
+    workspace.batchDir, workspace.lockDir] : [root];
+  return {
+    async check() {
+      const states = await Promise.all(targets.map((target) => checkCloudExecutorStorage({
+        root: target, minFreeBytes, statfsImpl, statfs
+      })));
+      return states.every((state) => state.ready)
+        ? { ready: true, status: "available" }
+        : { ready: false, status: "storage_blocked" };
+    }
+  };
 }
 
 export function cloudExecutorProfileMarkerPath(profileDir) {

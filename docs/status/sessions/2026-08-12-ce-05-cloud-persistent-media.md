@@ -15,9 +15,11 @@
 
 - Moved the reusable Cloud workspace normalization into `workspace.js` and
   kept the existing Playwright adapter export compatible.
-- Added persistent workspace readiness for `profile`, `assets`, `outputs`,
-  and `evidence`, plus `statfs`/injected free-space checks and the controlled
-  `storage_blocked` state.
+- Added persistent workspace readiness for `assets`, `outputs`, and `evidence`,
+  plus the root-backed `batches` and `locks` write locations. The
+  `statfs`/injected free-space gate checks every location before claim and
+  returns the controlled `storage_blocked` state if any check errors or falls
+  below the threshold. Profile remains the CE-04 readiness responsibility.
 - Added `CLOUD_EXECUTOR_MIN_FREE_BYTES` with a 1 GiB default while preserving
   `disabled`/`fail_closed` defaults.
 - Standalone Cloud Executor runtime now initializes the persistent workspace
@@ -29,14 +31,19 @@
 - Added restart proof: a second runtime/store over one temporary root retains
   assets, output, evidence, and candidate bytes; existing A12 verified output
   registration and authenticated Work download return the original bytes.
+- Sol Review follow-up covers the separate-volume failure mode: root, assets,
+  and evidence may be healthy while the outputs mount is below threshold; the
+  runtime still blocks before order listing, transition, claim, or attempt
+  creation without exposing paths or free-byte details.
 
 ## Validation
 
 - Focused Cloud Executor suite: 38/38 green for CE-02/03/04 plus CE-05
-  persistence, storage gate, and Work delivery tests.
+  persistence, all-write-location storage gate, and Work delivery tests.
 - `npm run check`: passed (223 JavaScript files).
 - `git diff --check`: passed.
-- `npm test`: passed, 993 tests / 979 pass / 14 existing environment skips / 0 fail.
+- Sol Review follow-up `npm test`: passed, 993 tests / 979 pass / 14
+  existing environment skips / 0 fail.
 
 ## Remaining boundary
 
