@@ -1,60 +1,58 @@
-# 当前 Goal：生产化核心能力升级
+# 当前 Goal：P0 Cloud Executor 纯云端生产闭环
 
 > 状态：GOAL_APPROVED / ACTIVE
 > Owner：JettxonHo
 > 启动日期：2026-08-12
-> 前置里程碑：Vertical Slice A（A01～A14）已完成；单条真实飞影执行闭环已验证
-> 权威规划：`docs/product/PRODUCTIONIZATION_UPGRADE_PLAN.md`（D-033）
+> 权威产品合同：`docs/product/CLOUD_EXECUTOR_P0.md`（D-034）
+> 实施设计与计划：`docs/superpowers/specs/2026-08-12-cloud-executor-p0-design.md`、`docs/superpowers/plans/2026-08-12-cloud-executor-p0.md`
 
 ## 最终目标
 
-在保留现有 Cloud Web、Local Agent 与 Playwright「手里有货」真实链路的前提下，把当前单条试运行能力升级为可供运营团队稳定使用的小批量生产系统：
+把当前 Cloud Control Plane + Mac Local Agent 的已验证链路纠偏为不依赖个人电脑在线的纯云端 P0：
 
 ```text
-真实 DeepSeek 文案与语义质检
-→ 可维护的人物目录与品类选择
-→ 3 条商品 / 2 个人物的小批量生产验收
-→ 声音、背景、场景、姿势能力证据与受控配置
-→ 可安装常驻 Local Agent
-→ 生产级存储、数据库、域名、监控与恢复
+Cloud GUI
+→ Cloud Executor Worker（云端 Chrome / Playwright）
+→ Hifly「手里有货」
+→ 云端持久视频
+→ A12
+→ Work / Delivery
+→ 浏览器鉴权预览与下载
 ```
 
-## 已确认基线
+Local Agent 保留但不再作为 P0 生产路径或验收依据。
 
-- VSA-A01～A14 的企业登录、项目、商品、文案版本、QC、人工审核、人物选择、VideoPlan、ProductionOrder、交接包、执行报告、作品核验和交付流程已经进入 `main`。
-- 单条云端真实工单已经完成 Mac Local Agent → 飞影「手里有货」→ 下载 → 云端回传 → 核验 → Work 登记。
-- DeepSeek 文案生成、语义 QC 与改写适配器已经合并，但已部署环境尚未完成真实模型 activation smoke，不能宣称真实 AI 文案能力已经上线。
-- 公共人物目录同步、企业人物素材登记/禁用/本地映射和确定性品类推荐已经合并并部署至阿里云试运行环境；真实 3 商品/2 人物验收尚未执行，声音和场景控制仍未形成生产能力。
-- 当前阿里云 2C4G 是内部试运行环境，不代表正式容量、SLA、高可用或灾备完成。
+## 当前基线
+
+- VSA-A01～A14、P1 DeepSeek adapters、P2 人物目录/登记/推荐已进入 `main`。
+- Cloud Control Plane → Mac Local Agent → Hifly → 回传 → A12 → Work 已有一条真实 Evidence。
+- 阿里云 App/PostgreSQL/Proxy 已部署，13 组 migration 与 HTTPS health 通过；`PRODUCTION_EXECUTOR=fail_closed`。
+- Cloud Executor Worker、云端持久 Chrome Profile、云端受控登录和纯云端真实出片尚未实现。
 
 ## 里程碑
 
-| 波次 | 交付结果 | 当前状态 | 真实外部调用门禁 |
-|---|---|---|---|
-| P0 | 路线图、Evidence、Goal 与现状重基线 | 已完成 | 无 |
-| P1 | DeepSeek 官方文案生成与语义 QC/改写接入 | 代码已合并；activation smoke 待执行 | 真实模型 smoke 前需明确费用边界 |
-| P2 | 人物目录同步、运营上传和品类选择策略 | 代码已合并并部署；真实目录同步仍需显式运行授权 | 飞影目录同步保留运行门禁 |
-| P3 | 3 条商品、2 个人物的串行小批量验收与恢复 | 准备中（Issue #132） | 使用现有 standing authorization；每条仍须过门禁 |
-| P4 | 声音、背景、场景、姿势和构图 Evidence 与受控参数 | 待开始 | 任何生成试验均计入真实授权 |
-| P5 | macOS/Windows 可安装常驻 Local Agent 与诊断 | 待开始 | 无积分；安装/权限由环境验收 |
-| P6 | 对象存储、托管 PostgreSQL、可信域名、监控和恢复 | 待开始 | 需要实际云资源和凭据时由 Owner 提供 |
+| 阶段 | 结果 | 状态 |
+|---|---|---|
+| CE-01 / #136 | 产品合同、Goal、设计、计划、决策与 Issues | 进行中 |
+| CE-02 / #137 | `cloud_executor` 身份与 fake 串行 Worker | 待开始 |
+| CE-03 / #138 | 复用现有 Hifly Playwright 核心 | 待开始 |
+| CE-04 / #139 | 持久 Profile、可视登录、readiness | 待开始 |
+| CE-05 / #140 | 持久素材/视频、鉴权下载、磁盘门限 | 待开始 |
+| CE-06 / #141 | 控制台 Cloud Executor 状态与作品体验 | 待开始 |
+| CE-07 / #142 | 阿里云无副作用部署、standby 与重启恢复 | 待开始 |
+| CE-08 / #143 | 一条纯云端真实出片验收 | 待专项积分授权 |
 
 ## 执行规则
 
-1. 按 P0→P6 顺序推进；前一波次的业务合同和验收证据稳定后再扩大下一波次。
-2. 一个边界明确的任务对应一个 GitHub Issue、分支和 PR；实现使用 `luna-worker`，最终审查由 Sol 独立完成。
-3. 不把所有升级塞进一个 PR，不以测试替身、配置存在或本地绿测冒充真实 Provider/生产 Evidence。
-4. 真实 Hifly 生成继续遵守唯一工单、零 attempt、交接包 ready、登录态 ready、单条执行、失败即停、不自动重试。
-5. 用户此前授予的 standing authorization 当前剩余 4 条；仅 P3/P4 中满足门禁的真实生成可消耗该额度。
-6. DeepSeek、Hifly API、云资源的真实调用与部署证据分别记录，不相互替代。
-7. 遵守工程克制：只校验真实核心风险，不引入无必要 SHA-256，不为基本不可能出现的 case 扩张范围。
+1. CE-01→CE-08 严格串行，一个 Issue/分支/PR。
+2. 实现 Agent 只使用准确自定义 Agent `luna-worker`；Sol 独立 Review；实现者不得批准或合并自己的 PR。
+3. 每项 TDD、focused tests、`npm run check`、`npm test`、`git diff --check`、CI。
+4. CE-02～CE-07 禁止真实飞影生成、积分消耗、自动重试和真实 DeepSeek 调用。
+5. Cloud Executor 默认 disabled/fail_closed；并发固定为 1；登录/存储未就绪时 claim 前失败关闭。
+6. 不删除 Local Agent，不复制 Hifly DOM 自动化，不把 Cloud Executor 伪装成 Local Agent。
+7. Profile、Cookie、素材、视频、Evidence、Token 和服务器绝对路径不得进入 Git或公共 API。
+8. 完成 Agent 任务后立即关闭对应子智能体。
 
 ## Goal 完成标准
 
-1. 运营可从真实商品事实生成文案、执行确定性与语义 QC，并经人工审核进入视频方案。
-2. 运营可查看和选择可用人物，系统可按品类给出可解释建议，但不静默替用户确认。
-3. 至少 3 个不同商品、2 个人物完成串行真实生产；失败恢复不重复提交和扣分。
-4. 声音/背景/场景/姿势能力均有明确 Evidence：支持的进入受控配置，不支持的在产品中如实提示。
-5. Local Agent 可安装、常驻、升级和诊断；默认仍失败关闭，真实执行保持双门禁。
-6. 正式环境使用对象存储与托管 PostgreSQL，具备可信域名、监控、备份和恢复演练证据。
-7. 文档、Issue、代码、测试、CI、部署与真实运行证据一致，不宣称未验证能力。
+`docs/product/CLOUD_EXECUTOR_P0.md` 第 9 节 11 项全部满足。尤其必须完成一个新的零 attempt 工单的纯云端真实链路，且验收时不启动任何 Local Agent。未完成前不得宣称 P0 可投入内部试运行。

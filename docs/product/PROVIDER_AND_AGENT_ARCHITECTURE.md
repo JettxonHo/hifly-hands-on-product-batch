@@ -1,5 +1,7 @@
 # Provider 与 Local Agent 架构
 
+> 2026-08-12 P0 纠偏：D-034 已将依赖网页登录态的「手里有货」P0 主路径改为云端 `Cloud Executor Worker + Chrome/Playwright`。本文关于 Local Agent 的实现与 Evidence 继续保留，但“网页能力只在个人电脑 Local Agent 执行”“云端不保存浏览器 Profile”的 P0 限制已被 `CLOUD_EXECUTOR_P0.md` 取代。Local Agent 现为兼容/可选路径，不再是 P0 验收路径。
+
 > 状态：Draft（架构方向已按产品决策固化；具体协议、能力清单与 API 假设待技术调研）
 > Owner：owner（JettxonHo）
 > 最后更新：2026-08-05

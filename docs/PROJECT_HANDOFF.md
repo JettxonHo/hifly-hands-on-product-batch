@@ -3,6 +3,14 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-12 P0 Cloud Executor 架构纠偏
+
+- Owner 已正式改变 P0：个人电脑 Local Agent 不再是生产主路径；目标改为阿里云独立 Cloud Executor Worker 使用持久 Chrome Profile 和现有 Hifly Playwright 核心，严格串行完成纯云端出片。
+- 权威入口：`GOAL.md`、`docs/product/CLOUD_EXECUTOR_P0.md`、`docs/superpowers/specs/2026-08-12-cloud-executor-p0-design.md`、`docs/superpowers/plans/2026-08-12-cloud-executor-p0.md`、D-034。
+- CE-01 为 Issue #136；CE-02～CE-08 为 Issues #137～#143。CE-02 起才实现；CE-02～CE-07 禁止真实飞影/积分，CE-08 必须另行明确授权一条新零 attempt 工单。
+- 阿里云只读核验确认新 app 镜像、三容器 healthy、HTTPS health、13 个 migration ledger 和 `PRODUCTION_EXECUTOR=fail_closed`；没有领取工单。旧 Local Agent 配置仍存在，不能将其误记为 Cloud Executor。
+- 本轮真实 Hifly/DeepSeek 调用 0，积分消耗 0。后续不得继续以 Issue #132 的 Mac Local Agent 三商品/两人物验收作为当前 P0 完成路径。
+
 ## 2026-08-12 P3 阿里云升级与 Local Agent standby 完成
 
 - Owner 明确授权数据库备份、production migration、应用重建和无副作用 standby；明确禁止本轮真实飞影生成。

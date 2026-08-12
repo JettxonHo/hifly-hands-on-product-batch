@@ -1,5 +1,7 @@
 # 生产化核心能力升级计划
 
+> 2026-08-12 架构纠偏：本计划的 P1/P2 已交付；原 P3/P5 中以 Local Agent 作为生产主路径的安排已由 D-034 与 `CLOUD_EXECUTOR_P0.md` 取代。Local Agent 保留为兼容路径，不再是当前 P0 验收路径。声音/场景等扩展继续延后。
+
 > 状态：Accepted
 > Owner：JettxonHo
 > 日期：2026-08-12
