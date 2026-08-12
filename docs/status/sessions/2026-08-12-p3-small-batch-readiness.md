@@ -11,12 +11,13 @@
   - `吉伊卡哇玩偶`：`/Users/ketchup/Desktop/test demo/chiikawa.jpeg`
   - `熊玩偶`：`/Users/ketchup/Desktop/test demo/toybear.jpeg`
 - 本机私有人物映射：1 个；映射文件、人物文件与 Token 均位于仓库外，本文不记录真实路径或值。
+- 第 2 张人物候选：已在仓库外生成并保存，为站姿合成男性、冷灰电子场景，PNG 941x1672、约 1.76 MB；当前仅是候选图片，尚无企业 AvatarAsset/AssetVersion，也尚未加入本地映射。
 - P2-02 企业人物登记与本地映射、P2-03 确定性品类推荐已合并至 `main@b0e47ab`。
 
 ## 当前缺口
 
-1. 第 2 张可授权用于商业测试的人物图；建议为与现有人物在性别/年龄感/场景风格上明显不同的合成人物，不使用真实客户或员工肖像。
-2. 阿里云试运行环境尚未部署 `main@b0e47ab`，因此尚无生产 P2 migration、企业人物登记 UI 或品类推荐 UI。
+1. 阿里云试运行环境尚未部署包含 P2 的当前 main，因此尚无生产 P2 migration、企业人物登记 UI 或品类推荐 UI。
+2. 第 2 张人物候选仍需在云端登记为企业 AvatarAsset/AssetVersion，并在 Mac 私有配置中建立映射。
 3. 三个商品仍需在部署后走权威 ProductRevision、文案生成/QC/人工批准、人物人工确认、VideoPlan 预检/人工批准、ProductionOrder 和 handoff package。
 
 ## 执行顺序

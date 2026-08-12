@@ -6,7 +6,7 @@
 ## 2026-08-12 P3 Issue #132 小批量真实验收准备
 
 - P1/P2 代码均已进入 main；P3 目标为 3 个不同商品、至少 2 个人物，通过 Cloud → Local Agent → 飞影 → 回传 → A12 → Work 的串行真实验收。推荐只提供建议，人物仍由运营显式确认。
-- 已有商品图：iPad、吉伊卡哇玩偶、熊玩偶；本机私有人物映射只有 1 个。当前缺口是第 2 张有授权人物图及企业人物登记/本地映射。
+- 已有商品图：iPad、吉伊卡哇玩偶、熊玩偶；本机私有人物映射只有 1 个。仓库外已准备第 2 张合成男性人物候选（PNG、941x1672、约 1.76 MB），但尚未完成企业人物登记和本地映射；不得提交该素材或记录其私有路径。
 - 阿里云尚未部署含 P2 migration/GUI 的 `main@b0e47ab`。部署前需 Owner 明确授权；部署后先跑 migration、健康检查和无副作用 standby，再创建 3 条一商品一工单的批准链。
 - standing authorization 剩余 4 次；P3 最多计划使用其中 3 次，每次单独过唯一工单/零 attempt/ready package/人物映射/登录态门禁。首失败立即停止，不自动重试。
 - 本轮只建立 Issue #132 和 readiness 记录，没有部署、Hifly/DeepSeek 调用、工单领取或积分消耗。详见 `docs/status/sessions/2026-08-12-p3-small-batch-readiness.md`。
