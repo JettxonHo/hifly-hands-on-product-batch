@@ -1,6 +1,7 @@
 import { createCloudExecutorReadiness, createCloudExecutorService } from "./cloud-executor-service.js";
 import { createCloudExecutorWorker } from "./cloud-executor-worker.js";
 import { createFakeCloudExecutor } from "./fake-executor.js";
+import { createCloudExecutorLoginRuntime } from "./login.js";
 import { createCloudPlaywrightAdapter } from "./playwright-adapter.js";
 
 const failure = (code) => Object.assign(new Error(code), { code });
@@ -8,15 +9,18 @@ const clean = (value) => typeof value === "string" ? value.trim() : "";
 
 function inactiveState(config) {
   if (config.enabled !== true) return { status: "disabled", ready: false, claimed: false };
-  if (!["fake", "playwright"].includes(config.mode)) return { status: "fail_closed", ready: false, claimed: false };
-  if (config.configured !== true || !clean(config.organizationId) || !clean(config.executorCloudId)) {
+  if (!["fake", "playwright", "login"].includes(config.mode)) return { status: "fail_closed", ready: false, claimed: false };
+  if (config.configured !== true || (config.mode === "login" &&
+    (!clean(config.workspace?.root) || !clean(config.workspace?.profileDir))) ||
+    (config.mode !== "login" && (!clean(config.organizationId) || !clean(config.executorCloudId)))) {
     return { status: "unconfigured", ready: false, claimed: false };
   }
   return null;
 }
 
 export function createCloudExecutorRuntime({ config, repository, orderPort, packagePort, candidateStore,
-  verificationPort = null, readinessPort = null, executor = null, now = Date.now, onError = () => undefined } = {}) {
+  verificationPort = null, readinessPort = null, executor = null, now = Date.now, onError = () => undefined,
+  loginAdapterFactory = createCloudPlaywrightAdapter, loginAdapterOptions = {} } = {}) {
   if (!config || typeof config !== "object" || Array.isArray(config)) throw failure("CLOUD_EXECUTOR_RUNTIME_CONFIG_REQUIRED");
   const inactive = inactiveState(config);
   if (inactive) {
@@ -29,6 +33,10 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
       async close() {},
       get status() { return inactive.status; }
     };
+  }
+
+  if (config.mode === "login") {
+    return createCloudExecutorLoginRuntime({ config, adapterFactory: loginAdapterFactory, adapterOptions: loginAdapterOptions });
   }
 
   const selectedExecutor = executor || (config.mode === "playwright"
@@ -58,7 +66,10 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
       if (config.mode !== "playwright" || typeof selectedExecutor.preflight !== "function") return { ready: true, status: "available" };
       try {
         const result = await selectedExecutor.preflight();
-        return { ready: true, status: "available", ...result };
+        if (result?.ready === false || result?.status === "requires_login") {
+          return { ready: false, status: result?.status === "requires_login" ? "requires_login" : "requires_action" };
+        }
+        return { ready: true, status: "available" };
       } catch (error) {
         if (error?.code === "LOGIN_REQUIRED") return { ready: false, status: "requires_login" };
         return { ready: false, status: "requires_action", reason: error?.code || "CLOUD_EXECUTOR_PREFLIGHT_FAILED" };

@@ -1,6 +1,6 @@
 import path from "node:path";
 
-const MODES = new Set(["fail_closed", "fake", "playwright"]);
+const MODES = new Set(["fail_closed", "fake", "playwright", "login"]);
 const DEFAULT_ROOT = "/var/lib/hifly/cloud-executor";
 
 function boolean(value, name, fallback = false) {
@@ -18,6 +18,32 @@ function duration(value, name, fallback) {
   return selected;
 }
 
+function port(value, name, fallback) {
+  const selected = Number(value || fallback);
+  if (!Number.isSafeInteger(selected) || selected < 1 || selected > 65_535) {
+    throw Object.assign(new Error(`${name}_INVALID`), { code: `${name}_INVALID` });
+  }
+  return selected;
+}
+
+function privateBindHost(value) {
+  const selected = value?.trim() || "127.0.0.1";
+  const loopback = selected === "localhost" || selected === "127.0.0.1" || selected === "::1";
+  const octets = selected.split(".").map((octet) => Number(octet));
+  const validIpv4 = octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255);
+  const privateIpv4 = validIpv4 && (
+    octets[0] === 10 ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168)
+  );
+  if (!loopback && !privateIpv4) {
+    throw Object.assign(new Error("CLOUD_EXECUTOR_NOVNC_BIND_HOST_PUBLIC"), {
+      code: "CLOUD_EXECUTOR_NOVNC_BIND_HOST_PUBLIC"
+    });
+  }
+  return selected;
+}
+
 export function createCloudExecutorConfig({ root = process.cwd(), env = process.env } = {}) {
   const enabled = boolean(env.CLOUD_EXECUTOR_ENABLED, "CLOUD_EXECUTOR_ENABLED", false);
   const mode = env.CLOUD_EXECUTOR_MODE?.trim() || "fail_closed";
@@ -30,6 +56,8 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
   const avatarMappingPath = env.CLOUD_EXECUTOR_AVATAR_MAPPING_FILE?.trim()
     ? path.resolve(root, env.CLOUD_EXECUTOR_AVATAR_MAPPING_FILE.trim())
     : null;
+  const hiflyConfigPath = path.resolve(root, env.CLOUD_EXECUTOR_HIFLY_CONFIG_PATH || env.LOCAL_AGENT_HIFLY_CONFIG_PATH || "config.local.json");
+  const display = env.CLOUD_EXECUTOR_DISPLAY?.trim() || ":99";
   const workspace = {
     root: workspaceRoot,
     profileDir,
@@ -37,7 +65,11 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
     outputsDir: path.resolve(root, env.CLOUD_EXECUTOR_OUTPUTS_DIR || path.join(workspaceRoot, "outputs")),
     evidenceDir: path.resolve(root, env.CLOUD_EXECUTOR_EVIDENCE_DIR || path.join(workspaceRoot, "evidence"))
   };
-  const configured = enabled && ["fake", "playwright"].includes(mode) && Boolean(executorCloudId && organizationId && workspace.root && workspace.profileDir);
+  const configured = enabled && (
+    mode === "login"
+      ? Boolean(workspace.root && workspace.profileDir)
+      : ["fake", "playwright"].includes(mode) && Boolean(executorCloudId && organizationId && workspace.root && workspace.profileDir)
+  );
   return {
     enabled,
     configured,
@@ -47,8 +79,17 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
     executorCloudId,
     workspace,
     avatarMappingPath,
+    hiflyConfigPath,
     profileDir,
     storageRoot: workspaceRoot,
+    display,
+    xvfb: { enabled: true, display },
+    noVnc: {
+      bindHost: privateBindHost(env.CLOUD_EXECUTOR_NOVNC_BIND_HOST),
+      port: port(env.CLOUD_EXECUTOR_NOVNC_PORT, "CLOUD_EXECUTOR_NOVNC_PORT", 6080),
+      access: "private",
+      public: false
+    },
     worker: {
       pollIntervalMs: duration(env.CLOUD_EXECUTOR_POLL_INTERVAL_MS, "CLOUD_EXECUTOR_POLL_INTERVAL_MS", 1_000),
       leaseMs: duration(env.CLOUD_EXECUTOR_LEASE_MS, "CLOUD_EXECUTOR_LEASE_MS", 30_000),
