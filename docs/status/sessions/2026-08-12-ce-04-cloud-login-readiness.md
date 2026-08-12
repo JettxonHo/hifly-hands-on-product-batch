@@ -37,4 +37,5 @@
 - 新增 `deploy/cloud-executor-login.Dockerfile` 和 `deploy/cloud-executor-login-entrypoint.sh`：专用 image contract 安装 Playwright Chromium、Xvfb、x11vnc、noVNC/websockify、x11-utils，并按 Xvfb readiness → x11vnc → websockify → `node scripts/cloud-executor.js login` 启动。compose 已引用该 Dockerfile；CE-07 仍负责最终 live image、orchestration 与部署验证。
 - Login runtime 未修改；原有测试继续证明它没有 service、worker、`runOnce` 或 claim seam。
 - TDD：先由 compose/Dockerfile/entrypoint static tests 复现两项失败，再完成最小 contract 修复。Cloud focused 31/31；`npm run check` 检查 223 个 JavaScript 文件；`npm test` 986 total / 972 pass / 14 existing environment skip / 0 fail；`docker compose -f deploy/cloud-executor-login.yml config`、`sh -n deploy/cloud-executor-login-entrypoint.sh`、`git diff --check` 均通过。
+- Follow-up 首次推送 `59ec280` 后，Windows CI 暴露 compose static assertion 只接受 LF；产品合同与 dedicated image-chain test 均通过。断言最小改为兼容 CRLF 后，Cloud focused 31/31、`npm run check` 223 files、独立重跑 `npm test` 986 total / 972 pass / 14 skip / 0 fail；一次并行 full-suite run 因 3 个无关 browser workers 卡住而人工终止，不计作通过证据。
 - 未执行 Docker build/pull/download、容器启动、服务器部署、真实浏览器/Hifly 页面访问、上传、生成、下载、DeepSeek、real claim 或积分动作。依赖审计仍报告既有 7 项（5 high/2 moderate），本 follow-up 未改依赖。

@@ -181,7 +181,7 @@ test("login deployment fragment maps noVNC only to host loopback and uses the de
   assert.match(compose, /CLOUD_EXECUTOR_NOVNC_BIND_HOST: "127\.0\.0\.1"/);
   assert.match(compose, /CLOUD_EXECUTOR_MODE: "login"/);
   assert.match(compose, /internal: true/);
-  assert.match(compose, /^\s+ports:\n\s+- "127\.0\.0\.1:6080:6080"/m);
+  assert.match(compose, /^\s+ports:\r?\n\s+- "127\.0\.0\.1:6080:6080"/m);
   assert.doesNotMatch(compose, /(?:0\.0\.0\.0|\$\{[^}]+\}):6080:6080/);
 });
 
