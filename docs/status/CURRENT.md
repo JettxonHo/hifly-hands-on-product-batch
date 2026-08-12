@@ -19,7 +19,7 @@
 - Worker loop 为单进程 concurrency=1：readiness 先于 claim；每次最多领取一条 handoff-ready order；执行 start、lease/heartbeat（以 `progress_phase` 作为 bounded checkpoint）、fake candidate/report、A12 exactly-once trigger；fake failure 立即停机且不领取下一条；lease expiry 进入 `requires_action`，不自动创建或重试 attempt。Cloud Executor 使用独立 `cloud_executor` service seams，不使用 Local Agent bearer route、浏览器/Hifly/Playwright/DeepSeek 或真实 HTTP。
 - 配置/启动 wiring 已接入 production config、`production-start`、app decorator/worker lifecycle、Compose/.env 示例；enabled 仅允许 `fake`，缺少 cloud id/organization 时保持 unconfigured，不启动 claim loop。未修改已应用 migration，未部署。
 - 验证：`node --test test/cloud-executor.test.js` 为 11/11；`npm run check` 检查 216 个 JavaScript 文件；`npm test` 为 965 total / 951 pass / 14 existing environment skip / 0 fail；`git diff --check` 待提交前复核。
-- 本轮外部动作与费用：0 次 Hifly、0 次 DeepSeek、0 次真实 HTTP、0 次 ProductionOrder real claim、0 次部署、飞影积分消耗 0。PR、CI 和运行时/部署证明仍待完成；CE-03 未开始。
+- 本轮外部动作与费用：0 次 Hifly、0 次 DeepSeek、0 次真实 HTTP、0 次 ProductionOrder real claim、0 次部署、飞影积分消耗 0。提交 `64a12a29ee50486347cdc571124cd5f2b0ad3e81` 已 push；READY PR [#145](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/145) 已创建并引用/关闭 #137。未审批、未合并、未部署；CI 与运行时/部署证明仍待完成，CE-03 未开始。
 
 ## 2026-08-12 P3 阿里云部署与 standby 检查完成（无飞影生成）
 
