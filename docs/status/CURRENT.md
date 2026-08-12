@@ -1,8 +1,17 @@
 # 项目当前状态
 
-> 最后更新：2026-08-12
+> 最后更新：2026-08-13
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01 已完成；CE-02 PR #145 Review 纠正已实现；CE-03～CE-07 禁止真实飞影与积分；CE-08 待专项授权
+> 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01～CE-07 已完成实现，CE-07 阿里云 standby 实证已通过并待证据 PR 收口；CE-08 单条真实出片已获 Owner 明确授权
+
+## 2026-08-13 CE-07 阿里云 standby 实证通过
+
+- GitHub 实时状态：Issues #136～#141 CLOSED，#142/#143 OPEN；无 OPEN PR；`main@1cfe0c9` CI 全绿。阿里云已同步 `main@1cfe0c9`；production migration 成功，app/postgres/proxy/cloud_executor 均 healthy。
+- Cloud Executor 保持 disabled/fail-closed standby，health 为 `readiness=disabled`、`claim_enabled=false`；内部 heartbeat 为 online。
+- 修复后的 Cloud Executor 经容器重启仍健康，Profile marker inode/mtime/内容保持；attempt 总数重启前后均为 9。
+- 3001 未发布，noVNC 只监听 `127.0.0.1:6080`。待机时宿主机约 2.5 GiB 可用内存、32 GiB 可用磁盘，无 swap；真实 Chromium 容量仍须由 CE-08 单条验证证明。
+- Owner 已授权 CE-08 恰好 1 条真实云端出片及相应积分风险；只允许零 attempt 合格工单，首失败即停，不自动重试，不执行第二条。
+- 当前唯一 P0 差距：云端飞影 Profile 登录、Cloud Executor `playwright` 激活、唯一新零-attempt 工单门禁，以及真实 Hifly → 云端视频 → A12 → Work → 鉴权下载证明。Local Agent 必须关闭且不参与本次验收。
 
 ## 2026-08-13 CE-07 / Issue #142 Cloud Executor 重启恢复修复（READY PR）
 
