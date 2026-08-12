@@ -211,6 +211,8 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   assert.equal(config.generationConfig.executionBackend, "fail_closed");
   assert.equal(config.generationConfig.rpa.realLive.enabled, false);
   assert.equal(config.generationConfig.rpa.realLive.batch.enabled, false);
+  assert.equal(config.copyGeneration.provider, "phase1_controlled_test_double");
+  assert.equal(config.copyGeneration.deepseek, null);
   assert.equal(config.hiflyApi.enabled, false);
   assert.equal(config.localAgentExecution.enabled, false);
   assert.equal(config.localAgentExecution.token, null);
@@ -252,6 +254,70 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
     createProductionExecutor().createAsset({ task_id: "pilot-task" }),
     { code: "EXECUTOR_UNAVAILABLE" }
   );
+});
+
+test("production DeepSeek selection fails closed without a server-side key", async () => {
+  assert.throws(
+    () => createProductionConfig({
+      root: "/tmp/hifly-production-test",
+      env: productionEnv({ COPY_GENERATION_PROVIDER: "deepseek" })
+    }),
+    { code: "DEEPSEEK_API_KEY_REQUIRED" }
+  );
+
+  let poolCalls = 0;
+  await assert.rejects(
+    startProductionServer({
+      root: "/tmp/hifly-production-test",
+      env: productionEnv({ COPY_GENERATION_PROVIDER: "deepseek" }),
+      handleSignals: false,
+      createPool: () => { poolCalls += 1; return { async end() {} }; },
+      buildAppImpl: async () => ({ async listen() {}, async close() {} })
+    }),
+    { code: "DEEPSEEK_API_KEY_REQUIRED" }
+  );
+  assert.equal(poolCalls, 0);
+});
+
+test("production wiring can select the DeepSeek adapter without making a request during startup", async () => {
+  const pool = { async end() {} };
+  const app = { async listen() {}, async stopExecutions() {}, async close() {} };
+  let buildOptions;
+  let fetchCalls = 0;
+  const server = await startProductionServer({
+    root: "/tmp/hifly-production-test",
+    env: productionEnv({ COPY_GENERATION_PROVIDER: "deepseek", DEEPSEEK_API_KEY: "unit-test-key" }),
+    handleSignals: false,
+    createPool: () => pool,
+    deepseekFetch: async (url, init) => {
+      fetchCalls += 1;
+      assert.equal(url, "https://api.deepseek.com/chat/completions");
+      assert.equal(init.headers.authorization, "Bearer unit-test-key");
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"body":"测试文案"}' } }] }), { status: 200 });
+    },
+    buildAppImpl: async (options) => {
+      buildOptions = options;
+      return app;
+    }
+  });
+
+  assert.equal(fetchCalls, 0);
+  assert.equal(buildOptions.copyGeneration.provider.kind, "deepseek_official");
+  assert.equal(buildOptions.copyGeneration.deepseek.model, "deepseek-v4-flash");
+  assert.deepEqual(
+    await buildOptions.copyGeneration.provider.generateCopy({
+      productRevision: {
+        product_name: "测试商品",
+        product_description: "测试描述",
+        primary_category: "general",
+        content_brief: null,
+        selling_points: [{ text: "测试卖点", confirmed: true }]
+      }
+    }),
+    { body: "测试文案" }
+  );
+  assert.equal(fetchCalls, 1);
+  await server.close();
 });
 
 test("production server binds once on 0.0.0.0 without opening a browser", async () => {

@@ -39,6 +39,7 @@ export const PRODUCTION_FEATURE_FLAGS = Object.freeze({
 const DEFAULT_PORT = 3000;
 const DEFAULT_DATA_DIR = "/var/lib/hifly";
 const DEFAULT_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const COPY_GENERATION_PROVIDERS = new Set(["phase1_controlled_test_double", "deepseek"]);
 
 function required(env, name) {
   const value = env[name];
@@ -129,6 +130,14 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
     throw Object.assign(new Error("PRODUCTION_EXECUTOR_UNSUPPORTED"), { code: "PRODUCTION_EXECUTOR_UNSUPPORTED" });
   }
 
+  const copyGenerationProvider = env.COPY_GENERATION_PROVIDER?.trim() || "phase1_controlled_test_double";
+  if (!COPY_GENERATION_PROVIDERS.has(copyGenerationProvider)) {
+    throw Object.assign(new Error("COPY_GENERATION_PROVIDER_UNSUPPORTED"), { code: "COPY_GENERATION_PROVIDER_UNSUPPORTED" });
+  }
+  const deepseek = copyGenerationProvider === "deepseek"
+    ? { apiKey: required(env, "DEEPSEEK_API_KEY"), model: "deepseek-v4-flash" }
+    : null;
+
   const worker = workerOptions();
   const hiflyApiToken = env.HIFLY_API_TOKEN?.trim() || null;
   const localAgentRequested = boolean(env.LOCAL_AGENT_ENABLED, "LOCAL_AGENT_ENABLED", false);
@@ -204,7 +213,7 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
       worker
     },
     projectContent: { enabled: true },
-    copyGeneration: { enabled: true, provider: "phase1_controlled_test_double", worker },
+    copyGeneration: { enabled: true, provider: copyGenerationProvider, deepseek, worker },
     copyQuality: {
       enabled: true,
       profileVersion: "commerce-cn-v1",

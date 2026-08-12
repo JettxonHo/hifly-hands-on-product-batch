@@ -2,9 +2,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { createControlledCopyProvider } from "../copy-generation/controlled-provider.js";
+import { createDeepSeekCopyProvider } from "../copy-generation/deepseek-provider.js";
 import { createControlledQualityEvaluator } from "../copy-quality/controlled-evaluator.js";
 import { createControlledCopyRewriter } from "../copy-quality/controlled-rewriter.js";
 import { createIdentityPool } from "../identity/postgres.js";
+import { createDeepSeekClient } from "../llm/deepseek-client.js";
+import { createFetchTransport } from "../llm/http-transport.js";
 import { createControlledPreflightEvaluator } from "../video-planning/controlled-preflight-evaluator.js";
 import { createDisabledLiveTransport } from "../rpa/capture/real-live-http-client.js";
 import { createHiflyApiClient } from "../providers/hifly-api-client.js";
@@ -24,7 +27,20 @@ function disabledCaptureLive() {
   };
 }
 
-function appOptions(config, projectRoot, pool, executor, hiflyFetch) {
+function copyGenerationProvider(config, deepseekFetch) {
+  if (config.copyGeneration.provider === "deepseek") {
+    const client = createDeepSeekClient({
+      apiKey: config.copyGeneration.deepseek?.apiKey,
+      model: config.copyGeneration.deepseek?.model,
+      transport: createFetchTransport({ fetchImpl: deepseekFetch })
+    });
+    return createDeepSeekCopyProvider({ client });
+  }
+  if (config.copyGeneration.provider === "phase1_controlled_test_double") return createControlledCopyProvider();
+  throw Object.assign(new Error("COPY_GENERATION_PROVIDER_UNSUPPORTED"), { code: "COPY_GENERATION_PROVIDER_UNSUPPORTED" });
+}
+
+function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFetch) {
   return {
     root: config.dataDir,
     webRoot: path.join(projectRoot, "web"),
@@ -42,7 +58,7 @@ function appOptions(config, projectRoot, pool, executor, hiflyFetch) {
     identity: config.identity,
     assets: config.assets,
     projectContent: config.projectContent,
-    copyGeneration: { ...config.copyGeneration, provider: createControlledCopyProvider() },
+    copyGeneration: { ...config.copyGeneration, provider: copyGenerationProvider(config, deepseekFetch) },
     copyQuality: {
       ...config.copyQuality,
       evaluator: createControlledQualityEvaluator(),
@@ -76,6 +92,7 @@ export async function startProductionServer({
   createPool = createIdentityPool,
   executor = null,
   hiflyFetch = globalThis.fetch,
+  deepseekFetch = globalThis.fetch,
   handleSignals = true
 } = {}) {
   const projectRoot = path.resolve(root || process.cwd());
@@ -88,7 +105,7 @@ export async function startProductionServer({
   const selectedExecutor = executor || createProductionExecutor({ mode: selectedConfig.generationConfig.executionBackend });
   let app;
   try {
-    app = await buildAppImpl(appOptions(selectedConfig, projectRoot, pool, selectedExecutor, hiflyFetch));
+    app = await buildAppImpl(appOptions(selectedConfig, projectRoot, pool, selectedExecutor, hiflyFetch, deepseekFetch));
     await app.listen({ host: selectedConfig.listenHost, port: selectedConfig.port });
   } catch (error) {
     await app?.close?.().catch(() => undefined);
