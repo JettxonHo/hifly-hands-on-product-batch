@@ -54,7 +54,8 @@ export function createMemoryProductionOrderRepository() {
       return clone(order?.organization_id === organizationId ? order : null);
     },
 
-    async transitionOrder({ organizationId, orderId, expectedRevision, fromStatuses = [], toStatus, at, actorMemberId = null, actorAgentId = null, reason = null, transactionClient = null }) {
+    async transitionOrder({ organizationId, orderId, expectedRevision, fromStatuses = [], toStatus, at, actorMemberId = null, actorAgentId = null,
+      actorCloudExecutorId = null, reason = null, transactionClient = null }) {
       const value = orders.get(orderId);
       if (!value || value.organization_id !== organizationId) return null;
       if (value.row_version !== expectedRevision || !fromStatuses.includes(value.status)) return null;
@@ -62,10 +63,12 @@ export function createMemoryProductionOrderRepository() {
       if (fromStatus !== toStatus && !allowedTransitions[fromStatus]?.includes(toStatus)) throw failure("PRODUCTION_ORDER_TRANSITION_INVALID");
       const previous = clone(value);
       Object.assign(value, { status: toStatus, row_version: value.row_version + 1, updated_at: at });
-      value.status_history = [...(value.status_history || []), { from_status: fromStatus, to_status: toStatus, at, actor_member_id: actorMemberId, actor_agent_id: actorAgentId, reason }];
+      value.status_history = [...(value.status_history || []), { from_status: fromStatus, to_status: toStatus, at, actor_member_id: actorMemberId,
+        actor_agent_id: actorAgentId, actor_cloud_executor_id: actorCloudExecutorId, reason }];
       const audit = { id: `${value.id}-transition-${value.row_version}`, organization_id: organizationId, actor_member_id: actorMemberId,
         event_type: `production_order.${toStatus}`, production_order_id: value.id,
-        metadata: { from_status: fromStatus, to_status: toStatus, reason, ...(actorAgentId ? { agent_id: actorAgentId } : {}) }, created_at: at };
+        metadata: { from_status: fromStatus, to_status: toStatus, reason, ...(actorAgentId ? { agent_id: actorAgentId } : {}),
+          ...(actorCloudExecutorId ? { cloud_executor_id: actorCloudExecutorId } : {}) }, created_at: at };
       audits.push(audit);
       transactionClient?.onRollback?.(() => {
         orders.set(value.id, previous);

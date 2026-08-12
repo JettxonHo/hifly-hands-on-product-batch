@@ -166,6 +166,50 @@ test("production build disables database startup migrations but still checks rep
   assert.equal(untrustedHealth.statusCode, 403);
 });
 
+test("web app never owns or starts the Cloud Executor runtime", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-production-web-only-"));
+  const identity = createMemoryIdentityRepository();
+  const pool = migrationProbePool();
+  let app;
+  let cloudOrderPolls = 0;
+  t.after(async () => {
+    await app?.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  app = await buildApp({
+    root,
+    executor: createFakeExecutor(),
+    databasePool: pool,
+    startupMigrations: false,
+    generationConfig: { executionBackend: "fake", rpa: { mode: "mock", realLive: { enabled: false, batch: { enabled: false } } } },
+    identity: { enabled: true, repository: identity, trustedHosts: ["pilot.test"], trustedOrigins: ["https://pilot.test"], cookieSecure: true, seed: { enabled: false } },
+    ...(await productionFeatureOptions()),
+    cloudExecutor: {
+      enabled: true,
+      configured: true,
+      mode: "fake",
+      organizationId: "org_pilot",
+      executorCloudId: "cloud-runtime-1",
+      readinessPort: { async check() { return { ready: true, status: "available" }; } },
+      orderPort: {
+        async listOrdersForCloudExecutor() { cloudOrderPolls += 1; return []; },
+        async getOrderForCloudExecutor() { return null; },
+        async transitionOrderForCloudExecutor() { return null; }
+      },
+      packagePort: {
+        async listPackagesForCloudExecutor() { return []; },
+        async getPackageForCloudExecutor() { return null; }
+      },
+      worker: { autoStart: true, pollIntervalMs: 1, leaseMs: 30_000, heartbeatIntervalMs: 5_000 }
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(cloudOrderPolls, 0);
+  assert.equal(app.hasDecorator("cloudExecutor"), false);
+});
+
 test("enabled local-agent wiring registers bearer routes without changing member routes", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-production-agent-build-"));
   const identity = createMemoryIdentityRepository();
@@ -220,6 +264,7 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   assert.equal(config.hiflyApi.enabled, false);
   assert.equal(config.localAgentExecution.enabled, false);
   assert.equal(config.localAgentExecution.token, null);
+  assert.equal(config.cloudExecutor, undefined);
   assert.equal(config.identity.cookieSecure, true);
   assert.equal(config.featureFlags.A14, true);
   assert.equal(config.generationConfig.uploadLimits.maxBatchBytes, 128 * 1024 * 1024);
@@ -532,7 +577,12 @@ test("production server binds once on 0.0.0.0 without opening a browser", async 
 
   const server = await startProductionServer({
     root: "/tmp/hifly-production-test",
-    env: productionEnv({ PORT: "4319" }),
+    env: productionEnv({
+      PORT: "4319",
+      CLOUD_EXECUTOR_ENABLED: "true",
+      CLOUD_EXECUTOR_MODE: "unsupported-for-web",
+      CLOUD_EXECUTOR_POLL_INTERVAL_MS: "not-a-duration"
+    }),
     handleSignals: false,
     createPool(options) {
       poolOptions = options;
@@ -550,6 +600,7 @@ test("production server binds once on 0.0.0.0 without opening a browser", async 
   assert.equal(buildOptions.closeDatabasePool, false);
   assert.equal(buildOptions.startupMigrations, false);
   assert.equal(buildOptions.localAgentExecution.enabled, false);
+  assert.equal(buildOptions.cloudExecutor, undefined);
   assert.equal(buildOptions.openBrowser, null);
   assert.equal(buildOptions.identity.listenHost, "0.0.0.0");
   await assert.rejects(buildOptions.executor.submitVideo({ task_id: "pilot-task" }), { code: "EXECUTOR_UNAVAILABLE" });

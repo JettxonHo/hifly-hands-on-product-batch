@@ -29,8 +29,11 @@ export function createMemoryManualExecutionRepository() {
   function validateAttemptIdentity(attempt) {
     const member = attempt.operator_id ?? null;
     const agent = attempt.executor_agent_id ?? null;
-    if ((attempt.executor_type === "manual" && (!member || agent !== null)) ||
-      (attempt.executor_type === "local_agent" && (member !== null || !agent))) {
+    const cloud = attempt.executor_cloud_id ?? null;
+    if ((attempt.executor_type === "manual" && (!member || agent !== null || cloud !== null)) ||
+      (attempt.executor_type === "local_agent" && (member !== null || !agent || cloud !== null)) ||
+      (attempt.executor_type === "cloud_executor" && (member !== null || agent !== null || !cloud)) ||
+      !["manual", "local_agent", "cloud_executor"].includes(attempt.executor_type)) {
       throw failure("MANUAL_EXECUTION_ATTEMPT_IDENTITY_INVALID");
     }
   }
@@ -38,13 +41,15 @@ export function createMemoryManualExecutionRepository() {
   function validateCandidateIdentity(candidate) {
     const member = candidate.uploaded_by_member_id ?? null;
     const agent = candidate.uploaded_by_agent_id ?? null;
-    if ((member === null) === (agent === null)) throw failure("MANUAL_EXECUTION_CANDIDATE_IDENTITY_INVALID");
+    const cloud = candidate.uploaded_by_cloud_executor_id ?? null;
+    if ([member, agent, cloud].filter((value) => value !== null).length !== 1) throw failure("MANUAL_EXECUTION_CANDIDATE_IDENTITY_INVALID");
   }
 
   function validateReportIdentity(report) {
     const member = report.submitted_by ?? null;
     const agent = report.submitted_by_agent_id ?? null;
-    if ((member === null) === (agent === null)) throw failure("MANUAL_EXECUTION_REPORT_IDENTITY_INVALID");
+    const cloud = report.submitted_by_cloud_executor_id ?? null;
+    if ([member, agent, cloud].filter((value) => value !== null).length !== 1) throw failure("MANUAL_EXECUTION_REPORT_IDENTITY_INVALID");
   }
 
   return {
@@ -68,6 +73,7 @@ export function createMemoryManualExecutionRepository() {
         id: `${attempt.id}-transition-${index}`, organization_id: attempt.organization_id, attempt_id: attempt.id,
         from_status: index === 0 ? null : attempt.status_history[index - 1].status, to_status: entry.status,
         actor_member_id: attempt.operator_id || null, actor_agent_id: attempt.executor_agent_id || null,
+        actor_cloud_executor_id: attempt.executor_cloud_id || null,
         reason: entry.reason || null, created_at: entry.at
       })));
       audits.push(clone(audit));
@@ -87,7 +93,7 @@ export function createMemoryManualExecutionRepository() {
       receipts.set(receiptKey, { fingerprint, attempt_id: current.id });
       transitions.push({ id: `${current.id}-transition-${current.row_version}`, organization_id: current.organization_id,
         attempt_id: current.id, from_status: "claimed", to_status: "running", actor_member_id: current.operator_id || null,
-        actor_agent_id: current.executor_agent_id || null,
+        actor_agent_id: current.executor_agent_id || null, actor_cloud_executor_id: current.executor_cloud_id || null,
         reason: null, created_at: current.updated_at });
       audits.push(clone(audit));
       return { attempt: clone(current), replayed: false };
@@ -99,6 +105,19 @@ export function createMemoryManualExecutionRepository() {
       const current = scoped(attempts, organizationId, attemptId);
       if (!current || current.executor_type !== "local_agent" || current.executor_agent_id !== agentId || current.operator_id != null) throw failure("LOCAL_AGENT_ATTEMPT_NOT_FOUND");
       if (current.row_version !== expectedRevision || !["claimed", "running"].includes(current.status)) throw failure("LOCAL_AGENT_ATTEMPT_CONFLICT");
+      Object.assign(current, { heartbeat_at: now, lease_expires_at: leaseExpiresAt, progress_phase: progressPhase, updated_at: now, row_version: current.row_version + 1 });
+      receipts.set(receiptKey, { fingerprint, attempt_id: current.id });
+      if (audit) audits.push(clone(audit));
+      return { attempt: clone(current), replayed: false };
+    },
+
+    async heartbeatCloudAttempt({ receiptKey, fingerprint, attemptId, organizationId, executorCloudId, expectedRevision, now, leaseExpiresAt, progressPhase, audit }) {
+      const replay = readReceipt(receiptKey, fingerprint);
+      if (replay) return { attempt: clone(attempts.get(replay.attempt_id)), replayed: true };
+      const current = scoped(attempts, organizationId, attemptId);
+      if (!current || current.executor_type !== "cloud_executor" || current.executor_cloud_id !== executorCloudId ||
+        current.operator_id != null || current.executor_agent_id != null) throw failure("CLOUD_EXECUTOR_ATTEMPT_NOT_FOUND");
+      if (current.row_version !== expectedRevision || !["claimed", "running"].includes(current.status)) throw failure("CLOUD_EXECUTOR_ATTEMPT_CONFLICT");
       Object.assign(current, { heartbeat_at: now, lease_expires_at: leaseExpiresAt, progress_phase: progressPhase, updated_at: now, row_version: current.row_version + 1 });
       receipts.set(receiptKey, { fingerprint, attempt_id: current.id });
       if (audit) audits.push(clone(audit));
@@ -124,6 +143,30 @@ export function createMemoryManualExecutionRepository() {
       transitions.push({ id: `${current.id}-transition-${current.row_version}`, organization_id: current.organization_id,
         attempt_id: current.id, from_status: previousStatus, to_status: current.status, actor_member_id: null,
         actor_agent_id: agentId, reason: "lease_expired", created_at: now });
+      if (audit) audits.push(clone(audit));
+      return { attempt: clone(current), replayed: false };
+    },
+
+    async expireCloudAttempt({ receiptKey = null, fingerprint = null, attemptId, organizationId, executorCloudId, expectedRevision, now, patch, orderTransition, transitionOrder, audit }) {
+      if (receiptKey) {
+        const replay = readReceipt(receiptKey, fingerprint);
+        if (replay) return { attempt: clone(attempts.get(replay.attempt_id)), replayed: true };
+      }
+      const current = scoped(attempts, organizationId, attemptId);
+      if (!current || current.executor_type !== "cloud_executor" || current.executor_cloud_id !== executorCloudId ||
+        current.operator_id != null || current.executor_agent_id != null) throw failure("CLOUD_EXECUTOR_ATTEMPT_NOT_FOUND");
+      if (current.row_version !== expectedRevision || !["claimed", "running"].includes(current.status)) throw failure("CLOUD_EXECUTOR_ATTEMPT_CONFLICT");
+      if (orderTransition) {
+        const order = await transitionOrder();
+        if (!order) throw failure("PRODUCTION_ORDER_CONFLICT");
+      }
+      const previousStatus = current.status;
+      Object.assign(current, clone(patch), { row_version: current.row_version + 1 });
+      attempts.set(current.id, current);
+      if (receiptKey) receipts.set(receiptKey, { fingerprint, attempt_id: current.id });
+      transitions.push({ id: `${current.id}-transition-${current.row_version}`, organization_id: current.organization_id,
+        attempt_id: current.id, from_status: previousStatus, to_status: current.status, actor_member_id: null,
+        actor_agent_id: null, actor_cloud_executor_id: executorCloudId, reason: "lease_expired", created_at: now });
       if (audit) audits.push(clone(audit));
       return { attempt: clone(current), replayed: false };
     },
@@ -215,7 +258,8 @@ export function createMemoryManualExecutionRepository() {
       receipts.set(receiptKey, { fingerprint, report_id: report.id, attempt_id: attempt.id });
       transitions.push({ id: `${attempt.id}-transition-${attempt.row_version}`, organization_id: attempt.organization_id,
         attempt_id: attempt.id, from_status: patchAttempt.previous_status, to_status: patchAttempt.status,
-        actor_member_id: report.submitted_by ?? null, actor_agent_id: report.submitted_by_agent_id ?? null, reason: null, created_at: report.submitted_at });
+        actor_member_id: report.submitted_by ?? null, actor_agent_id: report.submitted_by_agent_id ?? null,
+        actor_cloud_executor_id: report.submitted_by_cloud_executor_id ?? null, reason: null, created_at: report.submitted_at });
       audits.push(clone(audit));
       return { report: clone(report), attempt: clone(attempt), replayed: false };
     },

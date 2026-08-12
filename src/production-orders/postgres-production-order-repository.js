@@ -64,20 +64,23 @@ export function createPostgresProductionOrderRepository({ pool, ownsPool = false
       return order(one(await pool.query("SELECT * FROM production_orders WHERE organization_id=$1 AND id=$2", [organizationId, orderId])));
     },
 
-    async transitionOrder({ organizationId, orderId, expectedRevision, fromStatuses = [], toStatus, at, actorMemberId = null, actorAgentId = null, reason = null, transactionClient = null }) {
+    async transitionOrder({ organizationId, orderId, expectedRevision, fromStatuses = [], toStatus, at, actorMemberId = null, actorAgentId = null,
+      actorCloudExecutorId = null, reason = null, transactionClient = null }) {
       const work = async (client) => {
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`production-order-transition:${organizationId}:${orderId}`]);
         const current = order(one(await client.query("SELECT * FROM production_orders WHERE organization_id=$1 AND id=$2 FOR UPDATE", [organizationId, orderId])));
         if (!current || current.row_version !== expectedRevision || !fromStatuses.includes(current.status)) return null;
         if (current.status !== toStatus && !allowedTransitions[current.status]?.includes(toStatus)) throw failure("PRODUCTION_ORDER_TRANSITION_INVALID");
-        const history = [...(current.status_history || []), { from_status: current.status, to_status: toStatus, at, actor_member_id: actorMemberId, actor_agent_id: actorAgentId, reason }];
+        const history = [...(current.status_history || []), { from_status: current.status, to_status: toStatus, at, actor_member_id: actorMemberId,
+          actor_agent_id: actorAgentId, actor_cloud_executor_id: actorCloudExecutorId, reason }];
         const updated = order(one(await client.query(`UPDATE production_orders SET status=$3,row_version=row_version+1,status_history=$4,updated_at=$5
           WHERE organization_id=$1 AND id=$2 AND row_version=$6 AND status = ANY($7::text[]) RETURNING *`,
           [organizationId, orderId, toStatus, JSON.stringify(history), at, expectedRevision, fromStatuses])));
         if (!updated) return null;
         await client.query(`INSERT INTO production_order_audit_events(id,organization_id,actor_member_id,production_order_id,event_type,metadata,created_at)
           VALUES ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), organizationId, actorMemberId, orderId,
-          `production_order.${toStatus}`, JSON.stringify({ from_status: current.status, to_status: toStatus, reason, ...(actorAgentId ? { agent_id: actorAgentId } : {}) }), at]);
+          `production_order.${toStatus}`, JSON.stringify({ from_status: current.status, to_status: toStatus, reason,
+            ...(actorAgentId ? { agent_id: actorAgentId } : {}), ...(actorCloudExecutorId ? { cloud_executor_id: actorCloudExecutorId } : {}) }), at]);
         return updated;
       };
       return transactionClient ? work(transactionClient) : withTransaction(pool, work);

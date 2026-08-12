@@ -190,6 +190,18 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
     return repository.listPackages(input.organizationId, input.productionOrderId);
   }
 
+  async function getPackageForCloudExecutor(input) {
+    if (!clean(input.organizationId) || !clean(input.executorCloudId) || !clean(input.packageId)) throw failure("MANUAL_HANDOFF_CONTEXT_REQUIRED");
+    const result = await repository.getPackage(input.organizationId, input.packageId);
+    if (!result || result.organization_id !== input.organizationId) throw failure("MANUAL_HANDOFF_PACKAGE_NOT_FOUND");
+    return result;
+  }
+
+  async function listPackagesForCloudExecutor(input) {
+    if (!clean(input.organizationId) || !clean(input.executorCloudId) || !clean(input.productionOrderId)) throw failure("MANUAL_HANDOFF_CONTEXT_REQUIRED");
+    return repository.listPackages(input.organizationId, input.productionOrderId);
+  }
+
   async function getOrder(input) {
     return scopedOrder(input);
   }
@@ -298,6 +310,8 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
     getPackageForAgent,
     listPackages,
     listPackagesForAgent,
+    getPackageForCloudExecutor,
+    listPackagesForCloudExecutor,
     getGenerationJob,
     claimNextGenerationJob,
     heartbeatGenerationJob,
