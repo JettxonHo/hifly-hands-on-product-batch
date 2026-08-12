@@ -2,9 +2,18 @@
 
 > 最后更新：2026-08-12
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：生产能力补齐，第九次真实 Local Agent 已成功生成并上传飞影作品 `696679`；A12 云端核验因内部交接包读取缺少 actor 上下文而技术失败，正在无积分修复并准备只重试既有候选核验；后续单条真实生成 standing authorization 剩余 4 次
+> 当前 Goal：生产能力补齐，新云端系统最小真实执行器闭环已跑通：飞影作品 `696679` 已生成、下载、上传、核验并登记为可用 Work；后续单条真实生成 standing authorization 剩余 4 次
 
-## 2026-08-12 第九次真实执行已出片，A12 核验技术失败待无积分恢复
+## 2026-08-12 新云端系统最小真实执行器闭环已跑通
+
+- PR #117 已经 CI 全绿并 squash 合并到 `main@eaf64c9`。云端部署前备份为 `/var/backups/hifly/hifly-20260812T012109Z.dump`，旧应用镜像保留为 `hifly-pilot-app:rollback-e9c0df2`；13 组 migration 全部成功，app/postgres/proxy healthy，HTTPS `/healthz` 返回 `ok`，服务器 Git 工作树干净。
+- 部署后只调用正式 A12 技术重试入口，没有运行 Local Agent real 命令、没有打开或访问飞影、没有上传或生成，也没有产生新的积分风险。
+- 核验 job `bd0789ed-e152-49fa-8931-17bb58e0a422` 第 2 次尝试为 `succeeded / passed`；候选 `e6d33671-f662-458a-a200-cfb4e85d5f7a` 的 verification 为 `passed`，原工单 `970cc09d-2f33-4c9c-9b2a-72136bdc8988` 为 `succeeded`。
+- 唯一 Work `41905ac8-4a41-4072-84cd-a6856c7e0124` 已创建且为 `available`；主资产版本 `838c83c9-e5a6-4f33-86b0-ffa378bbcde3` 为 `available / video/mp4 / 41874377 bytes`，与候选媒体一致。
+- 至此已实证完成：云端真实工单与交接包 → Mac Local Agent → 飞影手里有货生成 → 稳定作品下载 → 云端候选上传 → A12 核验 → Work 登记。实际飞影积分仍以飞影后台流水为准；standing authorization 剩余 4 次。
+- 详细记录见 `docs/status/sessions/2026-08-12-ninth-real-local-agent-output-verification-failure.md`。
+
+## 2026-08-12 第九次真实执行已出片，A12 核验技术失败（已恢复）
 
 - PR #116 已合并到 `main@04aac4b`：真实页面命中点击外层上传后才出现的失败残留时，只走“重新编辑”回到上传态；Playwright lazy executor 尊重 `LOCAL_AGENT_HIFLY_CONFIG_PATH` 及其相对 Profile；游客态登录信号在 heartbeat/claim 前失败关闭。
 - 使用同一外部配置重新登录后，无副作用预检返回 `ready / playwright`。通过正式云端 API 创建 reproduction 工单 `970cc09d-2f33-4c9c-9b2a-72136bdc8988`；交接包 `89e14d98-5619-456c-b82a-88112a823949` 为 `ready / v1`，创建后全组织只有该工单活跃、attempt 数为 0。
