@@ -37,6 +37,7 @@
 - [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md)
 - [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md)
 - [PRODUCTIONIZATION_UPGRADE_PLAN.md](PRODUCTIONIZATION_UPGRADE_PLAN.md)
+- [CLOUD_EXECUTOR_P0.md](CLOUD_EXECUTOR_P0.md)
 
 ### Evidence
 
@@ -72,7 +73,8 @@
 | [MANUAL_HANDOFF_PACKAGE_CONTRACT.md](MANUAL_HANDOFF_PACKAGE_CONTRACT.md) | D-029 的人工交接包合同 Specification：ZIP/manifest/README/素材引用、版本与生命周期、manual ExecutionAttempt、ManualExecutionReport、候选产物核验与 Work 创建门禁、证据/幂等/安全；不代表包生成或上传已实现 |
 | [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md) | D-030 的交付计划 Specification：Vertical Slice A 交付目标、Issue 拆分原则、VSA-A01～A14 边界、依赖波次、Issue 模板、单 Issue DoD、Slice 级 DoD。Development Issues #57～#70 已创建；当前实施状态见 `docs/status/CURRENT.md` |
 | [PRODUCTIONIZATION_UPGRADE_PLAN.md](PRODUCTIONIZATION_UPGRADE_PLAN.md) | D-033 的生产化升级 Specification：真实 DeepSeek、人物目录、小批量验收、声音/场景 Evidence、常驻 Local Agent 与生产基础设施的顺序、门禁和完成标准 |
-| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：D-033 生产化核心能力升级顺序 |
+| [CLOUD_EXECUTOR_P0.md](CLOUD_EXECUTOR_P0.md) | D-034 的当前 P0 产品合同：纯云端 Cloud Executor、持久 Profile/素材/视频、串行积分安全、云端登录与真实出片完成定义；取代 D-033 中以 Local Agent 作为 P0 生产验收主路径的部分 |
+| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：D-034 P0 Cloud Executor 纯云端生产路径 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决，Q-018 已由 D-032 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 

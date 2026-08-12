@@ -815,3 +815,15 @@
 - **工程克制**：沿用 D-031，不为普通字段引入 SHA-256，不为无现实触发路径反复加防御；只处理会影响业务正确性、费用、凭据、组织隔离和幂等的真实风险。
 - **Specification**：[PRODUCTIONIZATION_UPGRADE_PLAN.md](PRODUCTIONIZATION_UPGRADE_PLAN.md)
 - **决策来源**：owner 于 2026-08-12 明确批准按推荐顺序开发未完成核心升级。
+
+## D-034 P0 Cloud Executor 纯云端生产路径
+
+- **日期**：2026-08-12
+- **状态**：Confirmed
+- **背景（Context）**：Cloud Control Plane → Mac Local Agent → 飞影 → 回传 → A12 → Work 已完成单条真实验证，证明既有领域合同与 Playwright 核心可用。但该路径要求个人电脑保持在线，不满足 Owner 对浏览器即用、云端持续生产的 P0 要求。D-026 与 D-032 曾将依赖网页登录态的能力固定到 Local Agent；本次 Owner 明确改变该高层产品边界。
+- **决策**：P0 生产主路径改为 Cloud Control Plane + 独立 Cloud Executor Worker。Worker 以 `cloud_executor` 身份在云端运行 Chrome/Playwright，使用持久 Profile、素材、输出与 Evidence 目录；单实例、并发 1，沿用 ProductionOrder/ExecutionAttempt/lease/heartbeat/checkpoint/A12/Work 合同，复用现有 Hifly DOM 自动化，不伪装 Local Agent。Local Agent 历史代码保留但不再承担 P0 验收。云端登录通过受限管理入口完成，noVNC/VNC 不直接暴露公网。视频经鉴权 API 预览与下载。CE-02～CE-07 不执行真实飞影，CE-08 另行取得单条积分授权。
+- **影响（Consequences）**：D-026、D-032 和 D-033 中“仅网页能力必须继续走个人电脑 Local Agent”及“P3/P5 以 Local Agent 为生产验收主路径”的部分被本决策取代；其余 Cloud Control Plane、官方 API Token、领域与安全边界继续有效。现有 2C4G 只做单条串行试验；资源不稳定时拆独立 Cloud Executor 节点，不回退个人电脑。只有纯云端真实工单完成后才可标记 P0 可投入内部试运行。
+- **被否决方案**：继续以 Mac Local Agent 作为 P0；在 Web 请求进程直接跑长 Playwright；让云端容器冒充 Local Agent；复制一套 Hifly DOM 自动化；在单条闭环前先建设 Kubernetes、OSS/COS 或声音/背景/姿势扩展。
+- **工程克制**：不删除有效历史实现，不新增无业务必要的哈希或存储抽象，不为低概率 case 扩张防御；只守住凭据、积分、重复提交、组织隔离、持久化和鉴权下载等核心风险。
+- **Specification**：[CLOUD_EXECUTOR_P0.md](CLOUD_EXECUTOR_P0.md)
+- **决策来源**：Owner 于 2026-08-12 发出正式架构纠偏指令，明确纯云端 Cloud Executor 为 P0。

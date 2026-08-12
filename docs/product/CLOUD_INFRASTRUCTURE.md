@@ -1,5 +1,7 @@
 # MVP 云基础设施与两阶段部署规格
 
+> 2026-08-12 P0 纠偏：D-034 允许在云端独立 Worker service 运行长时间 Chrome/Playwright，并将 Profile、素材与输出放入持久 volume。Web/API 请求进程仍不得承载长任务。本文原先将网页执行完全留给个人电脑 Local Agent 的部分已被 `CLOUD_EXECUTOR_P0.md` 取代。
+
 > 状态：Accepted at product specification level
 > Owner：owner（JettxonHo）
 > 最后更新：2026-08-05

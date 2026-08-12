@@ -1,5 +1,7 @@
 # Local Agent 最小生产执行器运行手册
 
+> 历史兼容路径：自 D-034 起，本 Runbook 不再是 P0 生产部署或验收入口。当前 P0 以 `docs/product/CLOUD_EXECUTOR_P0.md` 为准；不得用 Local Agent Evidence 代替纯云端 Cloud Executor 验收。
+
 ## 当前边界
 
 Local Agent 将云端生产工单交给保留飞影登录态的 macOS 执行。当前只支持单 Organization、单 Agent、单商品串行执行。默认运行 fake executor；真实飞影执行必须同时启用两个显式开关，并在执行前取得新的积分授权。

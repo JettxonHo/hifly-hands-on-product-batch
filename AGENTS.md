@@ -4,12 +4,11 @@
 
 ## 当前最高优先级
 
-当前正式交付目标是 `GOAL.md` 定义的 **生产化核心能力升级**，按 D-033 和
-`docs/product/PRODUCTIONIZATION_UPGRADE_PLAN.md` 的 P0→P6 顺序推进。Vertical Slice A 已完成，
-单条 Local Agent / 飞影真实闭环已经验证；当前第一项代码工作是 DeepSeek Provider Adapter。
+Owner 于 2026-08-12 正式纠偏 P0：当前正式交付目标是 `GOAL.md` 定义的 **Cloud Executor 纯云端生产闭环**，以 D-034 和 `docs/product/CLOUD_EXECUTOR_P0.md` 为准。
 
-本地 GUI 与 Playwright/Local Agent 生产链路是已验证的兼容基线和当前「手里有货」执行器，不得被后续升级破坏。
-单条成功不等于小批量、完整人物/声音/场景能力或正式生产 SLA 已完成。真实费用继续执行对应授权门禁。
+Cloud Executor 使用独立 `cloud_executor` 身份和独立进程/Docker service，在云端复用现有 Hifly Playwright 核心；Profile、素材、视频和 Evidence 必须持久化。并发固定为 1，登录/存储未就绪时 claim 前失败关闭，失败立即停止且不自动重试。
+
+本地 GUI 与 Playwright/Local Agent 链路是已验证的兼容基线，不得破坏或删除，但 Local Agent 不再是 P0 主实现、主提示或验收捷径。CE-02～CE-07 禁止真实飞影生成与积分消耗；CE-08 必须另行明确授权。只有纯云端真实工单完成 Hifly→云端 artifact→A12→Work→鉴权下载后，才可宣称 P0 可投入内部试运行。
 
 ## 必读接力文档
 
@@ -21,6 +20,7 @@ AGENTS.md                    ← 本文件
 GOAL.md                      ← 当前 Goal、里程碑与完成标准
 docs/agent-collaboration.md  ← 多 Agent 角色、权限、交接与 Review 规则
 docs/product/README.md       ← 产品文档权威入口
+docs/product/CLOUD_EXECUTOR_P0.md ← 当前 P0 产品合同
 docs/ROADMAP.md              ← 版本目标与 Issue 依赖
 docs/PROJECT_HANDOFF.md      ← 仅在需要历史背景时阅读
 ```
