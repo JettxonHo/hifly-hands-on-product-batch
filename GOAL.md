@@ -26,7 +26,7 @@ Local Agent 保留但不再作为 P0 生产路径或验收依据。
 
 - VSA-A01～A14、P1 DeepSeek adapters、P2 人物目录/登记/推荐已进入 `main`。
 - Cloud Control Plane → Mac Local Agent → Hifly → 回传 → A12 → Work 已有一条真实 Evidence。
-- Cloud Executor Worker、云端持久目录、受控登录入口、Playwright adapter 与控制面均已实现；`main@1cfe0c9` 已部署到阿里云。
+- Cloud Executor Worker、云端持久目录、受控登录入口、Playwright adapter 与控制面均已实现；`main@123f103` 已部署到阿里云，App 与 Worker 镜像已按该提交重建。
 - CE-07 disabled/fail-closed standby 已实证：heartbeat online、重启恢复、Profile marker 持久、无 claim、无新增 attempt。该证据不等同于真实出片。
 - 当前只缺 CE-08 运行证明：云端飞影登录与 Profile 重启保留、`playwright` 激活、唯一新零-attempt 工单，以及 Hifly → 云端 artifact → A12 → Work → 鉴权下载。
 - Local Agent 默认关闭，仅保留为 legacy fallback，不作为生产路径或验收依据。
@@ -41,7 +41,7 @@ Local Agent 保留但不再作为 P0 生产路径或验收依据。
 | CE-04 / #139 | 持久 Profile、可视登录、readiness | 已实现，待云端登录实证 |
 | CE-05 / #140 | 持久素材/视频、鉴权下载、磁盘门限 | 已完成 |
 | CE-06 / #141 | 控制台 Cloud Executor 状态与作品体验 | 已完成 |
-| CE-07 / #142 | 阿里云无副作用部署、standby 与重启恢复 | 运行实证通过，待关闭 Issue |
+| CE-07 / #142 | 阿里云无副作用部署、standby 与重启恢复 | 已完成并关闭 Issue |
 | CE-08 / #143 | 一条纯云端真实出片验收 | 已获单条积分授权，执行中 |
 
 ## 执行规则

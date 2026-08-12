@@ -2,11 +2,19 @@
 
 > 最后更新：2026-08-13
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01～CE-07 已完成实现，CE-07 阿里云 standby 实证已通过并待证据 PR 收口；CE-08 单条真实出片已获 Owner 明确授权
+> 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01～CE-07 已完成并关闭，CE-08 单条真实出片已获 Owner 明确授权
+
+## 2026-08-13 CE-08 云端执行前置已就绪，等待人工完成飞影登录
+
+- GitHub 与部署事实：无 OPEN PR；Issue #142 已关闭、#143 仍 OPEN；`main@123f103` CI 全绿，阿里云仓库、App 与 Cloud Executor 构建均已同步到该提交。
+- CE-08 前备份 `hifly-20260812T184133Z-pre-ce08.dump`（459847 bytes）已生成，production migration 全部通过；App 已切换到最新镜像且 HTTPS `/healthz` 返回 200，升级前 App/Worker 镜像均有回滚标签。
+- Cloud Executor 仍为 disabled/fail-closed，`LOCAL_AGENT_ENABLED=false`、`CLOUD_EXECUTOR_CONCURRENCY=1`；Mac Local Agent 未运行。数据库仍为 8 个历史工单、9 个历史 attempt，当前没有 active attempt，也没有 `waiting_for_executor + ready package` 候选。
+- 云端持久 Profile、assets、outputs、evidence、batches、locks 以及人物映射已准备；noVNC 仅通过 SSH tunnel 暴露到本机 `127.0.0.1:6080`。login-only 容器正在等待操作者在云端浏览器完成飞影登录，尚未 claim、生成或消耗积分。
+- CE-08 目标链已只读核验：项目“真实出片验收 2026-08-10”、商品“iPad 平板电脑”、当前 revision `ready`、方案 `frozen + approved`、preflight `warning`、人物 `confirmed + valid + verified`。登录持久化实证后，必须通过云端 GUI 创建唯一新 `reproduction` 工单并生成 ready 交接包；启动 Worker 前再次确认目标工单 attempt 为 0 且组织内仅此一个 eligible 工单。
 
 ## 2026-08-13 CE-07 阿里云 standby 实证通过
 
-- GitHub 实时状态：Issues #136～#141 CLOSED，#142/#143 OPEN；无 OPEN PR；`main@1cfe0c9` CI 全绿。阿里云已同步 `main@1cfe0c9`；production migration 成功，app/postgres/proxy/cloud_executor 均 healthy。
+- 本节记录的是当时的 CE-07 验收快照；后续最新状态见上方 CE-08 章节。
 - Cloud Executor 保持 disabled/fail-closed standby，health 为 `readiness=disabled`、`claim_enabled=false`；内部 heartbeat 为 online。
 - 修复后的 Cloud Executor 经容器重启仍健康，Profile marker inode/mtime/内容保持；attempt 总数重启前后均为 9。
 - 3001 未发布，noVNC 只监听 `127.0.0.1:6080`。待机时宿主机约 2.5 GiB 可用内存、32 GiB 可用磁盘，无 swap；真实 Chromium 容量仍须由 CE-08 单条验证证明。
