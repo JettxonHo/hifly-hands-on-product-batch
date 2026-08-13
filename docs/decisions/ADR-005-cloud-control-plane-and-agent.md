@@ -1,6 +1,8 @@
-# ADR-002: 云控制面 + 执行 Agent 架构（未来方向）
+# ADR-005: 云控制面 + 执行 Agent 架构（原 ADR-002；已由 D-034 supersede）
 
-- **状态**：Accepted as future direction
+> 编号说明：本决策创建于 2026-08-01。2026-07 创建的 Playwright/Capture HTTP 决策已保留 ADR-001/ADR-002；为消除历史重复编号，本文件现统一为 ADR-005。
+
+- **状态**：Superseded by D-034（2026-08-12）
 - **日期**：2026-08-01
 - **决策者**：项目 owner + 执行代理共识
 

@@ -90,13 +90,14 @@ Agent 不可用时记录配置与运行时核验结果；未经 Owner 明确许�
 ## 8. 当前分配
 
 ```text
-当前 Goal：Vertical Slice A
-当前里程碑：Wave 7 / A09 ProductionOrder 实现
-当前 Issues：#65（首轮 Review 的 3 项修复完成，等待复审）、#66（未开始）
-实现分支：codex/vsa-a09-production-order
-实现 Agent 请求配置：自定义 Agent luna-worker / gpt-5.6-luna / Max
+当前 Goal：P0 Cloud Executor 纯云端生产闭环（GOAL_COMPLETE）
+当前里程碑：CE-08 / #143 production closeout 完成；下一阶段为 3 条严格串行内部试运行与 release-readiness
+当前 Issues：#143 已完成并关闭；后续内部试运行按唯一工单、零 attempt 和单条授权门禁执行
+当前任务：收敛 CURRENT、GOAL、ROADMAP、Cloud Executor P0 Evidence、session 与 ADR 索引；不改代码、不部署、不访问飞影
+实现分支：codex/ce08-closeout
+实现 Agent 请求配置：自定义 Agent luna-worker / gpt-5.6-luna / Max（docs-only）
 实现 Agent 配置状态：CONFIG_VERIFIED
 实现 Agent 运行时状态：UNVERIFIED_RUNTIME_MODEL（当前工具未暴露实际运行模型元数据）
-最终审查配置：主控 ORCHESTRATOR_REVIEWER；实现者不得批准或合并自己的 PR
-后续：Sol 独立 Review A09；A09 合并后再按独立边界实现 A10，不进入 A11+
+最终审查配置：主控 ORCHESTRATOR_REVIEWER；文档收尾不提交、不合并，留主控审阅
+后续：保持 Mac Local Agent 关闭，执行 3 条严格串行内部试运行；随后处理可信 CA、依赖审计和 works query follow-up
 ```

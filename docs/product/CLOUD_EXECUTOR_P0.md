@@ -3,7 +3,7 @@
 > 状态：Accepted
 > Owner 决策日期：2026-08-12
 > 对应决策：D-034
-> 当前实现状态：仅产品合同与实施计划；Cloud Executor 尚未实现，纯云端真实出片尚未验证
+> 当前实现状态：CE-01～CE-08 已完成；新的零-attempt 纯云端闭环已在阿里云真实验证，可进入严格串行、受控内部试运行；不等同于公网生产就绪
 
 ## 1. P0 目标
 
@@ -125,7 +125,7 @@ P0 使用服务器持久磁盘，不把业务文件留在容器临时层。默�
 | CE-05 | 持久素材/视频、鉴权下载、磁盘门限、重启恢复 | 无真实飞影 |
 | CE-06 | 控制台 Worker/登录/阶段/错误/作品投影 | 无真实飞影 |
 | CE-07 | 阿里云部署、migration、Worker、Chrome/Xvfb、volume、standby 与重启恢复 | 无真实生成 |
-| CE-08 | 一条纯云端真实出片验收 | 必须另行明确积分授权 |
+| CE-08 | 一条纯云端真实出片验收 | 已在单条明确积分授权下完成 |
 
 ## 9. P0 完成定义
 
@@ -145,7 +145,7 @@ P0 使用服务器持久磁盘，不把业务文件留在容器临时层。默�
 
 ## 10. 当前 Evidence
 
-- 已实现并真实验证：Cloud Control Plane → Mac Local Agent → Hifly → 云端回传 → A12 → Work 的单条链路。
-- 已部署并核验：阿里云 App/PostgreSQL/Proxy、13 组 migration、HTTPS health、`PRODUCTION_EXECUTOR=fail_closed`。
-- 尚未实现：`cloud_executor` 身份、云端浏览器 Worker、持久 Profile、云端可视登录、云端 Worker 控制台投影。
-- 尚未验证：关闭个人电脑后的纯云端真实出片。
+- 已实现并真实验证：新的零-attempt 工单完成 Cloud GUI → Cloud Executor → Hifly → 云端下载 → artifact → A12 → Work → 用户鉴权下载；验收期间未启动 Local Agent。
+- 已部署并核验：阿里云 App/PostgreSQL/Proxy、13 组 migration、HTTPS health、`PRODUCTION_EXECUTOR=fail_closed`，以及 App 对 Cloud Executor 输出卷的只读回退挂载。
+- 生产收尾复验已完成：App 部署后及再次重启后鉴权下载均为授权创建 POST 201、鉴权 GET 200，完整发送 `43,425,097` bytes；下载、candidate/AssetVersion 与输出卷 SHA-256 均为 `0becaab1076a8af1124ed4f10f8eac5fc93b21d41af3adb8db5b59213f1ab96b`。
+- 当前边界：本合同单条内部闭环完成，但公网证书为自签名且严格 CA 校验失败；`npm audit --omit=dev` 的既存 `5 high / 2 moderate` 依赖项与 `works.html?work=<id>` 首选项缺陷列入 release-readiness/follow-up。

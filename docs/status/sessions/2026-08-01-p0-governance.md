@@ -32,7 +32,7 @@
 - 创建 `docs/status/CURRENT.md`、`README.md`、`SESSION_TEMPLATE.md`
 - 创建本 session 文档
 - 创建 `docs/ROADMAP.md`
-- 创建 ADR-001、ADR-002
+- 创建原编号 ADR-001、ADR-002（现分别为 `ADR-004-local-first-execution.md`、`ADR-005-cloud-control-plane-and-agent.md`；2026-07 的 ADR-001/ADR-002 保留原编号）
 - 创建 `docs/experiments/person-strategy-pilot.md`
 - 更新 `AGENTS.md` 协作入口
 - 在 `PROJECT_HANDOFF.md` 顶部添加指向 CURRENT.md 的说明
