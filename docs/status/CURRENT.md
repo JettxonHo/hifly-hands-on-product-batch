@@ -2,10 +2,41 @@
 
 > 最后更新：2026-08-13
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；可以继续 release-readiness，仍不等同于公网生产就绪、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；release-readiness 代码与依赖治理已部署到内部验收环境，可信 TLS 仍未完成，仍不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## P0.5 内部验收环境部署
+
+- 2026-08-13 将内部验收环境从 `main@40e92414d4ef4a4015da9bb3f709f775c67843b6`
+  更新到精确 `main@5e449021eee6802b51a220009a8a3620d9bd40f4`；服务器 Git 工作树保持 clean。
+- 因阿里云到 GitHub 的直连历史不稳定，本次使用本地验证过、仅包含 `40e9241..5e449021` 的 Git bundle
+  快进，没有混入其他分支或工作区改动。
+- 部署前 App、PostgreSQL、Proxy 均 healthy，Cloud Executor 为 `exited 0`；执行配置保持
+  `PRODUCTION_EXECUTOR=fail_closed`、`LOCAL_AGENT_ENABLED=false`、`CLOUD_EXECUTOR_ENABLED=false`、
+  `CLOUD_EXECUTOR_MODE=fail_closed`、`CLOUD_EXECUTOR_CONCURRENCY=1`。standby heartbeat 环境变量仍为 true，
+  但 Worker 容器未启动。
+- 部署前 SQL 为 `eligible=0`、`active_attempts=0`、`total_attempts=13`。数据库备份为
+  `/var/backups/hifly/hifly-20260813T092726Z.dump`（533808 bytes），回滚镜像为
+  `hifly-pilot-app:rollback-40e9241-pre-5e449021`。
+- 使用 `/opt/hifly-runtime/Dockerfile` 构建新 App；它与仓库 Dockerfile 的唯一长期差异仍是阿里云 Debian
+  apt mirror。构建审计为 `0 critical / 0 high / 2 moderate`，没有运行 `npm audit fix --force`；13 组
+  production migrations 全部成功，Archiver 8 `ZipArchive` 可实际加载。
+- 只重建 App，App healthy 后重启 Proxy；PostgreSQL 未重启，Cloud Executor 未启动。部署后 App、PostgreSQL、
+  Proxy 均 healthy，本机和公网 HTTPS `/healthz` 均返回 ok，`login.html` 返回 200。
+- 容器内 `web/works.js` 和 `manual-handoff-package-store.js` 与目标提交逐文件校验一致；镜像实际依赖为
+  `@fastify/static@10.1.3`、`archiver@8.0.0`、`fastify@5.11.3`、`sharp@0.35.3`。
+- 部署后 SQL 仍为 `eligible=0`、`active_attempts=0`、`total_attempts=13`；Cloud Executor 仍为
+  `exited / running=false / exit=0`，App 日志只有正常 production startup。
+- 使用既有登录会话只读打开
+  `/works.html?work=936e9b2e-027a-496b-9b3b-067f5b401cfc`：首次严格选中该 Work，详情为
+  `SKU003 · 麦香坚果脆`，列表显示 10 条，未跳转登录且 console errors 为 0。因此 #156 已获得部署后的
+  只读运行时证据。
+- 本轮没有点击下载、创建下载授权或执行其他写操作；未访问 `hifly.cc`、未生成视频、未消耗积分、未启动
+  Worker，也未新增 attempt。
+- 完整部署、回滚、校验值和边界见
+  `docs/status/sessions/2026-08-13-release-readiness-internal-deployment.md`。
 
 ## P0.4 三条严格串行内部试运行
 
@@ -67,7 +98,10 @@
   semver-major 回退到 `exceljs@3.4.0`，本轮未把依赖降级当作安全升级。详细证据和复查门禁见
   `docs/status/sessions/2026-08-13-issue-157-release-readiness.md`。
 - #156 的最小修复已完成并通过本地浏览器回归：`works.html?work=<id>` 首次加载会选中
-  组织内可见目标；缺失或不可见 ID 回落到第一条可见作品且不渲染隐藏作品信息。生产仍未部署，部署验证留待后续 release-readiness。
+  组织内可见目标；缺失或不可见 ID 回落到第一条可见作品且不渲染隐藏作品信息。该修复现已部署到内部
+  验收环境，并完成指定非首项 Work 的只读运行时验证。
+- #157 的依赖治理已随 `main@5e449021` 部署并通过健康检查，但 Issue 仍保持 OPEN：入口仍为 IP + 自签证书，
+  严格 CA、正式域名/DNS 和可信证书尚未完成；当前 HTTP `/healthz` 仍返回 200 而不是跳转到 HTTPS。
 
 ## 当前运行时边界
 
@@ -127,7 +161,7 @@
 
 ## 下一步
 
-1. 继续 P0.5 release-readiness：#156 深链修复与 #157 仓库侧依赖治理已完成；下一步由部署负责人取得正式域名并按可信 TLS 清单完成证书部署，再统一进行版本部署与无副作用验收。
+1. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 2. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，继续保留逐单授权、唯一 eligible、首失败即停和无自动重试护栏。
 3. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
 
@@ -144,4 +178,6 @@
 - App healthy、输出卷只读挂载、App 重启后鉴权下载 201/200 与完整字节发送均已实测。
 - 下载、candidate/AssetVersion 与输出卷 SHA-256 已交叉核对一致。
 - #132 三条试运行均为单一 eligible、零初始 attempt、一个 succeeded attempt；A12/Work/鉴权下载逐条通过，最终无 eligible order 或 active attempt。
+- `main@5e449021` 已完成数据库备份、migration、App/Proxy 受控更新与健康检查；#156 指定 Work 的部署后
+  只读浏览器验证通过，部署前后无 eligible order、active attempt 或新增 attempt。
 - 本文档只记录生产收尾事实；历史实现过程、失败尝试和旧门禁详见归档 CURRENT 与各 session 文档。

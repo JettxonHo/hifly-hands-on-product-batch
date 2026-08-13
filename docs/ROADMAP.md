@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-13
-> 当前状态：Vertical Slice A、CE-08 单条纯云端闭环与 P0.4 三条严格串行内部试运行已完成；下一阶段为 release-readiness
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断
 
 ## 1. 已完成基线
 
@@ -12,6 +12,8 @@
 - Cloud Executor CE-01～CE-08 已实现并部署；disabled/fail-closed standby 的 heartbeat、持久目录、重启恢复、无 claim/无新增 attempt 已在阿里云实证。
 - CE-08 新零-attempt 工单已完成 Cloud GUI → Hifly → 云端 artifact → A12 → Work → 鉴权下载；当前结论允许受控内部试运行，不等同于公网生产就绪。
 - P0.4 已完成三个不同商品的严格串行 Cloud Executor 内部试运行：每轮仅暴露一个 eligible、零-attempt 工单，三条均一次成功并通过 A12、Work 和鉴权字节下载；Mac Local Agent 全程关闭。
+- `main@5e449021` 已部署到阿里云内部验收环境；#156 深链修复完成部署后只读 UI 验证，#157 依赖治理的
+  实际镜像审计为 `0 critical / 0 high / 2 moderate`。部署没有启动 Worker 或新增 attempt。
 
 ## 2. 当前升级顺序
 
@@ -20,7 +22,7 @@ P0.1  云端飞影登录并证明 Profile 重启保留（已完成）
 P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成）
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
 P0.4  3 条严格串行、受控内部试运行（已完成）
-P0.5  release-readiness：依赖审计仓库侧处置完成；可信证书部署、版本部署验收与资源记录待执行（当前阶段）
+P0.5  release-readiness：代码/依赖部署完成；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
 P1+   上述内部试运行与 release-readiness 完成后，再决定产品增强与规模化
 ```
 
@@ -28,7 +30,7 @@ Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EX
 
 ## 3. 下一阶段
 
-release-readiness 的 `works.html?work=<id>` 首选项修复和仓库侧生产依赖治理已完成；官方 registry 审计已无 critical/high。可信 CA 证书仍缺正式域名与部署实证，必须按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 完成后，才能评估公网发布。继续保持 Mac Local Agent 关闭、Cloud Executor 默认 disabled/fail-closed 与 concurrency=1；任何新增真实生成仍需新的授权和逐单门禁。
+release-readiness 的 `works.html?work=<id>` 首选项修复与生产依赖治理已部署到内部验收环境；指定非首项 Work 的只读页面验证通过，实际镜像审计已无 critical/high。可信 CA 证书仍缺正式域名、DNS、签发和部署实证，当前 HTTP `/healthz` 也尚未跳转 HTTPS；必须按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 完成严格 CA 与 HTTP→HTTPS 验收后，才能评估公网发布。继续保持 Mac Local Agent 关闭、Cloud Executor 默认 disabled/fail-closed 与 concurrency=1；任何新增真实生成仍需新的授权和逐单门禁。
 
 P0.4 的三条结果证明人工控制下的严格串行路径可重复完成，但不构成自动队列批量运行、更大规模、长时间稳定性、并行能力或公网生产 SLA 的证据。
 
