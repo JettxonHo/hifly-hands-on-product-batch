@@ -61,8 +61,8 @@
 - 现有公网证书为自签名，严格 CA 校验失败；可信证书与依赖治理由 #157 跟踪。
 - `npm audit --omit=dev` 为 `0 critical / 5 high / 2 moderate`；这些是既存依赖风险，未由 PR #155 引入，
   需在 release-readiness 阶段形成升级或风险接受记录。
-- 已确认的非阻塞 UX follow-up #156：`works.html?work=<id>` 首次加载因
-  `loadWorks({preserveSelection:false})` 忽略 query 而默认选择第一条；人工重新选择目标后下载正常。
+- #156 的最小修复已在独立分支完成并通过本地浏览器回归：`works.html?work=<id>` 首次加载会选中
+  组织内可见目标；缺失或不可见 ID 回落到第一条可见作品且不渲染隐藏作品信息。当前仍待独立审阅与合并，生产未部署。
 
 ## 当前运行时边界
 
@@ -122,7 +122,7 @@
 
 ## 下一步
 
-1. 进入 P0.5 release-readiness：完成可信证书、依赖审计处置和 `works.html?work=<id>` 首选项修复；分别由 #157 与 #156 跟踪。
+1. 进入 P0.5 release-readiness：可信证书与依赖审计处置由 #157 跟踪；#156 深链首选项修复待独立审阅、合并与后续部署。
 2. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，继续保留逐单授权、唯一 eligible、首失败即停和无自动重试护栏。
 3. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
 

@@ -21,7 +21,8 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   const works = [
     { id: "work-a13-browser", organization_id: "org-a13-browser", project_id: "project-a13-browser", product_id: "product-a13-browser", project_name: "A13 浏览器项目", product_name: "云感保湿乳", production_order_id: "order-a13-browser", primary_asset_version_id: "asset-version-a13-browser", primary_output_media_type: "video/mp4", primary_output_size: 42, status: "available", created_at: "2026-08-09T00:00:00.000Z", updated_at: "2026-08-09T00:00:00.000Z" },
     { id: "work-a13-rework", organization_id: "org-a13-browser", project_id: "project-a13-browser", product_id: "product-a13-rework", project_name: "A13 浏览器项目", product_name: "返工测试商品", production_order_id: "order-a13-rework", primary_asset_version_id: "asset-version-a13-rework", primary_output_media_type: "video/mp4", primary_output_size: 42, status: "available", created_at: "2026-08-09T00:01:00.000Z", updated_at: "2026-08-09T00:01:00.000Z" },
-    { id: "work-a13-no-upstream", organization_id: "org-a13-browser", project_id: null, product_id: null, project_name: null, product_name: "无上游上下文作品", production_order_id: "order-a13-no-upstream", primary_asset_version_id: "asset-version-a13-no-upstream", primary_output_media_type: "video/mp4", primary_output_size: 42, status: "available", created_at: "2026-08-09T00:02:00.000Z", updated_at: "2026-08-09T00:02:00.000Z" }
+    { id: "work-a13-no-upstream", organization_id: "org-a13-browser", project_id: null, product_id: null, project_name: null, product_name: "无上游上下文作品", production_order_id: "order-a13-no-upstream", primary_asset_version_id: "asset-version-a13-no-upstream", primary_output_media_type: "video/mp4", primary_output_size: 42, status: "available", created_at: "2026-08-09T00:02:00.000Z", updated_at: "2026-08-09T00:02:00.000Z" },
+    { id: "work-other-organization", organization_id: "org-other", project_id: "project-private", product_id: "product-private", project_name: "其他组织项目", product_name: "其他组织秘密商品", production_order_id: "order-private", primary_asset_version_id: "asset-version-private", primary_output_media_type: "video/mp4", primary_output_size: 42, status: "available", created_at: "2026-08-09T00:03:00.000Z", updated_at: "2026-08-09T00:03:00.000Z" }
   ];
   const workPort = { async listWorks(organizationId) { return works.filter((work) => work.organization_id === organizationId).map((work) => structuredClone(work)); }, async getWork(organizationId, workId) { return structuredClone(works.find((work) => work.organization_id === organizationId && work.id === workId) || null); } };
   const service = createWorkDeliveryService({ repository: createMemoryWorkDeliveryRepository(), workPort, now: () => Date.parse("2026-08-09T01:00:00.000Z") });
@@ -39,8 +40,13 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   await page.getByLabel("工作邮箱").fill("a13-browser@example.test"); await page.getByLabel("密码", { exact: true }).fill("Temporary-A13-Browser-9!"); await page.getByRole("button", { name: "登录" }).click();
   await page.locator("#newPassword").fill("A13-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/`);
 
-  await page.goto(`${origin}/works.html?work=work-a13-browser`);
-  await page.getByRole("heading", { name: "作品库", exact: true }).waitFor(); await page.getByText("云感保湿乳", { exact: true }).first().waitFor();
+  await page.goto(`${origin}/works.html?work=work-a13-rework`);
+  await page.getByRole("heading", { name: "作品库", exact: true }).waitFor();
+  await page.locator("#selectedWorkName").filter({ hasText: "返工测试商品" }).waitFor();
+  assert.equal((await page.locator("#selectedWorkName").textContent()).trim(), "返工测试商品");
+  await page.goto(`${origin}/works.html?work=work-other-organization`);
+  await page.locator("#selectedWorkName").filter({ hasText: "云感保湿乳" }).waitFor();
+  assert.equal((await page.locator("body").innerText()).includes("其他组织秘密商品"), false);
   const worksLink = page.locator('a[data-feature="works"]'); await worksLink.waitFor();
   assert.deepEqual(await page.locator(".app-nav [data-page]").evaluateAll((links) => links.map((link) => link.dataset.page)), ["projects", "assets", "works", "members"]);
   assert.equal(await worksLink.getAttribute("aria-current"), "page"); assert.equal(await worksLink.isVisible(), true);
