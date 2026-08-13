@@ -1,6 +1,6 @@
 import { inflateRaw } from "node:zlib";
 import { promisify } from "node:util";
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 
 const inflate = promisify(inflateRaw);
 
@@ -27,7 +27,7 @@ export function createMemoryManualHandoffPackageStore() {
 }
 
 export async function buildManualHandoffZip(entries) {
-  const archive = archiver("zip", { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
   const chunks = [];
   const output = new Promise((resolve, reject) => {
     archive.on("data", (chunk) => chunks.push(Buffer.from(chunk)));

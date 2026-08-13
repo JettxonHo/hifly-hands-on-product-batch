@@ -20,7 +20,7 @@ P0.1  云端飞影登录并证明 Profile 重启保留（已完成）
 P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成）
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
 P0.4  3 条严格串行、受控内部试运行（已完成）
-P0.5  release-readiness：可信证书、依赖审计处置、UX follow-up 与资源记录（下一阶段）
+P0.5  release-readiness：依赖审计仓库侧处置完成；可信证书部署、版本部署验收与资源记录待执行（当前阶段）
 P1+   上述内部试运行与 release-readiness 完成后，再决定产品增强与规模化
 ```
 
@@ -28,7 +28,7 @@ Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EX
 
 ## 3. 下一阶段
 
-进入 release-readiness，处理可信 CA 证书、既存依赖审计和 `works.html?work=<id>` 首选项缺陷。继续保持 Mac Local Agent 关闭、Cloud Executor 默认 disabled/fail-closed 与 concurrency=1；任何新增真实生成仍需新的授权和逐单门禁。
+release-readiness 的 `works.html?work=<id>` 首选项修复和仓库侧生产依赖治理已完成；官方 registry 审计已无 critical/high。可信 CA 证书仍缺正式域名与部署实证，必须按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 完成后，才能评估公网发布。继续保持 Mac Local Agent 关闭、Cloud Executor 默认 disabled/fail-closed 与 concurrency=1；任何新增真实生成仍需新的授权和逐单门禁。
 
 P0.4 的三条结果证明人工控制下的严格串行路径可重复完成，但不构成自动队列批量运行、更大规模、长时间稳定性、并行能力或公网生产 SLA 的证据。
 
