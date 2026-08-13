@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-13
-> 当前状态：Vertical Slice A 与 CE-08 单条纯云端闭环已完成；下一阶段为严格串行内部试运行与 release-readiness
+> 当前状态：Vertical Slice A、CE-08 单条纯云端闭环与 P0.4 三条严格串行内部试运行已完成；下一阶段为 release-readiness
 
 ## 1. 已完成基线
 
@@ -11,6 +11,7 @@
 - 官方 Hifly API Token 已完成只读积分连接验证；「手里有货」仍走 Playwright。
 - Cloud Executor CE-01～CE-08 已实现并部署；disabled/fail-closed standby 的 heartbeat、持久目录、重启恢复、无 claim/无新增 attempt 已在阿里云实证。
 - CE-08 新零-attempt 工单已完成 Cloud GUI → Hifly → 云端 artifact → A12 → Work → 鉴权下载；当前结论允许受控内部试运行，不等同于公网生产就绪。
+- P0.4 已完成三个不同商品的严格串行 Cloud Executor 内部试运行：每轮仅暴露一个 eligible、零-attempt 工单，三条均一次成功并通过 A12、Work 和鉴权字节下载；Mac Local Agent 全程关闭。
 
 ## 2. 当前升级顺序
 
@@ -18,16 +19,18 @@
 P0.1  云端飞影登录并证明 Profile 重启保留（已完成）
 P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成）
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
-P0.4  3 条严格串行、受控内部试运行（下一阶段）
-P0.5  release-readiness：可信证书、依赖审计处置、UX follow-up 与资源记录
+P0.4  3 条严格串行、受控内部试运行（已完成）
+P0.5  release-readiness：可信证书、依赖审计处置、UX follow-up 与资源记录（下一阶段）
 P1+   上述内部试运行与 release-readiness 完成后，再决定产品增强与规模化
 ```
 
-Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EXECUTOR_P0.md`；后续 3 条严格串行内部试运行由 #132 跟踪，release-readiness 由 #156、#157 跟踪。
+Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EXECUTOR_P0.md`；三条严格串行内部试运行已由 #132 验收关闭，release-readiness 由 #156、#157 跟踪。
 
 ## 3. 下一阶段
 
-保持 Mac Local Agent 关闭，在现有云端闭环上执行 3 条严格串行的内部试运行。CE-08 的积分授权不延续；每条开始前须重新取得明确的单条积分授权，并复核唯一工单、完整审批链、handoff ready、零 attempt、Profile/login readiness 和磁盘门限；每次最多一个工单，首失败即停，不自动重试。完成后进入 release-readiness，处理可信 CA 证书、既存依赖审计和 `works.html?work=<id>` 首选项缺陷。
+进入 release-readiness，处理可信 CA 证书、既存依赖审计和 `works.html?work=<id>` 首选项缺陷。继续保持 Mac Local Agent 关闭、Cloud Executor 默认 disabled/fail-closed 与 concurrency=1；任何新增真实生成仍需新的授权和逐单门禁。
+
+P0.4 的三条结果证明人工控制下的严格串行路径可重复完成，但不构成自动队列批量运行、更大规模、长时间稳定性、并行能力或公网生产 SLA 的证据。
 
 ## 4. 保留但不抢跑的工作
 

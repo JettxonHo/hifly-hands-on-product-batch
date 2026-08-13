@@ -2,10 +2,28 @@
 
 > 最后更新：2026-08-13
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条纯云端闭环已完成并通过验收，可进入严格串行、受控内部试运行；这不等同于公网生产就绪。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；可以继续 release-readiness，仍不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## P0.4 三条严格串行内部试运行
+
+- 生产代码与部署基线为 `main@40e92414d4ef4a4015da9bb3f709f775c67843b6`，App 在最终重启后保持 healthy。
+- SKU001、SKU002、SKU003 先分别完成到 approved VideoPlan；每轮只在 Worker 关闭时创建当前唯一
+  `waiting_for_executor` ProductionOrder 和 `ready` handoff package。激活前全组织 eligible 恰好为 1，
+  当前工单 attempts 为空；上一轮完成 A12、Work 与鉴权字节下载后才创建下一轮。
+- 三个工单均由 Cloud Executor 严格串行完成，且每单恰好一个 succeeded attempt、一个通过的 A12、
+  一个 available Work；没有失败、`requires_action`、重试、重复提交或 Mac Local Agent 参与。
+- 三个鉴权下载均返回真实 `video/mp4` 字节，大小与已登记 checksum 一致；最终 App 重启后作品库仍显示
+  包含 SKU001/002/003 的 5 个作品，SKU003 的鉴权下载在该重启后再次通过。
+- 飞影仅记录运行中观察值：SKU001 `06:36:12 / 51,464`、SKU002 `06:58:24 / 50,864`、
+  SKU003 `07:14:18 / 50,259`。最终标签页卡住，三条完成后的动态余额未验证，因此不得据此推断总积分消耗。
+- 收尾后 `eligible=[]`、`active_attempts=[]`，Mac Local Agent 进程为空；生产配置恢复为
+  `PRODUCTION_EXECUTOR=fail_closed`、`LOCAL_AGENT_ENABLED=false`、`CLOUD_EXECUTOR_ENABLED=false`、
+  `CLOUD_EXECUTOR_MODE=fail_closed`、`CLOUD_EXECUTOR_CONCURRENCY=1`，Cloud Executor `stopped / exited 0`。
+- 完整对象 ID、包哈希、文件大小、SHA-256 和逐轮边界见
+  `docs/status/sessions/2026-08-13-cloud-executor-three-product-internal-trial.md`。
 
 ## CE-08 生产收尾证据
 
@@ -34,9 +52,9 @@
 
 - 新的零-attempt 工单已经完成
   `Cloud GUI → Cloud Executor → Hifly → 下载 → 云端 artifact → A12 → Work → 用户鉴权下载`。
-- Cloud Executor P0 合同的单条纯云端闭环已满足，GOAL 可标记 `COMPLETE`，下一阶段为受控内部试运行。
+- Cloud Executor P0 合同的单条纯云端闭环已满足，GOAL 为 `COMPLETE`；P0.4 三条严格串行内部试运行也已通过，下一阶段为 release-readiness。
 - Worker 仍保持单实例、并发 1、失败即停和默认 disabled/fail-closed；Local Agent 未参与本次闭环。
-- 本结论只覆盖内部受控试运行边界，不宣称公网生产就绪、正式 SLA、高可用或灾备。
+- 本结论只证明三条由人工门禁逐轮暴露的严格串行路径，不证明自动队列批量运行、更大规模或长期稳定性，也不宣称公网生产就绪、正式 SLA、高可用或灾备。
 
 ## 发布就绪后续
 
@@ -53,8 +71,8 @@
 - 生产 Worker 的并发上限保持 1；同一订单最多一个活动 attempt，lease 过期或阶段不确定时进入受控状态。
 - 飞影 Profile、商品/人物素材、Evidence 和输出视频位于云端持久卷；App 只读访问输出卷作为下载回退。
 - 数据库只保留 artifact/AssetVersion 等受控元数据和内部引用，公共投影不暴露 Token、Cookie、服务器路径或对象存储 key。
-- 本次复验没有重启或激活 Worker，没有 claim 新工单，也没有触发 Provider 页面动作。
-- Local Agent 继续保留为 legacy fallback；本轮及下一阶段内部试运行均不得以它作为 P0 生产执行器。
+- 三条试运行每轮仅短时激活 Worker；每轮终态后先停止 Worker 并恢复 fail-closed，再执行 A12、Work 和下载验收。最终 Worker 已关闭且无 eligible order 或 active attempt。
+- Local Agent 继续保留为 legacy fallback；本轮未启动，后续也不得以它作为 P0 生产执行器。
 
 ## P0 完成定义映射
 
@@ -100,12 +118,13 @@
 | CE-06 / #141 | 控制面状态与作品体验 | 已完成 |
 | CE-07 / #142 | 阿里云 standby、卷与重启恢复 | 已完成并实证 |
 | CE-08 / #143 | 一条纯云端真实出片验收 | 已完成并关闭 |
+| P0.4 / #132 | 三条严格串行 Cloud Executor 内部试运行 | 已完成并关闭 |
 
 ## 下一步
 
-1. 按 #132 执行 3 条严格串行的内部试运行；CE-08 授权不延续，每条都须重新取得明确的单条积分授权，并通过唯一工单、零 attempt、审批链和交接包门禁；每条最多一个工单，首失败即停，不自动重试。
-2. 记录每条试运行的订单、attempt、产物校验、A12/Work、下载响应和资源峰值；不得启动并行 Worker 或恢复 Local Agent 生产路径。
-3. 完成可信证书、依赖审计处置和 works query 选择修复，再由 Owner 单独决定是否扩大范围。
+1. 进入 P0.5 release-readiness：完成可信证书、依赖审计处置和 `works.html?work=<id>` 首选项修复；分别由 #157 与 #156 跟踪。
+2. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，继续保留逐单授权、唯一 eligible、首失败即停和无自动重试护栏。
+3. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
 
 ## 长期边界
 
@@ -119,4 +138,5 @@
 - App 部署前数据库备份可读且非空；回滚镜像已保留。
 - App healthy、输出卷只读挂载、App 重启后鉴权下载 201/200 与完整字节发送均已实测。
 - 下载、candidate/AssetVersion 与输出卷 SHA-256 已交叉核对一致。
+- #132 三条试运行均为单一 eligible、零初始 attempt、一个 succeeded attempt；A12/Work/鉴权下载逐条通过，最终无 eligible order 或 active attempt。
 - 本文档只记录生产收尾事实；历史实现过程、失败尝试和旧门禁详见归档 CURRENT 与各 session 文档。
