@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-13
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营任务流 UX V1 已进入设计契约阶段
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营任务流方向 A 已获 Owner 批准，精确 UX V1 合同仍在 Draft Review
 
 ## 1. 已完成基线
 
@@ -23,7 +23,7 @@ P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
 P0.4  3 条严格串行、受控内部试运行（已完成）
 P0.5  release-readiness：代码/依赖部署完成；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
-UX V1 运营任务流优先：设计契约 → Slice A → Slice B → Slice C（已批准方向，尚未实现）
+UX V1 运营任务流优先：Draft contract Review → Slice A → Slice B → Slice C（方向已批准；合同尚未 designed，代码尚未实现）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -35,13 +35,16 @@ release-readiness 的 `works.html?work=<id>` 首选项修复与生产依赖治�
 
 P0.4 的三条结果证明人工控制下的严格串行路径可重复完成，但不构成自动队列批量运行、更大规模、长时间稳定性、并行能力或公网生产 SLA 的证据。
 
-Owner 已批准“运营任务流优先”作为页面升级方向，由 Issue #164 和
-`docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 固化设计合同。本轮只做设计，不代表代码、部署或客户验收。
-实施必须按以下顺序串行：
+Owner 已批准“运营任务流优先”作为页面升级方向；Issue #164 与 PR #165 正在审阅
+`docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 的精确合同。合同合并后才进入 `designed`；当前 Draft 不代表
+精确合同已批准、代码已实现、已部署或客户已验收。后续实施必须按以下顺序串行：
 
-1. Slice A：shared opt-in UX foundation + Projects/Project；共享 CSS 不得意外改变未迁移页面。
+1. Slice A：Entry seam + shared opt-in UX foundation + Projects/Project；企业能力开启时 `/`、登录和会话恢复进入
+   Projects，显式 `/index.html` 保留 legacy fallback；共享 CSS 不得意外改变未迁移页面。
 2. Slice B：Copy/Avatar/Plan；清楚区分自动检查与人工批准。
-3. Slice C：Production/Works/Assets；保留生产安全门禁、深链授权和审计能力。
+3. Slice C：Production/Works/Assets；Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order
+   零 attempt 与 active attempts=0；terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经
+   A12、Work 和真实字节下载后才准备下一条。Works 保留深链授权，Assets 不伪造 API 未提供的类型或关联。
 
 每个切片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一切片合并后才开始下一切片，且不自动部署。
 

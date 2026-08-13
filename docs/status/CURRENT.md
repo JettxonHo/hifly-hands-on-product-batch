@@ -9,11 +9,17 @@
 
 ## UX V1 设计阶段
 
-- Owner 已批准 UX 方案 A“运营任务流优先”，由 Issue #164 跟踪设计契约。
-- `docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 固化首屏五问、业务状态优先、唯一推荐下一步、技术详情折叠、
-  Production 安全门禁、Works 列表+预览、Assets 类型/用途分组和 1440/768/390 验收合同。
-- 本阶段只完成设计与实施切片，不代表前端代码已修改、已部署或客户已验收；当前生产页面和内部验收环境尚未采用该 UX。
-- 后续严格串行：Slice A（opt-in foundation + Projects/Project）→ Slice B（Copy/Avatar/Plan）→
+- Owner 已批准 UX 方案 A“运营任务流优先”；Issue #164 与 PR #165 正在审阅精确 Draft contract，尚未进入 `designed`。
+- Draft `docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 提议固化首屏五问、业务状态优先、唯一推荐下一步、技术详情折叠、
+  Entry seam、Production 时序门禁、Works 列表+预览、Assets 类型/用途分组和 1440/768/390 验收合同。
+- 本阶段只审阅设计与实施切片，不代表精确合同已批准、前端代码已修改、已部署或客户已验收；当前生产页面和内部验收环境尚未采用该 UX。
+- Entry seam 要求企业能力开启时 `/`、登录、改密、会话恢复与成员无权限回落进入 Projects；显式 `/index.html`
+  保留本地/运维 legacy fallback，不破坏现有 GUI 与真实执行门禁。
+- Production 合同按时序执行：每轮激活前 Worker off，只为当前 SKU 准备 order + ready handoff，eligible 严格为
+  `[currentOrderId]`，当前 order `attempts=[]` 且 active attempts=0；terminal 后立即关 Worker并保留 attempt。
+  失败/需处理停止且不创建下一条、不自动重试；成功须经 A12 passed、Work available 与鉴权真实字节下载后，
+  才能在 Worker off 下准备下一条。
+- 精确合同合并后，后续严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）→ Slice B（Copy/Avatar/Plan）→
   Slice C（Production/Works/Assets）。每个切片必须独立 Issue、Draft PR、浏览器回归和 Review，前一切片合并后才开始下一切片。
 - 旧 `gui/visual-refresh` 工作树及 CSS-only 改动不是本轮基线，不得合并、搬运或覆盖；现有 tokens、基础组件、
   vanilla HTML/CSS/JS、API、组织授权、状态机和 fail-closed 生产合同继续保留。
@@ -142,8 +148,10 @@
 
 ## 生产操作护栏
 
-- 每条内部试运行先复核唯一工单、审批链、handoff ready、零 attempt、Profile/login readiness 和磁盘门限。
-- 每次最多执行一个工单；首个失败阶段立即停止，禁止按钮级调试重跑或沿用失败 attempt。
+- 每条内部试运行在 Worker off 时只准备当前 SKU 的唯一工单和 ready handoff；激活前复核全组织 eligible
+  严格等于当前 order、当前 order `attempts=[]`、active attempts=0、审批链、Profile/login readiness 和磁盘门限。
+- terminal 后立即停止 Worker并保留 attempt 历史；失败/需处理不创建下一条且禁止自动重试、重新领取或再次生产；
+  成功须完成 A12 passed、Work available 与鉴权真实字节下载，才可在 Worker off 下准备下一条。
 - 真实飞影动作与积分消耗必须有当次明确授权，并记录订单、attempt、作品、产物路径和账单边界。
 - 发生下载、A12 或 Work 异常时优先复用既有成功产物做无积分复验，不重新生成。
 - 任何并发扩容、Provider/API 接入、Local Agent 恢复或公网发布都需 Owner 单独决策。
@@ -173,7 +181,8 @@
 ## 下一步
 
 1. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
-2. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，继续保留逐单授权、唯一 eligible、首失败即停和无自动重试护栏。
+2. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
+   terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
 3. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
 
 ## 长期边界

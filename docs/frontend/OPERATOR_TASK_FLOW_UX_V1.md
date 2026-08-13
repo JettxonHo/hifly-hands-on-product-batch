@@ -1,13 +1,13 @@
 # 运营任务流 UX V1 设计契约
 
-> 状态：Approved design contract
+> 状态：Owner-approved direction；Draft contract under review；implementation pending
 > 日期：2026-08-13
 > 跟踪：Issue #164
 > 证据边界：本文件是可执行设计合同，不是已实现、已部署或客户验收证明
 
 ## 1. 决策与文档关系
 
-Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级首先降低企业电商内容运营人员的任务判断成本，不以表面换肤、动效展示或重建设计系统为目标。
+Owner 已批准 UX 方案 A：**运营任务流优先**。本精确合同仍处于 Draft Review，合并后才进入 `designed`；下一轮页面升级首先降低企业电商内容运营人员的任务判断成本，不以表面换肤、动效展示或重建设计系统为目标。
 
 历史文档继续保留，职责如下：
 
@@ -27,6 +27,7 @@ Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级�
 2. Production 的 Worker、attempt、handoff 和 hash 具有审计价值，却可能抢占“本商品能否执行、正在执行还是需要处理”的业务叙事。
 3. QC passed 与人工 approved、预检 passed 与方案 approved 虽在领域上分离，页面并列信息较多时仍容易被当成同一结论。
 4. 跨页上下文主要靠 URL、面包屑和阶段条恢复；首屏没有一致回答项目、商品、步骤、状态与阻断。
+5. `web/index.html` 是用户访问 IP 根路径时可见的遗留批量工作台；若 Slice A 只改 Projects/Project，用户仍会从旧 UI 开始，入口体验与企业任务流不一致。
 
 ### P1：对象列表完整，但工作关系不够明确
 
@@ -78,20 +79,30 @@ Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级�
 ## 4. 全局任务骨架
 
 ```text
-┌─ 应用导航 ─┬─ 组织与成员 ──────────────────────────────────┐
+┌─ 应用导航 ─┬─ 组织与账号 ──────────────────────────────────┐
 │ 项目       │ 项目 / 商品 / 当前步骤                       │
 │ 素材中心   ├─────────────────────────────────────────────┤
 │ 作品库     │ 当前上下文  ·  阶段 2/5  ·  业务状态          │
-│ 设置       │ 推荐下一步：一句业务说明       [唯一主操作]   │
+│ 成员管理*  │ 推荐下一步：一句业务说明       [唯一主操作]   │
 │            │ 阻断：仅在存在时显示，并提供恢复入口          │
 │            ├─────────────────────────────────────────────┤
 │            │ 列表 + 详情 / 编辑 / 审核                     │
 │            ├─────────────────────────────────────────────┤
 │            │ ▸ 技术详情：ID、attempt、handoff、hash、时间   │
 └────────────┴─────────────────────────────────────────────┘
+
+* `成员管理` 仅对 admin 显示。权威壳层导航保持“项目 / 素材中心 / 作品库 / 成员管理”，不新增独立设置页。
 ```
 
-### 4.1 任务摘要
+### 4.1 Entry seam 与遗留工作台
+
+- 企业能力 `projectContentEnabled=true` 时，访问 `/` 应进入 `/projects.html`；登录成功、首次改密、已有会话恢复和成员无权限回落均继续使用现有 `landingPath()`，不得回到遗留 `/`。
+- 显式 `/index.html` 保留为本地/运维 legacy fallback，不进入企业导航；首屏必须标明“企业流程请进入项目”，且不得破坏既有批次、重试、抓包或真实执行门禁。
+- `projectContentEnabled=false` 时保留现有 `/` 遗留兜底，避免破坏本地 GUI 和 feature-off 合同。
+- Slice A 只调整前端入口分流与提示，不改静态服务、API 或后端。实现前必须确认同一文档能通过 `location.pathname` 安全区分 `/` 与 `/index.html`；若实际公开行为无法区分，应标记 `DESIGN_BLOCKER` 并停止，不得静默隐藏遗留入口。
+- 入口、登录、会话恢复、显式 legacy fallback 必须分别覆盖 1440 / 768 / 390；同时保持 `npm run gui` 与现有 gui-smoke 的本地批量功能兼容。
+
+### 4.2 任务摘要
 
 - 位于页面标题和主体之间，是信息层级，不做成营销卡片。
 - 固定包含上下文、步骤、业务状态、推荐下一步和阻断摘要。
@@ -99,14 +110,14 @@ Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级�
 - 同一视口最多一个实心品牌色主操作。其他命令降为次按钮、文本按钮或上下文操作。
 - 主操作由服务端可观察状态决定；提交后先显示处理中，终态仍以服务端响应或查询为准。
 
-### 4.2 技术详情
+### 4.3 技术详情
 
 - 使用原生 `details/summary`、现有 Dialog 或已有详情区，不另建基础组件体系。
 - 默认折叠；业务错误先给中文摘要，再允许展开相关证据。
 - 保留 Cloud Executor、readiness、eligible、attempt、lease、handoff、hash、内部 ID 和时间戳的审计能力。
 - 不暴露 Token、Cookie、服务器路径、对象存储 key 或未投影异常正文。
 
-### 4.3 信息优先级
+### 4.4 信息优先级
 
 1. 当前业务状态与推荐下一步；
 2. 阻断与人工待办；
@@ -118,12 +129,13 @@ Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级�
 
 | 页面 | 页面目标 | 首屏上下文 | 业务状态 | 唯一推荐下一步 | 关键阻断 | 技术详情 |
 |---|---|---|---|---|---|---|
+| Entry | 将企业用户带入权威项目入口，同时保留显式运维兜底 | 运行模式 / 会话 / 企业能力 | 企业入口、legacy fallback、不可用 | 进入项目、登录或继续遗留工作台 | 身份、runtime、入口分流 | runtime feature 状态 |
 | Projects | 选择或建立工作项目 | 组织 / 项目入口 | 有项目、空、加载失败 | 选择项目、创建项目或重试 | 身份、加载失败 | project ID、时间 |
 | Project | 让商品事实达到可生产基线 | 项目 / 商品 / 阶段 1：商品事实 | 草稿、可 Ready、Ready、superseded | 保存事实、设为 Ready 或进入文案 | 名称、卖点、图片、冲突 | revision/asset version ID |
 | Copy | 形成经 QC 与人工批准的文案 | 项目 / 商品 / 阶段 2：文案 | 未生成、生成中、草稿、QC 待办、待审核、已批准、需修改 | 生成、保存、QC、处理 Finding、提交/执行审核或进入人物 | 商品未 Ready、生成/QC 失败、Finding、冲突、权限 | Job、规则、QualityRun、Review |
 | Avatar | 确认可用于当前商品的人物 | 项目 / 商品 / 阶段 3：人物 | 未选择、待确认、已确认、授权不可用 | 选择并确认人物或进入方案 | 文案未批准、人物版本/授权不可用 | Asset/Version、授权、登记信息 |
 | Plan | 形成预检通过且人工批准的视频方案 | 项目 / 商品 / 阶段 4：视频方案 | 草稿、预检中、未通过、待审核、已批准 | 保存/冻结、预检、修复、审核或进入生产 | 人物未确认、文案失效、预检、权限 | PlanVersion、Preflight、Review |
-| Production | 在安全门禁下完成生产闭环 | 项目 / 商品 / 阶段 5：生产 | 不可执行、可执行、等待、执行中、需处理、核验中、已完成 | 创建工单、准备交接、等待、处理阻断、核验或查看作品 | 上游批准、Worker/readiness、唯一 eligible、零 attempt、失败即停 | Worker、attempt、lease、handoff、hash |
+| Production | 在安全门禁下完成生产闭环 | 项目 / 商品 / 阶段 5：生产 | 不可执行、可执行、等待、执行中、需处理、核验中、已完成 | 创建工单、准备交接、等待、处理阻断、核验或查看作品 | 激活前 Worker off、唯一当前 eligible、当前 order 零 attempt 与 active attempts=0；失败即停 | Worker、attempt、lease、handoff、hash |
 | Works | 检查、返工、交付和下载正式作品 | 项目 / 商品 / 结果上下文：作品 | 待检查、需返工、可交付、已交付、不可用 | 检查、返工、登记交付或鉴权下载 | 核验、权限、下载授权 | Work/candidate/check/delivery ID |
 | Assets | 按类型和用途管理可引用素材 | 组织 / 类型 / 用途 | 空、核验中、可用、核验失败 | 上传、修复或管理关联 | 类型、大小、核验、用途 | Asset/Version、媒体类型、checksum |
 
@@ -158,10 +170,13 @@ Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级�
 ### 5.5 Production
 
 - 顶部主叙事固定为“本商品不可执行 / 可执行 / 正在执行 / 需处理 / 已完成”。
-- 基础设施状态降为详情，但安全门禁不得弱化：Worker 关闭、readiness、全组织唯一 eligible、当前工单零 attempt、并发 1、失败即停、无自动重试必须在创建或执行前可见。
+- 基础设施状态降为详情，但以下生产时序合同不得弱化，也不得把“零 attempt / Worker off”误写成执行后的常驻不变量：
+  1. **每轮激活前**：Worker 必须关闭；只为当前 SKU 创建 ProductionOrder 与 `ready` handoff；全组织 eligible 必须严格等于 `[currentOrderId]`；当前 order `attempts=[]` 且 `active attempts=0`。全部通过后才允许启动 Worker，执行并发保持 1。
+  2. **执行期间**：不得创建或暴露下一条 eligible order；页面只显示真实阶段，不提供虚假百分比或预计完成时间。
+  3. **进入 terminal 后**：立即关闭 Worker 并恢复 fail-closed；attempt 历史必须保留，不得为了回到“零 attempt”删除或覆盖执行证据。
+  4. **`failed` / `requires_action`**：停止整批，不创建下一条，不自动重试、不重新领取，也不再次生产；恢复必须另走既有人工授权和幂等合同。
+  5. **`succeeded`**：只有 A12 `passed`、Work 已登记为 `available`，且鉴权下载返回真实 bytes 后，才能在 Worker off 状态下准备下一条。
 - 门禁未满足时主操作禁用或替换为恢复动作，并逐项列出阻断；不得显示虚假“可执行”。
-- 执行中只显示真实阶段，不提供虚假百分比或预计完成时间。
-- `requires_action` / `failed` 后不出现自动重试；恢复遵循既有人工授权和幂等合同。
 - attempt、handoff package、manifest/package hash、lease、心跳进入技术详情；业务摘要只表达用户可行动结论。
 
 ### 5.6 Works
@@ -230,7 +245,7 @@ Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级�
 - 现有 DOM ID、表单 name、ARIA 挂载点和浏览器测试依赖；确需调整时先在对应实现 Issue 记录兼容方案，以公开页面行为回归。
 - 领域状态和服务端终态；前端不创建、不推断、不提前显示不存在的数据。
 - QC passed 与 approved、preflight passed 与 plan approved 的独立性。
-- fail-closed、人工审核、Cloud Executor 并发 1、唯一 eligible、零 attempt、失败即停与无自动重试。
+- fail-closed、人工审核和 Cloud Executor 并发 1；“唯一 eligible、当前 order 零 attempt、Worker off”是每轮激活前门禁，terminal 后保留 attempt 历史并立即关闭 Worker；失败/需处理停止且不自动重试，成功经 A12、Work 与真实字节下载验收后才准备下一条。
 - Works 深链、组织隔离、下载授权和生产审计能力。
 - 现有 Button、Dialog、Notice、State Badge、Table/List 和 shell；不重复创造基础组件。
 
@@ -238,7 +253,7 @@ Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级�
 
 - 后端 API、数据库、Migration、领域状态或执行器改造。
 - 框架迁移、SPA 重写、设计系统重建、外部字体或新依赖。
-- 首页、模板中心、全局生产队列或尚未实现的未来页面。
+- 新建首页仪表盘、模板中心、全局生产队列或尚未实现的未来页面；现有 `/` 与 `/index.html` 的入口分流和 legacy 提示属于 Slice A。
 - 文案能力增强、人物推荐算法、背景/场景/姿势、Capture HTTP、并发生产或基础设施扩容。
 - 部署、真实 Hifly、生产数据、视频生成、积分或客户验收。
 
@@ -258,24 +273,27 @@ Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级�
 
 | 切片 | 页面 | 必测公开行为 |
 |---|---|---|
+| A | Entry / Login | 企业能力开启时 `/`、登录、改密和会话恢复进入 Projects；显式 `/index.html` 保留 legacy 提示与功能；feature off 保持旧 GUI；1440/768/390 |
 | A | Projects | 列表/空/失败、创建 Dialog、选择项目继续、三视口 |
 | A | Project | 商品切换、草稿/Ready/superseded、阻断、唯一主操作、进入 Copy |
 | B | Copy | 生成、保存、QC、Finding、人工审核、冲突；passed 不等于 approved |
 | B | Avatar | 每商品选择、授权阻断、确认/更换、管理员登记入口降级 |
 | B | Plan | 草稿、冻结、预检、失败、审核；preflight 不等于 approved |
-| C | Production | 不可执行/可执行/执行中/requires_action/failed/completed、安全门禁、无自动重试 |
+| C | Production | 激活前 Worker off + eligible 严格单条 + 当前 order 零 attempt；terminal 立即关 Worker；失败停批；成功经 A12/Work/真实字节下载后才允许下一条；attempt 历史保留 |
 | C | Works | 列表+预览、有效非首项深链、不可见回落、检查/返工/交付/下载 |
 | C | Assets | 图片/视频/人物分组、用途关联、上传/核验/失败、mp4 语义 |
 
 ## 10. 严格串行实施切片
 
-### Slice A：shared opt-in UX foundation + Projects / Project
+### Slice A：Entry seam + shared opt-in UX foundation + Projects / Project
 
-**目标**：建立仅对已迁移页面生效的任务摘要与布局原语，完成项目和商品入口。
+**目标**：把企业用户从根入口带到权威项目流程，保留显式 legacy 运维兜底，并建立仅对已迁移页面生效的任务摘要与布局原语。
 
+- `/` 在企业能力开启时进入 Projects；登录、改密、会话恢复和成员无权限回落复用 `landingPath()`；显式 `/index.html` 保留 legacy 提示与既有功能。
+- 入口分流必须覆盖 1440/768/390，并在实现前验证 `npm run gui`、gui-smoke 和 feature-off 遗留工作台兼容；无法安全区分 `/` 与 `/index.html` 时标记 `DESIGN_BLOCKER` 并停止。
 - 新增 opt-in 根 class/attribute，例如 `.operator-task-page`；共享 CSS 不得通过宽泛选择器改变未迁移页面。
 - 可扩展现有 tokens/base/shell，但新增规则必须由 opt-in 根限定，或以回归证明旧页不变。
-- 仅改造 Projects/Project 相关 HTML/JS/CSS 与公开浏览器测试；不改 API，不迁移后续页面。
+- 仅改造 Entry/Login 与 Projects/Project 相关 HTML/JS/CSS 和公开浏览器测试；不改 API/后端，不迁移后续页面。
 - 独立 Issue、worktree、Draft PR；验证未迁移页面未被共享 CSS 意外改变。
 - Slice A 合并后才创建 Slice B Issue。
 
@@ -292,7 +310,7 @@ Owner 已批准 UX 方案 A：**运营任务流优先**。下一轮页面升级�
 
 **目标**：完成生产安全叙事、作品列表+预览与素材类型/用途分组。
 
-- Production 覆盖 fail-closed、唯一 eligible、零 attempt、并发 1、失败即停和无自动重试。
+- Production 覆盖完整时序：激活前 Worker off、唯一当前 eligible、当前 order 零 attempt、active attempts=0；terminal 立即关 Worker并保留 attempt；失败停批且无自动重试；成功经 A12/Work/真实字节下载后才准备下一条。
 - Works 覆盖深链、组织隔离和鉴权动作；Assets 覆盖媒体类型和用途语义。
 - 仅修改三页及其浏览器测试；独立 Issue、worktree、Draft PR，不自动部署。
 
