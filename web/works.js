@@ -194,7 +194,8 @@
     try {
       const body = await request("/api/works"); works = body.works || [];
       refreshProjectOptions();
-      const wanted = preserveSelection ? selected?.id || new URLSearchParams(location.search).get("work") : null;
+      const requested = new URLSearchParams(location.search).get("work");
+      const wanted = preserveSelection ? selected?.id || requested : requested;
       selected = works.find((work) => work.id === wanted) || works[0] || null;
       render();
     } catch (error) {
