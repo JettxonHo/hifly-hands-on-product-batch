@@ -56,7 +56,7 @@ Owner 批准方案 A“运营任务流优先”：页面首先降低运营人员
 - 基线：当前 HEAD 仍为精确 `8bcfaac59b5fe4c012de7b648d2b3d41419a3208`，且该提交可作为本分支祖先追溯。
 - 文档 allowlist：通过，仅包含 `docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md`、`docs/status/CURRENT.md`、
   `docs/ROADMAP.md` 和本 session 文档。
-- Draft PR 三组 CI：待执行。
+- Draft PR 首轮三组 CI：全部通过；Ubuntu 42 秒、identity-postgres 46 秒、Windows 1 分 43 秒。
 
 ## 后续
 
