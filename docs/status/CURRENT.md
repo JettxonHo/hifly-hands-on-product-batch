@@ -2,15 +2,16 @@
 
 > 最后更新：2026-08-13
 > A14 功能基线：`ba687dedc593c5bb23b9321acfa8dc8d5b79cd0c`（PR #94；Goal 收尾见 PR #95）
-> 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01～CE-07 已完成并关闭，CE-08 单条真实出片已获 Owner 明确授权
+> 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）；CE-01～CE-07 已完成并关闭，CE-08 已完成真实生成、云端保存与 A12，正在修复最后的鉴权下载缺口
 
-## 2026-08-13 CE-08 云端执行前置已就绪，等待人工完成飞影登录
+## 2026-08-13 CE-08 单条纯云端真实生成成功，鉴权下载缺口已完成本地修复
 
-- GitHub 与部署事实：无 OPEN PR；Issue #142 已关闭、#143 仍 OPEN；`main@123f103` CI 全绿，阿里云仓库、App 与 Cloud Executor 构建均已同步到该提交。
-- CE-08 前备份 `hifly-20260812T184133Z-pre-ce08.dump`（459847 bytes）已生成，production migration 全部通过；App 已切换到最新镜像且 HTTPS `/healthz` 返回 200，升级前 App/Worker 镜像均有回滚标签。
-- Cloud Executor 仍为 disabled/fail-closed，`LOCAL_AGENT_ENABLED=false`、`CLOUD_EXECUTOR_CONCURRENCY=1`；Mac Local Agent 未运行。数据库仍为 8 个历史工单、9 个历史 attempt，当前没有 active attempt，也没有 `waiting_for_executor + ready package` 候选。
-- 云端持久 Profile、assets、outputs、evidence、batches、locks 以及人物映射已准备；noVNC 仅通过 SSH tunnel 暴露到本机 `127.0.0.1:6080`。login-only 容器正在等待操作者在云端浏览器完成飞影登录，尚未 claim、生成或消耗积分。
-- CE-08 目标链已只读核验：项目“真实出片验收 2026-08-10”、商品“iPad 平板电脑”、当前 revision `ready`、方案 `frozen + approved`、preflight `warning`、人物 `confirmed + valid + verified`。登录持久化实证后，必须通过云端 GUI 创建唯一新 `reproduction` 工单并生成 ready 交接包；启动 Worker 前再次确认目标工单 attempt 为 0 且组织内仅此一个 eligible 工单。
+- 云端飞影登录已通过 noVNC 完成，并通过新 login-only 容器证明持久 Profile 可跨容器复用；Mac Local Agent 全程关闭。
+- Cloud GUI 新建唯一 reproduction 工单 `ff5285cd-d2b7-4552-a276-cff18015fc67`，交接包 `1f35ece9-9b98-4814-925e-f7f508506fa2` 为 ready。激活前工单 attempt 为 0、组织内只有该工单 eligible、active attempt 为 0。
+- Cloud Executor 串行执行一次并成功：attempt `46d1f209-caf8-4998-8d5d-5e435b0b0f11` 与工单均为 `succeeded`；飞影余额从 `53566` 变为 `52916`，本次实际消耗 650 积分。成功后 Worker 已立即停止并恢复 disabled/fail-closed，没有第二次领取或重试。
+- 云端候选视频为 `video/mp4`、43,425,097 bytes；A12 job `2e8adabc-c570-4ef6-b5bb-26733c4ad262` 为 `succeeded / passed`，Work `80958749-9f92-40e6-a30e-7c886b555ef6` 为 `available`。视频与 Evidence 均位于持久卷中。
+- 最后一段鉴权下载首次实测为：授权创建 201，但 GET 返回 404。根因是 Web app 未挂载 Cloud Executor 独立输出卷，不是飞影、生成、A12 或权限失败。
+- 分支 `codex/ce08-cloud-artifact-download` 已完成最小本地修复与回归：app 只读挂载成品卷，并仅在主对象存储缺失时读取该卷；写入/删除语义不变。待合并部署后，复用现有 Work 做无积分下载复验；复验前不得重新启动 Worker或再次访问飞影。
 
 ## 2026-08-13 CE-08 #143 Cloud Executor 成品只读回退修复（本地实现完成）
 
