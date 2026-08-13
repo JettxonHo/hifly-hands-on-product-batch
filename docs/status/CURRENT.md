@@ -9,17 +9,17 @@
 
 ## UX V1 设计阶段
 
-- Owner 已批准 UX 方案 A“运营任务流优先”；Issue #164 与 PR #165 正在审阅精确 Draft contract，尚未进入 `designed`。
-- Draft `docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 提议固化首屏五问、业务状态优先、唯一推荐下一步、技术详情折叠、
+- Owner 已批准 UX 方案 A“运营任务流优先”；Issue #164 / PR #165 是精确合同的 acceptance gate，该合同只有随 PR 合并进入 `main` 才计为 `designed`。
+- `docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 固化首屏五问、业务状态优先、唯一推荐下一步、技术详情折叠、
   Entry seam、Production 时序门禁、Works 列表+预览、Assets 类型/用途分组和 1440/768/390 验收合同。
-- 本阶段只审阅设计与实施切片，不代表精确合同已批准、前端代码已修改、已部署或客户已验收；当前生产页面和内部验收环境尚未采用该 UX。
+- `designed` 只证明合同进入 `main`，不代表前端代码已修改、已部署或客户已验收；当前生产页面和内部验收环境尚未采用该 UX。
 - Entry seam 要求企业能力开启时 `/`、登录、改密、会话恢复与成员无权限回落进入 Projects；显式 `/index.html`
   保留本地/运维 legacy fallback，不破坏现有 GUI 与真实执行门禁。
 - Production 合同按时序执行：每轮激活前 Worker off，只为当前 SKU 准备 order + ready handoff，eligible 严格为
   `[currentOrderId]`，当前 order `attempts=[]` 且 active attempts=0；terminal 后立即关 Worker并保留 attempt。
   失败/需处理停止且不创建下一条、不自动重试；成功须经 A12 passed、Work available 与鉴权真实字节下载后，
   才能在 Worker off 下准备下一条。
-- 精确合同合并后，后续严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）→ Slice B（Copy/Avatar/Plan）→
+- 精确合同进入 `designed` 后，后续严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）→ Slice B（Copy/Avatar/Plan）→
   Slice C（Production/Works/Assets）。每个切片必须独立 Issue、Draft PR、浏览器回归和 Review，前一切片合并后才开始下一切片。
 - 旧 `gui/visual-refresh` 工作树及 CSS-only 改动不是本轮基线，不得合并、搬运或覆盖；现有 tokens、基础组件、
   vanilla HTML/CSS/JS、API、组织授权、状态机和 fail-closed 生产合同继续保留。

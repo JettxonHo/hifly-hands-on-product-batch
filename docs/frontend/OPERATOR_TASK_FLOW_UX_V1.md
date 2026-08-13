@@ -1,13 +1,13 @@
 # 运营任务流 UX V1 设计契约
 
-> 状态：Owner-approved direction；Draft contract under review；implementation pending
+> 生命周期门禁：Owner-approved direction；随 PR #165 合并进入 `main` 即计为 `designed`；implementation pending
 > 日期：2026-08-13
 > 跟踪：Issue #164
 > 证据边界：本文件是可执行设计合同，不是已实现、已部署或客户验收证明
 
 ## 1. 决策与文档关系
 
-Owner 已批准 UX 方案 A：**运营任务流优先**。本精确合同仍处于 Draft Review，合并后才进入 `designed`；下一轮页面升级首先降低企业电商内容运营人员的任务判断成本，不以表面换肤、动效展示或重建设计系统为目标。
+Owner 已批准 UX 方案 A：**运营任务流优先**。Issue #164 / PR #165 是本精确合同的 acceptance gate；合同只有随 PR 合并进入 `main` 才计为 `designed`，代码实现仍须依次完成 Slice A/B/C。下一轮页面升级首先降低企业电商内容运营人员的任务判断成本，不以表面换肤、动效展示或重建设计系统为目标。
 
 历史文档继续保留，职责如下：
 
