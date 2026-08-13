@@ -45,8 +45,13 @@ npm audit --registry=https://registry.npmjs.org --omit=dev --json
 - 该修改不改变 ZIP 内容合同、文件名、下载 API 或业务状态。
 
 升级后的官方 registry 审计为 `0 critical / 0 high / 2 moderate`。两项 moderate 是 ExcelJS 聚合其
-`uuid@8.3.2` 的同一 advisory（为 v3/v5/v6 提供 `buf` 时缺少边界检查）。仓库没有 UUID 调用，ExcelJS
-当前也没有可安装的修复版本，因此保留 ExcelJS 并记录以下边界：
+`uuid@8.3.2` 的同一 advisory（为 v3/v5/v6 提供 `buf` 时缺少边界检查）。当前安装的 ExcelJS 4.4.0
+源码只在 `lib/xlsx/xform/sheet/cf-ext/cf-rule-ext-xform.js` 引用 UUID v4，本仓库也没有直接调用 UUID；
+因此现有 XLSX 导入路径不触达公告中的 v3/v5/v6 buffer API。
+
+当前 latest `exceljs@4.4.0` 没有可向前升级的修复版本；主控复核的 npm audit JSON 仅给出
+`fixAvailable={version:"3.4.0", isSemVerMajor:true}`，即 semver-major 回退。本轮不把降级到旧 major
+当作安全升级，保留 ExcelJS 4.4.0 并记录以下有界风险接受：
 
 1. 只通过既有受限 XLSX 导入入口使用 ExcelJS，不暴露 UUID API。
 2. 不新增对 ExcelJS 内部 UUID v3/v5/v6 buffer 接口的调用。
@@ -64,8 +69,12 @@ npm audit --registry=https://registry.npmjs.org --omit=dev --json
 - `npm ci`：从更新后的 lockfile 干净安装成功。
 - 聚焦公共回归：`102 passed / 0 failed`。
 - `npm run check`：229 个 JavaScript 文件通过。
-- `npm test`：1017 tests，971 passed、0 failed、46 skipped。
+- `npm test`：1017 tests，971 passed、0 failed、46 skipped。本地 skip 均为既有环境门禁：32 项因 Codex
+  沙箱无法启动 Chrome/Chromium，13 项因对应 PostgreSQL 集成测试数据库变量未配置，1 项因显式的
+  `IDENTITY_BROWSER_SMOKE=1` 未开启。主控随后在允许浏览器运行的环境完成公开浏览器、ZIP、XLSX、Sharp
+  和 API 回归，均通过。
 - `npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high`：
   0 critical、0 high、2 moderate；高风险门禁通过。
 - `git diff --check`：通过。
-- CI 结果由固定 PR head 完成后写入审阅记录；以上均为本地仓库证据，不代表版本已经部署或被用户采用。
+- PR #162 固定实现 head 的 Ubuntu、Windows、identity-postgres 三组 CI 均为 green。以上是仓库与测试证据，
+  不代表版本已经部署或被用户采用。

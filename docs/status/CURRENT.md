@@ -63,7 +63,8 @@
 - #157 的仓库侧依赖治理已完成：官方 npm registry 的生产审计由
   `0 critical / 20 high / 1 moderate` 收敛到 `0 critical / 0 high / 2 moderate`。剩余两项均来自
   `exceljs@4.4.0 → uuid@8.3.2` 的同一 moderate advisory；当前代码只使用 ExcelJS 读取工作簿，未调用受影响的
-  UUID v3/v5/v6 buffer API，且上游暂无可用修复。详细证据和复查门禁见
+  UUID v3/v5/v6 buffer API。当前 latest `exceljs@4.4.0` 没有可向前升级的修复版本；npm audit 仅建议
+  semver-major 回退到 `exceljs@3.4.0`，本轮未把依赖降级当作安全升级。详细证据和复查门禁见
   `docs/status/sessions/2026-08-13-issue-157-release-readiness.md`。
 - #156 的最小修复已完成并通过本地浏览器回归：`works.html?work=<id>` 首次加载会选中
   组织内可见目标；缺失或不可见 ID 回落到第一条可见作品且不渲染隐藏作品信息。生产仍未部署，部署验证留待后续 release-readiness。
