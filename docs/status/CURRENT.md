@@ -58,9 +58,13 @@
 
 ## 发布就绪后续
 
-- 现有公网证书为自签名，严格 CA 校验失败；可信证书与依赖治理由 #157 跟踪。
-- `npm audit --omit=dev` 为 `0 critical / 5 high / 2 moderate`；这些是既存依赖风险，未由 PR #155 引入，
-  需在 release-readiness 阶段形成升级或风险接受记录。
+- 现有公网证书仍为自签名，严格 CA 校验失败；仓库已补充
+  `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md`，但正式域名、可信证书签发、部署和严格 CA 验收尚未执行。
+- #157 的仓库侧依赖治理已完成：官方 npm registry 的生产审计由
+  `0 critical / 20 high / 1 moderate` 收敛到 `0 critical / 0 high / 2 moderate`。剩余两项均来自
+  `exceljs@4.4.0 → uuid@8.3.2` 的同一 moderate advisory；当前代码只使用 ExcelJS 读取工作簿，未调用受影响的
+  UUID v3/v5/v6 buffer API，且上游暂无可用修复。详细证据和复查门禁见
+  `docs/status/sessions/2026-08-13-issue-157-release-readiness.md`。
 - #156 的最小修复已完成并通过本地浏览器回归：`works.html?work=<id>` 首次加载会选中
   组织内可见目标；缺失或不可见 ID 回落到第一条可见作品且不渲染隐藏作品信息。生产仍未部署，部署验证留待后续 release-readiness。
 
@@ -122,7 +126,7 @@
 
 ## 下一步
 
-1. 进入 P0.5 release-readiness：#156 深链首选项修复已完成；可信证书、依赖治理和后续部署验证继续按 #157 / release-readiness 顺序推进。
+1. 继续 P0.5 release-readiness：#156 深链修复与 #157 仓库侧依赖治理已完成；下一步由部署负责人取得正式域名并按可信 TLS 清单完成证书部署，再统一进行版本部署与无副作用验收。
 2. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，继续保留逐单授权、唯一 eligible、首失败即停和无自动重试护栏。
 3. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
 
