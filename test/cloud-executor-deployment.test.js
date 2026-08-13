@@ -613,10 +613,10 @@ test("production config keeps app writes on the main store and reads cloud outpu
     INITIAL_ORGANIZATION_NAME: "Pilot Organization"
   };
   const config = createProductionConfig({ root: "/tmp/hifly-production-config", env });
-  assert.equal(config.assets.localRoot, "/var/lib/hifly/objects");
-  assert.equal(config.assets.readOnlyFallbackRoot, "/var/lib/hifly-executor/outputs");
+  assert.equal(config.assets.localRoot, path.resolve("/var/lib/hifly/objects"));
+  assert.equal(config.assets.readOnlyFallbackRoot, path.resolve("/var/lib/hifly-executor/outputs"));
   const custom = createProductionConfig({ root: "/tmp/hifly-production-config", env: { ...env, CLOUD_EXECUTOR_OUTPUTS_DIR: "/srv/cloud-outputs" } });
-  assert.equal(custom.assets.readOnlyFallbackRoot, "/srv/cloud-outputs");
+  assert.equal(custom.assets.readOnlyFallbackRoot, path.resolve("/srv/cloud-outputs"));
 });
 
 function withInitialize(name, value, initialized) {
