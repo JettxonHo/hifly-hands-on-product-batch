@@ -24,7 +24,7 @@ P0.5  release-readiness：可信证书、依赖审计处置、UX follow-up 与�
 P1+   上述内部试运行与 release-readiness 完成后，再决定产品增强与规模化
 ```
 
-Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EXECUTOR_P0.md`；三条严格串行内部试运行已由 #132 验收关闭，release-readiness 由 #156、#157 跟踪。
+Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EXECUTOR_P0.md`；三条严格串行内部试运行由 #132 跟踪，Issue 已关闭并已补充最终验收证据；release-readiness 由 #156、#157 跟踪。
 
 ## 3. 下一阶段
 
