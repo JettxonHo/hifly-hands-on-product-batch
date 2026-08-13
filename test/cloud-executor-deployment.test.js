@@ -19,6 +19,7 @@ import { createCloudExecutorProductionPorts, createCloudExecutorProductionRuntim
 import { createCloudExecutorHealthServer } from "../src/cloud-executor/standalone.js";
 import { createCloudWorkspaceConfig } from "../src/cloud-executor/workspace.js";
 import { safeArtifactPath } from "../src/cloud-executor/playwright-adapter.js";
+import { createProductionConfig } from "../src/server/production-config.js";
 
 const ORGANIZATION_ID = "org-ce07";
 const EXECUTOR_ID = "cloud-executor-ce07";
@@ -548,7 +549,12 @@ test("production Compose and image define one disabled worker with persistent me
   assert.match(compose, /CLOUD_EXECUTOR_ENABLED: \$\{CLOUD_EXECUTOR_ENABLED:-false\}/);
   assert.match(compose, /CLOUD_EXECUTOR_MODE: \$\{CLOUD_EXECUTOR_MODE:-fail_closed\}/);
   assert.match(compose, /CLOUD_EXECUTOR_CONCURRENCY: "1"/);
+  const appService = compose.slice(compose.indexOf("\n  app:"), compose.indexOf("\n  postgres:"));
   const cloudService = compose.slice(compose.indexOf("\n  cloud_executor:"), compose.indexOf("\nvolumes:"));
+  assert.match(appService, /CLOUD_EXECUTOR_OUTPUTS_DIR: \$\{CLOUD_EXECUTOR_OUTPUTS_DIR:-\/var\/lib\/hifly-executor\/outputs\}/);
+  assert.match(appService, /cloud_executor_outputs:\$\{CLOUD_EXECUTOR_OUTPUTS_DIR:-\/var\/lib\/hifly-executor\/outputs\}:ro/);
+  assert.match(cloudService, /cloud_executor_outputs:\$\{CLOUD_EXECUTOR_OUTPUTS_DIR:-\/var\/lib\/hifly-executor\/outputs\}\r?\n/);
+  assert.doesNotMatch(cloudService, /cloud_executor_outputs:\$\{CLOUD_EXECUTOR_OUTPUTS_DIR:-\/var\/lib\/hifly-executor\/outputs\}:ro/);
   assert.match(cloudService, /networks:\r?\n      - internal\r?\n      - executor_egress/);
   assert.doesNotMatch(cloudService, /(?:0\.0\.0\.0|\$\{[^}]*\}):3001:3001/);
   assert.match(compose, /\n  executor_egress:\r?\n/);
@@ -557,7 +563,7 @@ test("production Compose and image define one disabled worker with persistent me
   assert.match(cloudService, /CLOUD_EXECUTOR_HEARTBEAT_URL: \$\{CLOUD_EXECUTOR_HEARTBEAT_URL:-http:\/\/app:3000\/internal\/cloud-executor\/v1\/heartbeat\}/);
   assert.match(compose, /cloud_executor_profile:\/var\/lib\/hifly-executor\/profile/);
   assert.match(compose, /cloud_executor_assets:\/var\/lib\/hifly-executor\/assets/);
-  assert.match(compose, /cloud_executor_outputs:\/var\/lib\/hifly-executor\/outputs/);
+  assert.match(compose, /cloud_executor_outputs:\$\{CLOUD_EXECUTOR_OUTPUTS_DIR:-\/var\/lib\/hifly-executor\/outputs\}/);
   assert.match(compose, /cloud_executor_evidence:\/var\/lib\/hifly-executor\/evidence/);
   assert.match(compose, /127\.0\.0\.1:\$\{CLOUD_EXECUTOR_NOVNC_HOST_PORT:-6080\}:6080/);
   assert.doesNotMatch(compose, /0\.0\.0\.0:\$\{CLOUD_EXECUTOR_NOVNC_HOST_PORT/);
@@ -594,6 +600,23 @@ test("production Compose and image define one disabled worker with persistent me
     "CLOUD_EXECUTOR_NOVNC_BIND_HOST=127.0.0.1"
   ]) assert.match(envExample, new RegExp(`^${line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"), line);
   assert.doesNotMatch(envExample, /Bearer\s+[A-Za-z0-9]/i);
+});
+
+test("production config keeps app writes on the main store and reads cloud outputs as an explicit fallback", () => {
+  const env = {
+    DATABASE_URL: "postgresql://pilot:secret@postgres:5432/hifly_pilot",
+    PUBLIC_HOST: "pilot.example.test",
+    PUBLIC_ORIGIN: "https://pilot.example.test",
+    INITIAL_ADMIN_EMAIL: "admin@pilot.example.test",
+    INITIAL_ADMIN_PASSWORD: "Pilot-Initial-Password-9!",
+    INITIAL_ORGANIZATION_ID: "org_pilot",
+    INITIAL_ORGANIZATION_NAME: "Pilot Organization"
+  };
+  const config = createProductionConfig({ root: "/tmp/hifly-production-config", env });
+  assert.equal(config.assets.localRoot, path.resolve("/var/lib/hifly/objects"));
+  assert.equal(config.assets.readOnlyFallbackRoot, path.resolve("/var/lib/hifly-executor/outputs"));
+  const custom = createProductionConfig({ root: "/tmp/hifly-production-config", env: { ...env, CLOUD_EXECUTOR_OUTPUTS_DIR: "/srv/cloud-outputs" } });
+  assert.equal(custom.assets.readOnlyFallbackRoot, path.resolve("/srv/cloud-outputs"));
 });
 
 function withInitialize(name, value, initialized) {
