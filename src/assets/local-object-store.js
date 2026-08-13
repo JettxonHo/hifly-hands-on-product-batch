@@ -29,3 +29,21 @@ export function createLocalObjectStore({ root }) {
     async remove(key) { await Promise.all([rm(location(key), { force: true }), rm(metadataLocation(key), { force: true })]); }
   };
 }
+
+export function createReadFallbackObjectStore({ primary, fallback }) {
+  if (!primary || !fallback) throw new TypeError("primary and fallback object stores are required");
+  return {
+    async initialize() { await primary.initialize?.(); },
+    async put(input) { return primary.put(input); },
+    async head(key) {
+      const result = await primary.head(key);
+      return result ?? fallback.head(key);
+    },
+    async get(key) {
+      const result = await primary.get(key);
+      return result ?? fallback.get(key);
+    },
+    async remove(key) { return primary.remove(key); },
+    async close() { await primary.close?.(); }
+  };
+}

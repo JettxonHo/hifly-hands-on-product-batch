@@ -36,11 +36,13 @@ services:
       CLOUD_EXECUTOR_HEARTBEAT_TOKEN: ${CLOUD_EXECUTOR_HEARTBEAT_TOKEN:-}
       CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS: ${CLOUD_EXECUTOR_HEARTBEAT_TIMEOUT_MS:-15000}
       CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED: ${CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED:-false}
+      CLOUD_EXECUTOR_OUTPUTS_DIR: ${CLOUD_EXECUTOR_OUTPUTS_DIR:-/var/lib/hifly-executor/outputs}
     expose:
       - "3000"
     volumes:
       - hifly_pilot_data:/var/lib/hifly
       - hifly_pilot_backups:/var/backups/hifly
+      - cloud_executor_outputs:${CLOUD_EXECUTOR_OUTPUTS_DIR:-/var/lib/hifly-executor/outputs}:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -126,7 +128,7 @@ services:
       CLOUD_EXECUTOR_ROOT: /var/lib/hifly-executor
       CLOUD_EXECUTOR_PROFILE_DIR: /var/lib/hifly-executor/profile
       CLOUD_EXECUTOR_ASSETS_DIR: /var/lib/hifly-executor/assets
-      CLOUD_EXECUTOR_OUTPUTS_DIR: /var/lib/hifly-executor/outputs
+      CLOUD_EXECUTOR_OUTPUTS_DIR: ${CLOUD_EXECUTOR_OUTPUTS_DIR:-/var/lib/hifly-executor/outputs}
       CLOUD_EXECUTOR_EVIDENCE_DIR: /var/lib/hifly-executor/evidence
       CLOUD_EXECUTOR_HANDOFF_DIR: /var/lib/hifly/manual-handoff-packages
       CLOUD_EXECUTOR_MIN_FREE_BYTES: ${CLOUD_EXECUTOR_MIN_FREE_BYTES:-1073741824}
@@ -148,7 +150,7 @@ services:
       - hifly_pilot_data:/var/lib/hifly:ro
       - cloud_executor_profile:/var/lib/hifly-executor/profile
       - cloud_executor_assets:/var/lib/hifly-executor/assets
-      - cloud_executor_outputs:/var/lib/hifly-executor/outputs
+      - cloud_executor_outputs:${CLOUD_EXECUTOR_OUTPUTS_DIR:-/var/lib/hifly-executor/outputs}
       - cloud_executor_evidence:/var/lib/hifly-executor/evidence
       - cloud_executor_batches:/var/lib/hifly-executor/batches
       - cloud_executor_locks:/var/lib/hifly-executor/locks

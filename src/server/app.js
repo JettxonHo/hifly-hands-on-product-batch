@@ -4,7 +4,7 @@ import staticFiles from "@fastify/static";
 import path from "node:path";
 
 import { createAssetService } from "../assets/asset-service.js";
-import { createLocalObjectStore } from "../assets/local-object-store.js";
+import { createLocalObjectStore, createReadFallbackObjectStore } from "../assets/local-object-store.js";
 import { createPostgresAssetRepository } from "../assets/postgres-asset-repository.js";
 import { createVerificationWorker } from "../assets/verification-worker.js";
 import { createProjectContentService } from "../project-content/project-content-service.js";
@@ -506,9 +506,15 @@ export async function buildApp({
   }
   if (assetsEnabled) {
     const assetRepository = assetOptions.repository || (sharedPool ? createPostgresAssetRepository({ pool: sharedPool }) : null);
-    const objectStore = assetOptions.objectStore || (assetOptions.adapter === "local"
+    const primaryObjectStore = assetOptions.objectStore || (assetOptions.adapter === "local"
       ? createLocalObjectStore({ root: path.resolve(root, assetOptions.localRoot || ".local-assets") })
       : null);
+    const objectStore = !assetOptions.objectStore && assetOptions.readOnlyFallbackRoot
+      ? createReadFallbackObjectStore({
+        primary: primaryObjectStore,
+        fallback: createLocalObjectStore({ root: path.resolve(root, assetOptions.readOnlyFallbackRoot) })
+      })
+      : primaryObjectStore;
     if (!assetRepository) throw Object.assign(new Error("ASSET_REPOSITORY_REQUIRED_WITH_INJECTED_IDENTITY"), { code: "ASSET_REPOSITORY_REQUIRED_WITH_INJECTED_IDENTITY" });
     if (!objectStore) throw Object.assign(new Error("ASSET_OBJECT_STORE_REQUIRED"), { code: "ASSET_OBJECT_STORE_REQUIRED" });
     try {

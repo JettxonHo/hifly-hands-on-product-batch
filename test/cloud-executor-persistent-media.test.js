@@ -13,6 +13,7 @@ import {
 } from "../src/cloud-executor/workspace.js";
 import { createAssetService } from "../src/assets/asset-service.js";
 import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
+import { createLocalObjectStore } from "../src/assets/local-object-store.js";
 import { createMemoryManualExecutionRepository } from "../src/manual-execution/memory-manual-execution-repository.js";
 import { createMemoryWorkDeliveryRepository } from "../src/work-delivery/memory-work-delivery-repository.js";
 import { createWorkDeliveryService } from "../src/work-delivery/work-delivery-service.js";
@@ -235,5 +236,75 @@ test("a restarted cloud runtime reuses persistent media and the authenticated Wo
     await second.close();
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the Web app downloads a Cloud Executor output through the authenticated Work seam", async (t) => {
+  const cloudRoot = await mkdtemp(path.join(os.tmpdir(), "cloud-executor-web-output-"));
+  const appRoot = await mkdtemp(path.join(os.tmpdir(), "cloud-executor-web-primary-"));
+  const organizationId = "org_test";
+  const candidate = {
+    id: "candidate-cloud-web",
+    object_key: "cloud-executor/org_test/attempt-cloud-web/candidate-cloud-web.mp4",
+    media_type: "video/mp4",
+    size: Buffer.byteLength("cloud-web-video"),
+    checksum: "a".repeat(64),
+    original_filename: "cloud-web.mp4"
+  };
+  const cloudStore = createLocalObjectStore({ root: cloudRoot });
+  await cloudStore.initialize();
+  await cloudStore.put({
+    key: candidate.object_key,
+    body: Buffer.from("cloud-web-video"),
+    contentType: candidate.media_type,
+    metadata: { organizationId, candidateOutputId: candidate.id }
+  });
+  const assetRepository = createMemoryAssetRepository();
+  const registered = await createVerifiedOutputAssetPort({ repository: assetRepository }).registerVerifiedOutput({
+    organizationId,
+    actorMemberId: "member-owner",
+    candidate,
+    now: "2026-08-13T00:00:00.000Z"
+  });
+  const work = {
+    id: "work-cloud-web",
+    organization_id: organizationId,
+    status: "available",
+    primary_asset_version_id: registered.asset_version.id,
+    primary_output_media_type: candidate.media_type,
+    primary_output_size: candidate.size
+  };
+
+  try {
+    const { app } = await identityApp(t, {
+      assets: {
+        enabled: true,
+        adapter: "local",
+        localRoot: appRoot,
+        readOnlyFallbackRoot: cloudRoot,
+        repository: assetRepository,
+        worker: { autoStart: false }
+      },
+      workDelivery: {
+        enabled: true,
+        repository: createMemoryWorkDeliveryRepository(),
+        workPort: {
+          async listWorks() { return [structuredClone(work)]; },
+          async getWork(_organizationId, workId) { return workId === work.id ? structuredClone(work) : null; }
+        }
+      }
+    });
+    const auth = await activateAdmin(app);
+    const readHeaders = identityHeaders({ cookies: auth.cookies });
+    const mutationHeaders = identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true });
+    const authorization = await app.inject({ method: "POST", url: `/api/works/${work.id}/download-authorizations`, headers: mutationHeaders, payload: {} });
+    assert.equal(authorization.statusCode, 201);
+    const downloaded = await app.inject({ method: "GET", url: authorization.json().download.url, headers: readHeaders });
+    assert.equal(downloaded.statusCode, 200);
+    assert.equal(downloaded.headers["content-type"].startsWith("video/mp4"), true);
+    assert.equal(downloaded.body, "cloud-web-video");
+  } finally {
+    await rm(cloudRoot, { recursive: true, force: true });
+    await rm(appRoot, { recursive: true, force: true });
   }
 });

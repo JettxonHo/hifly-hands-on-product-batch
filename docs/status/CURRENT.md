@@ -12,6 +12,15 @@
 - 云端持久 Profile、assets、outputs、evidence、batches、locks 以及人物映射已准备；noVNC 仅通过 SSH tunnel 暴露到本机 `127.0.0.1:6080`。login-only 容器正在等待操作者在云端浏览器完成飞影登录，尚未 claim、生成或消耗积分。
 - CE-08 目标链已只读核验：项目“真实出片验收 2026-08-10”、商品“iPad 平板电脑”、当前 revision `ready`、方案 `frozen + approved`、preflight `warning`、人物 `confirmed + valid + verified`。登录持久化实证后，必须通过云端 GUI 创建唯一新 `reproduction` 工单并生成 ready 交接包；启动 Worker 前再次确认目标工单 attempt 为 0 且组织内仅此一个 eligible 工单。
 
+## 2026-08-13 CE-08 #143 Cloud Executor 成品只读回退修复（本地实现完成）
+
+- 当前分支：`codex/ce08-cloud-artifact-download`；基线：`main@dc4ca9f`；角色 `IMPLEMENTER`；请求自定义 Agent `luna-worker`；配置模型 `gpt-5.6-luna`、推理 `max`；配置状态 `CONFIG_VERIFIED`；运行时模型元数据不可见，记为 `UNVERIFIED_RUNTIME_MODEL`。
+- 根因已按 Issue #143 复现：Cloud Executor 将候选视频写入独立 `cloud_executor_outputs` 卷，而 Web app 的本地对象存储只读取 `/var/lib/hifly/objects`，因此 A12 注册后 Work 鉴权下载返回 404。
+- 最小实现：Web app 保持 `/var/lib/hifly/objects` 为主对象存储；资产读取在主 store 缺失时只读回退到 `CLOUD_EXECUTOR_OUTPUTS_DIR`，写入与删除仍只落主 store。生产 Compose 让 app 以 `:ro` 挂载 `cloud_executor_outputs`，Cloud Executor 继续以可写方式挂载同一卷。
+- 回归证据：旧实现下新增 Work 鉴权下载 seam 为 `404 != 200`；部署 seam 在实现前有 2 个断言失败；修复后两个 focused 文件合计 `23/23` 通过。`npm run check`、Compose 静态解析、全量 `npm test`（`1,017` tests / `1,003` pass / `14` skipped / `0` fail）与 `git diff --check` 已通过。
+- 本轮未访问飞影或真实 HTTP，未启动 Cloud Executor worker，未 claim/修改 attempt，未生成视频，未消耗积分；真实部署卷挂载与 CE-08 live Work 下载仍待主控在授权环境中复核。
+- Session：`docs/status/sessions/2026-08-13-ce-08-cloud-artifact-download.md`。
+
 ## 2026-08-13 CE-07 阿里云 standby 实证通过
 
 - 本节记录的是当时的 CE-07 验收快照；后续最新状态见上方 CE-08 章节。

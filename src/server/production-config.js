@@ -116,6 +116,7 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
   const port = integer(env.PORT || DEFAULT_PORT, "PORT");
   const dataDir = dataPath(root, env.DATA_DIR);
   const backupDir = dataPath(root, env.BACKUP_DIR || "/var/backups/hifly");
+  const cloudExecutorOutputsRoot = dataPath(root, env.CLOUD_EXECUTOR_OUTPUTS_DIR || "/var/lib/hifly-executor/outputs");
   const trustedHosts = unique([
     publicHost,
     `127.0.0.1:${port}`,
@@ -241,6 +242,7 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
       enabled: true,
       adapter: "local",
       localRoot: path.join(dataDir, "objects"),
+      readOnlyFallbackRoot: cloudExecutorOutputsRoot,
       uploadTtlMs: 600_000,
       downloadTtlMs: 300_000,
       worker
