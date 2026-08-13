@@ -20,9 +20,11 @@ RUN npm ci --omit=dev \
 COPY . .
 
 RUN chmod 0755 /app/deploy/cloud-executor-entrypoint.sh \
-  && mkdir -p /var/lib/hifly /var/lib/hifly-executor/profile /var/lib/hifly-executor/assets \
+  && mkdir -p /tmp/.X11-unix \
+      /var/lib/hifly /var/lib/hifly-executor/profile /var/lib/hifly-executor/assets \
       /var/lib/hifly-executor/outputs /var/lib/hifly-executor/evidence \
       /var/lib/hifly-executor/batches /var/lib/hifly-executor/locks \
+  && chmod 1777 /tmp/.X11-unix \
   && chown -R node:node /app /var/lib/hifly /var/lib/hifly-executor /ms-playwright
 
 USER node

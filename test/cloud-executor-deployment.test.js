@@ -576,6 +576,11 @@ test("production Compose and image define one disabled worker with persistent me
   assert.match(dockerfile, /FROM node:22-bookworm-slim/);
   for (const packageName of ["xvfb", "x11vnc", "novnc", "websockify", "x11-utils"]) assert.match(dockerfile, new RegExp(`\\b${packageName}\\b`));
   assert.match(dockerfile, /playwright install --with-deps chromium/);
+  const userNodeIndex = dockerfile.indexOf("USER node");
+  const x11DirectoryIndex = dockerfile.indexOf("mkdir -p /tmp/.X11-unix");
+  const x11ModeIndex = dockerfile.indexOf("chmod 1777 /tmp/.X11-unix");
+  assert.ok(x11DirectoryIndex >= 0 && x11DirectoryIndex < userNodeIndex, "fresh images must create the X11 socket directory before dropping root");
+  assert.ok(x11ModeIndex >= 0 && x11ModeIndex < userNodeIndex, "fresh images must make the X11 socket directory world-writable before dropping root");
   assert.match(dockerfile, /ENTRYPOINT \["\/app\/deploy\/cloud-executor-entrypoint\.sh"\]/);
   assert.match(entrypoint, /Xvfb "\$DISPLAY"/);
   assert.match(entrypoint, /x11vnc [^\n]*-listen 127\.0\.0\.1/);
