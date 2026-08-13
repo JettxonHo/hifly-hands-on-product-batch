@@ -7,6 +7,17 @@
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
 
+## UX V1 设计阶段
+
+- Owner 已批准 UX 方案 A“运营任务流优先”，由 Issue #164 跟踪设计契约。
+- `docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 固化首屏五问、业务状态优先、唯一推荐下一步、技术详情折叠、
+  Production 安全门禁、Works 列表+预览、Assets 类型/用途分组和 1440/768/390 验收合同。
+- 本阶段只完成设计与实施切片，不代表前端代码已修改、已部署或客户已验收；当前生产页面和内部验收环境尚未采用该 UX。
+- 后续严格串行：Slice A（opt-in foundation + Projects/Project）→ Slice B（Copy/Avatar/Plan）→
+  Slice C（Production/Works/Assets）。每个切片必须独立 Issue、Draft PR、浏览器回归和 Review，前一切片合并后才开始下一切片。
+- 旧 `gui/visual-refresh` 工作树及 CSS-only 改动不是本轮基线，不得合并、搬运或覆盖；现有 tokens、基础组件、
+  vanilla HTML/CSS/JS、API、组织授权、状态机和 fail-closed 生产合同继续保留。
+
 ## P0.5 内部验收环境部署
 
 - 2026-08-13 将内部验收环境从 `main@40e92414d4ef4a4015da9bb3f709f775c67843b6`
