@@ -42,8 +42,10 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Issue #166 是
 1. Slice A：Entry seam + shared opt-in UX foundation + Projects/Project；企业能力开启时 `/` 进入 Projects，显式
    `/index.html` 保留 legacy fallback；Login、Projects 与 Project 使用首屏任务摘要和唯一推荐下一步；共享 CSS 仅
    通过根 class opt-in，不得意外改变未迁移页面。未保存修改在商品切换、刷新和版本冲突处理中受显式保护；
-   superseded 深链仅经组织隔离的只读 revision seam 加载，项目归属不匹配时安全回落。Issue #166 合并后仍需
-   独立部署和运行时验收。
+   只有商品 current revision 可编辑，任何非当前 revision（含 Ready 父版本）都按历史快照只读呈现；历史深链
+   仅经组织隔离的只读 revision seam 加载，404/归属不匹配安全回落，而网络、5xx 与无效响应显式失败。
+   Ready 素材门禁只接受 active asset 的 available version，素材竞态失效时刷新集合并要求重新选择。
+   Issue #166 合并后仍需独立部署和运行时验收。
 2. Slice B：Copy/Avatar/Plan；清楚区分自动检查与人工批准。
 3. Slice C：Production/Works/Assets；Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order
    零 attempt 与 active attempts=0；terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经

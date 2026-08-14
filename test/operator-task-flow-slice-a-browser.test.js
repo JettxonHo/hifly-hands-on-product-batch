@@ -86,6 +86,17 @@ async function assertNoHorizontalOverflow(page) {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 }
 
+async function captureViewport(page, name, viewport) {
+  if (!process.env.SLICE_A_SCREENSHOTS_DIR) return;
+  await mkdir(process.env.SLICE_A_SCREENSHOTS_DIR, { recursive: true });
+  const screenshot = await page.screenshot({
+    path: path.join(process.env.SLICE_A_SCREENSHOTS_DIR, `${name}-${viewport.width}.png`),
+    fullPage: true
+  });
+  assert.equal(screenshot.readUInt32BE(16), viewport.width);
+  assert.ok(screenshot.readUInt32BE(20) >= viewport.height);
+}
+
 test("enterprise entry routes root to Projects and keeps explicit index as legacy fallback", async (t) => {
   const setup = await startEnterpriseBrowser(t);
   if (!setup) return;
@@ -134,6 +145,7 @@ test("Projects and Project present one responsive operator task path", async (t)
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     await assertNoHorizontalOverflow(page);
+    await captureViewport(page, "login", viewport);
   }
   await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL);
   await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD);
@@ -168,9 +180,10 @@ test("Projects and Project present one responsive operator task path", async (t)
   await page.getByLabel("项目名称").fill("秋季新品运营项目");
   await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click();
   await page.getByRole("link", { name: "继续项目" }).waitFor();
-  if (process.env.SLICE_A_SCREENSHOTS_DIR) {
-    await mkdir(process.env.SLICE_A_SCREENSHOTS_DIR, { recursive: true });
-    await page.screenshot({ path: path.join(process.env.SLICE_A_SCREENSHOTS_DIR, "projects-1440.png"), fullPage: true });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await assertNoHorizontalOverflow(page);
+    await captureViewport(page, "projects", viewport);
   }
   await page.getByRole("link", { name: "继续项目" }).click();
   await page.waitForURL(/\/project\.html\?id=/);
@@ -234,10 +247,7 @@ test("Projects and Project present one responsive operator task path", async (t)
     await page.evaluate(() => document.activeElement?.blur());
     assert.equal(await taskSummary.isVisible(), true);
     await assertNoHorizontalOverflow(page);
-    if (process.env.SLICE_A_SCREENSHOTS_DIR) {
-      await mkdir(process.env.SLICE_A_SCREENSHOTS_DIR, { recursive: true });
-      await page.screenshot({ path: path.join(process.env.SLICE_A_SCREENSHOTS_DIR, `project-${viewport.width}.png`), fullPage: true });
-    }
+    await captureViewport(page, "project", viewport);
   }
 
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -284,7 +294,7 @@ test("Projects clears loading content after runtime and API failures", async (t)
   assert.equal(await page.getByText("正在加载...", { exact: true }).count(), 0);
 });
 
-test("Project deep links keep valid superseded revisions safe and return to the current revision", async (t) => {
+test("Project deep links keep non-current Ready revisions read-only and surface lookup failures", async (t) => {
   const setup = await startEnterpriseBrowser(t);
   if (!setup) return;
   const { page, origin } = setup;
@@ -314,7 +324,7 @@ test("Project deep links keep valid superseded revisions safe and return to the 
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ revision: {
-      id: "revision-history", project_id: projectId, product_id: "product-current", status: "superseded", revision_number: 1,
+      id: "revision-history", project_id: projectId, product_id: "product-current", status: "ready", revision_number: 1,
       product_name: "历史商品", product_description: "旧版本", primary_category: "general", content_brief: null,
       asset_version_ids: [], selling_points: []
     } })
@@ -328,9 +338,14 @@ test("Project deep links keep valid superseded revisions safe and return to the 
       asset_version_ids: [], selling_points: []
     } })
   }));
+  await page.route(`${origin}/api/product-revisions/failed-revision`, (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "REVISION_LOOKUP_FAILED" })
+  }));
 
   await page.goto(`${origin}/project.html?id=${projectId}&revision=revision-history`);
-  await page.locator("#revisionState").getByText("已被替代 · v1", { exact: true }).waitFor();
+  await page.locator("#revisionState").getByText("已 Ready · v1", { exact: true }).waitFor();
   assert.equal(await page.locator('#revisionForm input[name="product_name"]').isDisabled(), true);
   assert.equal(await page.locator('#revisionForm input[name="product_name"]').inputValue(), "历史商品");
   const returnCurrent = page.getByRole("button", { name: "回到当前版本" });
@@ -347,4 +362,9 @@ test("Project deep links keep valid superseded revisions safe and return to the 
   await page.locator("#revisionState").getByText("草稿 · v2", { exact: true }).waitFor();
   assert.equal(new URL(page.url()).searchParams.get("revision"), "revision-current");
   assert.equal(await page.getByText("不应泄露的外部商品", { exact: true }).count(), 0);
+
+  await page.goto(`${origin}/project.html?id=${projectId}&revision=failed-revision`);
+  await page.getByRole("heading", { name: "商品工作区暂时无法载入" }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("revision"), "failed-revision");
+  assert.equal(await page.locator("#editor").isHidden(), true);
 });

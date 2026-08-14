@@ -19,8 +19,12 @@
   安全保留 legacy 页面，不产生空白页、跳转循环或权限绕过。
 - Projects 覆盖加载、空、失败、有项目和创建 Dialog；有项目时优先继续最近项目。Project 覆盖无商品、草稿、
   未保存/保存中/已保存、Ready、superseded、Ready 阻断和 409 版本冲突。商品切换、刷新和冲突后载入最新版本
-  均显式保护本地修改；历史 revision 深链通过组织隔离的只读 seam 加载，并在项目归属核对失败时安全回落。
-  草稿首屏直接展示可计算的 Ready 阻断，Projects 快照不足时明确提示进入项目核对，不伪造零阻断。
+  均显式保护本地修改；只有商品的当前 revision 可编辑，任何非当前 revision（包括状态仍为 Ready 的父版本）
+  都作为只读历史快照呈现并提供回到当前版本的入口。409 恢复按冲突商品重新选择其最新 current revision，
+  不会回到旧父版本。历史 revision 深链通过组织隔离的只读 seam 加载：404 或归属核对失败安全回落，
+  网络、5xx 或无效响应则显式失败且保留请求上下文。草稿首屏按 active asset + available version 的交集计算
+  Ready 阻断；素材竞态失效时刷新可引用集合并要求重新选择。Projects 快照不足时明确提示进入项目核对，
+  不伪造零阻断。
 - 新样式仅在 `.operator-task-page` 根节点下生效，未迁移企业页面和 legacy GUI 不受共享 CSS 意外影响；浏览器回归覆盖
   1440/768/390、无页面级横向滚动、Dialog 焦点恢复、可见焦点和 reduced-motion。
 - Production 合同按时序执行：每轮激活前 Worker off，只为当前 SKU 准备 order + ready handoff，eligible 严格为

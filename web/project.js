@@ -26,6 +26,8 @@
   let runtime;
   let dirty = false;
   let rendering = false;
+  let conflictProductId;
+  let availableAssetVersionIds = new Set();
   const revisionLabels = { draft: "草稿", ready: "已 Ready", superseded: "已被替代" };
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
 
@@ -71,13 +73,22 @@
   }
 
   function setRevisionControls() {
-    const immutable = revision.status === "superseded";
+    const immutable = revision.status === "superseded" || isHistoricalRevision(revision);
     revisionForm.querySelectorAll("input, textarea").forEach((field) => { field.disabled = immutable; });
     document.querySelector("#addPoint").disabled = immutable;
     pointList.querySelectorAll("button").forEach((button) => { if (immutable) button.disabled = true; });
     saveButton.disabled = immutable;
-    readyButton.disabled = revision.status !== "draft";
-    readyButton.title = revision.status === "ready" ? "修改后保存会创建新的草稿版本" : (immutable ? "已被替代的快照不可修改" : "");
+    readyButton.disabled = immutable || revision.status !== "draft";
+    readyButton.title = immutable ? "历史快照不可修改" : (revision.status === "ready" ? "修改后保存会创建新的草稿版本" : "");
+  }
+
+  function currentRevisionForProduct(productId) {
+    return project?.products.find((item) => item.id === productId || item.revision.product_id === productId)?.revision;
+  }
+
+  function isHistoricalRevision(value) {
+    const current = value && currentRevisionForProduct(value.product_id);
+    return Boolean(current && current.id !== value.id);
   }
 
   function readyBlockers(value = revision) {
@@ -85,7 +96,7 @@
     const blockers = [];
     if (!value.product_name?.trim()) blockers.push("填写商品名称");
     if (!value.selling_points.some((point) => point.confirmed && point.text?.trim())) blockers.push("确认至少一条卖点");
-    if (runtime?.assetsEnabled === true && !value.asset_version_ids.length) blockers.push("选择至少一张可引用图片");
+    if (runtime?.assetsEnabled === true && !value.asset_version_ids.some((id) => availableAssetVersionIds.has(id))) blockers.push("选择至少一张可引用图片");
     if (runtime?.assetsEnabled !== true) blockers.push("素材功能未启用，无法选择商品图片");
     return blockers;
   }
@@ -99,10 +110,10 @@
       setTask({ title: "创建第一个商品", status: "尚未开始", statusClass: "unavailable", saved: "无商品", next: "创建第一个商品", action: productOpener });
     } else if (dirty) {
       setTask({ title: revision.product_name, status: revision.status === "ready" ? "已 Ready · 修改中" : "草稿", statusClass: "draft", saved: "有未保存修改", next: "保存当前修改", action: saveButton });
+    } else if (isHistoricalRevision(revision) || revision.status === "superseded") {
+      setTask({ title: revision.product_name, status: "历史版本", statusClass: "superseded", saved: "只读版本", next: "回到当前版本", blocker: "该版本仅供追溯，不能继续修改。", action: returnCurrentButton.hidden ? null : returnCurrentButton });
     } else if (revision.status === "ready") {
       setTask({ title: revision.product_name, status: "已 Ready", statusClass: "ready", saved: "已保存", next: runtime?.copyGenerationEnabled ? "进入文案与质检" : "等待文案功能启用", action: runtime?.copyGenerationEnabled ? copyLink : null });
-    } else if (revision.status === "superseded") {
-      setTask({ title: revision.product_name, status: "已被替代", statusClass: "superseded", saved: "只读版本", next: "回到当前版本", blocker: "该版本仅供追溯，不能继续修改。", action: returnCurrentButton.hidden ? null : returnCurrentButton });
     } else {
       const blockers = readyBlockers();
       if (blockers.length) {
@@ -114,7 +125,7 @@
   }
 
   function markDirty() {
-    if (rendering || dirty || revision?.status === "superseded") return;
+    if (rendering || dirty || revision?.status === "superseded" || isHistoricalRevision(revision)) return;
     dirty = true;
     copyLink.hidden = true;
     refreshTask();
@@ -157,6 +168,7 @@
   function renderRevision(value) {
     revision = value;
     dirty = false;
+    conflictProductId = undefined;
     loadLatestButton.hidden = true;
     rendering = true;
     syncRevisionUrl();
@@ -170,10 +182,10 @@
     revisionForm.expression_style.value = revision.content_brief?.expression_style || "";
     revisionForm.additional_requirements.value = revision.content_brief?.additional_requirements || "";
     pointList.replaceChildren(...revision.selling_points.map(pointRow));
-    copyLink.hidden = runtime?.copyGenerationEnabled !== true || revision.status !== "ready";
+    copyLink.hidden = runtime?.copyGenerationEnabled !== true || revision.status !== "ready" || isHistoricalRevision(revision);
     copyLink.href = `/copy.html?project=${encodeURIComponent(projectId)}&revision=${encodeURIComponent(revision.id)}`;
-    const current = project.products.find((item) => item.revision.product_id === revision.product_id)?.revision;
-    returnCurrentButton.hidden = revision.status !== "superseded" || !current || current.id === revision.id;
+    const current = currentRevisionForProduct(revision.product_id);
+    returnCurrentButton.hidden = !current || current.id === revision.id;
     notice.textContent = "";
     setRevisionControls();
     renderProducts();
@@ -218,20 +230,26 @@
     if (!revisionId) return null;
     try {
       const candidate = (await request(`/api/product-revisions/${encodeURIComponent(revisionId)}`)).revision;
+      if (!candidate || typeof candidate.id !== "string" || typeof candidate.project_id !== "string" || typeof candidate.product_id !== "string") {
+        throw Object.assign(new Error("PRODUCT_REVISION_RESPONSE_INVALID"), { status: 502 });
+      }
       const productVisibleInProject = project.products.some((item) => item.id === candidate.product_id && item.revision.product_id === candidate.product_id);
       return candidate.project_id === project.id && productVisibleInProject ? candidate : null;
     } catch (error) {
       if (error.message === "AUTH_REQUIRED") throw error;
-      return null;
+      if (error.status === 404) return null;
+      throw error;
     }
   }
 
-  async function loadProject(selectRevisionId = revision?.id || requestedRevisionId) {
+  async function loadProject(selectRevisionId = revision?.id || requestedRevisionId, selectProductId) {
     project = (await request(`/api/projects/${projectId}`)).project;
     const projectName = document.querySelector("#projectName");
     projectName.textContent = project.name;
     projectName.title = project.name;
-    const selected = project.products.find((item) => item.revision.id === selectRevisionId);
+    const selected = selectProductId
+      ? project.products.find((item) => item.id === selectProductId || item.revision.product_id === selectProductId)
+      : project.products.find((item) => item.revision.id === selectRevisionId);
     const historicalRevision = selected ? null : await requestedProjectRevision(selectRevisionId);
     const selectedRevision = selected?.revision || historicalRevision || project.products[0]?.revision;
     if (selectedRevision) renderRevision(selectedRevision);
@@ -248,10 +266,15 @@
 
   async function loadAssets() {
     const box = document.querySelector("#assetOptions");
-    const assets = (await request("/api/assets")).assets.flatMap((asset) => asset.versions.filter((version) => version.status === "available"));
+    const assets = (await request("/api/assets")).assets
+      .filter((asset) => asset.status === "active")
+      .flatMap((asset) => asset.versions.filter((version) => version.status === "available"));
+    availableAssetVersionIds = new Set(assets.map((asset) => asset.id));
     box.replaceChildren();
     if (!assets.length) {
       box.innerHTML = '<p class="empty">没有可引用的商品图片</p>';
+      renderProducts();
+      refreshTask();
       return;
     }
     for (const asset of assets) {
@@ -261,21 +284,28 @@
       input.type = "checkbox";
       input.value = asset.id;
       input.checked = revision?.asset_version_ids.includes(asset.id) || false;
-      input.disabled = revision?.status === "superseded";
+      input.disabled = revision?.status === "superseded" || isHistoricalRevision(revision);
       label.append(input, document.createTextNode(`${asset.original_filename} · 版本 ${asset.version_number}`));
       box.append(label);
     }
+    renderProducts();
+    refreshTask();
   }
 
   async function refreshAssets() {
     const box = document.querySelector("#assetOptions");
     if (!revision) {
+      availableAssetVersionIds = new Set();
       box.innerHTML = '<p class="empty">创建或选择商品后显示可引用图片。</p>';
     } else if (runtime?.assetsEnabled !== true) {
+      availableAssetVersionIds = new Set();
       box.innerHTML = '<p class="empty">素材功能未启用，暂不能选择商品图片。</p>';
     } else {
       await loadAssets();
+      return;
     }
+    renderProducts();
+    refreshTask();
   }
 
   function payload() {
@@ -306,6 +336,7 @@
     } catch (error) {
       saveButton.disabled = false;
       if (error.status === 409) {
+        conflictProductId = revision.product_id;
         notice.className = "notice blocked";
         notice.textContent = "页面内容已过期。本地修改仍保留，可先复制内容，或明确载入服务端最新版本。";
         loadLatestButton.hidden = false;
@@ -360,12 +391,13 @@
   });
   loadLatestButton.addEventListener("click", async () => {
     if (!confirmDiscardChanges()) return;
-    await loadProject();
+    const productId = conflictProductId || revision.product_id;
+    await loadProject(null, productId);
     await refreshAssets();
   });
   returnCurrentButton.addEventListener("click", async () => {
     if (!confirmDiscardChanges()) return;
-    const current = project.products.find((item) => item.revision.product_id === revision.product_id)?.revision;
+    const current = currentRevisionForProduct(revision.product_id);
     if (!current) return;
     renderRevision(current);
     await refreshAssets();
@@ -378,7 +410,12 @@
       notice.className = "notice success";
       notice.textContent = "商品快照已 Ready。";
     } catch (error) {
-      if (error.message === "PRODUCT_REVISION_READY_BLOCKED") {
+      if (["ASSET_NOT_ACTIVE", "ASSET_VERSION_NOT_AVAILABLE"].includes(error.message)) {
+        await refreshAssets();
+        notice.className = "notice blocked";
+        notice.textContent = "素材已不可引用，请重新选择。";
+        setTask({ title: revision.product_name, status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "重新选择商品图片", blocker: "原商品图片已失效或不可用。", action: null });
+      } else if (error.message === "PRODUCT_REVISION_READY_BLOCKED") {
         const labels = { PRODUCT_NAME_REQUIRED: "填写商品名称", SELLING_POINT_REQUIRED: "确认至少一条卖点", IMAGE_REQUIRED: "选择至少一张可引用图片" };
         const blocker = error.body.reasons.map((item) => labels[item.code]).join("、");
         notice.className = "notice blocked";

@@ -43,6 +43,15 @@
 `project_id` 与 `product_id`，不匹配时回落当前可见 revision 且不渲染外部内容；Projects 错误态清除 loading，
 Project 与商品列表在首屏展示可计算的 Ready 阻断。
 
+第二轮独立 Review 继续锁定三个公开真值。RED 证明：状态仍为 Ready、但已经不是商品 current revision 的父版本
+深链仍可编辑；并发 409 后“载入最新”会按旧 revision id 再次选回父版本；历史 GET 的 500 会被静默伪装成
+不存在并回落当前版本。素材侧还会把 disabled asset 下的 available version 当作可引用集合，非空但 stale 的
+`asset_version_ids` 因而错误显示可 Ready。最小 GREEN 改为：以 `product.current_revision_id` 等价的项目快照
+current revision 判定写权限；409 记住冲突 revision 的 `product_id`，重取项目后进入该商品的新 current revision；
+历史 GET 仅 404 安全回落，归属核对失败仍不渲染外部内容，网络/5xx/无效响应显式失败；可引用素材严格为
+active parent 与 available version 的交集，Ready 时遇到 `ASSET_NOT_ACTIVE` 或
+`ASSET_VERSION_NOT_AVAILABLE` 会刷新素材并提示“素材已不可引用，请重新选择”，不做盲目重试。
+
 ## 视觉与可访问性验收
 
 - 真实 Chromium 覆盖 1440、768、390 三个视口，页面无横向滚动，长文本与操作区不溢出。
@@ -51,6 +60,9 @@ Project 与商品列表在首屏展示可计算的 Ready 阻断。
 - 保留语义标题、landmark、label、`aria-live`、`aria-current`、可见键盘焦点、Dialog 焦点恢复和
   `prefers-reduced-motion`。
 - 截图只写入 Git 忽略的 `/private/tmp/hifly-slice-a-screenshots`，未提交到仓库。
+- 截图在各自 viewport 内生成并读取 PNG 像素头核对：Login 为 1440x900、768x900、390x844；Projects 为
+  1440x900、768x900、390x962；Project 为 1440x1064、768x1389、390x1823。文件名与实际宽度一致，
+  修复了首轮在 viewport 循环结束后误把 390 宽截图命名为 1440 的证据问题。
 
 ## 文件范围
 
@@ -66,13 +78,19 @@ package/lock、Cloud Executor、Local Agent、Hifly 实现或任何写 API。
 
 ## 验证
 
-- `node --test test/operator-task-flow-slice-a-browser.test.js test/project-content-browser.test.js`：5/5 通过。
-- `node --test test/operator-task-flow-slice-a-browser.test.js test/gui-smoke.test.js test/frontend-foundation-browser.test.js test/identity-browser.test.js test/project-content-browser.test.js`：23 通过、1 跳过；跳过项是 identity browser 自身的可选环境门禁；新增覆盖 dirty 切换/刷新、409 本地字段保留、历史深链、安全回落、
-  Projects runtime/API 错误、三视口和 reduced-motion。
+- 第二轮 Review RED：`node --test test/operator-task-flow-slice-a-browser.test.js test/project-content-browser.test.js`
+  为 3 通过、2 失败；失败分别是 Ready 父版本仍可编辑，以及 409 恢复仍停在旧 revision。
+- 同一公开 seam 最小 GREEN 后，上述聚焦命令为 5/5 通过；同时覆盖 Ready 父版本只读、回到 current、
+  409 进入冲突商品的新 current、404 安全回落、500 显式失败、disabled/stale 素材阻断和素材竞态恢复提示。
+- Slice A 两组公开浏览器 seam 已用本机 Chrome 实际运行 5/5 通过；新增覆盖 dirty 切换/刷新、409 本地字段
+  保留并进入商品新 current、Ready 父版本历史深链、404 安全回落与 500 显式失败、disabled/stale 素材、
+  Projects runtime/API 错误、三视口和 reduced-motion。其余 legacy/foundation/identity 浏览器兼容性继续由
+  完整测试与 fixed-head CI 覆盖。
 - Project API/service 聚焦回归：14/14 通过，新增同组织读取、未认证拒绝、缺失与跨组织统一 404。
 - `npm run check`：通过，检查 229 个 JavaScript 文件。
-- `npm test`：1022 tests，972 通过，50 跳过，0 失败；其中 37 项因该次全量命令的 Chromium 环境门禁跳过，
-  13 项因可选 PostgreSQL 环境未启用而跳过。Slice A 的公开浏览器组已另用本机 Chrome 实际运行通过。
+- `npm test`：1022 tests，1008 通过，14 跳过，0 失败；其中 13 项需要可选 PostgreSQL 环境，1 项是 identity
+  browser 自身的可选环境门禁。Slice A 的公开浏览器组同时在该完整命令中通过，并已另用本机 Chrome 聚焦
+  运行 5/5 通过。
 - 首次修复后全量并发测试暴露 Slice A 与既有 production-order browser 同用 57900 起始端口的竞争；将 Slice A
   测试起始端口移至未占用区间后，全量回归稳定为零失败，未改生产端口或运行逻辑。
 - `git diff --check` 与严格 allowlist 在提交前复核。
