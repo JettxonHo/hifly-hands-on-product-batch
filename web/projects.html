@@ -8,10 +8,11 @@
     <link rel="stylesheet" href="/base.css">
     <link rel="stylesheet" href="/shell.css">
     <link rel="stylesheet" href="/project-content.css">
+    <link rel="stylesheet" href="/operator-task-flow.css">
     <script src="/shell.js" defer></script>
     <script src="/projects.js" defer></script>
   </head>
-  <body data-shell-page="projects">
+  <body class="operator-task-page" data-shell-page="projects">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
     <div class="app-shell">
       <aside class="app-sidebar">
@@ -30,11 +31,21 @@
         <main id="mainContent" class="page-content">
           <div class="page-header">
             <div><p class="eyebrow">企业内容</p><h1>项目</h1><p class="page-description">集中管理商品资料与后续内容生产。</p></div>
-            <div class="page-actions"><button id="openProjectDialog" type="button">创建项目</button></div>
+            <div class="page-actions"><button id="openProjectDialog" class="secondary" type="button">创建项目</button></div>
           </div>
+          <section class="task-summary" aria-label="当前任务" aria-live="polite">
+            <div class="task-summary-context"><p class="eyebrow">当前任务</p><h2 id="taskSummaryTitle">选择要继续的项目</h2></div>
+            <dl class="task-summary-facts">
+              <div><dt>当前上下文</dt><dd id="taskContext">企业项目</dd></div>
+              <div><dt>所处步骤</dt><dd>项目准备</dd></div>
+              <div><dt>业务状态</dt><dd id="taskStatus" class="state upload_pending">正在加载</dd></div>
+            </dl>
+            <div class="task-summary-next"><span>推荐下一步</span><strong id="taskNext">等待项目载入</strong></div>
+            <p id="taskBlocker" class="task-summary-blocker" hidden></p>
+          </section>
           <section class="surface" aria-labelledby="projectListTitle">
             <div class="surface-header"><div><h2 id="projectListTitle">全部项目</h2><p>按项目进入商品与素材准备工作。</p></div><button id="refresh" class="secondary" type="button">刷新</button></div>
-            <div id="projectList" class="project-list"><p class="empty">正在加载...</p></div>
+            <div id="projectList" class="project-list" aria-live="polite" aria-busy="true"><p class="empty">正在加载...</p></div>
             <p id="listError" class="notice error" role="alert"></p>
           </section>
         </main>

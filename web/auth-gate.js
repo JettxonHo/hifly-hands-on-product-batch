@@ -25,6 +25,12 @@
       strip.append(assets);
     }
     if (runtime.projectContentEnabled === true) {
+      if (window.location.pathname === "/") {
+        window.location.replace("/projects.html");
+        return;
+      }
+      const enterpriseEntry = document.querySelector("#enterpriseProjectEntry");
+      if (enterpriseEntry) enterpriseEntry.hidden = false;
       const projects = document.createElement("a");
       projects.href = "/projects.html";
       projects.className = "status-pill";

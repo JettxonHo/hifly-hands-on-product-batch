@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-13
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营任务流方向 A 已获 Owner 批准，Issue #164 / PR #165 是精确 UX V1 合同进入 `designed` 的 acceptance gate
+> 最后更新：2026-08-14
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营任务流 UX V1 已进入 `designed`，Issue #166 是 Slice A 仓库实现的 acceptance gate
 
 ## 1. 已完成基线
 
@@ -23,7 +23,7 @@ P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
 P0.4  3 条严格串行、受控内部试运行（已完成）
 P0.5  release-readiness：代码/依赖部署完成；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
-UX V1 运营任务流优先：acceptance gate → designed → Slice A → Slice B → Slice C（方向已批准；代码尚未实现）
+UX V1 运营任务流优先：designed → Slice A acceptance gate（#166）→ Slice B → Slice C（Slice A 不自动部署）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -35,12 +35,13 @@ release-readiness 的 `works.html?work=<id>` 首选项修复与生产依赖治�
 
 P0.4 的三条结果证明人工控制下的严格串行路径可重复完成，但不构成自动队列批量运行、更大规模、长时间稳定性、并行能力或公网生产 SLA 的证据。
 
-Owner 已批准“运营任务流优先”作为页面升级方向；Issue #164 / PR #165 是
-`docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 的 acceptance gate。合同只有随 PR 合并进入 `main` 才计为
-`designed`；该状态不代表代码已实现、已部署或客户已验收。后续实施必须按以下顺序串行：
+Owner 已批准“运营任务流优先”作为页面升级方向；`docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 已通过
+Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Issue #166 是 Slice A 仓库实现的 acceptance gate；
+本段随其实现 PR 进入 `main` 后，只证明代码与测试落库，不代表已部署或客户已验收。后续实施必须按以下顺序串行：
 
-1. Slice A：Entry seam + shared opt-in UX foundation + Projects/Project；企业能力开启时 `/`、登录和会话恢复进入
-   Projects，显式 `/index.html` 保留 legacy fallback；共享 CSS 不得意外改变未迁移页面。
+1. Slice A：Entry seam + shared opt-in UX foundation + Projects/Project；企业能力开启时 `/` 进入 Projects，显式
+   `/index.html` 保留 legacy fallback；Login、Projects 与 Project 使用首屏任务摘要和唯一推荐下一步；共享 CSS 仅
+   通过根 class opt-in，不得意外改变未迁移页面。Issue #166 合并后仍需独立部署和运行时验收。
 2. Slice B：Copy/Avatar/Plan；清楚区分自动检查与人工批准。
 3. Slice C：Production/Works/Assets；Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order
    零 attempt 与 active attempts=0；terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经
