@@ -7,20 +7,22 @@
     <link rel="stylesheet" href="/tokens.css">
     <link rel="stylesheet" href="/base.css">
     <link rel="stylesheet" href="/login.css">
+    <link rel="stylesheet" href="/operator-task-flow.css">
     <script src="/login.js" defer></script>
   </head>
-  <body>
+  <body class="operator-task-page operator-auth-page">
     <main class="auth-shell">
       <section class="auth-card" aria-labelledby="authTitle">
         <div class="auth-brand"><span aria-hidden="true">飞</span>飞影企业工作台</div>
+        <p class="auth-context">企业内容生产</p>
         <h1 id="authTitle">登录</h1>
         <p id="authSubtitle" class="muted">使用工作邮箱与密码登录企业工作台。</p>
         <form id="authForm">
           <label id="emailField">工作邮箱<input id="email" type="email" autocomplete="username" required></label>
           <label id="passwordField">密码<input id="password" type="password" autocomplete="current-password" required></label>
           <label id="newPasswordField" hidden>新密码<input id="newPassword" type="password" autocomplete="new-password"></label>
-          <button id="submitButton" type="submit">登录</button>
-          <p id="authError" class="error" role="alert"></p>
+          <button id="submitButton" type="submit" data-recommended-action="true">登录</button>
+          <p id="authError" class="error" role="alert" aria-live="assertive"></p>
         </form>
       </section>
     </main>

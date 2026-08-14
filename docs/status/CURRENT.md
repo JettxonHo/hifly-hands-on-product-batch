@@ -1,28 +1,42 @@
 # 项目当前状态
 
-> 最后更新：2026-08-13
+> 最后更新：2026-08-14
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
 > 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；release-readiness 代码与依赖治理已部署到内部验收环境，可信 TLS 仍未完成，仍不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
 
-## UX V1 设计阶段
+## UX V1 Slice A 仓库实现
 
-- Owner 已批准 UX 方案 A“运营任务流优先”；Issue #164 / PR #165 是精确合同的 acceptance gate，该合同只有随 PR 合并进入 `main` 才计为 `designed`。
+- Owner 已批准 UX 方案 A“运营任务流优先”；Issue #164 / PR #165 已将精确合同合并进入 `main`，当前状态为 `designed`。
 - `docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 固化首屏五问、业务状态优先、唯一推荐下一步、技术详情折叠、
   Entry seam、Production 时序门禁、Works 列表+预览、Assets 类型/用途分组和 1440/768/390 验收合同。
-- `designed` 只证明合同进入 `main`，不代表前端代码已修改、已部署或客户已验收；当前生产页面和内部验收环境尚未采用该 UX。
-- Entry seam 要求企业能力开启时 `/`、登录、改密、会话恢复与成员无权限回落进入 Projects；显式 `/index.html`
-  保留本地/运维 legacy fallback，不破坏现有 GUI 与真实执行门禁。
+- Issue #166 是 Slice A 的实现与 acceptance gate。本节随其实现 PR 进入 `main` 后，只证明仓库中的 Entry、Login、
+  Projects 与 Project 已采用首屏任务摘要、唯一推荐下一步、完整页面状态和 opt-in 响应式样式；不代表已部署或客户已验收。
+- 企业能力开启时，直接访问 `/` 进入 Projects；登录、改密、会话恢复与成员无权限回落继续使用现有企业落点。
+  显式 `/index.html` 保留本地/运维 legacy fallback，并提示企业流程进入项目；feature-off 或 runtime/auth 请求失败时
+  安全保留 legacy 页面，不产生空白页、跳转循环或权限绕过。
+- Projects 覆盖加载、空、失败、有项目和创建 Dialog；有项目时优先继续最近项目。Project 覆盖无商品、草稿、
+  未保存/保存中/已保存、Ready、superseded、Ready 阻断和 409 版本冲突。商品切换、刷新和冲突后载入最新版本
+  均显式保护本地修改；只有商品的当前 revision 可编辑，任何非当前 revision（包括状态仍为 Ready 的父版本）
+  都作为只读历史快照呈现并提供回到当前版本的入口。409 恢复按冲突商品重新选择其最新 current revision，
+  不会回到旧父版本。历史 revision 深链通过组织隔离的只读 seam 加载：404 或归属核对失败安全回落，
+  网络、5xx 或无效响应则显式失败且保留请求上下文。草稿首屏按 active asset + available version 的交集计算
+  Ready 阻断；素材竞态失效时刷新可引用集合并要求重新选择。Projects 快照不足时明确提示进入项目核对，
+  不伪造零阻断。
+- 新样式仅在 `.operator-task-page` 根节点下生效，未迁移企业页面和 legacy GUI 不受共享 CSS 意外影响；浏览器回归覆盖
+  1440/768/390、无页面级横向滚动、Dialog 焦点恢复、可见焦点和 reduced-motion。
 - Production 合同按时序执行：每轮激活前 Worker off，只为当前 SKU 准备 order + ready handoff，eligible 严格为
   `[currentOrderId]`，当前 order `attempts=[]` 且 active attempts=0；terminal 后立即关 Worker并保留 attempt。
   失败/需处理停止且不创建下一条、不自动重试；成功须经 A12 passed、Work available 与鉴权真实字节下载后，
   才能在 Worker off 下准备下一条。
-- 精确合同进入 `designed` 后，后续严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）→ Slice B（Copy/Avatar/Plan）→
-  Slice C（Production/Works/Assets）。每个切片必须独立 Issue、Draft PR、浏览器回归和 Review，前一切片合并后才开始下一切片。
+- 后续仍严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）完成独立 Review 后，才开始 Slice B
+  （Copy/Avatar/Plan）；Slice B 合并后才开始 Slice C（Production/Works/Assets）。每个切片必须独立 Issue、Draft PR、
+  浏览器回归和 Review，且不自动部署。
 - 旧 `gui/visual-refresh` 工作树及 CSS-only 改动不是本轮基线，不得合并、搬运或覆盖；现有 tokens、基础组件、
-  vanilla HTML/CSS/JS、API、组织授权、状态机和 fail-closed 生产合同继续保留。
+  vanilla HTML/CSS/JS、组织授权、状态机和 fail-closed 生产合同继续保留；唯一新增 API 是组织隔离的
+  `GET /api/product-revisions/:revisionId` 只读 seam，写路径与领域语义不变。
 
 ## P0.5 内部验收环境部署
 
@@ -180,10 +194,12 @@
 
 ## 下一步
 
-1. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
-2. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
+1. Slice A 的仓库实现以 Issue #166 的独立 Review 与合并为 acceptance gate；合并后仍需单独部署和运行时验收，
+   不得把本地浏览器回归写成生产采用。Slice B 只能在该 gate 完成后另建 Issue 开始。
+2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
+3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
-3. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
+4. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
 
 ## 长期边界
 

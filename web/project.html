@@ -8,10 +8,11 @@
     <link rel="stylesheet" href="/base.css">
     <link rel="stylesheet" href="/shell.css">
     <link rel="stylesheet" href="/project-content.css">
+    <link rel="stylesheet" href="/operator-task-flow.css">
     <script src="/shell.js" defer></script>
     <script src="/project.js" defer></script>
   </head>
-  <body data-shell-page="projects">
+  <body class="operator-task-page" data-shell-page="projects">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
     <div class="app-shell">
       <aside class="app-sidebar">
@@ -27,12 +28,23 @@
         <main id="mainContent" class="page-content">
           <div class="page-header">
             <div><p class="eyebrow"><a href="/projects.html">项目</a> / 商品</p><h1 id="projectName">正在加载...</h1><p class="page-description">维护可审阅、可追溯的商品内容快照。</p></div>
-            <div class="page-actions"><button id="openProductDialog" type="button">创建商品</button></div>
+            <div class="page-actions"><button id="openProductDialog" class="secondary" type="button">创建商品</button></div>
           </div>
+          <section class="task-summary" aria-label="当前任务" aria-live="polite">
+            <div class="task-summary-context"><p class="eyebrow">当前任务</p><h2 id="taskSummaryTitle">载入商品工作区</h2></div>
+            <dl class="task-summary-facts">
+              <div><dt>当前上下文</dt><dd id="taskContext">正在读取项目</dd></div>
+              <div><dt>所处步骤</dt><dd>商品与目标 · 1/5</dd></div>
+              <div><dt>业务状态</dt><dd id="taskStatus" class="state upload_pending">正在加载</dd></div>
+              <div><dt>保存状态</dt><dd id="saveStatus">等待载入</dd></div>
+            </dl>
+            <div class="task-summary-next"><span>推荐下一步</span><strong id="taskNext">等待商品载入</strong></div>
+            <p id="taskBlocker" class="task-summary-blocker" hidden></p>
+          </section>
           <div class="product-workspace">
-            <section class="surface product-sidebar" aria-labelledby="productListTitle"><div class="surface-header"><h2 id="productListTitle">商品</h2></div><div id="productList" class="product-list"></div></section>
+            <section class="surface product-sidebar" aria-labelledby="productListTitle"><div class="surface-header"><h2 id="productListTitle">商品</h2></div><div id="productList" class="product-list" aria-live="polite"></div></section>
             <section id="editor" class="surface product-editor" hidden>
-              <div class="surface-header"><div><h2>商品快照</h2><span id="revisionState" class="state"></span></div><div class="button-row"><a id="openCopyWorkspace" class="workspace-link" href="/copy.html" hidden>进入文案与质检</a><button id="refreshRevision" class="secondary" type="button">刷新</button></div></div>
+              <div class="surface-header"><div><h2>商品快照</h2><span id="revisionState" class="state"></span></div><div class="button-row"><a id="openCopyWorkspace" class="workspace-link" href="/copy.html" hidden>进入文案与质检</a><button id="returnCurrentRevision" class="secondary" type="button" hidden>回到当前版本</button><button id="loadLatestRevision" class="secondary" type="button" hidden>载入服务端最新版本</button><button id="refreshRevision" class="secondary" type="button">刷新</button></div></div>
               <form id="revisionForm" class="grid">
                 <label>商品名称<input name="product_name" required></label><label>品类<input name="primary_category" value="general"></label>
                 <label class="wide">商品说明<textarea name="product_description" rows="3"></textarea></label>

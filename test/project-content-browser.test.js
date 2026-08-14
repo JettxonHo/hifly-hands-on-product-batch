@@ -41,7 +41,7 @@ test("system Chrome completes and restores the project-content flow", async (t) 
   const page = await browser.newPage();
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL); await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
   await page.locator("#newPassword").fill("Browser-Content-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
-  await page.getByRole("link", { name: "项目", exact: true }).click(); await page.getByRole("button", { name: "创建项目" }).click(); await page.getByLabel("项目名称").fill("八月新品"); await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click(); await page.getByText("打开", { exact: true }).click();
+  await page.getByRole("link", { name: "项目", exact: true }).click(); await page.getByRole("button", { name: "创建项目" }).click(); await page.getByLabel("项目名称").fill("八月新品"); await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click(); await page.getByRole("link", { name: "继续项目" }).click();
   await page.getByRole("button", { name: "创建商品" }).click(); await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("云朵抱枕"); await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
   await page.getByRole("button", { name: "新增卖点" }).click(); await page.locator(".point-row input").fill("柔软亲肤"); await page.getByRole("button", { name: "保存草稿" }).click(); await page.getByText("草稿已保存。").waitFor();
   await page.getByRole("button", { name: "确认", exact: true }).click(); await page.getByText(/已确认。$/).waitFor(); await page.locator("#assetOptions input").check();
@@ -51,14 +51,61 @@ test("system Chrome completes and restores the project-content flow", async (t) 
   await page.reload(); await page.locator("#revisionState").waitFor(); assert.match(await page.locator("#revisionState").textContent(), /^已 Ready/);
   assert.equal(new URL(page.url()).searchParams.get("revision"), revisionId);
   assert.equal(await page.getByRole("button", { name: "设为 Ready" }).isDisabled(), true);
+  assert.equal(await page.locator("#assetOptions input").isDisabled(), false);
 
-  await page.route(new RegExp(`/api/product-revisions/${revisionId}$`), (route) => route.fulfill({
-    status: 409,
-    contentType: "application/json",
-    body: JSON.stringify({ error: "PRODUCT_REVISION_CONFLICT" })
-  }));
+  const concurrent = await page.evaluate(async ({ revisionId }) => {
+    const csrf = decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
+    const revision = await (await fetch(`/api/product-revisions/${revisionId}`)).json();
+    const response = await fetch(`/api/product-revisions/${revisionId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-identity-csrf": csrf },
+      body: JSON.stringify({
+        expected_revision: revision.revision.revision_number,
+        product_name: revision.revision.product_name,
+        product_description: "服务端并发版本",
+        primary_category: revision.revision.primary_category,
+        content_brief: revision.revision.content_brief,
+        selling_points: revision.revision.selling_points,
+        asset_version_ids: revision.revision.asset_version_ids
+      })
+    });
+    return response.json();
+  }, { revisionId });
+  const currentRevisionId = concurrent.revision.id;
+  assert.notEqual(currentRevisionId, revisionId);
   await page.locator('textarea[name="product_description"]').fill("并发修改");
   await page.getByRole("button", { name: "保存草稿" }).click();
-  await page.getByText("页面内容已过期，请刷新后继续。", { exact: true }).waitFor();
-  await page.unroute(new RegExp(`/api/product-revisions/${revisionId}$`));
+  await page.getByText("页面内容已过期。本地修改仍保留，可先复制内容，或明确载入服务端最新版本。", { exact: true }).waitFor();
+  assert.equal(await page.locator('textarea[name="product_description"]').inputValue(), "并发修改");
+  assert.equal(await page.getByRole("button", { name: "载入服务端最新版本" }).isVisible(), true);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "载入服务端最新版本" }).click();
+  await page.waitForURL((url) => url.searchParams.get("revision") === currentRevisionId);
+  assert.equal(await page.locator('textarea[name="product_description"]').inputValue(), "服务端并发版本");
+  assert.equal(new URL(page.url()).searchParams.get("revision"), currentRevisionId);
+
+  await page.route("**/api/assets", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ assets: [{ ...authorized.asset, status: "disabled", versions: [{ ...authorized.asset_version, status: "available" }] }] })
+  }));
+  await page.reload();
+  await page.getByText("选择至少一张可引用图片", { exact: false }).waitFor();
+  assert.equal(await page.locator("#assetOptions input").count(), 0);
+
+  await page.unroute("**/api/assets");
+  await page.reload();
+  await page.route(new RegExp(`/api/product-revisions/${currentRevisionId}/ready$`), (route) => route.fulfill({
+    status: 422,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "ASSET_NOT_ACTIVE" })
+  }));
+  await page.route("**/api/assets", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ assets: [{ ...authorized.asset, status: "disabled", versions: [{ ...authorized.asset_version, status: "available" }] }] })
+  }));
+  await page.getByRole("button", { name: "设为 Ready" }).click();
+  await page.getByText("素材已不可引用，请重新选择。", { exact: true }).waitFor();
+  assert.equal(await page.locator("#assetOptions input").count(), 0);
 });
