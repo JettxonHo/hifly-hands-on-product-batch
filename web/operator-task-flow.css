@@ -112,6 +112,12 @@
   text-decoration: none;
 }
 
+.operator-task-page .project-readiness {
+  margin-top: var(--space-2);
+  color: var(--n-500);
+  font-size: 12px;
+}
+
 .operator-task-page .product-workspace {
   margin-top: 0;
 }

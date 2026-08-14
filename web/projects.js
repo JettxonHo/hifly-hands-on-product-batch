@@ -11,6 +11,7 @@
   const taskStatus = document.querySelector("#taskStatus");
   const taskNext = document.querySelector("#taskNext");
   const taskBlocker = document.querySelector("#taskBlocker");
+  let runtimeReady = false;
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
 
   async function request(url, options = {}) {
@@ -71,12 +72,15 @@
       name.title = project.name;
       const meta = document.createElement("p");
       meta.textContent = [project.delivery_date ? `交付 ${project.delivery_date}` : null, project.description].filter(Boolean).join(" · ") || "未填写说明";
+      const readiness = document.createElement("p");
+      readiness.className = "project-readiness";
+      readiness.textContent = "商品状态需进入项目核对";
       const link = document.createElement("a");
       link.href = `/project.html?id=${encodeURIComponent(project.id)}`;
       link.textContent = index === 0 ? "继续项目" : "打开项目";
       link.setAttribute("aria-label", index === 0 ? `继续项目，打开 ${project.name}` : `打开项目 ${project.name}`);
       link.className = "project-context-link";
-      detail.append(name, meta);
+      detail.append(name, meta, readiness);
       row.append(detail, link);
       list.append(row);
     });
@@ -94,6 +98,7 @@
     } catch (error) {
       list.setAttribute("aria-busy", "false");
       if (error.message === "AUTH_REQUIRED") return;
+      list.replaceChildren();
       listError.textContent = "项目加载失败，请刷新重试。";
       recommend(refreshButton);
       task({ title: "项目暂时无法载入", context: "企业项目", status: "加载失败", statusClass: "failure", next: "重新加载项目", blocker: "项目列表未载入，请先重试。" });
@@ -121,7 +126,10 @@
     }
   });
 
-  refreshButton.addEventListener("click", refresh);
+  refreshButton.addEventListener("click", () => {
+    if (runtimeReady) refresh();
+    else location.reload();
+  });
   opener.addEventListener("click", () => {
     formError.textContent = "";
     dialog.showModal();
@@ -133,10 +141,14 @@
   try {
     const runtime = await request("/api/runtime");
     if (!runtime.projectContentEnabled) location.replace("/");
-    else await refresh();
+    else {
+      runtimeReady = true;
+      await refresh();
+    }
   } catch (error) {
     if (error.message !== "AUTH_REQUIRED") {
       list.setAttribute("aria-busy", "false");
+      list.replaceChildren();
       listError.textContent = "工作台配置暂时无法读取，请稍后刷新。";
       recommend(refreshButton);
       task({ title: "工作台暂时无法载入", context: "企业项目", status: "加载失败", statusClass: "failure", next: "稍后刷新页面", blocker: "运行配置未载入。" });

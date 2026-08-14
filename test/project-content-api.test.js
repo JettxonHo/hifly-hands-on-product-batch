@@ -86,3 +86,35 @@ test("API exposes ready blockers and stale revisions without internal details", 
   assert.equal(invalid.statusCode, 400);
   assert.deepEqual(invalid.json(), { error: "INVALID_SELLING_POINTS" });
 });
+
+test("product revision read seam preserves organization-scoped not-found semantics", async (t) => {
+  const { app, auth, repository } = await world(t);
+  const project = (await app.inject({ method: "POST", url: "/api/projects", headers: headers(auth, true, "read-project"), payload: { name: "历史版本读取" } })).json().project;
+  const revision = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`, headers: headers(auth, true, "read-product"), payload: { product_name: "可见商品" } })).json().revision;
+
+  const visible = await app.inject({ method: "GET", url: `/api/product-revisions/${revision.id}`, headers: headers(auth) });
+  assert.equal(visible.statusCode, 200, visible.body);
+  assert.deepEqual(visible.json(), { revision });
+
+  const missing = await app.inject({ method: "GET", url: "/api/product-revisions/missing-revision", headers: headers(auth) });
+  assert.equal(missing.statusCode, 404);
+  assert.deepEqual(missing.json(), { error: "PRODUCT_REVISION_NOT_FOUND" });
+
+  await repository.transaction(async (uow) => {
+    await uow.insertRevision({
+      ...revision,
+      id: "other-organization-revision",
+      organization_id: "org_other",
+      project_id: "other-project",
+      product_id: "other-product",
+      product_name: "不可见商品"
+    });
+  });
+  const invisible = await app.inject({ method: "GET", url: "/api/product-revisions/other-organization-revision", headers: headers(auth) });
+  assert.equal(invisible.statusCode, 404);
+  assert.deepEqual(invisible.json(), missing.json());
+
+  const unauthenticated = await app.inject({ method: "GET", url: `/api/product-revisions/${revision.id}`, headers: identityHeaders() });
+  assert.equal(unauthenticated.statusCode, 401);
+  assert.deepEqual(unauthenticated.json(), { error: "AUTH_REQUIRED" });
+});

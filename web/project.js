@@ -12,6 +12,8 @@
   const saveButton = document.querySelector("#saveDraft");
   const readyButton = document.querySelector("#readyRevision");
   const refreshButton = document.querySelector("#refreshRevision");
+  const returnCurrentButton = document.querySelector("#returnCurrentRevision");
+  const loadLatestButton = document.querySelector("#loadLatestRevision");
   const copyLink = document.querySelector("#openCopyWorkspace");
   const taskTitle = document.querySelector("#taskSummaryTitle");
   const taskContext = document.querySelector("#taskContext");
@@ -42,7 +44,7 @@
 
   function recommend(element) {
     document.querySelectorAll('[data-recommended-action="true"]').forEach((item) => item.removeAttribute("data-recommended-action"));
-    [productOpener, saveButton, readyButton, refreshButton].forEach((button) => button.classList.add("secondary"));
+    [productOpener, saveButton, readyButton, refreshButton, returnCurrentButton, loadLatestButton].forEach((button) => button.classList.add("secondary"));
     copyLink.classList.add("secondary-link");
     if (element?.tagName === "BUTTON") element.classList.remove("secondary");
     if (element === copyLink) copyLink.classList.remove("secondary-link");
@@ -78,6 +80,20 @@
     readyButton.title = revision.status === "ready" ? "修改后保存会创建新的草稿版本" : (immutable ? "已被替代的快照不可修改" : "");
   }
 
+  function readyBlockers(value = revision) {
+    if (!value || value.status !== "draft") return [];
+    const blockers = [];
+    if (!value.product_name?.trim()) blockers.push("填写商品名称");
+    if (!value.selling_points.some((point) => point.confirmed && point.text?.trim())) blockers.push("确认至少一条卖点");
+    if (runtime?.assetsEnabled === true && !value.asset_version_ids.length) blockers.push("选择至少一张可引用图片");
+    if (runtime?.assetsEnabled !== true) blockers.push("素材功能未启用，无法选择商品图片");
+    return blockers;
+  }
+
+  function confirmDiscardChanges() {
+    return !dirty || window.confirm("当前有未保存修改。放弃这些修改并继续吗？");
+  }
+
   function refreshTask() {
     if (!revision) {
       setTask({ title: "创建第一个商品", status: "尚未开始", statusClass: "unavailable", saved: "无商品", next: "创建第一个商品", action: productOpener });
@@ -86,11 +102,14 @@
     } else if (revision.status === "ready") {
       setTask({ title: revision.product_name, status: "已 Ready", statusClass: "ready", saved: "已保存", next: runtime?.copyGenerationEnabled ? "进入文案与质检" : "等待文案功能启用", action: runtime?.copyGenerationEnabled ? copyLink : null });
     } else if (revision.status === "superseded") {
-      setTask({ title: revision.product_name, status: "已被替代", statusClass: "superseded", saved: "只读版本", next: "选择当前商品版本", blocker: "该版本仅供追溯，不能继续修改。", action: null });
-    } else if (runtime?.assetsEnabled !== true) {
-      setTask({ title: revision.product_name, status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "等待素材功能启用", blocker: "素材功能未启用，无法选择 Ready 所需的商品图片。", action: null });
+      setTask({ title: revision.product_name, status: "已被替代", statusClass: "superseded", saved: "只读版本", next: "回到当前版本", blocker: "该版本仅供追溯，不能继续修改。", action: returnCurrentButton.hidden ? null : returnCurrentButton });
     } else {
-      setTask({ title: revision.product_name, status: "草稿", statusClass: "draft", saved: "已保存", next: "检查并设为 Ready", action: readyButton });
+      const blockers = readyBlockers();
+      if (blockers.length) {
+        setTask({ title: revision.product_name || "未命名商品", status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "补齐 Ready 条件", blocker: `${blockers.length} 项待处理：${blockers.join("、")}`, action: null });
+      } else {
+        setTask({ title: revision.product_name, status: "草稿", statusClass: "draft", saved: "已保存", next: "检查并设为 Ready", action: readyButton });
+      }
     }
   }
 
@@ -138,6 +157,7 @@
   function renderRevision(value) {
     revision = value;
     dirty = false;
+    loadLatestButton.hidden = true;
     rendering = true;
     syncRevisionUrl();
     editor.hidden = false;
@@ -152,6 +172,8 @@
     pointList.replaceChildren(...revision.selling_points.map(pointRow));
     copyLink.hidden = runtime?.copyGenerationEnabled !== true || revision.status !== "ready";
     copyLink.href = `/copy.html?project=${encodeURIComponent(projectId)}&revision=${encodeURIComponent(revision.id)}`;
+    const current = project.products.find((item) => item.revision.product_id === revision.product_id)?.revision;
+    returnCurrentButton.hidden = revision.status !== "superseded" || !current || current.id === revision.id;
     notice.textContent = "";
     setRevisionControls();
     renderProducts();
@@ -177,10 +199,30 @@
       name.textContent = item.revision.product_name || "未命名商品";
       const meta = document.createElement("span");
       meta.className = "product-meta";
-      meta.textContent = `${revisionLabels[item.revision.status] || "状态待确认"} · v${item.revision.revision_number}`;
+      const blockers = readyBlockers(item.revision);
+      const readiness = item.revision.status === "draft"
+        ? (blockers.length ? `${blockers.length} 项待处理` : "可 Ready")
+        : null;
+      meta.textContent = [`${revisionLabels[item.revision.status] || "状态待确认"} · v${item.revision.revision_number}`, readiness].filter(Boolean).join(" · ");
       button.append(name, meta);
-      button.addEventListener("click", () => renderRevision(item.revision));
+      button.addEventListener("click", async () => {
+        if (!confirmDiscardChanges()) return;
+        renderRevision(item.revision);
+        await refreshAssets();
+      });
       list.append(button);
+    }
+  }
+
+  async function requestedProjectRevision(revisionId) {
+    if (!revisionId) return null;
+    try {
+      const candidate = (await request(`/api/product-revisions/${encodeURIComponent(revisionId)}`)).revision;
+      const productVisibleInProject = project.products.some((item) => item.id === candidate.product_id && item.revision.product_id === candidate.product_id);
+      return candidate.project_id === project.id && productVisibleInProject ? candidate : null;
+    } catch (error) {
+      if (error.message === "AUTH_REQUIRED") throw error;
+      return null;
     }
   }
 
@@ -189,8 +231,10 @@
     const projectName = document.querySelector("#projectName");
     projectName.textContent = project.name;
     projectName.title = project.name;
-    const selected = project.products.find((item) => item.revision.id === selectRevisionId) || project.products[0];
-    if (selected) renderRevision(selected.revision);
+    const selected = project.products.find((item) => item.revision.id === selectRevisionId);
+    const historicalRevision = selected ? null : await requestedProjectRevision(selectRevisionId);
+    const selectedRevision = selected?.revision || historicalRevision || project.products[0]?.revision;
+    if (selectedRevision) renderRevision(selectedRevision);
     else {
       editor.hidden = true;
       revision = undefined;
@@ -263,8 +307,9 @@
       saveButton.disabled = false;
       if (error.status === 409) {
         notice.className = "notice blocked";
-        notice.textContent = "页面内容已过期，请刷新后继续。";
-        setTask({ title: revision.product_name, status: "版本冲突", statusClass: "requires_action", saved: "未保存", next: "刷新当前版本", blocker: "其他人已更新该商品，请刷新后重新确认修改。", action: refreshButton });
+        notice.textContent = "页面内容已过期。本地修改仍保留，可先复制内容，或明确载入服务端最新版本。";
+        loadLatestButton.hidden = false;
+        setTask({ title: revision.product_name, status: "版本冲突", statusClass: "requires_action", saved: "本地修改未保存", next: "核对后载入服务端最新版本", blocker: "其他人已更新该商品。载入最新版本会放弃当前本地修改。", action: loadLatestButton });
       } else {
         notice.className = "notice error";
         notice.textContent = "保存失败，请稍后重试。";
@@ -308,7 +353,23 @@
   revisionForm.addEventListener("input", markDirty);
   revisionForm.addEventListener("change", markDirty);
   document.querySelector("#addPoint").addEventListener("click", () => { pointList.append(pointRow()); markDirty(); });
-  refreshButton.addEventListener("click", async () => { await loadProject(); await refreshAssets(); });
+  refreshButton.addEventListener("click", async () => {
+    if (!confirmDiscardChanges()) return;
+    await loadProject();
+    await refreshAssets();
+  });
+  loadLatestButton.addEventListener("click", async () => {
+    if (!confirmDiscardChanges()) return;
+    await loadProject();
+    await refreshAssets();
+  });
+  returnCurrentButton.addEventListener("click", async () => {
+    if (!confirmDiscardChanges()) return;
+    const current = project.products.find((item) => item.revision.product_id === revision.product_id)?.revision;
+    if (!current) return;
+    renderRevision(current);
+    await refreshAssets();
+  });
   readyButton.addEventListener("click", async () => {
     if (!(await save())) return;
     try {
@@ -332,6 +393,7 @@
   });
 
   productOpener.addEventListener("click", () => {
+    if (!confirmDiscardChanges()) return;
     document.querySelector("#productError").textContent = "";
     productDialog.showModal();
     productForm.product_name.focus();

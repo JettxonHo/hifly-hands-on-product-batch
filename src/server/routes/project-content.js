@@ -20,6 +20,10 @@ export async function registerProjectContentRoutes(app, { service }) {
     project: await service.getProject({ ...actor(request), projectId: request.params.projectId })
   }));
 
+  app.get("/api/product-revisions/:revisionId", async (request) => ({
+    revision: await service.getRevision({ ...actor(request), productRevisionId: request.params.revisionId })
+  }));
+
   app.post("/api/projects/:projectId/products", async (request, reply) => {
     const result = await service.createProduct({
       ...actor(request), projectId: request.params.projectId, idempotencyKey: request.headers["idempotency-key"],

@@ -17,7 +17,7 @@ import { ADMIN_EMAIL, ADMIN_TEMP_PASSWORD } from "./helpers/identity-world.js";
 async function startEnterpriseBrowser(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-task-flow-slice-a-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const port = await findAvailablePort(57900);
+  const port = await findAvailablePort(58500);
   const host = `127.0.0.1:${port}`;
   const origin = `http://${host}`;
   const identityRepository = createMemoryIdentityRepository();
@@ -82,6 +82,10 @@ async function authenticate(page, origin) {
   await page.waitForURL(`${origin}/projects.html`);
 }
 
+async function assertNoHorizontalOverflow(page) {
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+}
+
 test("enterprise entry routes root to Projects and keeps explicit index as legacy fallback", async (t) => {
   const setup = await startEnterpriseBrowser(t);
   if (!setup) return;
@@ -127,6 +131,10 @@ test("Projects and Project present one responsive operator task path", async (t)
 
   await page.goto(`${origin}/login.html`);
   assert.equal(await page.locator("body").getAttribute("class"), "operator-task-page operator-auth-page");
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await assertNoHorizontalOverflow(page);
+  }
   await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL);
   await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD);
   await page.getByRole("button", { name: "登录" }).click();
@@ -136,6 +144,17 @@ test("Projects and Project present one responsive operator task path", async (t)
   await page.waitForURL(`${origin}/projects.html`);
 
   assert.equal(await page.locator("body").getAttribute("class"), "operator-task-page");
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await assertNoHorizontalOverflow(page);
+  }
+  await page.goto(`${origin}/index.html`);
+  await page.getByText("企业流程请进入项目", { exact: true }).waitFor();
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await assertNoHorizontalOverflow(page);
+  }
+  await page.goto(`${origin}/projects.html`);
   await page.getByRole("region", { name: "当前任务" }).getByRole("heading", { name: "创建第一个项目" }).waitFor();
   assert.equal(await page.locator('[data-recommended-action="true"]:visible').count(), 1);
 
@@ -156,6 +175,11 @@ test("Projects and Project present one responsive operator task path", async (t)
   await page.getByRole("link", { name: "继续项目" }).click();
   await page.waitForURL(/\/project\.html\?id=/);
 
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await assertNoHorizontalOverflow(page);
+  }
+
   const taskSummary = page.getByRole("region", { name: "当前任务" });
   await taskSummary.getByRole("heading", { name: "创建第一个商品" }).waitFor();
   assert.equal(await page.locator('[data-recommended-action="true"]:visible').count(), 1);
@@ -172,24 +196,155 @@ test("Projects and Project present one responsive operator task path", async (t)
 
   await page.getByRole("button", { name: "保存草稿" }).click();
   await taskSummary.getByText("已保存", { exact: true }).waitFor();
-  assert.match(await page.locator(".product-list [aria-current=true] .product-meta").textContent(), /草稿 · v2/);
+  assert.match(await page.locator(".product-list [aria-current=true] .product-meta").textContent(), /草稿 · v2 · 2 项待处理/);
+  assert.match(await taskSummary.textContent(), /2 项待处理：确认至少一条卖点、素材功能未启用/);
+  assert.match(await taskSummary.textContent(), /推荐下一步补齐 Ready 条件/);
   await page.getByText("素材功能未启用，暂不能选择商品图片。", { exact: true }).waitFor();
   assert.equal(await page.locator('[data-recommended-action="true"]:visible').count(), 0);
   await page.getByRole("button", { name: "设为 Ready" }).click();
   await page.getByText(/暂不能 Ready：/).waitFor();
   assert.match(await taskSummary.textContent(), /确认至少一条卖点/);
-  assert.equal(await page.locator('[data-recommended-action="true"]:visible').count(), 0);
+
+  await page.getByRole("button", { name: "创建商品" }).click();
+  await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("第二个商品");
+  await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.locator("#productList > button").nth(0).click();
+  await page.locator('textarea[name="product_description"]').fill("切换前的本地修改");
+  const switchGuard = new Promise((resolve) => page.once("dialog", async (dialog) => {
+    resolve(dialog.message());
+    await dialog.dismiss();
+  }));
+  await page.locator("#productList > button").nth(1).click();
+  assert.match(await switchGuard, /未保存/);
+  assert.equal(await page.locator('textarea[name="product_description"]').inputValue(), "切换前的本地修改");
+  assert.equal(await page.locator("#productList > button").nth(0).getAttribute("aria-current"), "true");
+
+  const refreshGuard = new Promise((resolve) => page.once("dialog", async (dialog) => {
+    resolve(dialog.message());
+    await dialog.dismiss();
+  }));
+  await page.getByRole("button", { name: "刷新" }).click();
+  assert.match(await refreshGuard, /未保存/);
+  assert.equal(await page.locator('textarea[name="product_description"]').inputValue(), "切换前的本地修改");
 
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     await taskSummary.scrollIntoViewIfNeeded();
     await page.evaluate(() => document.activeElement?.blur());
-    await page.waitForTimeout(200);
     assert.equal(await taskSummary.isVisible(), true);
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await assertNoHorizontalOverflow(page);
     if (process.env.SLICE_A_SCREENSHOTS_DIR) {
       await mkdir(process.env.SLICE_A_SCREENSHOTS_DIR, { recursive: true });
       await page.screenshot({ path: path.join(process.env.SLICE_A_SCREENSHOTS_DIR, `project-${viewport.width}.png`), fullPage: true });
     }
   }
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const reducedMotion = await page.locator("button").first().evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { transitionDuration: Number.parseFloat(style.transitionDuration), animationDuration: Number.parseFloat(style.animationDuration) };
+  });
+  assert.ok(reducedMotion.transitionDuration <= 0.001);
+  assert.ok(reducedMotion.animationDuration <= 0.001);
+});
+
+test("Projects clears loading content after runtime and API failures", async (t) => {
+  const setup = await startEnterpriseBrowser(t);
+  if (!setup) return;
+  const { page, origin } = setup;
+  await authenticate(page, origin);
+
+  await page.route(`${origin}/api/runtime`, (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "RUNTIME_UNAVAILABLE" })
+  }));
+  await page.goto(`${origin}/projects.html`);
+  await page.getByText("工作台配置暂时无法读取，请稍后刷新。", { exact: true }).waitFor();
+  assert.equal(await page.locator("#projectList").getAttribute("aria-busy"), "false");
+  assert.equal(await page.getByText("正在加载...", { exact: true }).count(), 0);
+  await page.unroute(`${origin}/api/runtime`);
+  await page.getByRole("button", { name: "刷新" }).click();
+  await page.getByRole("region", { name: "当前任务" }).getByRole("heading", { name: "创建第一个项目" }).waitFor();
+
+  await page.route(`${origin}/api/runtime`, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ projectContentEnabled: true })
+  }));
+  await page.route(`${origin}/api/projects`, (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "PROJECTS_UNAVAILABLE" })
+  }));
+  await page.goto(`${origin}/projects.html`);
+  await page.getByText("项目加载失败，请刷新重试。", { exact: true }).waitFor();
+  assert.equal(await page.locator("#projectList").getAttribute("aria-busy"), "false");
+  assert.equal(await page.getByText("正在加载...", { exact: true }).count(), 0);
+});
+
+test("Project deep links keep valid superseded revisions safe and return to the current revision", async (t) => {
+  const setup = await startEnterpriseBrowser(t);
+  if (!setup) return;
+  const { page, origin } = setup;
+  await authenticate(page, origin);
+
+  const projectId = "project-deep-link";
+  await page.route(`${origin}/api/projects/${projectId}`, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      project: {
+        id: projectId,
+        name: "深链项目",
+        description: null,
+        delivery_date: null,
+        products: [
+          { id: "product-current", project_id: projectId, current_revision_id: "revision-current", revision: {
+            id: "revision-current", project_id: projectId, product_id: "product-current", status: "draft", revision_number: 2,
+            product_name: "当前商品", product_description: "当前版本", primary_category: "general", content_brief: null,
+            asset_version_ids: [], selling_points: []
+          } }
+        ]
+      }
+    })
+  }));
+  await page.route(`${origin}/api/product-revisions/revision-history`, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ revision: {
+      id: "revision-history", project_id: projectId, product_id: "product-current", status: "superseded", revision_number: 1,
+      product_name: "历史商品", product_description: "旧版本", primary_category: "general", content_brief: null,
+      asset_version_ids: [], selling_points: []
+    } })
+  }));
+  await page.route(`${origin}/api/product-revisions/foreign-revision`, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ revision: {
+      id: "foreign-revision", project_id: "foreign-project", product_id: "foreign-product", status: "superseded", revision_number: 1,
+      product_name: "不应泄露的外部商品", product_description: "不可见内容", primary_category: "general", content_brief: null,
+      asset_version_ids: [], selling_points: []
+    } })
+  }));
+
+  await page.goto(`${origin}/project.html?id=${projectId}&revision=revision-history`);
+  await page.locator("#revisionState").getByText("已被替代 · v1", { exact: true }).waitFor();
+  assert.equal(await page.locator('#revisionForm input[name="product_name"]').isDisabled(), true);
+  assert.equal(await page.locator('#revisionForm input[name="product_name"]').inputValue(), "历史商品");
+  const returnCurrent = page.getByRole("button", { name: "回到当前版本" });
+  assert.equal(await returnCurrent.getAttribute("data-recommended-action"), "true");
+  await returnCurrent.click();
+  await page.locator("#revisionState").getByText("草稿 · v2", { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("revision"), "revision-current");
+
+  await page.goto(`${origin}/project.html?id=${projectId}&revision=not-a-real-revision`);
+  await page.locator("#revisionState").getByText("草稿 · v2", { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("revision"), "revision-current");
+
+  await page.goto(`${origin}/project.html?id=${projectId}&revision=foreign-revision`);
+  await page.locator("#revisionState").getByText("草稿 · v2", { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("revision"), "revision-current");
+  assert.equal(await page.getByText("不应泄露的外部商品", { exact: true }).count(), 0);
 });

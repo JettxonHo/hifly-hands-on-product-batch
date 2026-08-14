@@ -60,6 +60,8 @@ test("system Chrome completes and restores the project-content flow", async (t) 
   }));
   await page.locator('textarea[name="product_description"]').fill("并发修改");
   await page.getByRole("button", { name: "保存草稿" }).click();
-  await page.getByText("页面内容已过期，请刷新后继续。", { exact: true }).waitFor();
+  await page.getByText("页面内容已过期。本地修改仍保留，可先复制内容，或明确载入服务端最新版本。", { exact: true }).waitFor();
+  assert.equal(await page.locator('textarea[name="product_description"]').inputValue(), "并发修改");
+  assert.equal(await page.getByRole("button", { name: "载入服务端最新版本" }).isVisible(), true);
   await page.unroute(new RegExp(`/api/product-revisions/${revisionId}$`));
 });

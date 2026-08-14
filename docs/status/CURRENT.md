@@ -18,7 +18,9 @@
   显式 `/index.html` 保留本地/运维 legacy fallback，并提示企业流程进入项目；feature-off 或 runtime/auth 请求失败时
   安全保留 legacy 页面，不产生空白页、跳转循环或权限绕过。
 - Projects 覆盖加载、空、失败、有项目和创建 Dialog；有项目时优先继续最近项目。Project 覆盖无商品、草稿、
-  未保存/保存中/已保存、Ready、superseded、Ready 阻断和 409 版本冲突，并保留既有 revision、DOM、ARIA 与 API 合同。
+  未保存/保存中/已保存、Ready、superseded、Ready 阻断和 409 版本冲突。商品切换、刷新和冲突后载入最新版本
+  均显式保护本地修改；历史 revision 深链通过组织隔离的只读 seam 加载，并在项目归属核对失败时安全回落。
+  草稿首屏直接展示可计算的 Ready 阻断，Projects 快照不足时明确提示进入项目核对，不伪造零阻断。
 - 新样式仅在 `.operator-task-page` 根节点下生效，未迁移企业页面和 legacy GUI 不受共享 CSS 意外影响；浏览器回归覆盖
   1440/768/390、无页面级横向滚动、Dialog 焦点恢复、可见焦点和 reduced-motion。
 - Production 合同按时序执行：每轮激活前 Worker off，只为当前 SKU 准备 order + ready handoff，eligible 严格为
@@ -29,7 +31,8 @@
   （Copy/Avatar/Plan）；Slice B 合并后才开始 Slice C（Production/Works/Assets）。每个切片必须独立 Issue、Draft PR、
   浏览器回归和 Review，且不自动部署。
 - 旧 `gui/visual-refresh` 工作树及 CSS-only 改动不是本轮基线，不得合并、搬运或覆盖；现有 tokens、基础组件、
-  vanilla HTML/CSS/JS、API、组织授权、状态机和 fail-closed 生产合同继续保留。
+  vanilla HTML/CSS/JS、组织授权、状态机和 fail-closed 生产合同继续保留；唯一新增 API 是组织隔离的
+  `GET /api/product-revisions/:revisionId` 只读 seam，写路径与领域语义不变。
 
 ## P0.5 内部验收环境部署
 
