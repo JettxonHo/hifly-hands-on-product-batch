@@ -2,6 +2,7 @@
   const params = new URLSearchParams(location.search);
   const projectId = params.get("project"), requestedProductId = params.get("product");
   let copyVersionId = params.get("copy") || "", project, product, workspace, runtime, identityContext, selectedAvatar, submitting = false, adminSubmitting = false;
+  let taskLoadError = "";
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const sourceLabels = { public: "公共数字人物", enterprise: "企业数字人物" };
@@ -39,6 +40,96 @@
   }
   function avatarForVersion(id) { return workspace?.catalog.find((item) => item.asset_version.id === id) || null; }
   function isAdmin() { return identityContext?.membership?.role === "admin"; }
+
+  function setTaskStatus(selector, text, statusClass = "") {
+    const target = element(selector);
+    target.className = statusClass ? `state ${statusClass}` : "state";
+    target.textContent = text;
+  }
+
+  function recommend(action) {
+    const controls = [element("#refreshAvatar"), element("#copyContextLink"), element("#confirmAvatar"), element("#nextPlanLink")].filter(Boolean);
+    for (const control of controls) {
+      control.removeAttribute("data-recommended-action");
+      if (control.id === "confirmAvatar") control.classList.add("secondary");
+      if (control.id === "nextPlanLink") control.classList.add("task-action-secondary");
+      if (control.id === "copyContextLink") control.classList.remove("button-link");
+    }
+    if (!action || action.hidden || action.disabled || action.getAttribute("aria-disabled") === "true") {
+      return;
+    }
+    if (action.id === "confirmAvatar") action.classList.remove("secondary");
+    if (action.id === "nextPlanLink") action.classList.remove("task-action-secondary");
+    if (action.id === "copyContextLink") action.classList.add("button-link");
+    action.setAttribute("data-recommended-action", "true");
+  }
+
+  function renderTaskSummary() {
+    if (!element("#taskSummaryTitle")) return;
+    const productName = product?.revision?.product_name || "未命名商品";
+    element("#taskContext").textContent = project && product ? `${project.name} · ${productName}` : "正在读取项目与商品";
+    element("#taskStage").textContent = "人物与素材 · 3/5";
+
+    const approved = workspace?.copy_gate?.approved === true;
+    setTaskStatus("#taskCopyStatus", approved ? "文案已批准" : "文案批准不可用", approved ? "approved" : "blocked");
+    const current = workspace?.selection?.current_selection;
+    const currentAvatar = current ? avatarForVersion(current.asset_version_id) : null;
+    const currentValid = current && workspace.selection.current_valid === true;
+    setTaskStatus("#taskSelectionStatus",
+      !current ? "尚未确认" : currentValid ? `已确认 · ${currentAvatar?.display_name || "历史人物"}` : "已确认但上游已变化",
+      !current ? "unavailable" : currentValid ? "confirmed" : "blocked");
+
+    let task = {
+      title: "载入人物工作区",
+      description: "正在读取人物目录与当前选择",
+      status: "正在加载",
+      statusClass: "running",
+      next: "等待人物工作区载入",
+      blocker: "",
+      action: null
+    };
+    const same = current?.asset_version_id === selectedAvatar?.asset_version.id && current?.copy_version_id === copyVersionId;
+    const firstReason = selectedAvatar?.gate?.reasons?.[0];
+
+    if (taskLoadError) {
+      task = { title: "人物工作区暂时无法载入", description: "没有改变当前人物选择。", status: "加载失败", statusClass: "failure",
+        next: "刷新人物工作区", blocker: taskLoadError, action: element("#refreshAvatar") };
+    } else if (!workspace || !project || !product) {
+      // Keep the loading state.
+    } else if (!approved) {
+      task = { title: "先完成文案人工批准", description: "可以浏览人物，但不能确认新选择。", status: "上游阻断", statusClass: "blocked",
+        next: "返回文案与质检", blocker: "当前没有有效的已批准文案，QC 通过不能替代 HumanReview 批准。", action: element("#copyContextLink") };
+    } else if (!selectedAvatar) {
+      task = { title: "人物目录暂无可选项", description: "每个商品都需要单独确认人物。", status: "需要处理", statusClass: "blocked",
+        next: "联系管理员登记或恢复可用人物", blocker: "当前企业没有可浏览的人物版本。", action: null };
+    } else if (!selectedAvatar.gate.can_confirm) {
+      task = { title: "当前人物暂不可确认", description: `已选中 ${selectedAvatar.display_name}，但门禁未满足。`, status: "人物受阻", statusClass: "blocked",
+        next: "选择其他可确认人物", blocker: reasonLabels[firstReason] || "当前人物的资产、授权、Evidence 或素材不可用于新确认。", action: null };
+    } else if (!current) {
+      task = { title: "确认当前商品的人物", description: `已选中 ${selectedAvatar.display_name}，确认后会留下可审计记录。`, status: "待确认", statusClass: "draft",
+        next: "确认此人物", blocker: "", action: element("#confirmAvatar") };
+    } else if (!currentValid) {
+      task = { title: "原人物选择已失效", description: "上游文案或人物版本已变化，历史选择仍保留。", status: "上游已变化", statusClass: "blocked",
+        next: same ? "重新确认当前人物" : "确认新的可用人物", blocker: "必须为当前已批准文案重新确认人物，才能进入视频方案。", action: element("#confirmAvatar") };
+    } else if (!same) {
+      task = { title: "确认是否更换人物", description: `当前有效选择为 ${currentAvatar?.display_name || "历史人物"}，另选了 ${selectedAvatar.display_name}。`, status: "待确认变更", statusClass: "draft",
+        next: "更换人物", blocker: "更换后当前选择会保留为历史，下游方案需使用新选择。", action: element("#confirmAvatar") };
+    } else if (runtime?.videoPlanningEnabled === true) {
+      task = { title: "人物已确认", description: `${selectedAvatar.display_name} 对当前商品与文案有效。`, status: "已确认", statusClass: "confirmed",
+        next: "进入视频方案", blocker: "", action: element("#nextPlanLink") };
+    } else {
+      task = { title: "人物已确认", description: `${selectedAvatar.display_name} 对当前商品与文案有效。`, status: "已确认", statusClass: "confirmed",
+        next: "等待视频方案能力开放", blocker: "视频方案当前未开放，人物选择已安全保存。", action: null };
+    }
+
+    element("#taskSummaryTitle").textContent = task.title;
+    element("#taskSummaryDescription").textContent = task.description;
+    setTaskStatus("#taskStatus", task.status, task.statusClass);
+    element("#taskNext").textContent = task.next;
+    element("#taskBlocker").hidden = !task.blocker;
+    element("#taskBlocker").textContent = task.blocker;
+    recommend(task.action);
+  }
 
   function updateLocation() {
     const next = new URL(location.href); next.searchParams.set("project", project.id); next.searchParams.set("product", product.id);
@@ -203,7 +294,7 @@
     }));
   }
 
-  function render() { renderContext(); renderAdminPanel(); renderCatalog(); renderDetail(); renderSelection(); }
+  function render() { renderContext(); renderAdminPanel(); renderCatalog(); renderDetail(); renderSelection(); renderTaskSummary(); }
 
   async function loadWorkspace({ keepSelection = false } = {}) {
     const before = keepSelection ? selectedAvatar?.asset_version.id : null;
@@ -211,6 +302,7 @@
     copyVersionId = workspace.resolved_copy_version_id || "";
     selectedAvatar = workspace.catalog.find((item) => item.asset_version.id === before) ||
       avatarForVersion(workspace.selection.current_selection?.asset_version_id) || workspace.catalog[0] || null;
+    taskLoadError = "";
     render();
   }
 
@@ -312,7 +404,11 @@
 
   element("#sourceFilter").addEventListener("change", renderCatalog); element("#statusFilter").addEventListener("change", renderCatalog);
   element("#clearFilters").addEventListener("click", () => { element("#sourceFilter").value = "all"; element("#statusFilter").value = "all"; renderCatalog(); });
-  element("#refreshAvatar").addEventListener("click", () => loadWorkspace({ keepSelection: true }).catch(() => setNotice(element("#pageNotice"), "人物状态读取失败，请稍后重试。", "error")));
+  element("#refreshAvatar").addEventListener("click", () => loadWorkspace({ keepSelection: true }).catch(() => {
+    taskLoadError = "人物状态读取失败，请稍后重试。";
+    setNotice(element("#pageNotice"), taskLoadError, "error");
+    renderTaskSummary();
+  }));
   element("#productSelector").addEventListener("change", async (event) => { product = project.products.find((item) => item.id === event.currentTarget.value); copyVersionId = ""; await loadWorkspace(); });
   element("#confirmAvatar").addEventListener("click", openConfirmation);
   element("#enterpriseAvatarForm").addEventListener("submit", registerEnterpriseAvatar);
@@ -330,5 +426,9 @@
     product = project.products.find((item) => item.id === requestedProductId) || project.products[0];
     if (!product) return location.replace(`/project.html?id=${encodeURIComponent(project.id)}`);
     await loadWorkspace();
-  } catch (_error) { setNotice(element("#pageNotice"), "人物工作区加载失败，请刷新重试。", "error"); }
+  } catch (_error) {
+    taskLoadError = "人物工作区加载失败，请刷新重试。";
+    setNotice(element("#pageNotice"), taskLoadError, "error");
+    renderTaskSummary();
+  }
 })();

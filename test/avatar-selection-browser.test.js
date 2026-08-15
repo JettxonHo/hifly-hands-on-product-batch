@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -78,12 +78,17 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   };
   await page.route("**/api/runtime", delayedRuntime);
   await page.goto(url);
+  const taskSummary = page.getByRole("region", { name: "当前任务" });
+  assert.equal(await taskSummary.count(), 1, "Avatar should expose the operator task summary in the first screen");
   for (const selector of ["#planStageLink", "#mobilePlanStageLink", "#nextPlanLink"]) {
     assert.equal(await page.locator(selector).getAttribute("href"), null);
   }
   await page.getByText("视频方案尚未开放", { exact: true }).waitFor();
   releaseRuntime();
   await page.getByRole("heading", { name: "人物与素材" }).waitFor();
+  await taskSummary.getByText("秋季人物选择 · 云感保湿乳", { exact: true }).waitFor();
+  await taskSummary.getByText("人物与素材 · 3/5", { exact: true }).waitFor();
+  await taskSummary.getByText("确认此人物", { exact: true }).waitFor();
   await page.getByText("Phase 1 受控预置", { exact: true }).first().waitFor();
   for (const selector of ["#planStageLink", "#mobilePlanStageLink", "#nextPlanLink"]) {
     assert.match(await page.locator(selector).getAttribute("href"), /^\/plan\.html\?/);
@@ -103,8 +108,12 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   await confirmDialog.getByText("林小满").waitFor();
   await confirmDialog.getByRole("button", { name: "确认选择此人物" }).click();
   await page.getByText("人物已确认。", { exact: true }).waitFor();
+  await taskSummary.getByText("人物已确认", { exact: true }).waitFor();
+  await taskSummary.getByText("进入视频方案", { exact: true }).waitFor();
 
   await page.getByRole("button", { name: /周言/ }).click();
+  await taskSummary.getByText("确认是否更换人物", { exact: true }).waitFor();
+  await taskSummary.getByText("更换人物", { exact: true }).waitFor();
   await page.getByRole("button", { name: "更换人物" }).click();
   const changeDialog = page.getByRole("dialog", { name: "更换人物" });
   await changeDialog.getByText(/当前选择保留为历史/).waitFor();
@@ -118,6 +127,8 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   await page.locator("#productSelector").selectOption(secondProduct.id);
   await page.waitForURL((current) => current.searchParams.get("product") === secondProduct.id && current.searchParams.get("copy") === "copy-second");
   await page.getByText("当前文案 copy-sec").waitFor();
+  await taskSummary.getByText("秋季人物选择 · 轻盈防晒霜", { exact: true }).waitFor();
+  await taskSummary.getByText("确认此人物", { exact: true }).waitFor();
   await page.getByRole("button", { name: /林小满/ }).click();
   await page.getByRole("button", { name: "确认此人物" }).click();
   await page.getByRole("dialog", { name: "确认人物选择" }).getByRole("button", { name: "确认选择此人物" }).click();
@@ -134,6 +145,21 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
     assert.equal(await page.locator(selector).getAttribute("href"), null);
   }
   await page.getByText("视频方案尚未开放", { exact: true }).waitFor();
+  await taskSummary.getByText("等待视频方案能力开放", { exact: true }).waitFor();
+
+  const screenshotDir = process.env.SLICE_B_SCREENSHOTS_DIR;
+  if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(() => { window.scrollTo(0, 0); document.activeElement?.blur(); });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false,
+      `Avatar should not overflow at ${viewport.width}px`);
+    if (screenshotDir) {
+      await page.screenshot({ path: path.join(screenshotDir, `avatar-${viewport.width}x${viewport.height}.png`) });
+    }
+  }
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.ok(await page.locator("button").first().evaluate((node) => parseFloat(getComputedStyle(node).transitionDuration) <= 0.001));
 
   const copyMarkup = await readFile(new URL("../web/copy.html", import.meta.url), "utf8");
   assert.match(copyMarkup, /id="mobileAvatarStageLink" href="\/avatar\.html"/);

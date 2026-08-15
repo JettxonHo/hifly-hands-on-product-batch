@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-14
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营任务流 UX V1 已进入 `designed`，Issue #166 是 Slice A 仓库实现的 acceptance gate
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营任务流 UX V1 已进入 `designed`，Slice A 已合并，Issue #168 是 Slice B 仓库实现的 acceptance gate
 
 ## 1. 已完成基线
 
@@ -23,7 +23,7 @@ P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
 P0.4  3 条严格串行、受控内部试运行（已完成）
 P0.5  release-readiness：代码/依赖部署完成；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
-UX V1 运营任务流优先：designed → Slice A acceptance gate（#166）→ Slice B → Slice C（Slice A 不自动部署）
+UX V1 运营任务流优先：designed → Slice A（已合并、未部署）→ Slice B acceptance gate（#168）→ Slice C
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -46,12 +46,19 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Issue #166 是
    仅经组织隔离的只读 revision seam 加载，404/归属不匹配安全回落，而网络、5xx 与无效响应显式失败。
    Ready 素材门禁只接受 active asset 的 available version，素材竞态失效时刷新集合并要求重新选择。
    Issue #166 合并后仍需独立部署和运行时验收。
-2. Slice B：Copy/Avatar/Plan；清楚区分自动检查与人工批准。
+2. Slice B：Copy/Avatar/Plan；清楚区分生成、自动检查与人工批准。Issue #168 的实现 PR 进入 `main` 后，
+   Copy 才以 approved copy 为人物阶段门禁，Avatar 才以当前商品的有效确认选择为 Plan 门禁，Plan 才明确
+   preflight passed/warning 不等于人工批准。该仓库状态仍不代表已部署或真实生产采用。
 3. Slice C：Production/Works/Assets；Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order
    零 attempt 与 active attempts=0；terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经
    A12、Work 和真实字节下载后才准备下一条。Works 保留深链授权，Assets 不伪造 API 未提供的类型或关联。
 
 每个切片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一切片合并后才开始下一切片，且不自动部署。
+
+Slice B 完成后的 successor gate 已获 Owner 方向性批准，但尚未设计或实现：先从本项目自己的运营角色、
+端到端任务、频率、错误成本、权限/审计、安全门禁、现有 API/领域状态和中文环境推导信息架构、控件语义、
+本地化与动作层级问题；再带着具体问题定向研究外部企业工作台。不得以竞品视觉或页面结构反向决定本项目 IA，
+也不得把该方向插入 Issue #168 或扩张其 allowlist。
 
 ## 4. 保留但不抢跑的工作
 

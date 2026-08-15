@@ -10,6 +10,7 @@
   let rewriteSubmissionKey, rewriteSubmitting = false;
   let reviewState = null, reviewSubmitting = false, reviewReasonAction = "changes";
   let dirty = false, deriveMode = false, conflictDraft = null, pendingNavigation = null;
+  let taskLoadError = "", reviewLoadError = false, taskRecommendedAction = null;
 
   const revisionLabels = { draft: "草稿", ready: "已 Ready", superseded: "已被替代" };
   const copyLabels = { draft: "草稿", frozen: "已冻结", superseded: "已被替代" };
@@ -50,6 +51,149 @@
   function setNotice(target, message = "", tone = "") {
     target.className = `notice${tone ? ` ${tone}` : ""}`;
     target.textContent = message;
+  }
+
+  function recommend(action) {
+    if (taskRecommendedAction) {
+      taskRecommendedAction.className = taskRecommendedAction.dataset.taskBaseClass || "";
+      taskRecommendedAction.removeAttribute("data-recommended-action");
+    }
+    const controls = [
+      "#refreshCopy", "#generateCopy", "#retryCopy", "#saveCopy", "#startQuality", "#retryQuality",
+      "#submitReview", "#approveReview", "#requestReviewChanges", "#revokeReview", "#deriveCopy", "#nextStageLink"
+    ].map(element).filter(Boolean);
+    for (const control of controls) {
+      if (!control.dataset.taskBaseClass) control.dataset.taskBaseClass = control.className;
+      control.className = `${control.dataset.taskBaseClass} secondary`.trim();
+    }
+    if (!action || action.hidden || action.disabled) {
+      taskRecommendedAction = null;
+      return;
+    }
+    if (!action.dataset.taskBaseClass) action.dataset.taskBaseClass = action.className;
+    action.className = (action.dataset.taskBaseClass || "").replace(/\bsecondary\b/g, "").trim();
+    if (action.tagName === "A") action.classList.add("button-link");
+    action.setAttribute("data-recommended-action", "true");
+    taskRecommendedAction = action;
+  }
+
+  function setTaskStatus(selector, text, statusClass = "") {
+    const target = element(selector);
+    target.className = statusClass ? `state ${statusClass}` : "state";
+    target.textContent = text;
+  }
+
+  function taskQualityState() {
+    if (!copyVersion) return { text: "未生成", className: "unavailable" };
+    const latest = qualityDetails.at(-1), run = latest?.quality_run, result = latest?.quality_result;
+    if (!run) return { text: "未质检", className: "unavailable" };
+    if (["queued", "running"].includes(run.status)) return { text: "质检中", className: "running" };
+    if (run.status === "failed") return { text: "质检失败", className: "failure" };
+    if (!result) return { text: "未形成结论", className: "blocked" };
+    if (result.current_valid === false) return { text: "质检已失效", className: "blocked" };
+    return { text: conclusionLabels[result.effective_conclusion] || "结论待确认", className: result.effective_conclusion || "" };
+  }
+
+  function taskReviewState() {
+    if (runtime?.copyReviewEnabled !== true) return { text: "审核不可用", className: "unavailable" };
+    if (!copyVersion) return { text: "未生成", className: "unavailable" };
+    if (reviewLoadError) return { text: "读取失败", className: "failure" };
+    if (!reviewState) return { text: "正在读取", className: "running" };
+    const status = reviewState.current_review?.status || "not_submitted";
+    return { text: reviewLabels[status] || "未提交审核", className: status === "not_submitted" ? "unavailable" : status };
+  }
+
+  function renderTaskSummary() {
+    const title = element("#taskSummaryTitle");
+    if (!title) return;
+    const context = element("#taskContext");
+    const product = currentProduct();
+    const productName = product?.revision?.product_name || revision?.product_name || "未命名商品";
+    context.textContent = project && revision ? `${project.name} · ${productName}` : "正在读取项目与商品";
+    element("#taskStage").textContent = "文案与质检 · 2/5";
+    element("#taskVersion").textContent = revision
+      ? `商品快照 v${revision.revision_number} · ${copyVersion ? `CopyVersion v${copyVersion.version_number}` : "尚未生成 CopyVersion"}`
+      : "等待商品快照与文案版本";
+
+    const quality = taskQualityState();
+    const review = taskReviewState();
+    setTaskStatus("#taskQualityStatus", quality.text, quality.className);
+    setTaskStatus("#taskReviewStatus", review.text, review.className);
+
+    let task = { title: "载入文案工作区", description: "正在读取项目与商品", status: "正在加载", statusClass: "running", next: "等待文案工作区载入", blocker: "", action: null };
+    const latestJob = copyJobs[0];
+    const activeJob = copyJobs.find((job) => ["queued", "running"].includes(job.status));
+    const latestQuality = qualityDetails.at(-1);
+    const run = latestQuality?.quality_run;
+    const result = latestQuality?.quality_result;
+    const factsStale = run?.failure_code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT" || result?.invalidation_reason === "product_revision_changed";
+    const reviewStatus = reviewState?.current_review?.status || "not_submitted";
+    const reviewReasons = reviewState?.gate?.reasons || [];
+    const reviewBlocker = reviewReasons.map((reason) => gateReasonLabels[reason] || "审核门禁未满足").join("；");
+
+    if (taskLoadError) {
+      task = { title: "文案工作区暂时无法载入", description: "请先恢复工作区读取，再继续当前商品。", status: "加载失败", statusClass: "failure", next: "刷新文案工作区", blocker: taskLoadError, action: element("#refreshCopy") };
+    } else if (!project || !revision) {
+      task = { title: "载入文案工作区", description: "正在读取项目与商品", status: "正在加载", statusClass: "running", next: "等待文案工作区载入", blocker: "", action: null };
+    } else if (revision.status !== "ready") {
+      task = { title: "先完成商品事实", description: "当前商品还不能进入文案生产。", status: "需要处理", statusClass: "blocked", next: "返回商品与目标完成商品事实", blocker: "商品快照尚未 Ready，生成文案前需要完成商品信息、卖点和图片确认。", action: element("#productFactsLink") };
+    } else if (activeJob) {
+      task = { title: "文案正在生成", description: "生成任务已提交，结果以服务端状态为准。", status: "生成中", statusClass: "running", next: "等待文案生成完成，可离开后返回", blocker: "", action: null };
+    } else if (latestJob?.status === "failed") {
+      task = { title: "文案生成未完成", description: "未产生新文案版本，已有版本保持不变。", status: "生成失败", statusClass: "failure", next: "重试生成文案", blocker: "生成任务未完成，可以安全重试；不会伪造新的文案版本。", action: element("#retryCopy") };
+    } else if (latestJob?.status === "timed_out") {
+      task = { title: "文案生成等待超时", description: "服务端没有形成新的文案版本。", status: "需要处理", statusClass: "blocked", next: "重新生成文案", blocker: "生成等待已超时，现有文案版本未受影响。", action: element("#generateCopy") };
+    } else if (!copyVersion) {
+      task = { title: "开始第一版文案", description: "基于当前 Ready 商品快照生成可追溯文案。", status: "未生成", statusClass: "unavailable", next: "生成文案", blocker: "", action: element("#generateCopy") };
+    } else if (dirty) {
+      task = { title: "保存当前文案草稿", description: "保存后才能继续质检或切换版本。", status: "待保存", statusClass: "draft", next: "保存当前修改", blocker: "当前页面有未保存修改。", action: element("#saveCopy") };
+    } else if (!run) {
+      task = { title: "文案草稿待质检", description: "自动质检会冻结当前文案版本。", status: "待质检", statusClass: "draft", next: "开始质检", blocker: "", action: element("#startQuality") };
+    } else if (["queued", "running"].includes(run.status)) {
+      task = { title: "文案正在质检", description: "质检结果会由服务端保存，重新进入后可继续。", status: "质检中", statusClass: "running", next: "等待质检完成，可离开后返回", blocker: "", action: null };
+    } else if (run.status === "failed") {
+      task = factsStale
+        ? { title: "商品事实已变化", description: "当前质检已停止，不能继续使用旧商品快照。", status: "需要处理", statusClass: "blocked", next: "返回商品事实确认最新内容", blocker: "商品事实已有新版本，请返回商品与目标完成确认后再质检。", action: element("#productFactsLink") }
+        : { title: "质检未完成", description: "没有形成可用的自动质检结论。", status: "质检失败", statusClass: "failure", next: "重新质检", blocker: "技术原因导致本次质检失败，不能提交人工审核。", action: element("#retryQuality") };
+    } else if (!result) {
+      task = { title: "质检未形成结论", description: "当前文案还没有可用的自动质检结果。", status: "需要处理", statusClass: "blocked", next: "重新质检", blocker: "没有可用 QualityResult，不能提交人工审核。", action: element("#startQuality") };
+    } else if (result.current_valid === false) {
+      task = factsStale
+        ? { title: "质检结论已失效", description: "商品事实发生变化，旧结论不能继续使用。", status: "已失效", statusClass: "blocked", next: "返回商品事实确认最新内容", blocker: "请确认当前商品快照，再为最新文案完整质检。", action: element("#productFactsLink") }
+        : { title: "质检规则已更新", description: "历史质检仍保留，但不再是当前有效结论。", status: "已失效", statusClass: "blocked", next: "按当前规则重新质检", blocker: "质检规则或 Profile 已变化，需要重新完整质检。", action: element("#startQuality") };
+    } else if (result.effective_conclusion !== "passed") {
+      const unresolved = latestQuality.quality_findings.filter((finding) => finding.kind === "review" && finding.resolutions.at(-1)?.state !== "accepted_with_reason").length;
+      task = result.effective_conclusion === "needs_review"
+        ? { title: "处理待判断 Finding", description: "自动质检未替代人工判断。", status: `待处理 ${unresolved} 条`, statusClass: "needs_review", next: "逐条处理质检 Finding", blocker: "所有待人工判断 Finding 处理后，才能提交人工审核。", action: null }
+        : { title: "处理质检阻断", description: "当前文案或商品事实不满足质检门禁。", status: "存在硬阻断", statusClass: "blocked", next: "处理质检 Finding", blocker: "存在不可绕过的质检阻断，不能提交或批准。", action: null };
+    } else if (reviewLoadError) {
+      task = { title: "审核状态暂时无法读取", description: "质检已通过，但不能据此推断人工审核结论。", status: "读取失败", statusClass: "failure", next: "刷新审核状态", blocker: "HumanReview 状态未读取，请刷新后重试。", action: element("#refreshCopy") };
+    } else if (!reviewState) {
+      task = { title: "正在读取人工审核", description: "质检通过不等于人工批准。", status: "读取中", statusClass: "running", next: "等待审核状态载入", blocker: "", action: null };
+    } else if (reviewStatus === "approved") {
+      task = { title: "文案已批准", description: "当前有效 HumanReview 已批准这版文案。", status: "已批准", statusClass: "approved", next: "进入人物与素材", blocker: "", action: element("#nextStageLink") };
+    } else if (reviewStatus === "pending") {
+      task = identityContext?.membership?.role === "admin"
+        ? { title: "文案待人工决策", description: "质检通过，等待审核人作出独立决定。", status: "待人工审核", statusClass: "pending", next: "批准文案或要求修改", blocker: "人工审核仍未完成。", action: element("#approveReview") }
+        : { title: "文案待人工审核", description: "质检通过，当前账号只能查看审核进度。", status: "待人工审核", statusClass: "pending", next: "等待审核人完成决策", blocker: "当前账号没有审核决策权限。", action: null };
+    } else if (reviewStatus === "changes_requested") {
+      task = { title: "审核人要求修改", description: "请基于当前意见创建新的文案草稿。", status: "需要修改", statusClass: "changes_requested", next: "基于此版本修改文案", blocker: "修改后需要重新完整质检，再提交新的人工审核。", action: element("#deriveCopy") };
+    } else if (reviewStatus === "revoked") {
+      task = { title: "文案批准已失效", description: "原批准仍保留在历史中，但不能继续用于下游。", status: "批准已失效", statusClass: "revoked", next: "重新提交人工审核", blocker: reviewState.current_review?.revoke_reason || "当前版本需要创建新的审核周期。", action: reviewState.gate?.can_submit ? element("#submitReview") : null };
+    } else if (reviewState.gate?.can_submit) {
+      task = { title: "质检已通过，等待审核", description: "自动质检通过不等于人工批准。", status: "待提交审核", statusClass: "pending", next: "提交人工审核", blocker: "", action: element("#submitReview") };
+    } else {
+      task = { title: "质检已通过，审核门禁未满足", description: "自动质检与人工批准保持独立。", status: "需要处理", statusClass: "blocked", next: "处理审核门禁", blocker: reviewBlocker || "当前审核门禁未满足，不能提交人工审核。", action: null };
+    }
+
+    title.textContent = task.title;
+    element("#taskSummaryDescription").textContent = task.description;
+    setTaskStatus("#taskStatus", task.status, task.statusClass);
+    element("#taskNext").textContent = task.next;
+    const blocker = element("#taskBlocker");
+    blocker.hidden = !task.blocker;
+    blocker.textContent = task.blocker;
+    recommend(task.action);
   }
 
   function formatTime(value) {
@@ -103,6 +247,7 @@
     state.textContent = revisionLabels[revision.status] || "状态待确认";
     element("#revisionMeta").textContent = `商品快照 v${revision.revision_number} · ${revision.primary_category || "未设置品类"}`;
     updateLocation();
+    renderTaskSummary();
   }
 
   function stopPolling() {
@@ -315,14 +460,14 @@
       conclusion.className = "state"; conclusion.textContent = "未质检";
       element("#qualityConclusionText").textContent = "尚未开始质检";
       element("#qualityGuidance").textContent = dirty ? "先保存当前修改，再开始完整质检。" : "开始质检会冻结当前草稿。";
-      start.textContent = "开始质检"; stopQualityPolling(); return;
+      start.textContent = "开始质检"; stopQualityPolling(); renderTaskSummary(); return;
     }
     runState.className = `state ${run.status}`; runState.textContent = qualityRunLabels[run.status] || "状态待确认";
     if (["queued", "running"].includes(run.status)) {
       conclusion.className = "state running"; conclusion.textContent = "质检中";
       element("#qualityConclusionText").textContent = "质检中，可离开本页";
       element("#qualityGuidance").textContent = "结果会由服务端保存，重新进入后可继续。";
-      start.hidden = true; cancel.hidden = false; scheduleQualityPolling(); return;
+      start.hidden = true; cancel.hidden = false; scheduleQualityPolling(); renderTaskSummary(); return;
     }
     stopQualityPolling();
     if (run.status === "failed") {
@@ -333,13 +478,13 @@
       element("#qualityGuidance").textContent = factsStale ?
         "请返回商品事实确认最新快照，再为最新商品版本生成文案并重新质检。" :
         "没有形成业务质检结论，可以安全重新质检。";
-      start.hidden = true; retry.hidden = factsStale; return;
+      start.hidden = true; retry.hidden = factsStale; renderTaskSummary(); return;
     }
     if (!result) {
       conclusion.className = "state"; conclusion.textContent = qualityRunLabels[run.status] || "未完成";
       element("#qualityConclusionText").textContent = "本次质检未形成结论";
       element("#qualityGuidance").textContent = "可以重新发起完整质检。";
-      start.textContent = "重新质检"; return;
+      start.textContent = "重新质检"; renderTaskSummary(); return;
     }
     if (result.current_valid === false) {
       const factsChanged = result.invalidation_reason === "product_revision_changed";
@@ -351,7 +496,7 @@
         "请返回商品事实确认当前版本，再为最新文案执行完整质检。" :
         "历史结论已保留，但不能继续使用；请按当前规则重新质检。";
       start.textContent = "重新质检"; start.hidden = factsChanged;
-      element("#reviewReminder").hidden = true; return;
+      element("#reviewReminder").hidden = true; renderTaskSummary(); return;
     }
     const unresolved = latest.quality_findings.filter((finding) => finding.kind === "review" &&
       finding.resolutions.at(-1)?.state !== "accepted_with_reason").length;
@@ -368,6 +513,7 @@
     start.textContent = "重新质检";
     start.hidden = !["invalid"].includes(result.effective_conclusion);
     element("#reviewReminder").hidden = result.effective_conclusion !== "passed";
+    renderTaskSummary();
   }
 
   async function loadQuality() {
@@ -460,7 +606,7 @@
     element("#reviewLoading").hidden = true;
     element("#reviewContent").hidden = !enabled;
     for (const selector of ["#submitReview", "#approveReview", "#requestReviewChanges", "#revokeReview", "#nextStageLink"]) element(selector).hidden = true;
-    if (!enabled) return;
+    if (!enabled) { renderTaskSummary(); return; }
     const review = reviewState?.current_review;
     const status = review?.status || "not_submitted";
     const label = reviewLabels[status] || "未提交审核";
@@ -494,17 +640,21 @@
       setNotice(element("#reviewNotice"), "此批准不可恢复；重新审核会创建新的 HumanReview。", "blocked");
       element("#submitReview").hidden = !reviewState?.gate?.can_submit;
     }
+    renderTaskSummary();
   }
 
   async function loadReview() {
+    reviewLoadError = false;
     if (!runtime?.copyReviewEnabled || !copyVersion) { reviewState = null; renderReview(); return; }
     try {
       reviewState = await request(`/api/copy-versions/${copyVersion.id}/review`);
       renderReview();
       if (reviewState.current_review?.status === "pending") selectPanel("review");
     } catch (_error) {
+      reviewLoadError = true;
       element("#reviewLoading").hidden = true; element("#reviewContent").hidden = false;
       setNotice(element("#reviewNotice"), "审核状态暂时无法读取，请刷新后重试。", "error");
+      renderTaskSummary();
     }
   }
 
@@ -686,6 +836,7 @@
       setNotice(element("#pageNotice"));
       stopPolling();
     }
+    renderTaskSummary();
   }
 
   function renderWorkspace() {
@@ -958,7 +1109,9 @@
     identityContext = await request("/api/auth/me");
     await loadProject();
   } catch (_error) {
+    taskLoadError = "工作区数据未完整载入，请刷新后重试。";
     element("#copyLoading").hidden = true;
     setNotice(element("#pageNotice"), "文案工作区暂时无法加载，请返回项目后重试。", "error");
+    renderTaskSummary();
   }
 })();

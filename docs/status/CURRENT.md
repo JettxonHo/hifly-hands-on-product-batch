@@ -38,6 +38,28 @@
   vanilla HTML/CSS/JS、组织授权、状态机和 fail-closed 生产合同继续保留；唯一新增 API 是组织隔离的
   `GET /api/product-revisions/:revisionId` 只读 seam，写路径与领域语义不变。
 
+## UX V1 Slice B 仓库实现
+
+- Issue #168 是 Slice B 的实现与 acceptance gate。本节随其实现 PR 进入 `main` 后，只证明 Copy、Avatar 与
+  Plan 三个仓库页面采用状态驱动的运营任务摘要、唯一推荐下一步和既有业务恢复入口；不代表已部署、客户已采用
+  或真实飞影生产链路发生变化。
+- Copy 首屏区分生成、质检与人工审核：生成成功不等于质检通过，QC passed 不等于 HumanReview approved。
+  异步生成中可离页恢复，生成/质检失败提供同阶段重试；脏文案与 409 冲突继续保留本地输入和现有恢复动作。
+  只有当前有效的人工批准文案才推荐进入人物选择。
+- Avatar 首屏以当前商品的 approved copy、当前人物选择及可用性门禁为真值；“为商品选择人物”是主任务，
+  企业人物登记仍是管理员次级入口。未选择、选择已失效、授权或素材阻断均不会伪造可继续状态；每个商品保持
+  独立选择，只有当前有效确认才推荐进入 Plan。
+- Plan 首屏区分草稿、未保存、预检中、预检失败、预检 warning/passed、人工审核中、需修改、已批准和上游失效。
+  preflight passed/warning 不等于 Plan approved；冲突保留本地输入，非当前方案只读，只有当前有效
+  HumanReview approved 方案才进入“等待生产工单能力”状态。
+- 三页继续复用现有 vanilla HTML/CSS/JS、API、状态机、授权和审计证据；没有新增依赖、后端 seam 或自动终态。
+  浏览器回归覆盖 1440/768/390、无页面级横向滚动、可见焦点与 reduced-motion；截图只写入临时目录且不入 Git。
+- 后续 Slice C（Production/Works/Assets）只能在 Slice B 的独立 Review 与合并完成后开始，仍须独立 Issue、
+  Draft PR 与浏览器验收，且不自动部署。
+- Owner 已批准一个后续方向：在 Slice B 完成后，另行从本项目运营角色、端到端任务、频率、错误成本、
+  权限/审计、安全门禁、现有 API/领域状态和中文环境出发，评估信息架构、控件语义、本地化与操作层级；
+  外部企业工作台只用于带着具体问题定向研究。该方向尚未设计、实现或授权全局重构。
+
 ## P0.5 内部验收环境部署
 
 - 2026-08-13 将内部验收环境从 `main@40e92414d4ef4a4015da9bb3f709f775c67843b6`
@@ -194,8 +216,8 @@
 
 ## 下一步
 
-1. Slice A 的仓库实现以 Issue #166 的独立 Review 与合并为 acceptance gate；合并后仍需单独部署和运行时验收，
-   不得把本地浏览器回归写成生产采用。Slice B 只能在该 gate 完成后另建 Issue 开始。
+1. Slice A 已合并但尚未部署；Slice B 以 Issue #168 的独立 Review 与合并为 acceptance gate。本节随 Slice B
+   实现 PR 进入 `main` 后，下一项才是另建 Slice C Issue，且仍不得把仓库浏览器回归写成生产采用。
 2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
