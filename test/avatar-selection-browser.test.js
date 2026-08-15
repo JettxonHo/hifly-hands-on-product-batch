@@ -69,8 +69,14 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
 
   const url = `${origin}/avatar.html?project=${project.id}&product=${product.id}&copy=copy-approved`;
   let releaseRuntime;
+  let runtimeAttempts = 0;
   const runtimeGate = new Promise((resolve) => { releaseRuntime = resolve; });
   const delayedRuntime = async (route) => {
+    runtimeAttempts += 1;
+    if (runtimeAttempts === 1) {
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "TEMPORARY_RUNTIME_FAILURE" }) });
+      return;
+    }
     const response = await route.fetch();
     const body = await response.json();
     await runtimeGate;
@@ -80,12 +86,15 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   await page.goto(url);
   const taskSummary = page.getByRole("region", { name: "当前任务" });
   assert.equal(await taskSummary.count(), 1, "Avatar should expose the operator task summary in the first screen");
+  await taskSummary.getByText("加载失败", { exact: true }).waitFor();
+  await page.locator("#refreshAvatar[data-recommended-action='true']").click();
   for (const selector of ["#planStageLink", "#mobilePlanStageLink", "#nextPlanLink"]) {
     assert.equal(await page.locator(selector).getAttribute("href"), null);
   }
   await page.getByText("视频方案尚未开放", { exact: true }).waitFor();
   releaseRuntime();
   await page.getByRole("heading", { name: "人物与素材" }).waitFor();
+  assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
   await taskSummary.getByText("秋季人物选择 · 云感保湿乳", { exact: true }).waitFor();
   await taskSummary.getByText("人物与素材 · 3/5", { exact: true }).waitFor();
   await taskSummary.getByText("确认此人物", { exact: true }).waitFor();

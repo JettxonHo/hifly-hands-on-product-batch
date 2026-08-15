@@ -46,6 +46,16 @@ Copy 现在明确区分：
 preflight warning/passed 只代表检查完成，不等于 HumanReview approved。只有当前有效批准方案才进入
 “等待生产工单能力开放”，前端没有模拟生产终态或放宽既有门禁。
 
+### 第一轮独立 Review 修复 RED → GREEN
+
+- Copy 公开浏览器 seam 在正文编辑后等待“保存当前修改”30 秒超时，证明首屏摘要没有随 dirty 状态更新；
+  initial runtime fail-once 后点击推荐刷新，仍无法恢复项目与商品上下文。最小 GREEN 让编辑/派生状态同步刷新
+  摘要，并让 derive 尚未修改正文时不推荐 disabled QC。
+- Copy、Avatar、Plan 均复用完整 bootstrap 恢复入口。首次 runtime/context 请求失败时显示唯一“加载失败”与推荐
+  刷新；刷新重新读取完整 runtime/project/auth 上下文，只有工作区完整成功后才清除错误。三页 browser seam
+  都以 fail-once → 推荐刷新 → 正常业务状态锁定该行为。
+- 状态文档统一到 Owner 锁定的 successor gate 顺序；该顺序不是已设计、已实现或已部署能力。
+
 ## 视觉、响应式与可访问性
 
 - 三页均复用既有企业 shell、tokens、Button、Dialog、Notice 与 State Badge，没有引入框架、字体、图片、
@@ -75,18 +85,15 @@ preflight warning/passed 只代表检查完成，不等于 HumanReview approved�
 - 页面级真实 Chrome 回归：Copy generation 1/1、Copy quality 1/1、Avatar 2/2、Plan 1/1。
 - 共享回归：Frontend Foundation 1/1、A14 主路径 1/1。
 - `npm run check`：通过，检查 229 个 JavaScript 文件。
-- 默认并发的 `npm test` 本地运行到 564 项后卡在既有
-  `test/operator-task-flow-slice-a-browser.test.js` 子进程，约 74 分钟无进展后人工终止；没有把该次
-  非终态运行记作通过或产品失败。
-- 等价完整测试以 `node --test --test-concurrency=1 test/*.test.js` 串行运行通过：
-  1022 tests，1008 通过、14 跳过、0 失败。14 项跳过均为仓库既有可选环境门禁（13 项 PostgreSQL integration，
-  1 项可选 identity browser）。
+- 第一轮 Review 修复后的默认 `npm test` 完整结束并通过：1022 tests，1008 通过、14 跳过、0 失败，
+  用时约 48 秒。14 项跳过仍为仓库既有可选环境门禁（13 项 PostgreSQL integration，1 项可选 identity browser）。
 - `git diff --check` 与 16 文件严格 allowlist 在提交前复核；fixed-head Ubuntu、Windows 与
   identity-postgres CI 是 Draft PR 的最终完整并发门禁。
 
-本会话证明的是仓库实现与本地浏览器行为，不是合并、部署、客户采用或真实生产证据。Slice B 必须经独立
-Review 与合并后，才允许另建 Slice C；部署仍需单独授权和运行时验证。
+本会话证明的是仓库实现与本地浏览器行为，不是合并、部署、客户采用或真实生产证据。Slice B 必须先经独立
+Review 与合并；部署仍需单独授权和运行时验证。
 
-Owner 另批准一个后续方向：Slice B 完成后，先从本项目运营角色、任务频率、错误成本、权限/审计、安全门禁、
-现有 API/领域状态和中文环境推导信息架构、控件语义、本地化与动作层级，再按具体问题定向研究外部企业工作台。
-该方向不是本轮设计或实现，也不扩大 Issue #168。
+Owner 已锁定 Slice B 之后的 successor gate 顺序：先从本项目运营角色、端到端任务、频率、错误成本、权限/审计、
+安全门禁、现有 API/领域状态和中文环境开展内部问题审计；再带着具体问题定向研究外部企业工作台；随后形成
+独立设计合同并通过 acceptance gate；最后才允许按 taste 原则分片重构。完成后再决定原 Slice C 照旧、rebase
+或被新分片吸收。该方向不是本轮已设计或已实现内容，也不扩大 Issue #168。

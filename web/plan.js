@@ -212,6 +212,28 @@
     workspace = await request(`/api/products/${encodeURIComponent(product.id)}/video-plan-workspace${query}`); taskLoadError = ""; taskConflict = false; render();
     if (["queued","running"].includes(workspace.preflight.current_run?.status)) startPolling(); else stopPolling();
   }
+  async function bootstrap(planId = params.get("plan")) {
+    try {
+      const nextRuntime = await request("/api/runtime");
+      const nextProject = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project;
+      const nextProduct = nextProject.products.find((item) => item.id === (product?.id || requestedProductId)) || nextProject.products[0];
+      if (!nextProduct) {
+        location.replace(`/project.html?id=${nextProject.id}`);
+        return false;
+      }
+      runtime = nextRuntime;
+      project = nextProject;
+      product = nextProduct;
+      await loadWorkspace(planId);
+      notice(element("#pageNotice"));
+      return true;
+    } catch (_error) {
+      taskLoadError = "视频方案工作区加载失败，请刷新重试。";
+      notice(element("#pageNotice"), taskLoadError, "error");
+      renderTaskSummary();
+      return false;
+    }
+  }
   function startPolling() { stopPolling(); polling = setInterval(() => loadWorkspace(workspace.current_plan.id).catch(() => undefined), 800); }
   function stopPolling() { if (polling) clearInterval(polling); polling = null; }
   async function mutate(url, method, payload, idempotent = false) {
@@ -271,9 +293,7 @@
   element("#showPreflight").addEventListener("click", () => { element("#preflightPanel").hidden = false; element("#reviewPanel").hidden = true; element("#showPreflight").classList.add("active"); element("#showReview").classList.remove("active"); });
   element("#showReview").addEventListener("click", () => { element("#preflightPanel").hidden = true; element("#reviewPanel").hidden = false; element("#showReview").classList.add("active"); element("#showPreflight").classList.remove("active"); });
   element("#openVersionDrawer").addEventListener("click", () => element("#versionDialog").showModal()); element("#closeVersionDialog").addEventListener("click", () => element("#versionDialog").close());
-  element("#refreshPlan").addEventListener("click", () => guardReload(() => loadWorkspace(workspace?.current_plan?.id).catch(() => {
-    taskLoadError = "方案状态读取失败，请稍后重试。"; notice(element("#pageNotice"), taskLoadError, "error"); renderTaskSummary();
-  })));
+  element("#refreshPlan").addEventListener("click", () => guardReload(() => bootstrap(workspace?.current_plan?.id || params.get("plan"))));
   element("#productSelector").addEventListener("change", (event) => {
     const nextProduct = project.products.find((item) => item.id === event.currentTarget.value); event.currentTarget.value = product.id;
     guardReload(async () => { product = nextProduct; await loadWorkspace(); });
@@ -284,6 +304,5 @@
   element("#saveUnsaved").addEventListener("click", () => finishGuardedReload("save"));
   addEventListener("beforeunload", (event) => { if (dirty) event.preventDefault(); });
   if (!projectId) return notice(element("#pageNotice"), "缺少项目上下文，请从项目页面重新进入。", "error");
-  try { runtime = await request("/api/runtime"); project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project; product = project.products.find((item) => item.id === requestedProductId) || project.products[0]; if (!product) return location.replace(`/project.html?id=${project.id}`); await loadWorkspace(params.get("plan")); }
-  catch (_error) { taskLoadError = "视频方案工作区加载失败，请刷新重试。"; notice(element("#pageNotice"), taskLoadError, "error"); renderTaskSummary(); }
+  await bootstrap();
 })();

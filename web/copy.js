@@ -145,6 +145,8 @@
       task = { title: "文案生成等待超时", description: "服务端没有形成新的文案版本。", status: "需要处理", statusClass: "blocked", next: "重新生成文案", blocker: "生成等待已超时，现有文案版本未受影响。", action: element("#generateCopy") };
     } else if (!copyVersion) {
       task = { title: "开始第一版文案", description: "基于当前 Ready 商品快照生成可追溯文案。", status: "未生成", statusClass: "unavailable", next: "生成文案", blocker: "", action: element("#generateCopy") };
+    } else if (deriveMode && !dirty) {
+      task = { title: "修改文案后创建新草稿", description: "当前历史版本保持不变，修改正文后可保存为新草稿。", status: "编辑中", statusClass: "draft", next: "修改正文后保存为新草稿", blocker: "正文尚未发生变化，质检仍不可用。", action: null };
     } else if (dirty) {
       task = { title: "保存当前文案草稿", description: "保存后才能继续质检或切换版本。", status: "待保存", statusClass: "draft", next: "保存当前修改", blocker: "当前页面有未保存修改。", action: element("#saveCopy") };
     } else if (!run) {
@@ -321,6 +323,7 @@
     element("#saveCopy").disabled = !dirty;
     if (element("#startQuality")) element("#startQuality").disabled = dirty || deriveMode;
     element("#saveState").textContent = dirty ? "有未保存的修改" : "已保存";
+    renderTaskSummary();
   }
 
   function renderEditor() {
@@ -747,6 +750,7 @@
     deriveMode = true; element("#copyBody").readOnly = false; element("#deriveCopy").hidden = true;
     element("#saveCopy").textContent = "保存为新草稿";
     setNotice(element("#readonlyNotice"), "修改后保存会创建新草稿；新版本需要重新完整质检。", "blocked");
+    updateEditorMeta();
     element("#copyBody").focus();
   }
 
@@ -885,6 +889,30 @@
     await loadWorkspace();
   }
 
+  async function bootstrap(selectRevisionId = requestedRevisionId) {
+    try {
+      const nextRuntime = await request("/api/runtime");
+      if (!nextRuntime.projectContentEnabled || !nextRuntime.copyGenerationEnabled) {
+        location.replace("/projects.html");
+        return false;
+      }
+      const nextIdentityContext = await request("/api/auth/me");
+      runtime = nextRuntime;
+      identityContext = nextIdentityContext;
+      await loadProject(selectRevisionId);
+      taskLoadError = "";
+      setNotice(element("#pageNotice"));
+      renderTaskSummary();
+      return true;
+    } catch (_error) {
+      taskLoadError = "工作区数据未完整载入，请刷新后重试。";
+      element("#copyLoading").hidden = true;
+      setNotice(element("#pageNotice"), "文案工作区暂时无法加载，请返回项目后重试。", "error");
+      renderTaskSummary();
+      return false;
+    }
+  }
+
   async function submitGeneration() {
     if (revision.status !== "ready") return;
     const buttons = [element("#generateCopy"), element("#mobileGenerateCopy")];
@@ -1013,7 +1041,7 @@
   element("#mobileGenerateCopy").addEventListener("click", submitGeneration);
   element("#retryCopy").addEventListener("click", retryGeneration);
   element("#mobileRetryCopy").addEventListener("click", retryGeneration);
-  element("#refreshCopy").addEventListener("click", () => attemptNavigation(() => loadProject(revision.id)));
+  element("#refreshCopy").addEventListener("click", () => attemptNavigation(() => bootstrap(revision?.id || requestedRevisionId)));
   element("#copyBody").addEventListener("input", updateEditorMeta);
   element("#copyForm").addEventListener("submit", async (event) => { event.preventDefault(); await saveCopyDraft(); });
   element("#deriveCopy").addEventListener("click", () => {
@@ -1103,15 +1131,5 @@
   window.addEventListener("beforeunload", (event) => { if (dirty) event.preventDefault(); });
 
   if (!projectId) return location.replace("/projects.html");
-  try {
-    runtime = await request("/api/runtime");
-    if (!runtime.projectContentEnabled || !runtime.copyGenerationEnabled) return location.replace("/projects.html");
-    identityContext = await request("/api/auth/me");
-    await loadProject();
-  } catch (_error) {
-    taskLoadError = "工作区数据未完整载入，请刷新后重试。";
-    element("#copyLoading").hidden = true;
-    setNotice(element("#pageNotice"), "文案工作区暂时无法加载，请返回项目后重试。", "error");
-    renderTaskSummary();
-  }
+  await bootstrap();
 })();

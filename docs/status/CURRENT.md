@@ -31,9 +31,10 @@
   `[currentOrderId]`，当前 order `attempts=[]` 且 active attempts=0；terminal 后立即关 Worker并保留 attempt。
   失败/需处理停止且不创建下一条、不自动重试；成功须经 A12 passed、Work available 与鉴权真实字节下载后，
   才能在 Worker off 下准备下一条。
-- 后续仍严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）完成独立 Review 后，才开始 Slice B
-  （Copy/Avatar/Plan）；Slice B 合并后才开始 Slice C（Production/Works/Assets）。每个切片必须独立 Issue、Draft PR、
-  浏览器回归和 Review，且不自动部署。
+- UX 页面实施仍严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）完成独立 Review 后，才开始
+  Slice B（Copy/Avatar/Plan）。Slice B 合并后不直接开始 Slice C，而是先完成 Owner 已锁定的 successor gate；
+  该 gate 完成后再决定 Slice C（Production/Works/Assets）照旧实施、rebase 或吸收到后续分片。每个实施分片仍须
+  独立 Issue、Draft PR、浏览器回归和 Review，且不自动部署。
 - 旧 `gui/visual-refresh` 工作树及 CSS-only 改动不是本轮基线，不得合并、搬运或覆盖；现有 tokens、基础组件、
   vanilla HTML/CSS/JS、组织授权、状态机和 fail-closed 生产合同继续保留；唯一新增 API 是组织隔离的
   `GET /api/product-revisions/:revisionId` 只读 seam，写路径与领域语义不变。
@@ -54,11 +55,11 @@
   HumanReview approved 方案才进入“等待生产工单能力”状态。
 - 三页继续复用现有 vanilla HTML/CSS/JS、API、状态机、授权和审计证据；没有新增依赖、后端 seam 或自动终态。
   浏览器回归覆盖 1440/768/390、无页面级横向滚动、可见焦点与 reduced-motion；截图只写入临时目录且不入 Git。
-- 后续 Slice C（Production/Works/Assets）只能在 Slice B 的独立 Review 与合并完成后开始，仍须独立 Issue、
-  Draft PR 与浏览器验收，且不自动部署。
-- Owner 已批准一个后续方向：在 Slice B 完成后，另行从本项目运营角色、端到端任务、频率、错误成本、
-  权限/审计、安全门禁、现有 API/领域状态和中文环境出发，评估信息架构、控件语义、本地化与操作层级；
-  外部企业工作台只用于带着具体问题定向研究。该方向尚未设计、实现或授权全局重构。
+- Slice B 完成后的 successor gate 顺序已由 Owner 锁定，但尚未执行：先从本项目运营角色、端到端任务、频率、
+  错误成本、权限/审计、安全门禁、现有 API/领域状态和中文环境开展内部问题审计；再带着具体问题定向研究
+  外部企业工作台；随后形成独立设计合同并经 acceptance gate，最后才允许按 taste 原则分片重构。
+- 只有上述 gate 完成后，才决定原 Slice C（Production/Works/Assets）照旧实施、rebase 或被新分片吸收；不得在
+  Issue #168 内开始该 gate 或 Slice C。该 successor 方向目前不是已设计、已实现或已部署能力。
 
 ## P0.5 内部验收环境部署
 
@@ -217,7 +218,9 @@
 ## 下一步
 
 1. Slice A 已合并但尚未部署；Slice B 以 Issue #168 的独立 Review 与合并为 acceptance gate。本节随 Slice B
-   实现 PR 进入 `main` 后，下一项才是另建 Slice C Issue，且仍不得把仓库浏览器回归写成生产采用。
+   实现 PR 进入 `main` 后，下一项是另建独立 successor gate：内部问题审计 → 定向外部工作台研究 → 设计合同
+   acceptance → taste 原则分片重构。完成后再决定原 Slice C 照旧、rebase 或吸收，且始终不得把仓库浏览器
+   回归写成生产采用。
 2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。

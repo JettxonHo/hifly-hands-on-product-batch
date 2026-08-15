@@ -60,14 +60,28 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.getByRole("button", { name: "新增卖点" }).click(); await page.locator(".point-row input").fill("柔软亲肤"); await page.getByRole("button", { name: "保存草稿" }).click(); await page.getByText("草稿已保存。").waitFor();
   await page.getByRole("button", { name: "确认", exact: true }).click(); await page.getByText(/已确认。$/).waitFor(); await page.locator("#assetOptions input").check(); await page.getByRole("button", { name: "设为 Ready" }).click(); await page.getByText("商品快照已 Ready。").waitFor();
 
+  let runtimeAttempts = 0;
+  const failRuntimeOnce = async (route) => {
+    runtimeAttempts += 1;
+    if (runtimeAttempts === 1) {
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "TEMPORARY_RUNTIME_FAILURE" }) });
+      return;
+    }
+    await route.fallback();
+  };
+  await page.route("**/api/runtime", failRuntimeOnce);
   await page.getByRole("link", { name: "进入文案与质检" }).click();
   await page.waitForURL(/\/copy\.html\?project=/);
-  await page.getByRole("heading", { name: "文案与质检" }).waitFor();
   const taskSummary = page.getByRole("region", { name: "当前任务" });
   assert.equal(await taskSummary.count(), 1, "Copy should expose the operator task summary in the first screen");
+  await taskSummary.getByText("加载失败", { exact: true }).waitFor();
+  await page.locator("#refreshCopy[data-recommended-action='true']").click();
+  await page.getByRole("heading", { name: "文案与质检" }).waitFor();
   await taskSummary.getByText("文案项目 · 云朵抱枕", { exact: true }).waitFor();
   await taskSummary.getByText("文案与质检 · 2/5", { exact: true }).waitFor();
   await taskSummary.getByText("生成文案", { exact: true }).waitFor();
+  assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
+  await page.unroute("**/api/runtime", failRuntimeOnce);
   assert.match(await page.locator("#productFactsLink").getAttribute("href"), /[?&]revision=[^&]+/);
   await page.getByRole("navigation", { name: "项目阶段" }).locator('[aria-current="step"]').waitFor();
   await page.getByRole("button", { name: "生成文案" }).click();
@@ -86,6 +100,9 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await app.copyGeneration.worker.runNext();
   await page.getByRole("textbox", { name: "文案正文" }).waitFor();
   await page.getByRole("textbox", { name: "文案正文" }).fill("人工调整后的第一版文案");
+  await taskSummary.getByText("保存当前修改", { exact: true }).waitFor();
+  assert.equal(await page.locator("#saveCopy[data-recommended-action='true']").count(), 1);
+  assert.equal(await page.locator("#startQuality[data-recommended-action='true']").count(), 0);
   await page.getByRole("button", { name: "保存草稿" }).click();
   await page.getByText("文案草稿已保存。", { exact: true }).waitFor();
 
@@ -101,7 +118,11 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.getByRole("button", { name: "刷新" }).click();
   await page.getByRole("button", { name: /v1.*已冻结/ }).waitFor();
   await page.getByRole("button", { name: "基于此版本修改" }).click();
+  await taskSummary.getByText("修改正文后保存为新草稿", { exact: true }).waitFor();
+  assert.equal(await page.locator("#startQuality[data-recommended-action='true']").count(), 0);
   await page.getByRole("textbox", { name: "文案正文" }).fill("冻结后形成的新草稿");
+  await taskSummary.getByText("保存当前修改", { exact: true }).waitFor();
+  assert.equal(await page.locator("#saveCopy[data-recommended-action='true']").count(), 1);
   await page.getByRole("button", { name: "保存为新草稿" }).click();
   await page.getByRole("button", { name: /v2.*草稿/ }).waitFor();
   if (process.env.A04_SCREENSHOT_DIR) {

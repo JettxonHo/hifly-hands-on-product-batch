@@ -306,6 +306,33 @@
     render();
   }
 
+  async function bootstrap({ keepSelection = false } = {}) {
+    try {
+      const [nextProject, nextRuntime, nextIdentityContext] = await Promise.all([
+        request(`/api/projects/${encodeURIComponent(projectId)}`).then((body) => body.project),
+        request("/api/runtime"),
+        request("/api/auth/me")
+      ]);
+      const nextProduct = nextProject.products.find((item) => item.id === (product?.id || requestedProductId)) || nextProject.products[0];
+      if (!nextProduct) {
+        location.replace(`/project.html?id=${encodeURIComponent(nextProject.id)}`);
+        return false;
+      }
+      project = nextProject;
+      runtime = nextRuntime;
+      identityContext = nextIdentityContext;
+      product = nextProduct;
+      await loadWorkspace({ keepSelection });
+      setNotice(element("#pageNotice"));
+      return true;
+    } catch (_error) {
+      taskLoadError = "人物工作区加载失败，请刷新重试。";
+      setNotice(element("#pageNotice"), taskLoadError, "error");
+      renderTaskSummary();
+      return false;
+    }
+  }
+
   function openConfirmation() {
     if (!selectedAvatar?.gate.can_confirm) return;
     const changing = Boolean(workspace.selection.current_selection);
@@ -404,11 +431,7 @@
 
   element("#sourceFilter").addEventListener("change", renderCatalog); element("#statusFilter").addEventListener("change", renderCatalog);
   element("#clearFilters").addEventListener("click", () => { element("#sourceFilter").value = "all"; element("#statusFilter").value = "all"; renderCatalog(); });
-  element("#refreshAvatar").addEventListener("click", () => loadWorkspace({ keepSelection: true }).catch(() => {
-    taskLoadError = "人物状态读取失败，请稍后重试。";
-    setNotice(element("#pageNotice"), taskLoadError, "error");
-    renderTaskSummary();
-  }));
+  element("#refreshAvatar").addEventListener("click", () => bootstrap({ keepSelection: true }));
   element("#productSelector").addEventListener("change", async (event) => { product = project.products.find((item) => item.id === event.currentTarget.value); copyVersionId = ""; await loadWorkspace(); });
   element("#confirmAvatar").addEventListener("click", openConfirmation);
   element("#enterpriseAvatarForm").addEventListener("submit", registerEnterpriseAvatar);
@@ -419,16 +442,5 @@
   element("#openCatalogDrawer").addEventListener("click", openCatalog); element("#closeCatalogDialog").addEventListener("click", closeCatalog);
 
   if (!projectId) return setNotice(element("#pageNotice"), "缺少项目上下文，请从项目页面重新进入。", "error");
-  try {
-    [project, runtime, identityContext] = await Promise.all([
-      request(`/api/projects/${encodeURIComponent(projectId)}`).then((body) => body.project), request("/api/runtime"), request("/api/auth/me")
-    ]);
-    product = project.products.find((item) => item.id === requestedProductId) || project.products[0];
-    if (!product) return location.replace(`/project.html?id=${encodeURIComponent(project.id)}`);
-    await loadWorkspace();
-  } catch (_error) {
-    taskLoadError = "人物工作区加载失败，请刷新重试。";
-    setNotice(element("#pageNotice"), taskLoadError, "error");
-    renderTaskSummary();
-  }
+  await bootstrap();
 })();

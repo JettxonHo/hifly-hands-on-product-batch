@@ -23,7 +23,8 @@ P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
 P0.4  3 条严格串行、受控内部试运行（已完成）
 P0.5  release-readiness：代码/依赖部署完成；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
-UX V1 运营任务流优先：designed → Slice A（已合并、未部署）→ Slice B acceptance gate（#168）→ Slice C
+UX V1 运营任务流优先：designed → Slice A（已合并、未部署）→ Slice B acceptance gate（#168）
+    → 内部问题审计 → 定向外部工作台研究 → 设计合同 → taste 分片重构 → 再决定 Slice C
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -49,16 +50,18 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Issue #166 是
 2. Slice B：Copy/Avatar/Plan；清楚区分生成、自动检查与人工批准。Issue #168 的实现 PR 进入 `main` 后，
    Copy 才以 approved copy 为人物阶段门禁，Avatar 才以当前商品的有效确认选择为 Plan 门禁，Plan 才明确
    preflight passed/warning 不等于人工批准。该仓库状态仍不代表已部署或真实生产采用。
-3. Slice C：Production/Works/Assets；Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order
+3. Slice C 候选范围：Production/Works/Assets；是否照旧、rebase 或被后续分片吸收，须等下述 successor gate
+   完成后决定。若保留该范围，Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order
    零 attempt 与 active attempts=0；terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经
    A12、Work 和真实字节下载后才准备下一条。Works 保留深链授权，Assets 不伪造 API 未提供的类型或关联。
 
-每个切片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一切片合并后才开始下一切片，且不自动部署。
+每个已批准的实施分片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一分片合并后才开始下一分片，且不自动部署。
 
-Slice B 完成后的 successor gate 已获 Owner 方向性批准，但尚未设计或实现：先从本项目自己的运营角色、
-端到端任务、频率、错误成本、权限/审计、安全门禁、现有 API/领域状态和中文环境推导信息架构、控件语义、
-本地化与动作层级问题；再带着具体问题定向研究外部企业工作台。不得以竞品视觉或页面结构反向决定本项目 IA，
-也不得把该方向插入 Issue #168 或扩张其 allowlist。
+Slice B 完成后的 successor gate 顺序已获 Owner 锁定，但尚未执行、设计或实现：先从本项目自己的运营角色、
+端到端任务、频率、错误成本、权限/审计、安全门禁、现有 API/领域状态和中文环境开展内部问题审计；再带着
+具体问题定向研究外部企业工作台；随后形成独立设计合同并通过 acceptance gate；最后才允许使用 taste 原则做
+可审阅的串行分片重构。完成该 gate 后，再决定原 Slice C 照旧实施、rebase 或吸收到新的分片。不得以竞品视觉
+或页面结构反向决定本项目 IA，也不得把该方向插入 Issue #168 或扩张其 allowlist。
 
 ## 4. 保留但不抢跑的工作
 

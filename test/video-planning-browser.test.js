@@ -49,10 +49,24 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
   await page.locator("#newPassword").fill("Plan-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
 
+  let runtimeAttempts = 0;
+  const failRuntimeOnce = async (route) => {
+    runtimeAttempts += 1;
+    if (runtimeAttempts === 1) {
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "TEMPORARY_RUNTIME_FAILURE" }) });
+      return;
+    }
+    await route.fallback();
+  };
+  await page.route("**/api/runtime", failRuntimeOnce);
   await page.goto(`${origin}/plan.html?project=${project.id}&product=${product.id}`);
   const taskSummary = page.getByRole("region", { name: "当前任务" });
   assert.equal(await taskSummary.count(), 1, "Plan should expose the operator task summary in the first screen");
+  await taskSummary.getByText("加载失败", { exact: true }).waitFor();
+  await page.locator("#refreshPlan[data-recommended-action='true']").click();
   await page.getByRole("heading", { name: "视频方案", exact: true }).waitFor(); await page.getByText("还没有视频方案").waitFor();
+  assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
+  await page.unroute("**/api/runtime", failRuntimeOnce);
   await taskSummary.getByText("秋季视频方案 · 云感保湿乳", { exact: true }).waitFor();
   await taskSummary.getByText("视频方案 · 4/5", { exact: true }).waitFor();
   await taskSummary.getByText("填写制作说明并创建方案", { exact: true }).waitFor();
