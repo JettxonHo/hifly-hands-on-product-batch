@@ -901,7 +901,6 @@
       identityContext = nextIdentityContext;
       await loadProject(selectRevisionId);
       taskLoadError = "";
-      setNotice(element("#pageNotice"));
       renderTaskSummary();
       return true;
     } catch (_error) {

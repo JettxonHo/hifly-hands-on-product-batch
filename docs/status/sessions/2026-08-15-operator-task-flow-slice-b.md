@@ -56,6 +56,16 @@ preflight warning/passed 只代表检查完成，不等于 HumanReview approved�
   都以 fail-once → 推荐刷新 → 正常业务状态锁定该行为。
 - 状态文档统一到 Owner 锁定的 successor gate 顺序；该顺序不是已设计、已实现或已部署能力。
 
+### 第二轮独立 Review 修复 RED → GREEN
+
+- Copy 初始恢复测试原先用 `/api/runtime` 的第一次请求作为失败条件，导航前无关请求可能抢先消费。修复后仅当
+  当前页面路径已是 `/copy.html` 时注入一次失败，并断言该失败确实命中 Copy 自身首次 bootstrap。
+- terminal failed 状态首次出现正常，但页面 reload 后等待失败提示 30 秒超时，证明 bootstrap 在
+  `renderJobState()` 写入业务状态后又清空了 Notice。最小 GREEN 删除该无条件清空；业务状态现在由
+  `renderJobState()` 唯一决定，失败提示与“重试生成文案”摘要经 reload 和页面 Refresh 都保持可见。
+- Copy generation、Copy quality、Avatar、Plan 四文件组合恢复矩阵连续运行 3 次，每次 5/5 通过、0 跳过、
+  0 失败，锁定初始恢复没有测试竞态。
+
 ## 视觉、响应式与可访问性
 
 - 三页均复用既有企业 shell、tokens、Button、Dialog、Notice 与 State Badge，没有引入框架、字体、图片、
@@ -87,6 +97,9 @@ preflight warning/passed 只代表检查完成，不等于 HumanReview approved�
 - `npm run check`：通过，检查 229 个 JavaScript 文件。
 - 第一轮 Review 修复后的默认 `npm test` 完整结束并通过：1022 tests，1008 通过、14 跳过、0 失败，
   用时约 48 秒。14 项跳过仍为仓库既有可选环境门禁（13 项 PostgreSQL integration，1 项可选 identity browser）。
+- 第二轮 Review 修复后的默认沙箱 `npm test` 同样完整结束且 0 失败：1022 tests，972 通过、50 跳过，
+  用时约 11 秒；增加的跳过来自该沙箱不允许本地 TCP/Chrome 的浏览器环境门禁。真实 Chrome 的四页恢复矩阵
+  已在宿主环境连续运行 3 次，并与 Frontend Foundation、A14 回归组合运行，均为 0 跳过、0 失败。
 - `git diff --check` 与 16 文件严格 allowlist 在提交前复核；fixed-head Ubuntu、Windows 与
   identity-postgres CI 是 Draft PR 的最终完整并发门禁。
 

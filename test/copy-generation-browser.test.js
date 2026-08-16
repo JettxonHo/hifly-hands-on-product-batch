@@ -61,9 +61,11 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.getByRole("button", { name: "确认", exact: true }).click(); await page.getByText(/已确认。$/).waitFor(); await page.locator("#assetOptions input").check(); await page.getByRole("button", { name: "设为 Ready" }).click(); await page.getByText("商品快照已 Ready。").waitFor();
 
   let runtimeAttempts = 0;
+  let initialCopyBootstrapFailed = false;
   const failRuntimeOnce = async (route) => {
     runtimeAttempts += 1;
-    if (runtimeAttempts === 1) {
+    if (!initialCopyBootstrapFailed && new URL(page.url()).pathname === "/copy.html") {
+      initialCopyBootstrapFailed = true;
       await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "TEMPORARY_RUNTIME_FAILURE" }) });
       return;
     }
@@ -80,6 +82,7 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await taskSummary.getByText("文案项目 · 云朵抱枕", { exact: true }).waitFor();
   await taskSummary.getByText("文案与质检 · 2/5", { exact: true }).waitFor();
   await taskSummary.getByText("生成文案", { exact: true }).waitFor();
+  assert.equal(initialCopyBootstrapFailed, true, "The injected failure must target Copy's own initial bootstrap");
   assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
   await page.unroute("**/api/runtime", failRuntimeOnce);
   assert.match(await page.locator("#productFactsLink").getAttribute("href"), /[?&]revision=[^&]+/);
@@ -90,6 +93,12 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.reload();
   await page.getByText("文案正在生成，可离开此页面。", { exact: true }).waitFor();
   await app.copyGeneration.worker.runNext();
+  await page.getByText("文案生成失败，未产生文案版本。可以安全重试。", { exact: true }).waitFor();
+  await taskSummary.getByText("重试生成文案", { exact: true }).waitFor();
+  await page.reload();
+  await page.getByText("文案生成失败，未产生文案版本。可以安全重试。", { exact: true }).waitFor();
+  await taskSummary.getByText("重试生成文案", { exact: true }).waitFor();
+  await page.locator("#refreshCopy").click();
   await page.getByText("文案生成失败，未产生文案版本。可以安全重试。", { exact: true }).waitFor();
   await taskSummary.getByText("重试生成文案", { exact: true }).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
