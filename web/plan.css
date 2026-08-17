@@ -1,4 +1,6 @@
 .plan-page-content { max-width: 1500px; }
+.plan-page-content .task-summary-context > p:last-child { margin-top: 6px; color: var(--n-500); font-size: 13px; overflow-wrap: anywhere; }
+.plan-page-content .task-action-secondary { border-color: var(--n-300); color: var(--n-900); background: var(--n-0); }
 .plan-workspace { display: grid; grid-template-columns: 260px minmax(430px, 1fr) 390px; gap: var(--space-4); align-items: start; }
 .plan-workspace > .surface { min-width: 0; margin-top: 0; }
 .version-panel, .decision-panel { position: sticky; top: 76px; max-height: calc(100dvh - 96px); overflow: auto; }

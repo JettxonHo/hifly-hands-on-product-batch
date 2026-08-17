@@ -1,4 +1,5 @@
 .copy-page-content { width: min(100% - 48px, 1220px); }
+.copy-page-content .task-summary-context > p:last-child { margin-top: 6px; color: var(--n-500); font-size: 13px; overflow-wrap: anywhere; }
 .stage-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); min-height: 44px; margin-bottom: var(--space-4); border: 1px solid var(--n-200); border-radius: var(--radius-panel); background: var(--n-0); overflow: hidden; }
 .stage-strip > * { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 9px 12px; border-left: 1px solid var(--n-200); color: var(--n-500); font-size: 13px; text-decoration: none; }
 .stage-strip > :first-child { border-left: 0; }
@@ -95,12 +96,12 @@
 .rewrite-dialog-body { display: grid; gap: var(--space-4); }
 .rewrite-dialog-body label { display: grid; gap: 6px; }
 
-@media (max-width: 1120px) and (min-width: 761px) {
+@media (max-width: 1120px) and (min-width: 801px) {
   .copy-workspace { grid-template-columns: 220px minmax(360px, 1fr); }
   .quality-panel { position: static; grid-column: 2; max-height: none; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 800px) {
   .copy-page-content { width: min(100% - 32px, 1220px); }
   .stage-desktop { display: none; }
   .stage-mobile { display: block; }

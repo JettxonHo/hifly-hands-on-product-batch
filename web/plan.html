@@ -4,16 +4,30 @@
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <title>视频方案 · 飞影企业工作台</title>
     <link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/base.css"><link rel="stylesheet" href="/shell.css">
+    <link rel="stylesheet" href="/operator-task-flow.css">
     <link rel="stylesheet" href="/copy.css"><link rel="stylesheet" href="/plan.css">
     <script src="/shell.js" defer></script><script src="/plan.js" defer></script>
   </head>
-  <body data-shell-page="projects">
+  <body class="operator-task-page" data-shell-page="projects">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
     <div class="app-shell">
       <aside class="app-sidebar"><a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a><nav class="app-nav" aria-label="主导航"><a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a><a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a><a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a></nav></aside>
       <div class="app-frame"><header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
         <main id="mainContent" class="page-content plan-page-content">
           <div class="page-header"><div><p class="eyebrow"><a href="/projects.html">项目</a> / <a id="projectBreadcrumb" href="/projects.html">当前项目</a> / 视频方案</p><h1>视频方案</h1><p class="page-description">固定商品、已批准文案和已确认人物，完成预检后提交人工审核。</p></div><div class="page-actions"><button id="refreshPlan" class="secondary" type="button">刷新</button></div></div>
+          <section class="task-summary" aria-label="当前任务" aria-live="polite">
+            <div class="task-summary-context"><p class="eyebrow">当前任务</p><h2 id="taskSummaryTitle">载入视频方案</h2><p id="taskSummaryDescription">正在读取项目与商品</p></div>
+            <dl class="task-summary-facts">
+              <div><dt>当前上下文</dt><dd id="taskContext">正在读取项目与商品</dd></div>
+              <div><dt>所处步骤</dt><dd id="taskStage">视频方案 · 4/5</dd></div>
+              <div><dt>业务状态</dt><dd id="taskStatus" class="state running">正在加载</dd></div>
+              <div><dt>当前方案</dt><dd id="taskPlanVersion">尚未载入</dd></div>
+              <div><dt>预检</dt><dd id="taskPreflightStatus" class="state running">正在读取</dd></div>
+              <div><dt>人工审核</dt><dd id="taskReviewStatus" class="state running">正在读取</dd></div>
+            </dl>
+            <div class="task-summary-next"><span>推荐下一步</span><strong id="taskNext">等待视频方案载入</strong></div>
+            <p id="taskBlocker" class="task-summary-blocker" hidden></p>
+          </section>
           <nav class="stage-strip stage-desktop" aria-label="项目阶段"><a id="factsStageLink" href="/projects.html"><span>✓</span>商品与目标</a><a id="copyStageLink" href="/copy.html"><span>✓</span>文案与质检</a><a id="avatarStageLink" href="/avatar.html"><span>✓</span>人物与素材</a><strong aria-current="step"><span>4</span>视频方案</strong><a id="productionStageLink" aria-disabled="true"><b>5</b>生成与交付</a></nav>
           <details class="stage-mobile"><summary>阶段 4/5 · 视频方案</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品与目标</a></li><li><a id="mobileCopyStageLink" href="/copy.html">文案与质检</a></li><li><a id="mobileAvatarStageLink" href="/avatar.html">人物与素材</a></li><li aria-current="step">视频方案</li><li><a id="mobileProductionStageLink" aria-disabled="true">生成与交付</a></li></ol></details>
           <section class="product-context"><label for="productSelector">当前商品</label><select id="productSelector" aria-label="切换商品"></select><div class="product-context-meta"><span id="planState" class="state">尚无方案</span><span id="contextSummary" class="muted">等待读取</span></div></section>

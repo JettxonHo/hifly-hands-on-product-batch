@@ -1,4 +1,8 @@
 .avatar-page-content { width: min(100% - 48px, 1240px); }
+.avatar-page-content .task-summary-context > p:last-child { margin-top: 6px; color: var(--n-500); font-size: 13px; overflow-wrap: anywhere; }
+.avatar-page-content .task-action-secondary { border-color: var(--n-300); color: var(--n-900); background: var(--n-0); }
+.avatar-page-content a.task-action-secondary { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; padding: 7px 14px; border: 1px solid var(--n-300); border-radius: var(--radius-control); font-weight: 600; text-decoration: none; }
+.avatar-page-content .task-action-secondary:hover:not(:disabled) { border-color: var(--n-400); color: var(--n-900); background: var(--n-50); }
 .enterprise-avatar-admin { margin-top: var(--space-5); }
 .enterprise-avatar-admin .surface-header { margin-bottom: var(--space-4); }
 .enterprise-avatar-form { display: grid; gap: var(--space-3); }
@@ -67,7 +71,7 @@
 .state.valid, .state.expiring, .state.confirmed { border-color: var(--success-border); color: var(--success); background: var(--success-bg); }
 .state.expiring { border-color: var(--warning-border); color: var(--warning); background: var(--warning-bg); }
 .state.expired, .state.incomplete, .state.unverified { color: var(--n-500); background: var(--n-100); }
-@media (max-width: 760px) {
+@media (max-width: 980px) {
   .avatar-page-content { width: min(100% - 32px, 1240px); }
   .avatar-workspace { grid-template-columns: 1fr; margin-top: var(--space-3); }
   .catalog-panel { display: none; }

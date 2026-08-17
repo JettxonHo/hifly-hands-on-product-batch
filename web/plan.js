@@ -1,6 +1,7 @@
 (async () => {
   const params = new URLSearchParams(location.search), projectId = params.get("project"), requestedProductId = params.get("product");
   let project, product, workspace, runtime, dirty = false, polling, reviewAction = "submit", pendingReload = null;
+  let taskLoadError = "", taskConflict = false;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const planLabels = { draft: "草稿", frozen: "已冻结", superseded: "已被替代" };
@@ -19,6 +20,102 @@
     ["warning","blocked","invalidated","changes_requested"].includes(status) ? "blocked" : ["failed"].includes(status) ? "failure" : ["superseded","revoked"].includes(status) ? "superseded" : ""; }
   function badge(target, label, status) { target.textContent = label; target.className = `state ${stateClass(status)}`; }
   function short(value) { return value ? value.slice(0, 8) : "未就绪"; }
+  function setTaskStatus(selector, text, status = "") {
+    const target = element(selector);
+    target.textContent = text;
+    target.className = status ? `state ${stateClass(status)}` : "state";
+  }
+  function recommend(action) {
+    const controls = ["#refreshPlan","#createPlan","#saveDraft","#deriveDraft","#runPreflight","#submitReview","#approveReview","#requestChanges","#createOrderLink"]
+      .map(element).filter(Boolean);
+    for (const control of controls) {
+      if (!control.dataset.taskBaseClass) control.dataset.taskBaseClass = control.className;
+      control.className = control.dataset.taskBaseClass;
+      control.removeAttribute("data-recommended-action");
+      if (control.tagName === "BUTTON" && control.id !== "refreshPlan") control.classList.add("secondary");
+      if (control.id === "createOrderLink") control.classList.add("task-action-secondary");
+    }
+    if (!action || action.hidden || action.disabled || action.getAttribute("aria-disabled") === "true") return;
+    action.className = action.dataset.taskBaseClass || "";
+    if (action.tagName === "A") action.classList.add("button-link");
+    action.setAttribute("data-recommended-action", "true");
+  }
+  function renderTaskSummary() {
+    if (!element("#taskSummaryTitle")) return;
+    element("#taskContext").textContent = project && product ? `${project.name} · ${product.revision.product_name || "未命名商品"}` : "正在读取项目与商品";
+    element("#taskStage").textContent = "视频方案 · 4/5";
+    const plan = workspace?.current_plan;
+    const run = workspace?.preflight?.current_run;
+    const result = workspace?.preflight?.current_result;
+    const review = workspace?.review?.current_review;
+    const reviewStatus = review?.status || "not_submitted";
+    element("#taskPlanVersion").textContent = plan ? `方案 v${plan.version_number} · ${planLabels[plan.status]}` : "尚无方案";
+    setTaskStatus("#taskPreflightStatus",
+      ["queued","running"].includes(run?.status) ? "预检中" : run?.status === "failed" ? "预检失败" : preflightLabels[result?.status || "not_run"],
+      ["queued","running"].includes(run?.status) ? "running" : run?.status === "failed" ? "failed" : result?.status || "not_run");
+    setTaskStatus("#taskReviewStatus", reviewLabels[reviewStatus], reviewStatus);
+
+    let task = { title: "载入视频方案", description: "正在读取方案、预检与人工审核", status: "正在加载", statusClass: "running",
+      next: "等待视频方案载入", blocker: "", action: null };
+    if (taskLoadError) {
+      task = { title: "视频方案暂时无法载入", description: "没有改变当前方案。", status: "加载失败", statusClass: "failed",
+        next: "刷新视频方案", blocker: taskLoadError, action: element("#refreshPlan") };
+    } else if (!workspace || !project || !product) {
+      // Keep loading truth.
+    } else if (!plan) {
+      task = { title: "创建第一版视频方案", description: "基于当前已批准文案和已确认人物固定制作说明。", status: "尚无方案", statusClass: "not_run",
+        next: "填写制作说明并创建方案", blocker: "", action: element("#createPlan") };
+    } else if (taskConflict) {
+      task = { title: "方案版本冲突", description: "你的本地内容仍保留，未覆盖服务端版本。", status: "需要处理", statusClass: "blocked",
+        next: "保留本地内容并刷新核对", blocker: "先复制或保留当前文字，再通过刷新查看服务端最新版本。", action: element("#refreshPlan") };
+    } else if (dirty) {
+      task = { title: "保存当前方案草稿", description: "保存后才能预检或切换方案。", status: "待保存", statusClass: "draft",
+        next: "保存草稿", blocker: "当前制作说明有未保存修改。", action: element("#saveDraft") };
+    } else if (plan.status === "superseded") {
+      task = { title: "正在查看历史方案", description: "历史版本只读保留，不能继续预检或审核。", status: "已被替代", statusClass: "superseded",
+        next: "从方案版本列表回到当前版本", blocker: "历史方案不能作为新的生产依据。", action: null };
+    } else if (["queued","running"].includes(run?.status)) {
+      task = { title: "方案正在预检", description: "结果由服务端保存，重新进入后可恢复。", status: "预检中", statusClass: "running",
+        next: "等待预检完成，可离开后返回", blocker: "", action: null };
+    } else if (run?.status === "failed") {
+      task = { title: "预检未完成", description: "技术失败没有形成业务结论。", status: "预检失败", statusClass: "failed",
+        next: "重新预检", blocker: "本次失败不等于方案不通过，也不会自动批准。", action: element("#runPreflight") };
+    } else if (!result) {
+      task = { title: "方案草稿待预检", description: "预检只验证门禁，不会代替人工批准。", status: "待预检", statusClass: "draft",
+        next: "开始预检", blocker: "", action: element("#runPreflight") };
+    } else if (["blocked","invalidated"].includes(result.status)) {
+      task = { title: result.status === "invalidated" ? "预检结论已失效" : "预检发现阻断", description: "上游引用或方案条件需要先处理。",
+        status: preflightLabels[result.status], statusClass: result.status, next: "处理上游阻断后重新预检",
+        blocker: "请从上游引用卡片返回文案或人物步骤处理；旧预检不能用于审核。", action: null };
+    } else if (reviewStatus === "approved") {
+      const productionAvailable = runtime?.productionOrdersEnabled === true && workspace.production_order_available === true;
+      task = productionAvailable
+        ? { title: "方案已批准", description: "当前 HumanReview 已批准方案。", status: "已批准", statusClass: "approved",
+          next: "进入生产工单", blocker: "", action: element("#createOrderLink") }
+        : { title: "方案已批准", description: "当前 HumanReview 已批准方案。", status: "已批准", statusClass: "approved",
+          next: "等待生产工单能力开放", blocker: workspace.production_order_notice || "生产工单当前未开放。", action: null };
+    } else if (reviewStatus === "pending") {
+      task = { title: "方案待人工决策", description: `${preflightLabels[result.status]}不等于人工批准。`, status: "待人工审核", statusClass: "pending",
+        next: "批准方案或要求修改", blocker: "人工审核仍未完成。", action: element("#approveReview") };
+    } else if (["changes_requested","revoked"].includes(reviewStatus)) {
+      task = { title: reviewStatus === "changes_requested" ? "审核要求修改方案" : "方案批准已撤销", description: "历史审核保留，需创建新方案版本。",
+        status: reviewLabels[reviewStatus], statusClass: reviewStatus, next: "基于此方案修改", blocker: review?.decision_reason || "修改后需要重新预检和人工审核。",
+        action: element("#deriveDraft") };
+    } else if (workspace.review.gate.can_submit) {
+      task = { title: "预检已完成，等待人工审核", description: `${preflightLabels[result.status]}不等于人工批准。`, status: "待提交审核", statusClass: "pending",
+        next: "提交方案审核", blocker: "", action: element("#submitReview") };
+    } else {
+      task = { title: "预检已完成，审核门禁未满足", description: "预检结论与人工批准保持独立。", status: "需要处理", statusClass: "blocked",
+        next: "处理审核门禁", blocker: "当前方案不能提交人工审核，请核对预检和上游引用。", action: null };
+    }
+    element("#taskSummaryTitle").textContent = task.title;
+    element("#taskSummaryDescription").textContent = task.description;
+    setTaskStatus("#taskStatus", task.status, task.statusClass);
+    element("#taskNext").textContent = task.next;
+    element("#taskBlocker").hidden = !task.blocker;
+    element("#taskBlocker").textContent = task.blocker;
+    recommend(task.action);
+  }
   function updateLocation(planId = workspace?.current_plan?.id) {
     const next = new URL(location.href); next.searchParams.set("project", project.id); next.searchParams.set("product", product.id);
     if (planId) next.searchParams.set("plan", planId); else next.searchParams.delete("plan"); history.replaceState(null, "", next);
@@ -107,22 +204,44 @@
   }
   function render() {
     links(); const hasPlan = Boolean(workspace.current_plan); element("#emptyPlan").hidden = hasPlan; element("#planWorkspace").hidden = !hasPlan; element("#openVersionDrawer").hidden = !hasPlan;
-    if (!hasPlan) { badge(element("#planState"), "尚无方案", "not_run"); element("#contextSummary").textContent = "人物确认后可创建"; return; }
-    renderVersions(); renderEditor(); renderPreflight(); renderReview(); updateLocation();
+    if (!hasPlan) { badge(element("#planState"), "尚无方案", "not_run"); element("#contextSummary").textContent = "人物确认后可创建"; renderTaskSummary(); return; }
+    renderVersions(); renderEditor(); renderPreflight(); renderReview(); updateLocation(); renderTaskSummary();
   }
   async function loadWorkspace(planId = null) {
     const query = planId ? `?planVersionId=${encodeURIComponent(planId)}` : "";
-    workspace = await request(`/api/products/${encodeURIComponent(product.id)}/video-plan-workspace${query}`); render();
+    workspace = await request(`/api/products/${encodeURIComponent(product.id)}/video-plan-workspace${query}`); taskLoadError = ""; taskConflict = false; render();
     if (["queued","running"].includes(workspace.preflight.current_run?.status)) startPolling(); else stopPolling();
+  }
+  async function bootstrap(planId = params.get("plan")) {
+    try {
+      const nextRuntime = await request("/api/runtime");
+      const nextProject = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project;
+      const nextProduct = nextProject.products.find((item) => item.id === (product?.id || requestedProductId)) || nextProject.products[0];
+      if (!nextProduct) {
+        location.replace(`/project.html?id=${nextProject.id}`);
+        return false;
+      }
+      runtime = nextRuntime;
+      project = nextProject;
+      product = nextProduct;
+      await loadWorkspace(planId);
+      notice(element("#pageNotice"));
+      return true;
+    } catch (_error) {
+      taskLoadError = "视频方案工作区加载失败，请刷新重试。";
+      notice(element("#pageNotice"), taskLoadError, "error");
+      renderTaskSummary();
+      return false;
+    }
   }
   function startPolling() { stopPolling(); polling = setInterval(() => loadWorkspace(workspace.current_plan.id).catch(() => undefined), 800); }
   function stopPolling() { if (polling) clearInterval(polling); polling = null; }
   async function mutate(url, method, payload, idempotent = false) {
     const local = element("#outputInstructions").value;
     try {
-      workspace = await request(url, { method, headers: { "content-type": "application/json", ...(idempotent ? { "idempotency-key": crypto.randomUUID() } : {}) }, body: JSON.stringify(payload) }); render(); return true;
+      workspace = await request(url, { method, headers: { "content-type": "application/json", ...(idempotent ? { "idempotency-key": crypto.randomUUID() } : {}) }, body: JSON.stringify(payload) }); taskConflict = false; render(); return true;
     } catch (error) {
-      if (error.status === 409) { element("#outputInstructions").value = local; dirty = true; element("#dirtyState").textContent = "此内容已被他人更新，你的修改未保存。可复制当前文字后刷新查看最新版本。"; notice(element("#editorNotice"), "版本冲突：没有覆盖他人的修改。", "blocked"); }
+      if (error.status === 409) { element("#outputInstructions").value = local; dirty = true; taskConflict = true; element("#dirtyState").textContent = "此内容已被他人更新，你的修改未保存。可复制当前文字后刷新查看最新版本。"; notice(element("#editorNotice"), "版本冲突：没有覆盖他人的修改。", "blocked"); renderTaskSummary(); }
       else if (error.status === 422) notice(element("#editorNotice"), "当前条件已变化，操作未执行。请刷新并按提示处理。", "blocked");
       else notice(element("#pageNotice"), "请求未完成，请稍后重试。", "error"); return false;
     }
@@ -132,6 +251,7 @@
     element("#runPreflight").disabled = Boolean(dirty || active);
     element("#dirtyState").textContent = dirty ? "有未保存的修改，请先保存后预检。" :
       plan?.status === "draft" ? "所有修改需要显式保存。" : "此版本已锁定，修改会创建新方案版本。";
+    renderTaskSummary();
   }
   async function saveCurrentDraft() {
     return mutate(`/api/products/${product.id}/video-plans/${workspace.current_plan.id}`, "PATCH", {
@@ -173,7 +293,7 @@
   element("#showPreflight").addEventListener("click", () => { element("#preflightPanel").hidden = false; element("#reviewPanel").hidden = true; element("#showPreflight").classList.add("active"); element("#showReview").classList.remove("active"); });
   element("#showReview").addEventListener("click", () => { element("#preflightPanel").hidden = true; element("#reviewPanel").hidden = false; element("#showReview").classList.add("active"); element("#showPreflight").classList.remove("active"); });
   element("#openVersionDrawer").addEventListener("click", () => element("#versionDialog").showModal()); element("#closeVersionDialog").addEventListener("click", () => element("#versionDialog").close());
-  element("#refreshPlan").addEventListener("click", () => guardReload(() => loadWorkspace(workspace?.current_plan?.id).catch(() => notice(element("#pageNotice"), "方案状态读取失败，请稍后重试。", "error"))));
+  element("#refreshPlan").addEventListener("click", () => guardReload(() => bootstrap(workspace?.current_plan?.id || params.get("plan"))));
   element("#productSelector").addEventListener("change", (event) => {
     const nextProduct = project.products.find((item) => item.id === event.currentTarget.value); event.currentTarget.value = product.id;
     guardReload(async () => { product = nextProduct; await loadWorkspace(); });
@@ -184,6 +304,5 @@
   element("#saveUnsaved").addEventListener("click", () => finishGuardedReload("save"));
   addEventListener("beforeunload", (event) => { if (dirty) event.preventDefault(); });
   if (!projectId) return notice(element("#pageNotice"), "缺少项目上下文，请从项目页面重新进入。", "error");
-  try { runtime = await request("/api/runtime"); project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project; product = project.products.find((item) => item.id === requestedProductId) || project.products[0]; if (!product) return location.replace(`/project.html?id=${project.id}`); await loadWorkspace(params.get("plan")); }
-  catch (_error) { notice(element("#pageNotice"), "视频方案工作区加载失败，请刷新重试。", "error"); }
+  await bootstrap();
 })();

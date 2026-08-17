@@ -127,6 +127,10 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   await app.copyQuality.worker.runNext();
   await page.locator("#qualityConclusionText").getByText("质检通过", { exact: true }).waitFor();
   await page.getByText("尚未提交人工审核", { exact: true }).waitFor();
+  const taskSummary = page.getByRole("region", { name: "当前任务" });
+  await taskSummary.getByText("质检已通过，等待审核", { exact: true }).waitFor();
+  await taskSummary.getByText("提交人工审核", { exact: true }).waitFor();
+  assert.equal(await taskSummary.getByText("文案已批准", { exact: true }).count(), 0);
   await page.getByText("历史质检（1）").waitFor();
   await page.getByRole("tab", { name: "审核" }).click();
   await page.getByText("文案版本已冻结且未被替代").waitFor();
@@ -137,6 +141,8 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   await approveDialog.getByText("本人审核（self_review）").waitFor();
   await approveDialog.getByRole("button", { name: "确认批准" }).click();
   await page.getByText("文案已批准 · 本人审核").waitFor();
+  await taskSummary.getByText("文案已批准", { exact: true }).waitFor();
+  await taskSummary.getByText("进入人物与素材", { exact: true }).waitFor();
   const nextStageLink = page.getByRole("link", { name: "进入人物与素材" });
   await nextStageLink.waitFor();
   assert.match(await nextStageLink.getAttribute("href"), /\/avatar\.html\?project=/);

@@ -60,17 +60,47 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.getByRole("button", { name: "新增卖点" }).click(); await page.locator(".point-row input").fill("柔软亲肤"); await page.getByRole("button", { name: "保存草稿" }).click(); await page.getByText("草稿已保存。").waitFor();
   await page.getByRole("button", { name: "确认", exact: true }).click(); await page.getByText(/已确认。$/).waitFor(); await page.locator("#assetOptions input").check(); await page.getByRole("button", { name: "设为 Ready" }).click(); await page.getByText("商品快照已 Ready。").waitFor();
 
+  let runtimeAttempts = 0;
+  let initialCopyBootstrapFailed = false;
+  const failRuntimeOnce = async (route) => {
+    runtimeAttempts += 1;
+    if (!initialCopyBootstrapFailed && new URL(page.url()).pathname === "/copy.html") {
+      initialCopyBootstrapFailed = true;
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "TEMPORARY_RUNTIME_FAILURE" }) });
+      return;
+    }
+    await route.fallback();
+  };
+  await page.route("**/api/runtime", failRuntimeOnce);
   await page.getByRole("link", { name: "进入文案与质检" }).click();
   await page.waitForURL(/\/copy\.html\?project=/);
+  const taskSummary = page.getByRole("region", { name: "当前任务" });
+  assert.equal(await taskSummary.count(), 1, "Copy should expose the operator task summary in the first screen");
+  await taskSummary.getByText("加载失败", { exact: true }).waitFor();
+  await page.locator("#refreshCopy[data-recommended-action='true']").click();
   await page.getByRole("heading", { name: "文案与质检" }).waitFor();
+  await taskSummary.getByText("文案项目 · 云朵抱枕", { exact: true }).waitFor();
+  await taskSummary.getByText("文案与质检 · 2/5", { exact: true }).waitFor();
+  await taskSummary.getByText("生成文案", { exact: true }).waitFor();
+  assert.equal(initialCopyBootstrapFailed, true, "The injected failure must target Copy's own initial bootstrap");
+  assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
+  await page.unroute("**/api/runtime", failRuntimeOnce);
   assert.match(await page.locator("#productFactsLink").getAttribute("href"), /[?&]revision=[^&]+/);
   await page.getByRole("navigation", { name: "项目阶段" }).locator('[aria-current="step"]').waitFor();
   await page.getByRole("button", { name: "生成文案" }).click();
   await page.getByText("文案正在生成，可离开此页面。", { exact: true }).waitFor();
+  await taskSummary.getByText("等待文案生成完成，可离开后返回", { exact: true }).waitFor();
   await page.reload();
   await page.getByText("文案正在生成，可离开此页面。", { exact: true }).waitFor();
   await app.copyGeneration.worker.runNext();
   await page.getByText("文案生成失败，未产生文案版本。可以安全重试。", { exact: true }).waitFor();
+  await taskSummary.getByText("重试生成文案", { exact: true }).waitFor();
+  await page.reload();
+  await page.getByText("文案生成失败，未产生文案版本。可以安全重试。", { exact: true }).waitFor();
+  await taskSummary.getByText("重试生成文案", { exact: true }).waitFor();
+  await page.locator("#refreshCopy").click();
+  await page.getByText("文案生成失败，未产生文案版本。可以安全重试。", { exact: true }).waitFor();
+  await taskSummary.getByText("重试生成文案", { exact: true }).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "选择文案版本" }).click();
   await page.getByRole("dialog", { name: "选择版本" }).getByRole("button", { name: "重试生成" }).click();
@@ -79,6 +109,9 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await app.copyGeneration.worker.runNext();
   await page.getByRole("textbox", { name: "文案正文" }).waitFor();
   await page.getByRole("textbox", { name: "文案正文" }).fill("人工调整后的第一版文案");
+  await taskSummary.getByText("保存当前修改", { exact: true }).waitFor();
+  assert.equal(await page.locator("#saveCopy[data-recommended-action='true']").count(), 1);
+  assert.equal(await page.locator("#startQuality[data-recommended-action='true']").count(), 0);
   await page.getByRole("button", { name: "保存草稿" }).click();
   await page.getByText("文案草稿已保存。", { exact: true }).waitFor();
 
@@ -94,7 +127,11 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.getByRole("button", { name: "刷新" }).click();
   await page.getByRole("button", { name: /v1.*已冻结/ }).waitFor();
   await page.getByRole("button", { name: "基于此版本修改" }).click();
+  await taskSummary.getByText("修改正文后保存为新草稿", { exact: true }).waitFor();
+  assert.equal(await page.locator("#startQuality[data-recommended-action='true']").count(), 0);
   await page.getByRole("textbox", { name: "文案正文" }).fill("冻结后形成的新草稿");
+  await taskSummary.getByText("保存当前修改", { exact: true }).waitFor();
+  assert.equal(await page.locator("#saveCopy[data-recommended-action='true']").count(), 1);
   await page.getByRole("button", { name: "保存为新草稿" }).click();
   await page.getByRole("button", { name: /v2.*草稿/ }).waitFor();
   if (process.env.A04_SCREENSHOT_DIR) {
@@ -117,10 +154,20 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.getByRole("button", { name: "放弃修改" }).waitFor();
   assert.equal(await page.getByRole("textbox", { name: "文案正文" }).inputValue(), "我尚未保存的页面修改");
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: /当前版本 v2/ }).waitFor();
-  const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
-  assert.equal(horizontalOverflow, false);
+  const screenshotDir = process.env.SLICE_B_SCREENSHOTS_DIR;
+  if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.evaluate(() => { window.scrollTo(0, 0); document.activeElement?.blur(); });
+    await taskSummary.waitFor();
+    const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    assert.equal(horizontalOverflow, false, `Copy should not overflow at ${viewport.width}px`);
+    if (screenshotDir) {
+      await page.screenshot({ path: path.join(screenshotDir, `copy-${viewport.width}x${viewport.height}.png`) });
+    }
+  }
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.ok(await page.locator("button").first().evaluate((node) => parseFloat(getComputedStyle(node).transitionDuration) <= 0.001));
   if (process.env.A04_SCREENSHOT_DIR) {
     await page.evaluate(() => { window.scrollTo(0, 0); document.activeElement?.blur(); });
     await page.screenshot({ path: path.join(process.env.A04_SCREENSHOT_DIR, "copy-workspace-mobile.png"), fullPage: true });
