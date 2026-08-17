@@ -78,7 +78,7 @@
   .works-detail-panel { padding: var(--space-4); }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 820px) {
   .works-page { width: min(100% - 32px, 640px); padding-bottom: 96px; }
   .works-layout { display: block; }
   .works-list-panel { min-height: 0; }

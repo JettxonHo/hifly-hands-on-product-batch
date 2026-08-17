@@ -37,8 +37,22 @@ Provider、Cloud Executor、Local Agent、依赖或部署。
    `delivered` 收敛到交付记录。深链目标不可见或不存在时安全回落到首个组织内可见 Work 并改写 URL，不显示隐藏内容。
 5. 重复表单提交只有一个请求；409 保留用户输入并显式提示，关闭 Dialog 后焦点返回触发控件。初始列表失败不会继续
    显示加载态，点击“刷新”执行完整 bootstrap 后恢复；空态没有伪造可执行动作。
-6. 390px 使用列表与详情分层，详情内有明确“返回作品列表”；1440/768 保持可扫描列表与大预览/详情主结构。
-   三个视口均无页面级横向滚动，reduced-motion 和可见焦点合同保留。
+6. 1440px 保持可扫描列表与大预览/详情双栏；768px 与 390px 使用列表/详情顺序视图，详情内有明确
+   “返回作品列表”。三个视口均无页面级横向滚动，reduced-motion 和可见焦点合同保留。
+
+### 独立复审纠偏
+
+主控在 fixed head `1f8df2672f38f2864901b8b1120c056a036811b0` 发现三项必须修复的公开行为，本分支按同一
+V2-C 合同继续 RED → GREEN：
+
+1. 768px RED 证明 `.works-layout` 仍为双窄栏 `grid`。断点修正后，1440 保持列表/详情双栏；768 与 390 进入
+   列表/详情顺序视图，均可从列表进入详情并明确返回。
+2. 焦点 RED 证明隐藏列表后 `#selectedWorkName` 不可聚焦。详情标题现以 `tabindex=-1` 接收焦点；直接点击列表和
+   “查看作品详情”都会在详情显示后转移焦点，返回则恢复到原作品列表项。
+3. 交付幂等 RED 证明技术失败后的人工重试生成了不同 `idempotency_key`。现在每次显式打开交付 Dialog 创建一个
+   logical key，模糊/技术失败重试复用；成功或显式载入 409 后的最新作品状态才换新 key。409 保留全部表单字段、
+   禁止继续使用旧前置条件，并提供“载入最新作品状态”动作；载入后使用新 inspection id/revision 与新 key，由用户
+   再次明确提交。
 
 ## 4. 验证与停止边界
 
@@ -49,9 +63,10 @@ Provider、Cloud Executor、Local Agent、依赖或部署。
   `node --test test/work-delivery-browser.test.js test/operator-workbench-v2-works-browser.test.js` → 2/2 通过。
 - 受影响真实 Chrome 组：V2 foundation、V2 Production、V2 Works、既有 Work delivery、VSA-A14 → 5/5 通过。
 - `npm run check` → 229 个 JavaScript 文件通过；`git diff --check` 通过。
-- 默认 `npm test` 已真实启动；其他子进程结束后，宿主在既有 `test/vsa-a14-acceptance-browser.test.js` 子进程
-  持续无输出超过 4 分钟，因此主动终止，不能记为本地全量 GREEN。该浏览器文件已在上述真实 Chrome 组单独通过；
-  完整回归仍以 Draft PR 固定 head 的 Ubuntu、Windows、identity-postgres 三组 CI 为 acceptance 门禁。
+- 默认 `npm test` 已真实重跑；输出推进到第 530 个用例后持续无输出超过 2 分钟，因此主动终止，不能记为本地全量
+  GREEN。受影响的 V2 foundation、V2 Production、V2 Works、既有 Work delivery 与 VSA-A14 浏览器文件已在上述
+  真实 Chrome 组单独通过；完整回归仍以 Draft PR 固定 head 的 Ubuntu、Windows、identity-postgres 三组 CI 为
+  acceptance 门禁。
 - 临时截图只写入 `/private/tmp/hifly-v2-c-screenshots-20260817/` 且未纳入 Git；PNG 像素头分别为
   `works-1440.png` 1440×1000、`works-768.png` 768×1024、`works-390.png` 390×844。
 - 严格 allowlist 为 12 个文件：Works HTML/CSS/JS，2 个 approved additive seam 源文件，4 个直接测试文件，

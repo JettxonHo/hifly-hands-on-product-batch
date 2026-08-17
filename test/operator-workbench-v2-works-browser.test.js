@@ -91,6 +91,13 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
     recipientReference: "V2-C 验收团队",
     note: "终态层级测试记录"
   });
+  const refreshedWorks = (await service.listWorks(actor)).map((item) => structuredClone(item));
+  const refreshedDeliveredWork = refreshedWorks.find((item) => item.id === work.id);
+  refreshedDeliveredWork.current_inspection = {
+    ...refreshedDeliveredWork.current_inspection,
+    id: "inspection-v2-c-refreshed",
+    revision: refreshedDeliveredWork.current_inspection.revision + 1
+  };
 
   const app = await buildApp({
     root,
@@ -159,9 +166,14 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
   await page.getByRole("button", { name: "刷新", exact: true }).click();
   await page.locator("#selectedWorkName").filter({ hasText: "终态动作测试商品" }).waitFor();
   assert.equal(worksAttempts >= 2, true);
+  await page.unroute("**/api/works");
 
   const screenshotDir = "/private/tmp/hifly-v2-c-screenshots-20260817";
   await mkdir(screenshotDir, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  assert.equal(await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).display), "grid");
+  assert.equal((await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length)), 2);
+
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
@@ -169,12 +181,24 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
     await page.screenshot({ path: screenshotPath, fullPage: false });
     assert.deepEqual(pngDimensions(await readFile(screenshotPath)), viewport);
   }
-  const mobileState = await page.evaluate(() => ({ appClass: document.querySelector("#worksApp").className,
-    detailHidden: document.querySelector("#workDetail").hidden, backDisplay: getComputedStyle(document.querySelector("#backToWorksList")).display }));
-  assert.equal(await page.getByRole("button", { name: /返回作品列表/ }).isVisible(), true, JSON.stringify(mobileState));
+
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto(`${origin}/works.html`);
+  assert.equal(await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).display), "block");
+  assert.equal(await page.locator("#worksList").isVisible(), true);
+  assert.equal(await page.locator("#workDetail").isVisible(), false);
+  const deliveredListItem = page.locator(`#worksList [data-work-id="${work.id}"]`);
+  await deliveredListItem.click();
+  assert.equal(await page.locator("#workDetail").isVisible(), true);
+  assert.equal(await page.locator("#selectedWorkName").evaluate((node) => node === document.activeElement), true);
   await page.getByRole("button", { name: /返回作品列表/ }).click();
   assert.equal(await page.locator("#worksList").isVisible(), true);
   assert.equal(await page.locator("#workDetail").isVisible(), false);
+  assert.equal(await deliveredListItem.evaluate((node) => node === document.activeElement), true);
+  await page.getByRole("button", { name: "查看作品详情", exact: true }).click();
+  assert.equal(await page.locator("#selectedWorkName").evaluate((node) => node === document.activeElement), true);
+  await page.getByRole("button", { name: /返回作品列表/ }).click();
+  assert.equal(await deliveredListItem.evaluate((node) => node === document.activeElement), true);
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -187,20 +211,51 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
   const deliveryDialog = page.getByRole("dialog", { name: "登记一次交付" });
   await deliveryDialog.getByLabel("交付时间").fill("2026-08-17T10:30");
   await deliveryDialog.getByLabel("接收方（可选）").fill("保留此输入");
-  let deliveryAttempts = 0;
+  const retryBodies = [];
   await page.route(`**/api/works/${work.id}/deliveries`, async (route) => {
-    deliveryAttempts += 1;
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "WORK_DELIVERY_INSPECTION_CONFLICT" }) });
+    retryBodies.push(route.request().postDataJSON());
+    if (retryBodies.length === 1) {
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "AMBIGUOUS_RESPONSE" }) });
+      return;
+    }
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ delivery: { id: "delivery-replayed" } }) });
   });
-  await page.locator("#deliveryForm").evaluate((form) => { form.requestSubmit(); form.requestSubmit(); });
+  await page.locator("#deliveryForm").evaluate((form) => form.requestSubmit());
+  await deliveryDialog.getByText("交付登记未完成", { exact: false }).waitFor();
+  await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
+  await deliveryDialog.waitFor({ state: "hidden" });
+  assert.equal(retryBodies.length, 2);
+  assert.equal(retryBodies[0].idempotency_key, retryBodies[1].idempotency_key);
+  await page.unroute(`**/api/works/${work.id}/deliveries`);
+
+  await addDelivery.click();
+  await deliveryDialog.getByLabel("交付时间").fill("2026-08-17T11:30");
+  await deliveryDialog.getByLabel("接收方（可选）").fill("保留冲突输入");
+  const conflictBodies = [];
+  await page.route(`**/api/works/${work.id}/deliveries`, async (route) => {
+    conflictBodies.push(route.request().postDataJSON());
+    if (conflictBodies.length === 1) {
+      await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "WORK_DELIVERY_INSPECTION_CONFLICT" }) });
+      return;
+    }
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ delivery: { id: "delivery-after-refresh" } }) });
+  });
+  await page.route("**/api/works", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ works: refreshedWorks }) }));
+  await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
   await deliveryDialog.getByText("作品状态已被更新", { exact: false }).waitFor();
-  assert.equal(deliveryAttempts, 1);
-  assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "保留此输入");
-  await deliveryDialog.getByRole("button", { name: "取消", exact: true }).click();
-  assert.equal(await addDelivery.evaluate((node) => node === document.activeElement), true);
+  assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "保留冲突输入");
+  await deliveryDialog.getByRole("button", { name: "载入最新作品状态", exact: true }).click();
+  await deliveryDialog.getByText("最新作品状态已载入", { exact: false }).waitFor();
+  assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "保留冲突输入");
+  await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
+  await deliveryDialog.waitFor({ state: "hidden" });
+  assert.equal(conflictBodies.length, 2);
+  assert.notEqual(conflictBodies[0].idempotency_key, conflictBodies[1].idempotency_key);
+  assert.equal(conflictBodies[1].expected_inspection_id, "inspection-v2-c-refreshed");
+  assert.equal(conflictBodies[1].expected_revision, refreshedDeliveredWork.current_inspection.revision);
 
   await page.unroute("**/api/works");
+  await page.unroute(`**/api/works/${work.id}/deliveries`);
   await page.route("**/api/works", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ works: [] }) }));
   await page.goto(`${origin}/works.html`);
   await page.getByText("还没有已登记作品", { exact: true }).waitFor();

@@ -2,6 +2,7 @@
   const el = (selector) => document.querySelector(selector);
   let runtime = null, works = [], selected = null, busy = false;
   let mobileDetailOpen = Boolean(new URLSearchParams(location.search).get("work"));
+  let deliveryIntentKey = null, deliveryConflict = false;
   const dialogTriggers = new WeakMap();
   const statusLabels = { pending_review: "待检查", deliverable: "可交付", rework_required: "需要返工", delivered: "已交付" };
   const inspectionLabels = { pending: "待检查", passed: "已通过", rework_required: "需要返工", superseded: "已替代" };
@@ -69,6 +70,12 @@
 
   function renderMobileLayer() {
     el("#worksApp").classList.toggle("mobile-detail-open", Boolean(selected && mobileDetailOpen));
+  }
+
+  function usesSequentialLayout() { return window.matchMedia("(max-width: 820px)").matches; }
+
+  function focusSelectedDetail() {
+    if (usesSequentialLayout() && selected && mobileDetailOpen) el("#selectedWorkName").focus();
   }
 
   function taskSummary({ loadError = "" } = {}) {
@@ -284,11 +291,12 @@
     resetPreview();
     render();
     if (el("#workDrawer").open) el("#workDrawer").close();
+    focusSelectedDetail();
   }
 
   function operationError(error, action) {
     if (error.status === 403) return { text: `当前账号没有${action}权限，请联系组织管理员。`, tone: "blocked" };
-    if (error.status === 409) return { text: "作品状态已被更新，请刷新后使用最新检查记录重试。", tone: "blocked" };
+    if (error.status === 409) return { text: "作品状态已被更新，请先载入最新作品状态；你的交付信息仍会保留。", tone: "blocked" };
     if (error.status === 422 && error.body?.error === "WORK_DELIVERY_REWORK_BLOCKED") return { text: "当前作品已登记返工：需要新的上游生产周期和新工单，原作品与检查历史会保留。", tone: "blocked" };
     if (error.status === 422) return { text: "当前条件不满足，先完成检查或处理返工提示后再继续。", tone: "blocked" };
     if (error.status === 400) return { text: "请补齐必填信息后重试。", tone: "error" };
@@ -336,11 +344,33 @@
     const deliveredAtIso = Number.isNaN(deliveredAt.valueOf()) ? null : deliveredAt.toISOString();
     busy = true; el("#submitDelivery").disabled = true;
     const inspection = currentInspection();
-    const payload = { idempotency_key: crypto.randomUUID(), delivery_method: method, recipient_reference: recipient || null, note: noteText || null, expected_inspection_id: inspection?.id, expected_revision: inspection?.revision };
+    deliveryIntentKey ||= crypto.randomUUID();
+    const payload = { idempotency_key: deliveryIntentKey, delivery_method: method, recipient_reference: recipient || null, note: noteText || null, expected_inspection_id: inspection?.id, expected_revision: inspection?.revision };
     if (deliveredAtIso) payload.delivered_at = deliveredAtIso;
-    try { await request(`/api/works/${encodeURIComponent(selected.id)}/deliveries`, { method: "POST", body: JSON.stringify(payload) }); el("#deliveryDialog").close(); await loadWorks(); notice(el("#actionNotice"), "交付已登记；这次记录已保留。", "success"); }
-    catch (error) { el("#deliveryError").textContent = operationError(error, "交付登记").text; }
-    finally { busy = false; el("#submitDelivery").disabled = false; renderActions(); }
+    try {
+      await request(`/api/works/${encodeURIComponent(selected.id)}/deliveries`, { method: "POST", body: JSON.stringify(payload) });
+      deliveryIntentKey = null; deliveryConflict = false; el("#deliveryDialog").close();
+      await loadWorks(); notice(el("#actionNotice"), "交付已登记；这次记录已保留。", "success");
+    } catch (error) {
+      deliveryConflict = error.status === 409;
+      el("#reloadDeliveryState").hidden = !deliveryConflict;
+      el("#deliveryError").textContent = operationError(error, "交付登记").text;
+    } finally {
+      busy = false; el("#submitDelivery").disabled = deliveryConflict; renderActions();
+    }
+  }
+
+  async function reloadDeliveryState() {
+    if (!selected || busy) return;
+    busy = true; el("#reloadDeliveryState").disabled = true; el("#deliveryError").textContent = "正在载入最新作品状态…";
+    try {
+      if (!await loadWorks({ preserveSelection: true })) throw new Error("WORKS_RELOAD_FAILED");
+      deliveryIntentKey = crypto.randomUUID(); deliveryConflict = false;
+      el("#reloadDeliveryState").hidden = true; el("#submitDelivery").disabled = false;
+      el("#deliveryError").textContent = "最新作品状态已载入；你的交付信息仍保留，请确认后再提交。";
+    } catch (_error) {
+      el("#deliveryError").textContent = "最新作品状态载入失败，请稍后重试；你的交付信息仍保留。";
+    } finally { busy = false; el("#reloadDeliveryState").disabled = false; renderActions(); }
   }
 
   function resetPreview() {
@@ -381,7 +411,11 @@
   function resetDialog(form, error) { form.reset(); error.textContent = ""; }
   function showDialog(dialog, trigger = document.activeElement) { dialogTriggers.set(dialog, trigger); dialog.showModal(); }
   function localDateTimeValue() { const now = new Date(), local = new Date(now.getTime() - now.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 16); }
-  function openDeliveryDialog() { resetDialog(el("#deliveryForm"), el("#deliveryError")); el("#deliveryTime").value = localDateTimeValue(); showDialog(el("#deliveryDialog")); }
+  function openDeliveryDialog() {
+    resetDialog(el("#deliveryForm"), el("#deliveryError")); el("#deliveryTime").value = localDateTimeValue();
+    deliveryIntentKey = crypto.randomUUID(); deliveryConflict = false; el("#reloadDeliveryState").hidden = true; el("#submitDelivery").disabled = false;
+    showDialog(el("#deliveryDialog"));
+  }
 
   el("#refreshWorks").addEventListener("click", () => bootstrap({ preserveSelection: true }));
   projectFilter.addEventListener("change", renderList); deliveryFilter.addEventListener("change", renderList);
@@ -396,15 +430,16 @@
     heading.focus({ preventScroll: true });
   });
   el("#cancelDelivery").addEventListener("click", () => el("#deliveryDialog").close()); el("#closeDelivery").addEventListener("click", () => el("#deliveryDialog").close()); el("#deliveryForm").addEventListener("submit", submitDelivery);
+  el("#reloadDeliveryState").addEventListener("click", reloadDeliveryState);
   el("#previewWork").addEventListener("click", preview);
   el("#workVideo").addEventListener("error", () => notice(el("#previewNotice"), "预览暂不可用（技术原因），可以下载文件后查看。", "blocked"));
   el("#backToWorksList").addEventListener("click", () => {
-    mobileDetailOpen = false; renderMobileLayer();
-    requestAnimationFrame(() => el(`#worksList [data-work-id="${CSS.escape(selected?.id || "")}"]`)?.focus());
+    mobileDetailOpen = false; renderMobileLayer(); renderActions();
+    el(`#worksList [data-work-id="${CSS.escape(selected?.id || "")}"]`)?.focus();
   });
   el("#mobilePrimaryAction").addEventListener("click", () => {
     if (!selected) return el("#openWorkDrawer").click();
-    if (!mobileDetailOpen) { mobileDetailOpen = true; renderMobileLayer(); el("#selectedWorkName").focus?.(); return; }
+    if (!mobileDetailOpen) { mobileDetailOpen = true; renderMobileLayer(); focusSelectedDetail(); return; }
     const status = currentInspection()?.status;
     if (selected.delivery_status === "delivered") return el("#viewDeliveryHistory").click();
     if (status === "rework_required") {
