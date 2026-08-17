@@ -96,8 +96,8 @@
             <aside id="qualityPanel" class="surface quality-panel" aria-labelledby="qualityTitle">
               <div class="surface-header quality-header"><div><p class="eyebrow">当前版本</p><h2 id="qualityTitle">质检与审核</h2></div><div class="status-cluster"><span id="qualityRunState" class="state">未质检</span><span id="reviewStateBadge" class="state">未提交审核</span></div></div>
               <div class="panel-tabs" role="tablist" aria-label="文案检查与审核">
-                <button id="qualityTab" class="panel-tab" type="button" role="tab" aria-selected="true" aria-controls="qualityTabPanel">质检</button>
-                <button id="reviewTab" class="panel-tab" type="button" role="tab" aria-selected="false" aria-controls="reviewTabPanel">审核</button>
+                <button id="qualityTab" class="panel-tab" type="button" role="tab" aria-selected="true" aria-controls="qualityTabPanel" tabindex="0">质检</button>
+                <button id="reviewTab" class="panel-tab" type="button" role="tab" aria-selected="false" aria-controls="reviewTabPanel" tabindex="-1">审核</button>
               </div>
               <div id="qualityTabPanel" role="tabpanel" aria-labelledby="qualityTab">
               <div id="qualityLoading" class="empty">正在读取质检状态...</div>
@@ -155,7 +155,7 @@
 
     <dialog id="acceptFindingDialog" aria-labelledby="acceptFindingTitle">
       <form id="acceptFindingForm">
-        <div class="dialog-header"><div><p class="eyebrow">逐条处理</p><h2 id="acceptFindingTitle">接受 Finding</h2></div><button id="closeAcceptFinding" class="dialog-close" type="button" aria-label="关闭接受 Finding">×</button></div>
+        <div class="dialog-header"><div><p class="eyebrow">逐条处理</p><h2 id="acceptFindingTitle">接受质检问题</h2></div><button id="closeAcceptFinding" class="dialog-close" type="button" aria-label="关闭接受质检问题">×</button></div>
         <div class="dialog-body"><p id="acceptFindingMessage" class="muted"></p><label for="acceptReason">接受理由<textarea id="acceptReason" rows="4" required></textarea></label><p id="acceptFindingError" class="error" role="alert"></p><div class="actions"><button id="cancelAcceptFinding" class="secondary" type="button">取消</button><button type="submit">确认接受</button></div></div>
       </form>
     </dialog>

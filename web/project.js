@@ -30,7 +30,16 @@
   let conflictProductId;
   let availableAssetVersionIds = new Set();
   const revisionLabels = { draft: "草稿", ready: "商品资料已就绪", superseded: "已被替代" };
+  const generalCategoryLabel = "未细分品类";
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
+
+  function categoryDisplayValue(value) {
+    return value === "general" || !value ? generalCategoryLabel : value;
+  }
+
+  function categoryPayloadValue(value) {
+    return value === generalCategoryLabel ? "general" : value;
+  }
 
   async function request(url, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -195,7 +204,7 @@
     state.textContent = `${revisionLabels[revision.status] || "状态待确认"} · v${revision.revision_number}`;
     revisionForm.product_name.value = revision.product_name;
     revisionForm.product_description.value = revision.product_description || "";
-    revisionForm.primary_category.value = revision.primary_category;
+    revisionForm.primary_category.value = categoryDisplayValue(revision.primary_category);
     revisionForm.expression_style.value = revision.content_brief?.expression_style || "";
     revisionForm.additional_requirements.value = revision.content_brief?.additional_requirements || "";
     pointList.replaceChildren(...revision.selling_points.map(pointRow));
@@ -332,7 +341,7 @@
       expected_revision: revision.revision_number,
       product_name: revisionForm.product_name.value,
       product_description: revisionForm.product_description.value,
-      primary_category: revisionForm.primary_category.value,
+      primary_category: categoryPayloadValue(revisionForm.primary_category.value),
       content_brief: { expression_style: revisionForm.expression_style.value, additional_requirements: revisionForm.additional_requirements.value },
       selling_points: [...pointList.children].map((row) => ({ ...(row.dataset.id ? { id: row.dataset.id } : {}), text: row.querySelector("input").value })),
       asset_version_ids: [...document.querySelectorAll("#assetOptions input:checked")].map((input) => input.value)

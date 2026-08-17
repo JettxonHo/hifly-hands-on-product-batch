@@ -42,7 +42,7 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   const evaluator = createControlledQualityEvaluator({ async evaluate() {
     evaluations += 1;
     if (produceStaleFinding) return { checks_complete: true, findings: [
-      { code: "STALE_TONE_REVIEW", kind: "review", severity: "medium", title: "失效历史语气 Finding",
+      { code: "STALE_TONE_REVIEW", kind: "review", severity: "medium", title: "失效历史语气问题",
         matched_text: "体验最好", message: "请人工判断表达是否合适", evidence_reference: "copy:text:5-9",
         rule_source: "brand_policy", suggestion: "改为有事实依据的体验描述" }
     ] };
@@ -91,11 +91,39 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   await page.getByRole("button", { name: "重新质检" }).click();
   await app.copyQuality.worker.runNext();
   await page.getByText("待人工判断（2 条）").waitFor();
+  assert.doesNotMatch(await page.locator("main").innerText(), /\b(?:Finding|QualityResult|Profile)\b/);
+  const assertTabState = async (activeId, activePanelId, inactiveId, inactivePanelId) => {
+    assert.equal(await page.locator('[role="tab"][tabindex="0"]').count(), 1);
+    assert.equal(await page.locator('[role="tab"][tabindex="-1"]').count(), 1);
+    assert.equal(await page.locator(`#${activeId}`).getAttribute("tabindex"), "0");
+    assert.equal(await page.locator(`#${inactiveId}`).getAttribute("tabindex"), "-1");
+    assert.equal(await page.locator(`#${activeId}`).getAttribute("aria-selected"), "true");
+    assert.equal(await page.locator(`#${inactiveId}`).getAttribute("aria-selected"), "false");
+    assert.equal(await page.locator(`#${activeId}`).getAttribute("aria-controls"), activePanelId);
+    assert.equal(await page.locator(`#${inactiveId}`).getAttribute("aria-controls"), inactivePanelId);
+    assert.equal(await page.locator(`#${activePanelId}`).isHidden(), false);
+    assert.equal(await page.locator(`#${inactivePanelId}`).isHidden(), true);
+    assert.equal(await page.evaluate(() => document.activeElement?.id), activeId);
+  };
+  await page.locator("#qualityTab").focus();
+  await assertTabState("qualityTab", "qualityTabPanel", "reviewTab", "reviewTabPanel");
+  await page.keyboard.press("ArrowRight");
+  await assertTabState("reviewTab", "reviewTabPanel", "qualityTab", "qualityTabPanel");
+  await page.keyboard.press("ArrowLeft");
+  await assertTabState("qualityTab", "qualityTabPanel", "reviewTab", "reviewTabPanel");
+  await page.keyboard.press("End");
+  await assertTabState("reviewTab", "reviewTabPanel", "qualityTab", "qualityTabPanel");
+  await page.keyboard.press("Home");
+  await assertTabState("qualityTab", "qualityTabPanel", "reviewTab", "reviewTabPanel");
+  await page.locator("#reviewTab").click();
+  await assertTabState("reviewTab", "reviewTabPanel", "qualityTab", "qualityTabPanel");
+  await page.locator("#qualityTab").click();
+  await assertTabState("qualityTab", "qualityTabPanel", "reviewTab", "reviewTabPanel");
   await page.getByText("命中文本：全网最好").waitFor();
   await page.getByText("规则来源：brand_policy").waitFor();
   await page.getByText("修复建议：改为有事实依据的体验描述").waitFor();
   await page.getByRole("button", { name: "接受并填写理由" }).first().click();
-  const dialog = page.getByRole("dialog", { name: "接受 Finding" });
+  const dialog = page.getByRole("dialog", { name: "接受质检问题" });
   await dialog.getByLabel("接受理由").fill("符合品牌自然分享语气");
   await dialog.getByRole("button", { name: "确认接受" }).click();
   await page.getByText("已接受（附理由）").waitFor();
@@ -174,7 +202,7 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   await page.getByText("此批准不可恢复；重新审核会创建新的人工审核记录。").waitFor();
   await page.getByRole("tab", { name: "质检" }).click();
   const staleFindings = page.locator("#findingList");
-  await staleFindings.getByText("失效历史语气 Finding", { exact: true }).waitFor();
+  await staleFindings.getByText("失效历史语气问题", { exact: true }).waitFor();
   assert.equal(await staleFindings.getByRole("button", {
     name: /接受并填写理由|返回商品事实|人工修改|AI 改写/
   }).count(), 0);

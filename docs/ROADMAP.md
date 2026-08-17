@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-18
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营工作台 V2-A～V2-D 已合并；Issue #184 是 V2-E 回补审计 acceptance gate
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营工作台 V2-A～V2-D 与 V2-E 回补审计已合并；Issue #186 是 V2-E1 acceptance gate
 
 ## 1. 已完成基线
 
@@ -26,7 +26,7 @@ P0.5  release-readiness：代码/依赖部署完成；正式域名、DNS、可�
 UX V1 运营任务流优先：designed → Slice A/B（已合并、未部署）
     → 内部问题审计（已完成）→ 定向外部工作台研究（已完成）
     → V2 独立设计合同（#174，已完成）
-    → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180/#181 已完成）→ Assets（#182/#183 已完成）→ V2-E 回补审计（#184 acceptance）→ 仅按审计接受的最小切片回补
+    → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180/#181 已完成）→ Assets（#182/#183 已完成）→ V2-E 回补审计（#184/#185 已完成）→ V2-E1（#186 acceptance）→ V2-E2（等待）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -54,8 +54,8 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
    passed/warning 不等于人工批准。该仓库状态仍不代表已部署或真实生产采用。
 3. 原 Slice C 不再照旧实施。Issue #174 的 V2 合同已通过 acceptance；其范围已按严格串行切片吸收：Issue #176 / PR #177
    完成 shared IA/content/control foundation，Issue #178 / PR #179 完成 Production，Issue #180 / PR #181
-   完成 Works，Issue #182 / PR #183 完成 Assets。Issue #184 只负责审计是否仍需回补 Slice A/B；审计报告只有随 PR
-   合并进入 `main` 后才成为回补真值，任何页面实现仍需新的独立 acceptance gate。
+   完成 Works，Issue #182 / PR #183 完成 Assets，Issue #184 / PR #185 完成 V2-E 回补审计。Issue #186 是
+   V2-E1 Projects/Project/Copy 最小回补的独立 acceptance gate；V2-E2 必须等待 V2-E1 合并后再另行启动。
    Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order 零 attempt 与 active attempts=0；
    terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经 A12、Work 和真实字节下载后才准备下一条。
    页面仅在当前商品零工单且上游 gate 允许时开放创建；claimed/running/failed/requires_action 及未完成真实字节验收的
@@ -73,12 +73,11 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
 部署或生产采用。Issue #176 / PR #177 已完成第一片 shared IA/content/control foundation，Issue #178 / PR #179
-已完成 Production，Issue #180 / PR #181 已完成 Works，Issue #182 / PR #183 已完成 Assets。Issue #184 是
-V2-E 回补审计 acceptance gate；当前审计证据指向两个最小候选：Projects/Project/Copy 的中文、刷新作用域与
-Copy Tab 键盘语义，以及 Avatar/Plan 的中文、技术详情层级和 Plan Tab 键盘语义。两个页签回补都必须包含
+已完成 Production，Issue #180 / PR #181 已完成 Works，Issue #182 / PR #183 已完成 Assets，Issue #184 / PR #185
+已完成 V2-E 回补审计。审计只接受两个严格串行的最小回补：V2-E1 为 Projects/Project/Copy 的中文、刷新作用域与
+Copy Tab 键盘语义，V2-E2 为 Avatar/Plan 的中文、技术详情层级和 Plan Tab 键盘语义。两个页签回补都必须包含
 完整 ARIA 关系、单一 Tab 停靠点及 ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。它们只有在审计被接受后
-才能按独立 Issue 严格串行实现；
-不因存在候选就自动授权改代码或扩 API。
+才能按独立 Issue 严格串行实现；Issue #186 是 V2-E1 acceptance gate，V2-E2 不得抢跑。任何回补均不自动授权扩 API。
 不得以竞品视觉或页面结构反向决定本项目 IA。
 
 ## 4. 保留但不抢跑的工作

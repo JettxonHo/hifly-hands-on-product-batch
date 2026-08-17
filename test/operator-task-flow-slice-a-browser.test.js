@@ -259,6 +259,46 @@ test("Projects and Project present one responsive operator task path", async (t)
   assert.ok(reducedMotion.animationDuration <= 0.001);
 });
 
+test("Project presents the general category as 未细分品类 without changing save payloads", async (t) => {
+  const setup = await startEnterpriseBrowser(t);
+  if (!setup) return;
+  const { page, origin } = setup;
+  await authenticate(page, origin);
+
+  await page.getByRole("button", { name: "创建项目", exact: true }).click();
+  await page.getByLabel("项目名称").fill("品类映射项目");
+  await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click();
+  await page.getByRole("link", { name: "继续项目" }).click();
+  await page.getByRole("button", { name: "创建商品" }).click();
+  await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("未细分品类商品");
+  await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
+
+  const category = page.locator('input[name="primary_category"]');
+  await category.waitFor();
+  assert.equal(await category.inputValue(), "未细分品类");
+
+  const payloads = [];
+  await page.route(/\/api\/product-revisions\/[^/]+$/, async (route) => {
+    if (route.request().method() === "PATCH") payloads.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  await category.fill("未细分品类");
+  const generalSave = page.waitForResponse((response) => response.request().method() === "PATCH" && /\/api\/product-revisions\/[^/]+$/.test(response.url()));
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  assert.equal((await generalSave).ok(), true);
+  await page.getByText("草稿已保存。", { exact: true }).waitFor();
+  assert.equal(payloads.at(-1).primary_category, "general");
+
+  await category.fill("家居");
+  const customSave = page.waitForResponse((response) => response.request().method() === "PATCH" && /\/api\/product-revisions\/[^/]+$/.test(response.url()));
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  assert.equal((await customSave).ok(), true);
+  await page.getByText("草稿已保存。", { exact: true }).waitFor();
+  assert.equal(payloads.at(-1).primary_category, "家居");
+  assert.equal(await category.inputValue(), "家居");
+  await page.unroute(/\/api\/product-revisions\/[^/]+$/);
+});
+
 test("Projects clears loading content after runtime and API failures", async (t) => {
   const setup = await startEnterpriseBrowser(t);
   if (!setup) return;
@@ -271,11 +311,11 @@ test("Projects clears loading content after runtime and API failures", async (t)
     body: JSON.stringify({ error: "RUNTIME_UNAVAILABLE" })
   }));
   await page.goto(`${origin}/projects.html`);
-  await page.getByText("工作台配置暂时无法读取，请稍后刷新。", { exact: true }).waitFor();
+  await page.getByText("工作台配置暂时无法读取，请刷新项目列表重试。", { exact: true }).waitFor();
   assert.equal(await page.locator("#projectList").getAttribute("aria-busy"), "false");
   assert.equal(await page.getByText("正在加载...", { exact: true }).count(), 0);
   await page.unroute(`${origin}/api/runtime`);
-  await page.getByRole("button", { name: "刷新" }).click();
+  await page.getByRole("button", { name: "刷新项目列表" }).click();
   await page.getByRole("region", { name: "当前任务" }).getByRole("heading", { name: "创建第一个项目" }).waitFor();
 
   await page.route(`${origin}/api/runtime`, (route) => route.fulfill({
@@ -289,9 +329,46 @@ test("Projects clears loading content after runtime and API failures", async (t)
     body: JSON.stringify({ error: "PROJECTS_UNAVAILABLE" })
   }));
   await page.goto(`${origin}/projects.html`);
-  await page.getByText("项目加载失败，请刷新重试。", { exact: true }).waitFor();
+  await page.getByText("项目列表加载失败，请刷新项目列表重试。", { exact: true }).waitFor();
   assert.equal(await page.locator("#projectList").getAttribute("aria-busy"), "false");
   assert.equal(await page.getByText("正在加载...", { exact: true }).count(), 0);
+});
+
+test("Projects names project-list refresh and preserves full bootstrap recovery", async (t) => {
+  const setup = await startEnterpriseBrowser(t);
+  if (!setup) return;
+  const { page, origin } = setup;
+  await authenticate(page, origin);
+
+  const refresh = page.getByRole("button", { name: "刷新项目列表", exact: true });
+  assert.equal(await refresh.getAttribute("data-refresh-scope"), "project-list");
+
+  await page.route(`${origin}/api/runtime`, (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "RUNTIME_UNAVAILABLE" })
+  }));
+  await page.goto(`${origin}/projects.html`);
+  await page.getByText("工作台配置暂时无法读取，请刷新项目列表重试。", { exact: true }).waitFor();
+  assert.equal(await page.locator("#taskNext").textContent(), "刷新项目列表");
+  assert.equal(await page.locator("#taskBlocker").textContent(), "工作台配置未载入，请刷新项目列表。");
+  await page.unroute(`${origin}/api/runtime`);
+  await page.getByRole("button", { name: "刷新项目列表", exact: true }).click();
+  await page.getByRole("region", { name: "当前任务" }).getByRole("heading", { name: "创建第一个项目" }).waitFor();
+
+  await page.route(`${origin}/api/projects`, (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "PROJECTS_UNAVAILABLE" })
+  }));
+  await page.getByRole("button", { name: "刷新项目列表", exact: true }).click();
+  await page.getByText("项目列表加载失败，请刷新项目列表重试。", { exact: true }).waitFor();
+  assert.equal(await page.locator("#taskNext").textContent(), "刷新项目列表");
+  assert.equal(await page.locator("#taskBlocker").textContent(), "项目列表未载入，请刷新项目列表。");
+  assert.equal(await page.locator('[data-recommended-action="true"]').textContent(), "刷新项目列表");
+  await page.unroute(`${origin}/api/projects`);
+  await page.getByRole("button", { name: "刷新项目列表", exact: true }).click();
+  await page.getByRole("region", { name: "当前任务" }).getByRole("heading", { name: "创建第一个项目" }).waitFor();
 });
 
 test("Project deep links keep non-current Ready revisions read-only and surface lookup failures", async (t) => {

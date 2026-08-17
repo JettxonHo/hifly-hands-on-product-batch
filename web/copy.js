@@ -20,6 +20,7 @@
   const resolutionLabels = { accepted_with_reason: "已接受（附理由）", change_requested: "已要求修改", returned_to_facts: "已退回商品事实" };
   const reviewLabels = { pending: "审核中", approved: "已批准", changes_requested: "要求修改", revoked: "批准已失效" };
   const reviewEventLabels = { pending: "提交审核", approved: "批准文案", changes_requested: "要求修改", revoked: "撤销批准" };
+  const generalCategoryLabel = "未细分品类";
   const gateReasonLabels = {
     copy_version_superseded: "文案版本已被替代，请对当前版本重新质检",
     copy_version_not_frozen: "文案尚未冻结，请先完成质检",
@@ -30,10 +31,14 @@
     quality_policy_changed: "质检规则已更新，请重新完整质检",
     quality_invalid: "质检结果无效，不能提交或批准",
     quality_blocked: "存在硬阻断，任何角色都不能批准",
-    quality_needs_review: "请先逐项处理所有待人工判断 Finding"
+    quality_needs_review: "请先逐项处理所有待人工判断质检问题"
   };
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const element = (selector) => document.querySelector(selector);
+
+  function categoryDisplayValue(value) {
+    return value === "general" || !value ? generalCategoryLabel : value;
+  }
 
   async function request(url, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -158,16 +163,16 @@
         ? { title: "商品资料已变化", description: "当前质检已停止，不能继续使用旧商品资料。", status: "需要处理", statusClass: "blocked", next: "返回商品资料确认最新内容", blocker: "商品资料已有新版本，请完成确认后再质检。", action: element("#productFactsLink") }
         : { title: "质检未完成", description: "没有形成可用的自动质检结论。", status: "质检失败", statusClass: "failure", next: "重新质检", blocker: "技术原因导致本次质检失败，不能提交人工审核。", action: element("#retryQuality") };
     } else if (!result) {
-      task = { title: "质检未形成结论", description: "当前文案还没有可用的自动质检结果。", status: "需要处理", statusClass: "blocked", next: "重新质检", blocker: "没有可用 QualityResult，不能提交人工审核。", action: element("#startQuality") };
+      task = { title: "质检未形成结论", description: "当前文案还没有可用的自动质检结果。", status: "需要处理", statusClass: "blocked", next: "重新质检", blocker: "没有可用质检结果，不能提交人工审核。", action: element("#startQuality") };
     } else if (result.current_valid === false) {
       task = factsStale
         ? { title: "质检结论已失效", description: "商品事实发生变化，旧结论不能继续使用。", status: "已失效", statusClass: "blocked", next: "返回商品事实确认最新内容", blocker: "请确认当前商品快照，再为最新文案完整质检。", action: element("#productFactsLink") }
-        : { title: "质检规则已更新", description: "历史质检仍保留，但不再是当前有效结论。", status: "已失效", statusClass: "blocked", next: "按当前规则重新质检", blocker: "质检规则或 Profile 已变化，需要重新完整质检。", action: element("#startQuality") };
+        : { title: "质检规则已更新", description: "历史质检仍保留，但不再是当前有效结论。", status: "已失效", statusClass: "blocked", next: "按当前规则重新质检", blocker: "质检规则或质检配置已变化，需要重新完整质检。", action: element("#startQuality") };
     } else if (result.effective_conclusion !== "passed") {
       const unresolved = latestQuality.quality_findings.filter((finding) => finding.kind === "review" && finding.resolutions.at(-1)?.state !== "accepted_with_reason").length;
       task = result.effective_conclusion === "needs_review"
-        ? { title: "处理待判断 Finding", description: "自动质检未替代人工判断。", status: `待处理 ${unresolved} 条`, statusClass: "needs_review", next: "逐条处理质检 Finding", blocker: "所有待人工判断 Finding 处理后，才能提交人工审核。", action: null }
-        : { title: "处理质检阻断", description: "当前文案或商品事实不满足质检门禁。", status: "存在硬阻断", statusClass: "blocked", next: "处理质检 Finding", blocker: "存在不可绕过的质检阻断，不能提交或批准。", action: null };
+        ? { title: "处理待判断质检问题", description: "自动质检未替代人工判断。", status: `待处理 ${unresolved} 条`, statusClass: "needs_review", next: "逐条处理质检问题", blocker: "所有待人工判断质检问题处理后，才能提交人工审核。", action: null }
+        : { title: "处理质检阻断", description: "当前文案或商品事实不满足质检门禁。", status: "存在硬阻断", statusClass: "blocked", next: "处理质检问题", blocker: "存在不可绕过的质检阻断，不能提交或批准。", action: null };
     } else if (reviewLoadError) {
       task = { title: "审核状态暂时无法读取", description: "质检已通过，但不能据此推断人工审核结论。", status: "读取失败", statusClass: "failure", next: "刷新审核状态", blocker: "人工审核状态未读取，请刷新后重试。", action: element("#refreshCopy") };
     } else if (!reviewState) {
@@ -249,7 +254,7 @@
     const state = element("#revisionState");
     state.className = `state ${revision.status}`;
     state.textContent = revisionLabels[revision.status] || "状态待确认";
-    element("#revisionMeta").textContent = `商品快照 v${revision.revision_number} · ${revision.primary_category || "未设置品类"}`;
+    element("#revisionMeta").textContent = `商品快照 v${revision.revision_number} · ${categoryDisplayValue(revision.primary_category)}`;
     updateLocation();
     renderTaskSummary();
   }
@@ -511,8 +516,8 @@
     const guidance = {
       invalid: "本次检查未得到可信结果，请重新质检。",
       blocked: "必须修正文案或商品事实并完整重新质检，不能绕过。",
-      needs_review: "请逐条处理所有 Finding。",
-      passed: result.conclusion === "needs_review" ? "Finding 已逐条处理，原始质检结论和处理历史均已保留。" : "文案已通过质检，但不等于人工审核通过。"
+      needs_review: "请逐条处理所有质检问题。",
+      passed: result.conclusion === "needs_review" ? "质检问题已逐条处理，原始质检结论和处理历史均已保留。" : "文案已通过质检，但不等于人工审核通过。"
     };
     element("#qualityGuidance").textContent = guidance[result.effective_conclusion];
     start.textContent = "重新质检";
@@ -559,12 +564,26 @@
     }
   }
 
-  function selectPanel(name) {
+  function selectPanel(name, { focus = false } = {}) {
     const qualitySelected = name === "quality";
-    element("#qualityTab").setAttribute("aria-selected", String(qualitySelected));
-    element("#reviewTab").setAttribute("aria-selected", String(!qualitySelected));
+    const qualityTab = element("#qualityTab"), reviewTab = element("#reviewTab");
+    qualityTab.setAttribute("aria-selected", String(qualitySelected));
+    reviewTab.setAttribute("aria-selected", String(!qualitySelected));
+    qualityTab.tabIndex = qualitySelected ? 0 : -1;
+    reviewTab.tabIndex = qualitySelected ? -1 : 0;
     element("#qualityTabPanel").hidden = !qualitySelected;
     element("#reviewTabPanel").hidden = qualitySelected;
+    if (focus) (qualitySelected ? qualityTab : reviewTab).focus();
+  }
+
+  function movePanelTab(tab, direction) {
+    const tabs = [element("#qualityTab"), element("#reviewTab")].filter((item) => !item.hidden);
+    const currentIndex = tabs.indexOf(tab);
+    if (currentIndex < 0) return;
+    const nextIndex = direction === "first" ? 0 : direction === "last" ? tabs.length - 1 :
+      (currentIndex + direction + tabs.length) % tabs.length;
+    const nextTab = tabs[nextIndex];
+    selectPanel(nextTab === element("#qualityTab") ? "quality" : "review", { focus: true });
   }
 
   function latestQualityResult() {
@@ -575,7 +594,7 @@
     const result = latestQualityResult();
     const checks = [
       { ready: copyVersion?.status === "frozen", text: "文案版本已冻结且未被替代" },
-      { ready: Boolean(result?.current_valid), text: "存在当前有效的 QualityResult" },
+      { ready: Boolean(result?.current_valid), text: "存在当前有效的质检结果" },
       { ready: result?.effective_conclusion === "passed", text: "有效结论为质检通过，待判断项已逐项处理" },
       { ready: revision?.status === "ready" && !reviewState?.gate?.reasons.some((reason) => ["product_revision_changed", "quality_policy_changed"].includes(reason)),
         text: "商品资料、质检配置与规则版本仍为当前版本" }
@@ -1088,8 +1107,17 @@
   element("#retryQuality").addEventListener("click", retryQualityCheck);
   element("#cancelQuality").addEventListener("click", cancelQualityCheck);
   element("#retryRewrite").addEventListener("click", retryRewrite);
-  element("#qualityTab").addEventListener("click", () => selectPanel("quality"));
-  element("#reviewTab").addEventListener("click", () => selectPanel("review"));
+  element("#qualityTab").addEventListener("click", () => selectPanel("quality", { focus: true }));
+  element("#reviewTab").addEventListener("click", () => selectPanel("review", { focus: true }));
+  for (const tab of [element("#qualityTab"), element("#reviewTab")]) {
+    tab.addEventListener("keydown", (event) => {
+      const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 :
+        event.key === "Home" ? "first" : event.key === "End" ? "last" : null;
+      if (direction === null) return;
+      event.preventDefault();
+      movePanelTab(tab, direction);
+    });
+  }
   element("#submitReview").addEventListener("click", () => reviewCommand(`/api/copy-versions/${copyVersion.id}/reviews`, {}));
   element("#approveReview").addEventListener("click", openApproveReview);
   element("#requestReviewChanges").addEventListener("click", () => openReviewReason("changes"));
@@ -1127,7 +1155,7 @@
     const reason = element("#acceptReason").value.trim();
     if (!reason) { element("#acceptFindingError").textContent = "请填写接受理由。"; return; }
     try { await resolveFinding(activeFinding, "accepted_with_reason", reason); element("#acceptFindingDialog").close(); }
-    catch (_error) { element("#acceptFindingError").textContent = "Finding 处理失败，请刷新后重试。"; }
+    catch (_error) { element("#acceptFindingError").textContent = "质检问题处理失败，请刷新后重试。"; }
   });
   window.addEventListener("beforeunload", (event) => { if (dirty) event.preventDefault(); });
 
