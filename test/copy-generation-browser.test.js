@@ -82,6 +82,8 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await taskSummary.getByText("文案项目 · 云朵抱枕", { exact: true }).waitFor();
   await taskSummary.getByText("文案 · 2/5", { exact: true }).waitFor();
   await taskSummary.getByText("生成文案", { exact: true }).waitFor();
+  assert.match(await page.locator("#revisionMeta").textContent(), /未细分品类$/);
+  assert.doesNotMatch(await page.locator("#revisionMeta").textContent(), /general/);
   assert.equal(initialCopyBootstrapFailed, true, "The injected failure must target Copy's own initial bootstrap");
   assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
   await page.unroute("**/api/runtime", failRuntimeOnce);

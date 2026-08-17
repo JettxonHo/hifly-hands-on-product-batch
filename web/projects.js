@@ -99,9 +99,9 @@
       list.setAttribute("aria-busy", "false");
       if (error.message === "AUTH_REQUIRED") return;
       list.replaceChildren();
-      listError.textContent = "项目加载失败，请刷新重试。";
+      listError.textContent = "项目列表加载失败，请刷新项目列表重试。";
       recommend(refreshButton);
-      task({ title: "项目暂时无法载入", context: "企业项目", status: "加载失败", statusClass: "failure", next: "重新加载项目", blocker: "项目列表未载入，请先重试。" });
+      task({ title: "项目暂时无法载入", context: "企业项目", status: "加载失败", statusClass: "failure", next: "刷新项目列表", blocker: "项目列表未载入，请刷新项目列表。" });
     }
   }
 
@@ -149,9 +149,9 @@
     if (error.message !== "AUTH_REQUIRED") {
       list.setAttribute("aria-busy", "false");
       list.replaceChildren();
-      listError.textContent = "工作台配置暂时无法读取，请稍后刷新。";
+      listError.textContent = "工作台配置暂时无法读取，请刷新项目列表重试。";
       recommend(refreshButton);
-      task({ title: "工作台暂时无法载入", context: "企业项目", status: "加载失败", statusClass: "failure", next: "稍后刷新页面", blocker: "运行配置未载入。" });
+      task({ title: "工作台暂时无法载入", context: "企业项目", status: "加载失败", statusClass: "failure", next: "刷新项目列表", blocker: "工作台配置未载入，请刷新项目列表。" });
     }
   }
 })();
