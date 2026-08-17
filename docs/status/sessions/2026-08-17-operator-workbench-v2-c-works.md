@@ -53,6 +53,11 @@ V2-C 合同继续 RED → GREEN：
    logical key，模糊/技术失败重试复用；成功或显式载入 409 后的最新作品状态才换新 key。409 保留全部表单字段、
    禁止继续使用旧前置条件，并提供“载入最新作品状态”动作；载入后使用新 inspection id/revision 与新 key，由用户
    再次明确提交。
+4. 第二轮复审 RED 证明通用列表刷新没有调用 exact Work seam，可能在原作品消失时把待提交表单重绑定到列表首项。
+   交付 Dialog 现在固定保存打开时的 Work id 和检查前置条件；冲突恢复只调用组织隔离的
+   `GET /api/works/:workId`。原 Work 缺失、不可见或读取失败时字段保留且提交持续禁用，并提示关闭后重新选择；即使
+   另一 Work 仍在列表中也不会向其发出交付请求。exact Work 存在但已非 `available + passed` 时，页面显示最新状态并
+   继续禁用提交。只有同一 Work 仍满足条件，才安装新的 inspection 前置条件和 logical key，并由用户再次明确提交。
 
 ## 4. 验证与停止边界
 

@@ -2,7 +2,7 @@
   const el = (selector) => document.querySelector(selector);
   let runtime = null, works = [], selected = null, busy = false;
   let mobileDetailOpen = Boolean(new URLSearchParams(location.search).get("work"));
-  let deliveryIntentKey = null, deliveryConflict = false;
+  let deliveryIntentKey = null, deliveryIntentWorkId = null, deliveryIntentInspection = null, deliveryConflict = false;
   const dialogTriggers = new WeakMap();
   const statusLabels = { pending_review: "待检查", deliverable: "可交付", rework_required: "需要返工", delivered: "已交付" };
   const inspectionLabels = { pending: "待检查", passed: "已通过", rework_required: "需要返工", superseded: "已替代" };
@@ -338,38 +338,53 @@
 
   async function submitDelivery(event) {
     event.preventDefault();
-    if (!selected || busy) return;
+    if (!deliveryIntentWorkId || !deliveryIntentInspection || deliveryIntentInspection.status !== "passed" || busy || deliveryConflict) return;
     const method = el("#deliveryMethod").value, recipient = el("#deliveryRecipient").value.trim(), noteText = el("#deliveryNote").value.trim();
     const deliveredAt = new Date(el("#deliveryTime").value);
     const deliveredAtIso = Number.isNaN(deliveredAt.valueOf()) ? null : deliveredAt.toISOString();
     busy = true; el("#submitDelivery").disabled = true;
-    const inspection = currentInspection();
     deliveryIntentKey ||= crypto.randomUUID();
-    const payload = { idempotency_key: deliveryIntentKey, delivery_method: method, recipient_reference: recipient || null, note: noteText || null, expected_inspection_id: inspection?.id, expected_revision: inspection?.revision };
+    const payload = { idempotency_key: deliveryIntentKey, delivery_method: method, recipient_reference: recipient || null, note: noteText || null, expected_inspection_id: deliveryIntentInspection.id, expected_revision: deliveryIntentInspection.revision };
     if (deliveredAtIso) payload.delivered_at = deliveredAtIso;
     try {
-      await request(`/api/works/${encodeURIComponent(selected.id)}/deliveries`, { method: "POST", body: JSON.stringify(payload) });
-      deliveryIntentKey = null; deliveryConflict = false; el("#deliveryDialog").close();
+      await request(`/api/works/${encodeURIComponent(deliveryIntentWorkId)}/deliveries`, { method: "POST", body: JSON.stringify(payload) });
+      deliveryIntentKey = null; deliveryIntentWorkId = null; deliveryIntentInspection = null; deliveryConflict = false; el("#deliveryDialog").close();
       await loadWorks(); notice(el("#actionNotice"), "交付已登记；这次记录已保留。", "success");
     } catch (error) {
       deliveryConflict = error.status === 409;
       el("#reloadDeliveryState").hidden = !deliveryConflict;
       el("#deliveryError").textContent = operationError(error, "交付登记").text;
     } finally {
-      busy = false; el("#submitDelivery").disabled = deliveryConflict; renderActions();
+      busy = false; el("#submitDelivery").disabled = deliveryConflict || !deliveryIntentInspection; renderActions();
     }
   }
 
   async function reloadDeliveryState() {
-    if (!selected || busy) return;
+    if (!deliveryIntentWorkId || busy) return;
     busy = true; el("#reloadDeliveryState").disabled = true; el("#deliveryError").textContent = "正在载入最新作品状态…";
     try {
-      if (!await loadWorks({ preserveSelection: true })) throw new Error("WORKS_RELOAD_FAILED");
+      const body = await request(`/api/works/${encodeURIComponent(deliveryIntentWorkId)}`);
+      const latest = body.work;
+      if (!latest || latest.id !== deliveryIntentWorkId) throw new Error("WORKS_RELOAD_FAILED");
+      const index = works.findIndex((work) => work.id === deliveryIntentWorkId);
+      if (index < 0) throw new Error("WORKS_RELOAD_FAILED");
+      works[index] = latest;
+      if (selected?.id === deliveryIntentWorkId) selected = latest;
+      render();
+      const latestInspection = latest.current_inspection;
+      if (latest.status !== "available" || latestInspection?.status !== "passed") {
+        deliveryIntentInspection = null; deliveryConflict = true;
+        el("#reloadDeliveryState").hidden = true; el("#submitDelivery").disabled = true;
+        el("#deliveryError").textContent = "最新作品状态已载入，但当前已不可交付；你的交付信息仍保留，请关闭并重新选择作品。";
+        return;
+      }
+      deliveryIntentInspection = { id: latestInspection.id, revision: latestInspection.revision, status: latestInspection.status };
       deliveryIntentKey = crypto.randomUUID(); deliveryConflict = false;
       el("#reloadDeliveryState").hidden = true; el("#submitDelivery").disabled = false;
       el("#deliveryError").textContent = "最新作品状态已载入；你的交付信息仍保留，请确认后再提交。";
     } catch (_error) {
-      el("#deliveryError").textContent = "最新作品状态载入失败，请稍后重试；你的交付信息仍保留。";
+      deliveryConflict = true; el("#submitDelivery").disabled = true;
+      el("#deliveryError").textContent = "最新作品状态无法读取；你的交付信息仍保留，请关闭并重新选择作品。";
     } finally { busy = false; el("#reloadDeliveryState").disabled = false; renderActions(); }
   }
 
@@ -413,7 +428,10 @@
   function localDateTimeValue() { const now = new Date(), local = new Date(now.getTime() - now.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 16); }
   function openDeliveryDialog() {
     resetDialog(el("#deliveryForm"), el("#deliveryError")); el("#deliveryTime").value = localDateTimeValue();
-    deliveryIntentKey = crypto.randomUUID(); deliveryConflict = false; el("#reloadDeliveryState").hidden = true; el("#submitDelivery").disabled = false;
+    const inspection = currentInspection();
+    deliveryIntentKey = crypto.randomUUID(); deliveryIntentWorkId = selected?.id || null;
+    deliveryIntentInspection = inspection ? { id: inspection.id, revision: inspection.revision, status: inspection.status } : null;
+    deliveryConflict = false; el("#reloadDeliveryState").hidden = true; el("#submitDelivery").disabled = !deliveryIntentWorkId || deliveryIntentInspection?.status !== "passed";
     showDialog(el("#deliveryDialog"));
   }
 

@@ -98,6 +98,19 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
     id: "inspection-v2-c-refreshed",
     revision: refreshedDeliveredWork.current_inspection.revision + 1
   };
+  const refreshedReworkWork = {
+    ...structuredClone(refreshedDeliveredWork),
+    delivery_status: "rework_required",
+    current_inspection: {
+      ...refreshedDeliveredWork.current_inspection,
+      id: "inspection-v2-c-rework",
+      status: "rework_required",
+      revision: refreshedDeliveredWork.current_inspection.revision + 1,
+      category: "visual_quality",
+      reason: "最新检查要求返工",
+      target_upstream_stage: "video_plan"
+    }
+  };
 
   const app = await buildApp({
     root,
@@ -117,6 +130,10 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
   }
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const deliveryRequestUrls = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/deliveries")) deliveryRequestUrls.push(request.url());
+  });
   await page.goto(`${origin}/login.html`);
   await page.getByLabel("工作邮箱").fill("v2-c-works-browser@example.test");
   await page.getByLabel("密码", { exact: true }).fill("Temporary-V2-C-Works-9!");
@@ -240,12 +257,17 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
     }
     await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ delivery: { id: "delivery-after-refresh" } }) });
   });
-  await page.route("**/api/works", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ works: refreshedWorks }) }));
+  let exactReloadAttempts = 0;
+  await page.route(`**/api/works/${work.id}`, async (route) => {
+    exactReloadAttempts += 1;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ work: refreshedDeliveredWork }) });
+  });
   await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
   await deliveryDialog.getByText("作品状态已被更新", { exact: false }).waitFor();
   assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "保留冲突输入");
   await deliveryDialog.getByRole("button", { name: "载入最新作品状态", exact: true }).click();
   await deliveryDialog.getByText("最新作品状态已载入", { exact: false }).waitFor();
+  assert.equal(exactReloadAttempts, 1);
   assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "保留冲突输入");
   await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
   await deliveryDialog.waitFor({ state: "hidden" });
@@ -253,6 +275,49 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
   assert.notEqual(conflictBodies[0].idempotency_key, conflictBodies[1].idempotency_key);
   assert.equal(conflictBodies[1].expected_inspection_id, "inspection-v2-c-refreshed");
   assert.equal(conflictBodies[1].expected_revision, refreshedDeliveredWork.current_inspection.revision);
+  await page.unroute(`**/api/works/${work.id}`);
+
+  await addDelivery.click();
+  await deliveryDialog.getByLabel("接收方（可选）").fill("原作品 A 的交付信息");
+  const missingRequestOffset = deliveryRequestUrls.length;
+  const missingWorkBodies = [];
+  await page.unroute(`**/api/works/${work.id}/deliveries`);
+  await page.route(`**/api/works/${work.id}/deliveries`, async (route) => {
+    missingWorkBodies.push(route.request().postDataJSON());
+    await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "WORK_DELIVERY_INSPECTION_CONFLICT" }) });
+  });
+  await page.route(`**/api/works/${work.id}`, async (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "WORK_DELIVERY_WORK_NOT_FOUND" }) }));
+  await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
+  await deliveryDialog.getByRole("button", { name: "载入最新作品状态", exact: true }).click();
+  await deliveryDialog.getByText("关闭并重新选择作品", { exact: false }).waitFor();
+  assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "原作品 A 的交付信息");
+  assert.equal(await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).isDisabled(), true);
+  assert.equal((await page.locator("#worksList").innerText()).includes(pendingWork.product_name), true);
+  await page.locator("#deliveryForm").evaluate((form) => form.requestSubmit());
+  assert.equal(missingWorkBodies.length, 1);
+  assert.deepEqual(deliveryRequestUrls.slice(missingRequestOffset).map((url) => new URL(url).pathname), [`/api/works/${work.id}/deliveries`]);
+  await deliveryDialog.getByRole("button", { name: "取消", exact: true }).click();
+  await page.unroute(`**/api/works/${work.id}`);
+
+  await addDelivery.click();
+  await deliveryDialog.getByLabel("接收方（可选）").fill("返工前保留的交付信息");
+  const reworkBodies = [];
+  await page.unroute(`**/api/works/${work.id}/deliveries`);
+  await page.route(`**/api/works/${work.id}/deliveries`, async (route) => {
+    reworkBodies.push(route.request().postDataJSON());
+    await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "WORK_DELIVERY_INSPECTION_CONFLICT" }) });
+  });
+  await page.route(`**/api/works/${work.id}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ work: refreshedReworkWork }) }));
+  await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
+  await deliveryDialog.getByRole("button", { name: "载入最新作品状态", exact: true }).click();
+  await deliveryDialog.getByText("当前已不可交付", { exact: false }).waitFor();
+  assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "返工前保留的交付信息");
+  assert.equal(await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).isDisabled(), true);
+  assert.equal((await page.locator("#selectedDeliveryStatus").textContent()).trim(), "需要返工");
+  await page.locator("#deliveryForm").evaluate((form) => form.requestSubmit());
+  assert.equal(reworkBodies.length, 1);
+  await deliveryDialog.getByRole("button", { name: "取消", exact: true }).click();
+  await page.unroute(`**/api/works/${work.id}`);
 
   await page.unroute("**/api/works");
   await page.unroute(`**/api/works/${work.id}/deliveries`);
