@@ -12,7 +12,8 @@
 
 先读取 AGENTS、CURRENT、ROADMAP、运营任务流 UX V1、产品 IA/用户流程和当前页面公开合同，再以本地内存仓储、
 假数据和 Chromium 运行现有公开 browser seams。审计按角色任务、频率、错误成本、权限/审计、安全门禁、中文环境和
-三视口逐页记录问题，不从竞品页面或视觉风格反推本项目 IA。
+三视口逐页记录问题，不从竞品页面或视觉风格反推本项目 IA。页面行为、截图和源码/DOM 是三类不同证据，结论不在
+不同 fixture、角色或能力开关之间直接外推。
 
 公开浏览器证据命令：
 
@@ -31,22 +32,43 @@ node --test --test-concurrency=1 \
   test/vsa-a14-acceptance-browser.test.js
 ```
 
-结果为 11/11 pass、0 fail、0 skip。截图只在 `/private/tmp/hifly-ux-audit-screens/`，未提交 Git。核对的像素包括：
+结果为 11/11 pass、0 fail、0 skip。第一组截图只在 `/private/tmp/hifly-ux-audit-screens/`，未提交 Git。核对的像素包括：
 
 - Login：1440×900、768×900、390×844；
 - Projects：1440×900、768×900、390×962；
 - Project：1440×1064、768×1389、390×1823；
 - Copy/Avatar/Plan：各 1440×900、768×900、390×844；
-- Production：1440×1398、390×2195；
-- Works：390×1969。
+- Production：1440×1398、390×2195（既有 A14 行为 seam 的阶段性截图）；
+- Works：390×1969（既有 A14 行为 seam 的阶段性截图）。
+
+为纠正不同测试 fixture 的能力/角色差异，并补齐后四页截图，本轮另用 `/private/tmp` 一次性脚本复用 A14 的内存仓储、
+fake executor 和全功能 runtime，以同一管理员角色依次访问 Projects、Project、Copy、Avatar、Plan、Production、Works、
+Assets、Members。命令与脚本均未进入 Git：
+
+```bash
+SLICE_A_SCREENSHOTS_DIR=/private/tmp/hifly-ux-audit-same-context \
+node --test /private/tmp/hifly-ux-audit-same-context.test.mjs
+```
+
+结果为 1/1 pass、0 fail、0 skip。九页可见一级导航完全一致，均为“项目 / 素材中心 / 作品库 / 成员管理”。补录 PNG
+均通过像素头核对，且四页三个视口均无页面级横向滚动：
+
+- Production：1440×2583、768×3470、390×3750；
+- Works：1440×1167、768×3173、390×1946；
+- Assets：1440×900、768×900、390×844；
+- Members：1440×900、768×900、390×844。
+
+显式 legacy `/index.html` 本轮使用源码、DOM 合同和已有公开 seam 审计，没有补录截图。所有补充 PNG 仅位于
+`/private/tmp/hifly-ux-audit-same-context/`，未提交 Git。
 
 这些结果只证明本地公开 UI seam 可运行，不证明部署、真实 Provider、积分、客户采用或长期稳定性。
 
 ## 关键结论
 
 - 本轮本地假数据审计未发现新的 P0；这不是对真实生产风险的替代证明。
-- P1 集中在：全局 IA/导航不稳定、Production 技术状态抢占业务叙事、Works 已交付终态动作竞争、Assets 类型/用途/
-  关联语义不足、英文内部术语暴露，以及移动端首屏仅做纵向堆叠。
+- P1 集中在：一级导航与项目阶段导航职责不清且缺少全局生产任务入口、Production 技术状态抢占业务叙事、Works
+  已交付终态动作竞争、Assets 类型/用途/关联语义不足、英文内部术语暴露，以及移动端首屏仅做纵向堆叠。
+- 同一管理员/runtime 的九页导航显隐一致；此前基于不同 fixture 得出的“跨页导航不稳定”已撤回。
 - Slice A/B 的 dirty、冲突、历史、异步失败恢复和“自动检查不等于人工批准”是后续合同必须保留的正向基线。
 - Assets/Members 的初始错误仍可能与 loading 并存，属于可 targeted 修复的状态问题。
 - 原 Slice C 是否保留、rebase 或吸收仍待定，必须经过定向研究和设计合同 acceptance gate，不能由本审计直接决定。
