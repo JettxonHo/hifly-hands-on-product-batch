@@ -102,6 +102,14 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   await taskSummary.getByText("人物 · 3/5", { exact: true }).waitFor();
   await taskSummary.getByText("确认此人物", { exact: true }).waitFor();
   await page.getByText("Phase 1 受控预置", { exact: true }).first().waitFor();
+  assert.equal(await page.locator("#factsStageLink").getAttribute("data-stage-state"), "available");
+  assert.equal(await page.locator("#copyStageLink").getAttribute("data-stage-state"), "completed");
+  assert.equal(await page.locator('.stage-desktop [aria-current="step"]').getAttribute("data-stage-state"), "current");
+  assert.equal(await page.locator("#planStageLink").getAttribute("data-stage-state"), "available");
+  assert.deepEqual(
+    await page.locator(".stage-mobile li").evaluateAll((items) => items.map((item) => item.dataset.stageState)),
+    ["available", "completed", "current", "available", "blocked"]
+  );
   for (const selector of ["#planStageLink", "#mobilePlanStageLink", "#nextPlanLink"]) {
     assert.match(await page.locator(selector).getAttribute("href"), /^\/plan\.html\?/);
   }

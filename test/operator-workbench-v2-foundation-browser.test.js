@@ -92,7 +92,7 @@ async function stubEnterpriseContext(page, role = "admin") {
 test("enterprise shell keeps one role-aware navigation order across pages", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-v2-a-shell-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const port = await findAvailablePort(58400);
+  const port = await findAvailablePort(58600);
   const host = `127.0.0.1:${port}`;
   const origin = `http://${host}`;
   const identityRepository = createMemoryIdentityRepository();
@@ -153,13 +153,13 @@ test("enterprise shell keeps one role-aware navigation order across pages", asyn
   }
 
   const stagePages = [
-    "/project.html?id=project-v2-a",
-    "/copy.html?project=project-v2-a&revision=revision-v2-a",
-    "/avatar.html?project=project-v2-a&product=product-v2-a",
-    "/plan.html?project=project-v2-a&product=product-v2-a",
-    "/production.html?project=project-v2-a&product=product-v2-a"
+    ["/project.html?id=project-v2-a", ["current", "blocked", "blocked", "blocked", "blocked"]],
+    ["/copy.html?project=project-v2-a&revision=revision-v2-a", ["available", "current", "available", "blocked", "blocked"]],
+    ["/avatar.html?project=project-v2-a&product=product-v2-a", ["available", "available", "current", "blocked", "blocked"]],
+    ["/plan.html?project=project-v2-a&product=product-v2-a", ["available", "available", "available", "current", "blocked"]],
+    ["/production.html?project=project-v2-a&product=product-v2-a", ["available", "available", "available", "available", "current"]]
   ];
-  for (const pathname of stagePages) {
+  for (const [pathname, expectedStates] of stagePages) {
     await adminPage.goto(`${origin}${pathname}`);
     const stages = adminPage.locator('nav[aria-label="项目阶段"]');
     assert.equal(await stages.count(), 1, pathname);
@@ -167,6 +167,16 @@ test("enterprise shell keeps one role-aware navigation order across pages", asyn
       await stages.locator(":scope > *").evaluateAll((items) => items.map((item) => item.textContent.trim().replace(/^[✓1-5]\s*/, ""))),
       ["商品资料", "文案", "人物", "视频方案", "生产"],
       pathname
+    );
+    assert.deepEqual(
+      await stages.locator(":scope > *").evaluateAll((items) => items.map((item) => item.dataset.stageState)),
+      expectedStates,
+      `${pathname} desktop stage semantics`
+    );
+    assert.deepEqual(
+      await adminPage.locator(".stage-mobile li").evaluateAll((items) => items.map((item) => item.dataset.stageState)),
+      expectedStates,
+      `${pathname} mobile stage semantics`
     );
   }
 

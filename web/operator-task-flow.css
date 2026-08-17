@@ -57,29 +57,43 @@
   font-weight: 600;
 }
 
-.operator-task-page .stage-strip a {
+.operator-task-page .stage-strip [data-stage-state="completed"] {
   color: var(--success);
 }
 
-.operator-task-page .stage-strip a[aria-disabled="true"] {
-  color: var(--n-500);
-  cursor: default;
-}
-
-.operator-task-page .stage-strip a span {
+.operator-task-page .stage-strip [data-stage-state="completed"] span,
+.operator-task-page .stage-strip [data-stage-state="completed"] b {
   border-color: var(--success-border);
   background: var(--success-bg);
 }
 
-.operator-task-page .stage-strip strong {
+.operator-task-page .stage-strip [data-stage-state="current"] {
   color: var(--brand);
   background: var(--brand-tint);
 }
 
-.operator-task-page .stage-strip strong span {
+.operator-task-page .stage-strip [data-stage-state="current"] span,
+.operator-task-page .stage-strip [data-stage-state="current"] b {
   border-color: var(--brand);
   color: var(--n-0);
   background: var(--brand);
+}
+
+.operator-task-page .stage-strip [data-stage-state="available"] {
+  color: var(--n-700);
+}
+
+.operator-task-page .stage-strip a[data-stage-state="available"]:hover {
+  color: var(--brand);
+  background: var(--n-050);
+}
+
+.operator-task-page .stage-strip [data-stage-state="blocked"] {
+  color: var(--n-400);
+}
+
+.operator-task-page .stage-strip a[aria-disabled="true"] {
+  cursor: default;
 }
 
 .operator-task-page .stage-mobile {
@@ -108,6 +122,21 @@
 .operator-task-page .stage-mobile li[aria-current="step"] {
   color: var(--brand);
   font-weight: 600;
+}
+
+.operator-task-page .stage-mobile li[data-stage-state="completed"],
+.operator-task-page .stage-mobile li[data-stage-state="completed"] a {
+  color: var(--success);
+}
+
+.operator-task-page .stage-mobile li[data-stage-state="available"],
+.operator-task-page .stage-mobile li[data-stage-state="available"] a {
+  color: var(--n-700);
+}
+
+.operator-task-page .stage-mobile li[data-stage-state="blocked"],
+.operator-task-page .stage-mobile li[data-stage-state="blocked"] a {
+  color: var(--n-400);
 }
 
 .operator-task-page .task-summary {

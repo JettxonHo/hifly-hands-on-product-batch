@@ -46,11 +46,11 @@
           </section>
 
           <nav class="stage-strip stage-desktop" aria-label="项目阶段">
-            <a id="factsStageLink" href="/projects.html"><span>✓</span>商品资料</a>
-            <a id="copyStageLink" href="/copy.html"><span>✓</span>文案</a>
-            <strong aria-current="step"><span>3</span>人物</strong><a id="planStageLink" aria-disabled="true"><span>4</span>视频方案</a><a id="productionStageLink" aria-disabled="true"><b>5</b>生产</a>
+            <a id="factsStageLink" href="/projects.html" data-stage-state="available"><span>1</span>商品资料</a>
+            <a id="copyStageLink" href="/copy.html" data-stage-state="available"><span>2</span>文案</a>
+            <strong aria-current="step" data-stage-state="current"><span>3</span>人物</strong><a id="planStageLink" aria-disabled="true" data-stage-state="blocked"><span>4</span>视频方案</a><a id="productionStageLink" aria-disabled="true" data-stage-state="blocked"><b>5</b>生产</a>
           </nav>
-          <details class="stage-mobile"><summary>阶段 3/5 · 人物</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品资料</a></li><li><a id="mobileCopyStageLink" href="/copy.html">文案</a></li><li aria-current="step">人物</li><li><a id="mobilePlanStageLink" aria-disabled="true">视频方案</a></li><li><a id="mobileProductionStageLink" aria-disabled="true">生产</a></li></ol></details>
+          <details class="stage-mobile"><summary>阶段 3/5 · 人物</summary><ol><li data-stage-state="available"><a id="mobileFactsStageLink" href="/projects.html">商品资料</a></li><li data-stage-state="available"><a id="mobileCopyStageLink" href="/copy.html">文案</a></li><li aria-current="step" data-stage-state="current">人物</li><li data-stage-state="blocked"><a id="mobilePlanStageLink" aria-disabled="true">视频方案</a></li><li data-stage-state="blocked"><a id="mobileProductionStageLink" aria-disabled="true">生产</a></li></ol></details>
 
           <section class="product-context" aria-labelledby="productContextTitle">
             <label id="productContextTitle" for="productSelector">当前商品</label>

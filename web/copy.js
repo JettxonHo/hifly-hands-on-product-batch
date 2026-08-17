@@ -209,6 +209,8 @@
 
   function updateAvatarLinks() {
     if (!project || !revision) return;
+    window.HiflyOperatorStages.set(["#factsStageLink", "#mobileFactsStageLink"], revision.status === "ready" ? "completed" : "available");
+    window.HiflyOperatorStages.set(["#avatarStageLink", "#mobileAvatarStageLink"], "available");
     const avatarHref = `/avatar.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(currentProduct()?.id || "")}&copy=${encodeURIComponent(copyVersion?.id || "")}`;
     element("#avatarStageLink").href = avatarHref;
     element("#mobileAvatarStageLink").href = avatarHref;
@@ -216,8 +218,8 @@
     const productionHref = `/production.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(currentProduct()?.id || "")}`;
     for (const selector of ["#productionStageLink", "#mobileProductionStageLink"]) {
       const link = element(selector);
-      if (runtime?.productionOrdersEnabled === true) { link.href = productionHref; link.removeAttribute("aria-disabled"); }
-      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); }
+      if (runtime?.productionOrdersEnabled === true) { link.href = productionHref; link.removeAttribute("aria-disabled"); window.HiflyOperatorStages.set(link, "available"); }
+      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); window.HiflyOperatorStages.set(link, "blocked"); }
     }
   }
 

@@ -99,6 +99,8 @@
     element("#projectBreadcrumb").textContent = project.name; element("#projectBreadcrumb").href = `/project.html?id=${encodeURIComponent(project.id)}`;
     const facts = `/project.html?id=${encodeURIComponent(project.id)}`, copy = `/copy.html?project=${encodeURIComponent(project.id)}&revision=${encodeURIComponent(product.revision.id)}`, avatar = `/avatar.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
     element("#factsStageLink").href = facts; element("#mobileFactsStageLink").href = facts; element("#copyStageLink").href = copy; element("#mobileCopyStageLink").href = copy; element("#avatarStageLink").href = avatar; element("#mobileAvatarStageLink").href = avatar; element("#planStageLink").href = planHref(); element("#mobilePlanStageLink").href = planHref(); element("#planContextLink").href = planHref();
+    const upstreamState = workspace?.gate?.can_create === true ? "completed" : "available";
+    window.HiflyOperatorStages.set(["#factsStageLink", "#mobileFactsStageLink", "#copyStageLink", "#mobileCopyStageLink", "#avatarStageLink", "#mobileAvatarStageLink", "#planStageLink", "#mobilePlanStageLink"], upstreamState);
     const selector = element("#productSelector"); selector.replaceChildren(...project.products.map((item) => { const option = document.createElement("option"); option.value = item.id; option.textContent = item.revision.product_name || "未命名商品"; option.selected = item.id === product.id; return option; }));
   }
 

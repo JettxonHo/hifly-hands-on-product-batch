@@ -125,8 +125,8 @@
     const href = productionHref();
     for (const id of ["#productionStageLink", "#mobileProductionStageLink"]) {
       const link = element(id);
-      if (runtime?.productionOrdersEnabled === true) { link.href = href; link.removeAttribute("aria-disabled"); }
-      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); }
+      if (runtime?.productionOrdersEnabled === true) { link.href = href; link.removeAttribute("aria-disabled"); window.HiflyOperatorStages.set(link, "available"); }
+      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); window.HiflyOperatorStages.set(link, "blocked"); }
     }
   }
   function links() {
@@ -136,6 +136,10 @@
     for (const id of ["#factsStageLink","#mobileFactsStageLink"]) element(id).href = facts;
     for (const id of ["#copyStageLink","#mobileCopyStageLink"]) element(id).href = copy;
     for (const id of ["#avatarStageLink","#mobileAvatarStageLink"]) element(id).href = avatar;
+    const upstream = workspace?.current_plan?.upstream_snapshot || {};
+    window.HiflyOperatorStages.set(["#factsStageLink", "#mobileFactsStageLink"], upstream.product_revision_id ? "completed" : "available");
+    window.HiflyOperatorStages.set(["#copyStageLink", "#mobileCopyStageLink"], upstream.copy_version_id ? "completed" : "available");
+    window.HiflyOperatorStages.set(["#avatarStageLink", "#mobileAvatarStageLink"], upstream.avatar_selection_id ? "completed" : "available");
     configureProductionLinks();
     const selector = element("#productSelector"); selector.replaceChildren(...project.products.map((item) => {
       const option = document.createElement("option"); option.value = item.id; option.textContent = item.revision.product_name || "未命名商品"; option.selected = item.id === product.id; return option;

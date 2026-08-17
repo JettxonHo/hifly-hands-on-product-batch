@@ -30,8 +30,8 @@
             <div><p class="eyebrow"><a href="/projects.html">项目</a> / 商品</p><h1 id="projectName">正在加载...</h1><p class="page-description">维护可审阅、可追溯的商品内容快照。</p></div>
             <div class="page-actions"><button id="openProductDialog" class="secondary" type="button">创建商品</button></div>
           </div>
-          <nav class="stage-strip stage-desktop" aria-label="项目阶段"><strong aria-current="step"><span>1</span>商品资料</strong><a id="copyStageLink" aria-disabled="true"><span>2</span>文案</a><span><b>3</b>人物</span><span><b>4</b>视频方案</span><span><b>5</b>生产</span></nav>
-          <details class="stage-mobile"><summary>阶段 1/5 · 商品资料</summary><ol><li aria-current="step">商品资料</li><li><a id="mobileCopyStageLink" aria-disabled="true">文案</a></li><li>人物</li><li>视频方案</li><li>生产</li></ol></details>
+          <nav class="stage-strip stage-desktop" aria-label="项目阶段"><strong aria-current="step" data-stage-state="current"><span>1</span>商品资料</strong><a id="copyStageLink" aria-disabled="true" data-stage-state="blocked"><span>2</span>文案</a><span data-stage-state="blocked"><b>3</b>人物</span><span data-stage-state="blocked"><b>4</b>视频方案</span><span data-stage-state="blocked"><b>5</b>生产</span></nav>
+          <details class="stage-mobile"><summary>阶段 1/5 · 商品资料</summary><ol><li aria-current="step" data-stage-state="current">商品资料</li><li data-stage-state="blocked"><a id="mobileCopyStageLink" aria-disabled="true">文案</a></li><li data-stage-state="blocked">人物</li><li data-stage-state="blocked">视频方案</li><li data-stage-state="blocked">生产</li></ol></details>
           <section class="task-summary" aria-label="当前任务" aria-live="polite">
             <div class="task-summary-context"><p class="eyebrow">当前任务</p><h2 id="taskSummaryTitle">载入商品工作区</h2></div>
             <dl class="task-summary-facts">

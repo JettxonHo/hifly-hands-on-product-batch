@@ -37,20 +37,35 @@
    “资料已就绪 / 文案质检 / 人工审核”，并保持自动检查与人工批准的状态边界。
 4. 视觉复核发现 Project 新阶段 DOM 未获得共享样式。最小 GREEN 将既有阶段布局复制为
    `.operator-task-page` opt-in 原语；1440/768/390 截图与无横向滚动断言通过。
+5. REQUIRED RED：V2-A 与 A14 默认并行时同时占用 `127.0.0.1:58400`，A14 以 `EADDRINUSE` 失败。
+   最小 GREEN 将新 V2-A seam 移到独立的 58600 端口段；同一默认并行命令 2/2 通过，没有用
+   `--test-concurrency=1` 掩盖冲突。
+6. REQUIRED RED：共享 CSS 曾把所有带 `href` 的阶段链接着成完成绿，导致 Copy 尚未保存、质检未开始时，
+   未来“人物”阶段看起来已经完成。GREEN 为五阶段显式提供 `completed / current / available / blocked`
+   状态，由页面根据现有业务快照更新，不再从是否存在 `href` 猜测完成状态。真实 Copy seam 证明商品资料为
+   completed、文案为 current、人物为 available、视频方案与生产为 blocked；真实 Avatar seam 进一步证明
+   只有已人工批准的文案为 completed，而仍是草稿的商品资料保持 available。桌面和移动状态序列一致。
 
 ## 4. 验证
 
-- `node --test test/operator-workbench-v2-foundation-browser.test.js`：1/1，通过。
-- 直接受影响的真实 Chrome 兼容组：Project content、Slice A、Copy generation/quality、Avatar、Plan、Production，
-  合计 11/11，通过。
-- 临时截图目录：`/private/tmp/hifly-v2-a-screenshots-20260817b`，未纳入 Git。Project、Copy、Production、
-  Works、Assets、Members 等代表页面的 PNG 头分别验证为 1440×1000、768×900、390×844；无页面级横向滚动。
+- focused V2-A + Copy + Avatar 真实 Chrome：4/4，通过；V2-A + A14 默认并行：2/2，通过。
+- 直接受影响的真实 Chrome 兼容组：Project content、Slice A、V2-A、Copy generation/quality、Avatar、Plan、
+  Production，合计 12/12，通过。
+- `/private/tmp/hifly-v2-a-screenshots-20260817b` 由脚本 stub 产生，只证明 loading-state 壳层、布局、导航与
+  1440×1000 / 768×900 / 390×844 无横向滚动；它不作为业务阶段状态的视觉证据。
+- 真实 Copy 业务状态截图位于 `/private/tmp/hifly-v2-a-business-stage-screenshots-20260817d`，未纳入 Git。
+  overview 与展开阶段证据各覆盖 1440×900、768×900、390×844，PNG 像素头与文件名一致。人工复核可见
+  completed 上游、current 文案、available 人物和 blocked 后续阶段在桌面/移动端的颜色及层级彼此不同。
 - reduced-motion、skip link 焦点、角色导航显隐、显式 legacy `/index.html` 隔离均由公开浏览器 seam 覆盖。
 - 扩展浏览器兼容组（含 legacy GUI smoke 与 browser compatibility）：29/29，通过。
 - `npm run check`：229 个 JavaScript 文件，通过。
-- 完整 `npm test`：1023 tests，1009 pass，14 skip，0 fail。14 个 skip 是未提供连接串的 13 个 PostgreSQL
+- 完整默认并发 `npm test`（指定宿主已安装的系统 Chrome，不降低 test concurrency）：1023 tests，
+  1009 pass，14 skip，0 fail，约 52 秒。14 个 skip 是未提供连接串的 13 个 PostgreSQL
   integration tests，以及未启用 `IDENTITY_BROWSER_SMOKE=1` 的 identity browser smoke；真实 Chrome 公开 seam
   已由上述宿主浏览器矩阵补证，固定 head CI 另含 identity-postgres 环境验证。
+- 同一修复后的第一次原始 `npm test` 在无 `IDENTITY_BROWSER_EXECUTABLE` 的宿主环境中没有出现端口冲突，
+  但 bundled Chromium 的 A14 子进程在测试主体完成后超过 4 分钟未退出，因此被人工终止；它不计为通过。
+  随后使用项目一贯的系统 Chrome 路径、保持默认并发重跑得到上述完整 GREEN，不用一次绿色覆盖首次挂起事实。
 - `git diff --check`：通过。Draft PR 的 Ubuntu、Windows 与 identity-postgres 固定 head CI 由 GitHub
   acceptance gate 记录并由主控复核；本提交不把自身尚未产生的 CI 结果写成既成事实。
 

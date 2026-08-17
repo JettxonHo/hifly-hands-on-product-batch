@@ -1,3 +1,15 @@
+window.HiflyOperatorStages = {
+  set(selectors, state) {
+    for (const selector of Array.isArray(selectors) ? selectors : [selectors]) {
+      const element = typeof selector === "string" ? document.querySelector(selector) : selector;
+      if (!element) continue;
+      element.dataset.stageState = state;
+      const mobileItem = element.closest("li");
+      if (mobileItem) mobileItem.dataset.stageState = state;
+    }
+  }
+};
+
 (async () => {
   const shell = document.querySelector(".app-shell");
   if (!shell) return;

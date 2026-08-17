@@ -163,6 +163,10 @@
     }));
     selector.value = product.id;
     const approved = workspace?.copy_gate.approved === true;
+    window.HiflyOperatorStages.set(["#factsStageLink", "#mobileFactsStageLink"], product.revision.status === "ready" ? "completed" : "available");
+    window.HiflyOperatorStages.set(["#copyStageLink", "#mobileCopyStageLink"], approved ? "completed" : "available");
+    window.HiflyOperatorStages.set(["#planStageLink", "#mobilePlanStageLink"], runtime.videoPlanningEnabled ? "available" : "blocked");
+    window.HiflyOperatorStages.set(["#productionStageLink", "#mobileProductionStageLink"], runtime.productionOrdersEnabled ? "available" : "blocked");
     element("#copyApprovalState").className = `state ${approved ? "approved" : "blocked"}`;
     element("#copyApprovalState").textContent = approved ? "文案已批准" : "文案批准不可用";
     element("#copyApprovalMeta").textContent = copyVersionId ? `当前文案 ${copyVersionId.slice(0, 8)}` : "可浏览，确认前需批准文案";

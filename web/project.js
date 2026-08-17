@@ -135,6 +135,7 @@
   function syncStageLinks() {
     const available = runtime?.copyGenerationEnabled === true && revision?.status === "ready" && !isHistoricalRevision(revision);
     const href = available ? `/copy.html?project=${encodeURIComponent(projectId)}&revision=${encodeURIComponent(revision.id)}` : "";
+    window.HiflyOperatorStages.set(copyStageLinks, available ? "available" : "blocked");
     for (const link of copyStageLinks) {
       if (!link) continue;
       if (available) {

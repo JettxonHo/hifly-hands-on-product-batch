@@ -87,6 +87,13 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.unroute("**/api/runtime", failRuntimeOnce);
   assert.match(await page.locator("#productFactsLink").getAttribute("href"), /[?&]revision=[^&]+/);
   await page.getByRole("navigation", { name: "项目阶段" }).locator('[aria-current="step"]').waitFor();
+  assert.equal(await page.locator("#factsStageLink").getAttribute("data-stage-state"), "completed");
+  assert.equal(await page.locator('nav[aria-label="项目阶段"] [aria-current="step"]').getAttribute("data-stage-state"), "current");
+  assert.equal(await page.locator("#avatarStageLink").getAttribute("data-stage-state"), "available");
+  assert.notEqual(await page.locator("#avatarStageLink").getAttribute("data-stage-state"), "completed",
+    "人物在文案质检和人工审核完成前只能保持可访问，不能显示为已完成");
+  assert.equal(await page.locator("#mobileFactsStageLink").locator("..").getAttribute("data-stage-state"), "completed");
+  assert.equal(await page.locator("#mobileAvatarStageLink").locator("..").getAttribute("data-stage-state"), "available");
   await page.getByRole("button", { name: "生成文案" }).click();
   await page.getByText("文案正在生成，可离开此页面。", { exact: true }).waitFor();
   await taskSummary.getByText("等待文案生成完成，可离开后返回", { exact: true }).waitFor();
@@ -163,7 +170,15 @@ test("copy workspace restores async generation, preserves frozen history, and re
     const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     assert.equal(horizontalOverflow, false, `Copy should not overflow at ${viewport.width}px`);
     if (screenshotDir) {
-      await page.screenshot({ path: path.join(screenshotDir, `copy-${viewport.width}x${viewport.height}.png`) });
+      const overview = await page.screenshot({ path: path.join(screenshotDir, `copy-${viewport.width}x${viewport.height}.png`) });
+      assert.equal(overview.readUInt32BE(16), viewport.width);
+      assert.equal(overview.readUInt32BE(20), viewport.height);
+      const stage = viewport.width <= 720 ? page.locator(".stage-mobile") : page.locator(".stage-desktop");
+      if (viewport.width <= 720) await stage.evaluate((details) => { details.open = true; });
+      await stage.scrollIntoViewIfNeeded();
+      const stageEvidence = await page.screenshot({ path: path.join(screenshotDir, `copy-stage-${viewport.width}x${viewport.height}.png`) });
+      assert.equal(stageEvidence.readUInt32BE(16), viewport.width);
+      assert.equal(stageEvidence.readUInt32BE(20), viewport.height);
     }
   }
   await page.emulateMedia({ reducedMotion: "reduce" });
