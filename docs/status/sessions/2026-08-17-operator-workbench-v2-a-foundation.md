@@ -51,7 +51,8 @@
 - 完整 `npm test`：1023 tests，1009 pass，14 skip，0 fail。14 个 skip 是未提供连接串的 13 个 PostgreSQL
   integration tests，以及未启用 `IDENTITY_BROWSER_SMOKE=1` 的 identity browser smoke；真实 Chrome 公开 seam
   已由上述宿主浏览器矩阵补证，固定 head CI 另含 identity-postgres 环境验证。
-- `git diff --check`：通过。fixed-head 三组 CI 在 Draft PR 推送后补录。
+- `git diff --check`：通过。Draft PR 的 Ubuntu、Windows 与 identity-postgres 固定 head CI 由 GitHub
+  acceptance gate 记录并由主控复核；本提交不把自身尚未产生的 CI 结果写成既成事实。
 
 ## 5. Agent 与安全边界
 
