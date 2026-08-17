@@ -1,6 +1,6 @@
 # 项目当前状态
 
-> 最后更新：2026-08-14
+> 最后更新：2026-08-17
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
 > 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；release-readiness 代码与依赖治理已部署到内部验收环境，可信 TLS 仍未完成，仍不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
@@ -31,19 +31,19 @@
   `[currentOrderId]`，当前 order `attempts=[]` 且 active attempts=0；terminal 后立即关 Worker并保留 attempt。
   失败/需处理停止且不创建下一条、不自动重试；成功须经 A12 passed、Work available 与鉴权真实字节下载后，
   才能在 Worker off 下准备下一条。
-- UX 页面实施仍严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）完成独立 Review 后，才开始
-  Slice B（Copy/Avatar/Plan）。Slice B 合并后不直接开始 Slice C，而是先完成 Owner 已锁定的 successor gate；
-  该 gate 完成后再决定 Slice C（Production/Works/Assets）照旧实施、rebase 或吸收到后续分片。每个实施分片仍须
-  独立 Issue、Draft PR、浏览器回归和 Review，且不自动部署。
+- UX 页面实施保持严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）与 Slice B
+  （Copy/Avatar/Plan）均已合并但尚未部署。Slice B 后不直接开始 Slice C，而是先完成 Owner 已锁定的
+  successor gate；该 gate 完成后再决定 Slice C（Production/Works/Assets）照旧实施、rebase 或吸收到后续分片。
+  每个实施分片仍须独立 Issue、Draft PR、浏览器回归和 Review，且不自动部署。
 - 旧 `gui/visual-refresh` 工作树及 CSS-only 改动不是本轮基线，不得合并、搬运或覆盖；现有 tokens、基础组件、
   vanilla HTML/CSS/JS、组织授权、状态机和 fail-closed 生产合同继续保留；唯一新增 API 是组织隔离的
   `GET /api/product-revisions/:revisionId` 只读 seam，写路径与领域语义不变。
 
 ## UX V1 Slice B 仓库实现
 
-- Issue #168 是 Slice B 的实现与 acceptance gate。本节随其实现 PR 进入 `main` 后，只证明 Copy、Avatar 与
-  Plan 三个仓库页面采用状态驱动的运营任务摘要、唯一推荐下一步和既有业务恢复入口；不代表已部署、客户已采用
-  或真实飞影生产链路发生变化。
+- Issue #168 / PR #169 已完成 Slice B 的实现与 acceptance gate。它只证明 Copy、Avatar 与 Plan 三个仓库页面
+  采用状态驱动的运营任务摘要、唯一推荐下一步和既有业务恢复入口；不代表已部署、客户已采用或真实飞影生产链路
+  发生变化。
 - Copy 首屏区分生成、质检与人工审核：生成成功不等于质检通过，QC passed 不等于 HumanReview approved。
   异步生成中可离页恢复，生成/质检失败提供同阶段重试；脏文案与 409 冲突继续保留本地输入和现有恢复动作。
   只有当前有效的人工批准文案才推荐进入人物选择。
@@ -55,11 +55,24 @@
   HumanReview approved 方案才进入“等待生产工单能力”状态。
 - 三页继续复用现有 vanilla HTML/CSS/JS、API、状态机、授权和审计证据；没有新增依赖、后端 seam 或自动终态。
   浏览器回归覆盖 1440/768/390、无页面级横向滚动、可见焦点与 reduced-motion；截图只写入临时目录且不入 Git。
-- Slice B 完成后的 successor gate 顺序已由 Owner 锁定，但尚未执行：先从本项目运营角色、端到端任务、频率、
+- Slice B 完成后的 successor gate 顺序已由 Owner 锁定：先从本项目运营角色、端到端任务、频率、
   错误成本、权限/审计、安全门禁、现有 API/领域状态和中文环境开展内部问题审计；再带着具体问题定向研究
   外部企业工作台；随后形成独立设计合同并经 acceptance gate，最后才允许按 taste 原则分片重构。
-- 只有上述 gate 完成后，才决定原 Slice C（Production/Works/Assets）照旧实施、rebase 或被新分片吸收；不得在
-  Issue #168 内开始该 gate 或 Slice C。该 successor 方向目前不是已设计、已实现或已部署能力。
+- 只有上述 gate 完成后，才决定原 Slice C（Production/Works/Assets）照旧实施、rebase 或被新分片吸收。
+  外部研究、设计合同与后续重构目前仍不是已设计、已实现或已部署能力。
+
+## 运营工作台 successor gate
+
+- Issue #170 跟踪 Slice B 之后的第一步内部问题审计；`docs/frontend/OPERATOR_UX_INTERNAL_AUDIT.md` 只有随其
+  acceptance PR 合并进入 `main` 后，才成为后续定向研究与设计合同的权威输入。
+- 审计从角色任务、频率、错误成本、权限/审计、安全门禁、现有 API/领域状态和中文环境出发，覆盖企业入口、
+  Projects/Project、Copy/Avatar/Plan、Production/Works、Assets/Members 与显式 legacy `/index.html`。
+- 当前主要 P1 聚类是：一级导航与项目阶段导航职责不清且缺少全局生产任务入口、Production 技术状态抢占业务主叙事、
+  Works 已交付终态仍有多个竞争动作、Assets 缺少类型/用途/关联语义，以及内部英文术语和移动端首屏层级不一致。
+  同一管理员/runtime 的跨九页取证确认一级导航显隐一致，不再把不同测试 fixture 的能力/角色差异误判为跨页不稳定。本轮本地假数据
+  公开 seam 未发现新的 P0，但这不替代真实 Provider、部署或长期运行证据。
+- 外部工作台研究、设计合同、taste 分片重构和原 Slice C 去留均尚未开始。固定顺序仍为：内部审计合并 →
+  带着明确问题定向研究 → 设计合同 acceptance → 可审阅的串行实施；不得把审计写成已完成设计或生产采用。
 
 ## P0.5 内部验收环境部署
 
@@ -217,10 +230,9 @@
 
 ## 下一步
 
-1. Slice A 已合并但尚未部署；Slice B 以 Issue #168 的独立 Review 与合并为 acceptance gate。本节随 Slice B
-   实现 PR 进入 `main` 后，下一项是另建独立 successor gate：内部问题审计 → 定向外部工作台研究 → 设计合同
-   acceptance → taste 原则分片重构。完成后再决定原 Slice C 照旧、rebase 或吸收，且始终不得把仓库浏览器
-   回归写成生产采用。
+1. Slice A/B 已合并但尚未部署。Issue #170 是独立 successor 内部问题审计的 acceptance gate；审计合并后才可
+   进入定向外部工作台研究 → 设计合同 acceptance → taste 原则分片重构。完成后再决定原 Slice C 照旧、rebase
+   或吸收，且始终不得把仓库浏览器回归写成生产采用。
 2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
