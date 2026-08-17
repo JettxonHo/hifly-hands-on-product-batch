@@ -45,12 +45,12 @@ test("system Chrome completes and restores the project-content flow", async (t) 
   await page.getByRole("button", { name: "创建商品" }).click(); await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("云朵抱枕"); await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
   await page.getByRole("button", { name: "新增卖点" }).click(); await page.locator(".point-row input").fill("柔软亲肤"); await page.getByRole("button", { name: "保存草稿" }).click(); await page.getByText("草稿已保存。").waitFor();
   await page.getByRole("button", { name: "确认", exact: true }).click(); await page.getByText(/已确认。$/).waitFor(); await page.locator("#assetOptions input").check();
-  await page.getByRole("button", { name: "设为 Ready" }).click(); await page.getByText("商品快照已 Ready。").waitFor(); assert.match(await page.locator("#revisionState").textContent(), /^已 Ready/);
+  await page.getByRole("button", { name: "设为资料已就绪", exact: true }).click(); await page.getByText("商品资料已设为就绪。").waitFor(); assert.match(await page.locator("#revisionState").textContent(), /^商品资料已就绪/);
   const revisionId = new URL(page.url()).searchParams.get("revision");
   assert.ok(revisionId);
-  await page.reload(); await page.locator("#revisionState").waitFor(); assert.match(await page.locator("#revisionState").textContent(), /^已 Ready/);
+  await page.reload(); await page.locator("#revisionState").waitFor(); assert.match(await page.locator("#revisionState").textContent(), /^商品资料已就绪/);
   assert.equal(new URL(page.url()).searchParams.get("revision"), revisionId);
-  assert.equal(await page.getByRole("button", { name: "设为 Ready" }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "设为资料已就绪", exact: true }).isDisabled(), true);
   assert.equal(await page.locator("#assetOptions input").isDisabled(), false);
 
   const concurrent = await page.evaluate(async ({ revisionId }) => {
@@ -105,7 +105,7 @@ test("system Chrome completes and restores the project-content flow", async (t) 
     contentType: "application/json",
     body: JSON.stringify({ assets: [{ ...authorized.asset, status: "disabled", versions: [{ ...authorized.asset_version, status: "available" }] }] })
   }));
-  await page.getByRole("button", { name: "设为 Ready" }).click();
+  await page.getByRole("button", { name: "设为资料已就绪", exact: true }).click();
   await page.getByText("素材已不可引用，请重新选择。", { exact: true }).waitFor();
   assert.equal(await page.locator("#assetOptions input").count(), 0);
 });

@@ -99,7 +99,7 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   assert.equal(initialAvatarBootstrapFailed, true, "The injected failure must target Avatar's own initial bootstrap");
   assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
   await taskSummary.getByText("秋季人物选择 · 云感保湿乳", { exact: true }).waitFor();
-  await taskSummary.getByText("人物与素材 · 3/5", { exact: true }).waitFor();
+  await taskSummary.getByText("人物 · 3/5", { exact: true }).waitFor();
   await taskSummary.getByText("确认此人物", { exact: true }).waitFor();
   await page.getByText("Phase 1 受控预置", { exact: true }).first().waitFor();
   for (const selector of ["#planStageLink", "#mobilePlanStageLink", "#nextPlanLink"]) {

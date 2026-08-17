@@ -142,8 +142,8 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   await approveDialog.getByRole("button", { name: "确认批准" }).click();
   await page.getByText("文案已批准 · 本人审核").waitFor();
   await taskSummary.getByText("文案已批准", { exact: true }).waitFor();
-  await taskSummary.getByText("进入人物与素材", { exact: true }).waitFor();
-  const nextStageLink = page.getByRole("link", { name: "进入人物与素材" });
+  await taskSummary.getByText("进入人物", { exact: true }).waitFor();
+  const nextStageLink = page.getByRole("link", { name: "进入人物" });
   await nextStageLink.waitFor();
   assert.match(await nextStageLink.getAttribute("href"), /\/avatar\.html\?project=/);
   await page.reload();
@@ -171,7 +171,7 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   await page.getByText("质检结论已失效：质检规则已更新，请重新完整质检。").waitFor();
   await page.getByRole("tab", { name: "审核" }).click();
   await page.getByText("原批准已撤销，历史仍完整保留").waitFor();
-  await page.getByText("此批准不可恢复；重新审核会创建新的 HumanReview。").waitFor();
+  await page.getByText("此批准不可恢复；重新审核会创建新的人工审核记录。").waitFor();
   await page.getByRole("tab", { name: "质检" }).click();
   const staleFindings = page.locator("#findingList");
   await staleFindings.getByText("失效历史语气 Finding", { exact: true }).waitFor();

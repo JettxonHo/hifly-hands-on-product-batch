@@ -90,9 +90,9 @@
     } else if (reviewStatus === "approved") {
       const productionAvailable = runtime?.productionOrdersEnabled === true && workspace.production_order_available === true;
       task = productionAvailable
-        ? { title: "方案已批准", description: "当前 HumanReview 已批准方案。", status: "已批准", statusClass: "approved",
+        ? { title: "方案已批准", description: "当前人工审核已批准方案。", status: "已批准", statusClass: "approved",
           next: "进入生产工单", blocker: "", action: element("#createOrderLink") }
-        : { title: "方案已批准", description: "当前 HumanReview 已批准方案。", status: "已批准", statusClass: "approved",
+        : { title: "方案已批准", description: "当前人工审核已批准方案。", status: "已批准", statusClass: "approved",
           next: "等待生产工单能力开放", blocker: workspace.production_order_notice || "生产工单当前未开放。", action: null };
     } else if (reviewStatus === "pending") {
       task = { title: "方案待人工决策", description: `${preflightLabels[result.status]}不等于人工批准。`, status: "待人工审核", statusClass: "pending",

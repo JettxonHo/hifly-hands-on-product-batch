@@ -12,7 +12,7 @@
   let dirty = false, deriveMode = false, conflictDraft = null, pendingNavigation = null;
   let taskLoadError = "", reviewLoadError = false, taskRecommendedAction = null;
 
-  const revisionLabels = { draft: "草稿", ready: "已 Ready", superseded: "已被替代" };
+  const revisionLabels = { draft: "草稿", ready: "商品资料已就绪", superseded: "已被替代" };
   const copyLabels = { draft: "草稿", frozen: "已冻结", superseded: "已被替代" };
   const qualityRunLabels = { queued: "排队中", running: "质检中", succeeded: "已完成", failed: "技术失败", cancelled: "已取消" };
   const conclusionLabels = { invalid: "质检结果无效", blocked: "存在硬阻断", needs_review: "待人工判断", passed: "质检通过" };
@@ -26,7 +26,7 @@
     quality_result_missing: "尚无可用质检结果",
     quality_result_replaced: "已有新的质检结果，需创建新审核周期",
     quality_result_invalidated: "质检结果已失效，请重新完整质检",
-    product_revision_changed: "商品事实已有新版本，请返回商品与目标确认",
+    product_revision_changed: "商品资料已有新版本，请返回商品资料确认",
     quality_policy_changed: "质检规则已更新，请重新完整质检",
     quality_invalid: "质检结果无效，不能提交或批准",
     quality_blocked: "存在硬阻断，任何角色都不能批准",
@@ -110,9 +110,9 @@
     const product = currentProduct();
     const productName = product?.revision?.product_name || revision?.product_name || "未命名商品";
     context.textContent = project && revision ? `${project.name} · ${productName}` : "正在读取项目与商品";
-    element("#taskStage").textContent = "文案与质检 · 2/5";
+    element("#taskStage").textContent = "文案 · 2/5";
     element("#taskVersion").textContent = revision
-      ? `商品快照 v${revision.revision_number} · ${copyVersion ? `CopyVersion v${copyVersion.version_number}` : "尚未生成 CopyVersion"}`
+      ? `商品资料 v${revision.revision_number} · ${copyVersion ? `文案版本 v${copyVersion.version_number}` : "尚未生成文案版本"}`
       : "等待商品快照与文案版本";
 
     const quality = taskQualityState();
@@ -136,7 +136,7 @@
     } else if (!project || !revision) {
       task = { title: "载入文案工作区", description: "正在读取项目与商品", status: "正在加载", statusClass: "running", next: "等待文案工作区载入", blocker: "", action: null };
     } else if (revision.status !== "ready") {
-      task = { title: "先完成商品事实", description: "当前商品还不能进入文案生产。", status: "需要处理", statusClass: "blocked", next: "返回商品与目标完成商品事实", blocker: "商品快照尚未 Ready，生成文案前需要完成商品信息、卖点和图片确认。", action: element("#productFactsLink") };
+      task = { title: "先完成商品资料", description: "当前商品还不能进入文案生产。", status: "需要处理", statusClass: "blocked", next: "返回商品资料完成确认", blocker: "商品资料尚未就绪，生成文案前需要完成商品信息、卖点和图片确认。", action: element("#productFactsLink") };
     } else if (activeJob) {
       task = { title: "文案正在生成", description: "生成任务已提交，结果以服务端状态为准。", status: "生成中", statusClass: "running", next: "等待文案生成完成，可离开后返回", blocker: "", action: null };
     } else if (latestJob?.status === "failed") {
@@ -144,7 +144,7 @@
     } else if (latestJob?.status === "timed_out") {
       task = { title: "文案生成等待超时", description: "服务端没有形成新的文案版本。", status: "需要处理", statusClass: "blocked", next: "重新生成文案", blocker: "生成等待已超时，现有文案版本未受影响。", action: element("#generateCopy") };
     } else if (!copyVersion) {
-      task = { title: "开始第一版文案", description: "基于当前 Ready 商品快照生成可追溯文案。", status: "未生成", statusClass: "unavailable", next: "生成文案", blocker: "", action: element("#generateCopy") };
+      task = { title: "开始第一版文案", description: "基于当前已就绪商品资料生成可追溯文案。", status: "未生成", statusClass: "unavailable", next: "生成文案", blocker: "", action: element("#generateCopy") };
     } else if (deriveMode && !dirty) {
       task = { title: "修改文案后创建新草稿", description: "当前历史版本保持不变，修改正文后可保存为新草稿。", status: "编辑中", statusClass: "draft", next: "修改正文后保存为新草稿", blocker: "正文尚未发生变化，质检仍不可用。", action: null };
     } else if (dirty) {
@@ -155,7 +155,7 @@
       task = { title: "文案正在质检", description: "质检结果会由服务端保存，重新进入后可继续。", status: "质检中", statusClass: "running", next: "等待质检完成，可离开后返回", blocker: "", action: null };
     } else if (run.status === "failed") {
       task = factsStale
-        ? { title: "商品事实已变化", description: "当前质检已停止，不能继续使用旧商品快照。", status: "需要处理", statusClass: "blocked", next: "返回商品事实确认最新内容", blocker: "商品事实已有新版本，请返回商品与目标完成确认后再质检。", action: element("#productFactsLink") }
+        ? { title: "商品资料已变化", description: "当前质检已停止，不能继续使用旧商品资料。", status: "需要处理", statusClass: "blocked", next: "返回商品资料确认最新内容", blocker: "商品资料已有新版本，请完成确认后再质检。", action: element("#productFactsLink") }
         : { title: "质检未完成", description: "没有形成可用的自动质检结论。", status: "质检失败", statusClass: "failure", next: "重新质检", blocker: "技术原因导致本次质检失败，不能提交人工审核。", action: element("#retryQuality") };
     } else if (!result) {
       task = { title: "质检未形成结论", description: "当前文案还没有可用的自动质检结果。", status: "需要处理", statusClass: "blocked", next: "重新质检", blocker: "没有可用 QualityResult，不能提交人工审核。", action: element("#startQuality") };
@@ -169,11 +169,11 @@
         ? { title: "处理待判断 Finding", description: "自动质检未替代人工判断。", status: `待处理 ${unresolved} 条`, statusClass: "needs_review", next: "逐条处理质检 Finding", blocker: "所有待人工判断 Finding 处理后，才能提交人工审核。", action: null }
         : { title: "处理质检阻断", description: "当前文案或商品事实不满足质检门禁。", status: "存在硬阻断", statusClass: "blocked", next: "处理质检 Finding", blocker: "存在不可绕过的质检阻断，不能提交或批准。", action: null };
     } else if (reviewLoadError) {
-      task = { title: "审核状态暂时无法读取", description: "质检已通过，但不能据此推断人工审核结论。", status: "读取失败", statusClass: "failure", next: "刷新审核状态", blocker: "HumanReview 状态未读取，请刷新后重试。", action: element("#refreshCopy") };
+      task = { title: "审核状态暂时无法读取", description: "质检已通过，但不能据此推断人工审核结论。", status: "读取失败", statusClass: "failure", next: "刷新审核状态", blocker: "人工审核状态未读取，请刷新后重试。", action: element("#refreshCopy") };
     } else if (!reviewState) {
       task = { title: "正在读取人工审核", description: "质检通过不等于人工批准。", status: "读取中", statusClass: "running", next: "等待审核状态载入", blocker: "", action: null };
     } else if (reviewStatus === "approved") {
-      task = { title: "文案已批准", description: "当前有效 HumanReview 已批准这版文案。", status: "已批准", statusClass: "approved", next: "进入人物与素材", blocker: "", action: element("#nextStageLink") };
+      task = { title: "文案已批准", description: "当前有效人工审核已批准这版文案。", status: "已批准", statusClass: "approved", next: "进入人物", blocker: "", action: element("#nextStageLink") };
     } else if (reviewStatus === "pending") {
       task = identityContext?.membership?.role === "admin"
         ? { title: "文案待人工决策", description: "质检通过，等待审核人作出独立决定。", status: "待人工审核", statusClass: "pending", next: "批准文案或要求修改", blocker: "人工审核仍未完成。", action: element("#approveReview") }
@@ -576,7 +576,7 @@
       { ready: Boolean(result?.current_valid), text: "存在当前有效的 QualityResult" },
       { ready: result?.effective_conclusion === "passed", text: "有效结论为质检通过，待判断项已逐项处理" },
       { ready: revision?.status === "ready" && !reviewState?.gate?.reasons.some((reason) => ["product_revision_changed", "quality_policy_changed"].includes(reason)),
-        text: "商品快照、QC Profile 与规则版本仍为当前版本" }
+        text: "商品资料、质检配置与规则版本仍为当前版本" }
     ];
     const list = element("#reviewGateList");
     list.replaceChildren(...checks.map((check) => {
@@ -640,7 +640,7 @@
     } else {
       element("#reviewConclusionText").textContent = "原批准已撤销，历史仍完整保留";
       element("#reviewGuidance").textContent = review.revoke_reason || gateReasonLabels[review.revoke_reason_code] || "请按当前商品事实和规则重新质检并创建新审核周期。";
-      setNotice(element("#reviewNotice"), "此批准不可恢复；重新审核会创建新的 HumanReview。", "blocked");
+      setNotice(element("#reviewNotice"), "此批准不可恢复；重新审核会创建新的人工审核记录。", "blocked");
       element("#submitReview").hidden = !reviewState?.gate?.can_submit;
     }
     renderTaskSummary();
@@ -817,7 +817,7 @@
       button.disabled = generationDisabled;
       button.textContent = active ? "生成中…" : (copyVersions.length ? "生成新文案" : "生成文案");
       button.classList.toggle("secondary", copyVersions.length > 0);
-      button.title = ready ? (active ? "已有生成任务进行中，可离开页面后返回查看" : "") : "先完成商品信息、卖点与图片确认，并将商品快照设为 Ready";
+      button.title = ready ? (active ? "已有生成任务进行中，可离开页面后返回查看" : "") : "先完成商品信息、卖点与图片确认，并将商品资料设为就绪";
     }
     for (const button of [retry, mobileRetry]) {
       button.hidden = latest?.status !== "failed" || latest.attempts >= latest.max_attempts;
@@ -825,7 +825,7 @@
     }
 
     if (!ready) {
-      setNotice(element("#pageNotice"), "当前商品快照尚未 Ready。请返回商品与目标，完成商品信息、卖点和图片确认后再生成文案。", "blocked");
+      setNotice(element("#pageNotice"), "当前商品资料尚未就绪。请返回商品资料，完成商品信息、卖点和图片确认后再生成文案。", "blocked");
       stopPolling();
     } else if (active) {
       setNotice(element("#pageNotice"), "文案正在生成，可离开此页面。", "");

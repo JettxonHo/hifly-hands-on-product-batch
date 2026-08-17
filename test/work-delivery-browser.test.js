@@ -48,7 +48,7 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   await page.locator("#selectedWorkName").filter({ hasText: "云感保湿乳" }).waitFor();
   assert.equal((await page.locator("body").innerText()).includes("其他组织秘密商品"), false);
   const worksLink = page.locator('a[data-feature="works"]'); await worksLink.waitFor();
-  assert.deepEqual(await page.locator(".app-nav [data-page]").evaluateAll((links) => links.map((link) => link.dataset.page)), ["projects", "assets", "works", "members"]);
+  assert.deepEqual(await page.locator(".app-nav [data-page]").evaluateAll((links) => links.map((link) => link.dataset.page)), ["projects", "works", "assets", "members"]);
   assert.equal(await worksLink.getAttribute("aria-current"), "page"); assert.equal(await worksLink.isVisible(), true);
   assert.equal(await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length), 3);
   await page.getByRole("button", { name: "标记为通过", exact: true }).click();

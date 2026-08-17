@@ -58,7 +58,7 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.goto(`${origin}/projects.html`); await page.getByRole("button", { name: "创建项目" }).click(); await page.getByLabel("项目名称").fill("文案项目"); await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click(); await page.getByRole("link", { name: "打开" }).click();
   await page.getByRole("button", { name: "创建商品" }).click(); await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("云朵抱枕"); await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
   await page.getByRole("button", { name: "新增卖点" }).click(); await page.locator(".point-row input").fill("柔软亲肤"); await page.getByRole("button", { name: "保存草稿" }).click(); await page.getByText("草稿已保存。").waitFor();
-  await page.getByRole("button", { name: "确认", exact: true }).click(); await page.getByText(/已确认。$/).waitFor(); await page.locator("#assetOptions input").check(); await page.getByRole("button", { name: "设为 Ready" }).click(); await page.getByText("商品快照已 Ready。").waitFor();
+  await page.getByRole("button", { name: "确认", exact: true }).click(); await page.getByText(/已确认。$/).waitFor(); await page.locator("#assetOptions input").check(); await page.getByRole("button", { name: "设为资料已就绪", exact: true }).click(); await page.getByText("商品资料已设为就绪。").waitFor();
 
   let runtimeAttempts = 0;
   let initialCopyBootstrapFailed = false;
@@ -72,7 +72,7 @@ test("copy workspace restores async generation, preserves frozen history, and re
     await route.fallback();
   };
   await page.route("**/api/runtime", failRuntimeOnce);
-  await page.getByRole("link", { name: "进入文案与质检" }).click();
+  await page.getByRole("link", { name: "进入文案" }).click();
   await page.waitForURL(/\/copy\.html\?project=/);
   const taskSummary = page.getByRole("region", { name: "当前任务" });
   assert.equal(await taskSummary.count(), 1, "Copy should expose the operator task summary in the first screen");
@@ -80,7 +80,7 @@ test("copy workspace restores async generation, preserves frozen history, and re
   await page.locator("#refreshCopy[data-recommended-action='true']").click();
   await page.getByRole("heading", { name: "文案与质检" }).waitFor();
   await taskSummary.getByText("文案项目 · 云朵抱枕", { exact: true }).waitFor();
-  await taskSummary.getByText("文案与质检 · 2/5", { exact: true }).waitFor();
+  await taskSummary.getByText("文案 · 2/5", { exact: true }).waitFor();
   await taskSummary.getByText("生成文案", { exact: true }).waitFor();
   assert.equal(initialCopyBootstrapFailed, true, "The injected failure must target Copy's own initial bootstrap");
   assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
@@ -124,7 +124,7 @@ test("copy workspace restores async generation, preserves frozen history, and re
     body: JSON.stringify({ expected_revision: rowVersion })
   })).status, { id: first.id, rowVersion: first.row_version, csrfToken: csrf });
   assert.equal(frozenStatus, 200);
-  await page.getByRole("button", { name: "刷新" }).click();
+  await page.getByRole("button", { name: "刷新文案工作区" }).click();
   await page.getByRole("button", { name: /v1.*已冻结/ }).waitFor();
   await page.getByRole("button", { name: "基于此版本修改" }).click();
   await taskSummary.getByText("修改正文后保存为新草稿", { exact: true }).waitFor();

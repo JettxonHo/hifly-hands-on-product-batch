@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-17
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营任务流 UX V1、Slice A/B、内部问题审计与定向外部研究已合并，Issue #174 是 V2 独立设计合同的 acceptance gate
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营工作台 V2 设计合同已合并；V2-A shared IA/content/control foundation 只有随 Issue #176 的 acceptance PR 进入 `main` 后才计为仓库实现完成
 
 ## 1. 已完成基线
 
@@ -25,8 +25,8 @@ P0.4  3 条严格串行、受控内部试运行（已完成）
 P0.5  release-readiness：代码/依赖部署完成；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
 UX V1 运营任务流优先：designed → Slice A/B（已合并、未部署）
     → 内部问题审计（已完成）→ 定向外部工作台研究（已完成）
-    → V2 独立设计合同 acceptance gate（#174）
-    → shared IA/content/control foundation → Production → Works → Assets → 必要时回补 A/B
+    → V2 独立设计合同（#174，已完成）
+    → shared IA/content/control foundation（#176 acceptance）→ Production → Works → Assets → 必要时回补 A/B
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -52,8 +52,9 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
 2. Slice B：Copy/Avatar/Plan；清楚区分生成、自动检查与人工批准。Issue #168 / PR #169 已合并，Copy 以
    approved copy 为人物阶段门禁，Avatar 以当前商品的有效确认选择为 Plan 门禁，Plan 明确 preflight
    passed/warning 不等于人工批准。该仓库状态仍不代表已部署或真实生产采用。
-3. 原 Slice C 不再照旧实施。Issue #174 的 V2 合同 acceptance 通过后，其范围按严格串行切片吸收：先建立
-   shared IA/content/control foundation，再依次实施 Production、Works、Assets，最后只在证据需要时回补 Slice A/B。
+3. 原 Slice C 不再照旧实施。Issue #174 的 V2 合同已通过 acceptance；其范围按严格串行切片吸收：Issue #176
+   的 acceptance PR 控制 shared IA/content/control foundation 进入 `main`，之后才依次实施 Production、Works、Assets，
+   最后只在证据需要时回补 Slice A/B。
    Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order 零 attempt 与 active attempts=0；
    terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经 A12、Work 和真实字节下载后才准备下一条。
    企业 Web/API 只读取 Cloud Executor 状态，不提供 Worker 启停命令；启停继续由获授权运维在既有部署控制面完成，
@@ -62,11 +63,11 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
 
 每个已批准的实施分片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一分片合并后才开始下一分片，且不自动部署。
 
-Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计和定向外部研究均已完成；研究只从内部 P1/P2
-出发提炼 adopt/adapt/reject，不等于最终 IA、设计合同或界面重构完成。Issue #174 与
-`docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 是下一道 acceptance gate：合同随 acceptance PR 合并进入
-`main` 后才计为 `designed`，之后才允许按 shared foundation → Production → Works → Assets → 必要回补 A/B 的顺序
-逐片实施。不得以竞品视觉或页面结构反向决定本项目 IA，也不得在合同通过前开始 Taste 实现。
+Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
+`docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
+部署或生产采用。Issue #176 的 acceptance PR 是第一片 shared IA/content/control foundation 进入 `main` 的门禁；
+合并后只计为仓库实现完成，后续仍按 Production → Works → Assets → 必要回补 A/B 逐片实施。
+不得以竞品视觉或页面结构反向决定本项目 IA。
 
 ## 4. 保留但不抢跑的工作
 

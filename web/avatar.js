@@ -8,7 +8,7 @@
   const sourceLabels = { public: "公共数字人物", enterprise: "企业数字人物" };
   const authorizationLabels = { valid: "授权有效", expiring: "授权即将到期", expired: "授权已失效", incomplete: "授权信息不完整" };
   const reasonLabels = {
-    approved_copy_missing: "当前没有有效的已批准文案，请返回文案与质检完成批准",
+    approved_copy_missing: "当前没有有效的已批准文案，请返回文案完成人工审核",
     copy_version_changed: "当前文案版本已变化，请从最新批准文案重新进入",
     avatar_asset_unavailable: "人物资产暂不可用，请联系管理员",
     avatar_version_unavailable: "人物版本暂不可用，请联系管理员",
@@ -68,7 +68,7 @@
     if (!element("#taskSummaryTitle")) return;
     const productName = product?.revision?.product_name || "未命名商品";
     element("#taskContext").textContent = project && product ? `${project.name} · ${productName}` : "正在读取项目与商品";
-    element("#taskStage").textContent = "人物与素材 · 3/5";
+    element("#taskStage").textContent = "人物 · 3/5";
 
     const approved = workspace?.copy_gate?.approved === true;
     setTaskStatus("#taskCopyStatus", approved ? "文案已批准" : "文案批准不可用", approved ? "approved" : "blocked");
@@ -98,7 +98,7 @@
       // Keep the loading state.
     } else if (!approved) {
       task = { title: "先完成文案人工批准", description: "可以浏览人物，但不能确认新选择。", status: "上游阻断", statusClass: "blocked",
-        next: "返回文案与质检", blocker: "当前没有有效的已批准文案，QC 通过不能替代 HumanReview 批准。", action: element("#copyContextLink") };
+        next: "返回文案", blocker: "当前没有有效的已批准文案，文案质检通过不能替代人工审核批准。", action: element("#copyContextLink") };
     } else if (!selectedAvatar) {
       task = { title: "人物目录暂无可选项", description: "每个商品都需要单独确认人物。", status: "需要处理", statusClass: "blocked",
         next: "联系管理员登记或恢复可用人物", blocker: "当前企业没有可浏览的人物版本。", action: null };
@@ -282,7 +282,7 @@
     const button = element("#confirmAvatar"); button.textContent = current && !same ? "更换人物" : "确认此人物";
     button.disabled = !selectedAvatar?.gate.can_confirm || same || submitting;
     if (same) setNotice(element("#selectionNotice"), "当前已确认此人物。", "success");
-    else if (!workspace.copy_gate.approved) setNotice(element("#selectionNotice"), "可继续浏览；确认前请返回文案与质检完成当前有效批准。", "blocked");
+    else if (!workspace.copy_gate.approved) setNotice(element("#selectionNotice"), "可继续浏览；确认前请返回文案完成人工审核批准。", "blocked");
     else if (selectedAvatar && !selectedAvatar.gate.can_confirm) setNotice(element("#selectionNotice"), reasonLabels[selectedAvatar.gate.reasons[0]] || "当前人物不能确认。", "blocked");
     else setNotice(element("#selectionNotice"));
     const old = selection.history.filter((item) => item.status === "superseded");
