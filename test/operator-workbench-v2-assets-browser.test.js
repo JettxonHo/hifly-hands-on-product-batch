@@ -20,7 +20,7 @@ const ORGANIZATION_ID = "org-v2-d-assets-browser";
 const ADMIN_EMAIL = "v2-d-assets@example.test";
 const ADMIN_TEMP_PASSWORD = "Temporary-V2-D-Assets-9!";
 
-async function seedImageAsset(app, { kind, filename, actorMemberId, body = PNG, verify = true }) {
+async function seedImageAsset(app, { kind, filename, actorMemberId, assetId, body = PNG, verify = true }) {
   const checksum = createHash("sha256").update(body).digest("hex");
   const created = await app.assets.service.createUploadAuthorization({
     organizationId: ORGANIZATION_ID,
@@ -30,7 +30,8 @@ async function seedImageAsset(app, { kind, filename, actorMemberId, body = PNG, 
     contentType: "image/png",
     size: body.length,
     checksumSha256: checksum,
-    assetKind: kind
+    assetKind: kind,
+    assetId
   });
   if (verify !== "pending") {
     await app.assets.service.uploadObject({ organizationId: ORGANIZATION_ID, uploadToken: created.upload.token, body, contentType: "image/png" });
@@ -40,7 +41,7 @@ async function seedImageAsset(app, { kind, filename, actorMemberId, body = PNG, 
   return created;
 }
 
-async function createWorld(t) {
+async function createWorld(t, { seedCurrentPending = true } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-v2-d-assets-browser-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const port = await findAvailablePort(59100);
@@ -64,7 +65,7 @@ async function createWorld(t) {
   });
   const product = await seedImageAsset(app, { kind: "product_image", filename: "商品主图.png", actorMemberId: seeded.member.id });
   const avatar = await seedImageAsset(app, { kind: "avatar_image", filename: "人物立绘.png", actorMemberId: seeded.member.id });
-  const pending = await seedImageAsset(app, { kind: "avatar_image", filename: "待上传人物.png", actorMemberId: seeded.member.id, verify: "pending" });
+  const pending = await seedImageAsset(app, { kind: "avatar_image", filename: "待上传人物.png", actorMemberId: seeded.member.id, verify: seedCurrentPending ? "pending" : true });
   const failed = await seedImageAsset(app, { kind: "product_image", filename: "损坏商品图.png", actorMemberId: seeded.member.id, body: Buffer.from("not-an-image") });
   const disabled = await seedImageAsset(app, { kind: "product_image", filename: "已停用商品图.png", actorMemberId: seeded.member.id });
   await app.assets.service.disableAsset({ organizationId: ORGANIZATION_ID, assetId: disabled.asset.id, expectedRevision: 1, actorMemberId: seeded.member.id });
@@ -99,10 +100,10 @@ async function createWorld(t) {
     catch (error) { await app.close(); return { skipped: `Chrome/Chromium unavailable: ${error.message}` }; }
   }
   t.after(() => browser.close());
-  return { app, browser, origin, root, uploadPath, product, avatar, pending, failed, disabled, video, videoBody };
+  return { app, browser, origin, root, uploadPath, actorMemberId: seeded.member.id, product, avatar, pending, failed, disabled, video, videoBody };
 }
 
-async function loginAndOpenAssets(page, origin) {
+async function login(page, origin) {
   await page.goto(`${origin}/login.html`);
   await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL);
   await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD);
@@ -110,6 +111,10 @@ async function loginAndOpenAssets(page, origin) {
   await page.locator("#newPassword").fill("V2-D-Assets-Browser-Password-9!");
   await page.getByRole("button", { name: "保存并进入工作台" }).click();
   await page.waitForURL(`${origin}/`);
+}
+
+async function loginAndOpenAssets(page, origin) {
+  await login(page, origin);
   await page.goto(`${origin}/assets.html`);
   await page.getByRole("button", { name: /商品图片/ }).waitFor();
 }
@@ -268,6 +273,104 @@ test("V2-D recovers initial load failure and preserves rename input across optim
   await page.getByRole("button", { name: "保存名称" }).click();
   await page.getByText("素材名称已保存", { exact: false }).waitFor();
   await page.getByRole("heading", { name: "我尚未保存的新名称", exact: true }).waitFor();
+});
+
+test("V2-D retries the full bootstrap after an initial identity failure", async (t) => {
+  const world = await createWorld(t);
+  if (world.skipped) return t.skip(world.skipped);
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await login(page, world.origin);
+  let assetAuthRequests = 0;
+  let authFailures = 0;
+  await page.route("**/api/auth/me", async (route) => {
+    const requestPage = new URL(route.request().headers().referer).pathname;
+    if (requestPage === "/assets.html") assetAuthRequests += 1;
+    if (requestPage === "/assets.html" && assetAuthRequests === 2 && authFailures === 0) {
+      authFailures += 1;
+      return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "TEMPORARY_IDENTITY_FAILURE" }) });
+    }
+    return route.continue();
+  });
+
+  await page.goto(`${world.origin}/assets.html`);
+  await page.getByText("素材加载失败", { exact: true }).waitFor();
+  assert.equal(authFailures, 1);
+  await page.getByRole("button", { name: "重新加载素材中心" }).click();
+  await page.getByRole("button", { name: /商品主图/ }).click();
+  assert.equal(await page.getByRole("button", { name: "停用", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "删除", exact: true }).count(), 1);
+});
+
+test("V2-D does not poll forever when only a historical version is pending", async (t) => {
+  const world = await createWorld(t, { seedCurrentPending: false });
+  if (world.skipped) return t.skip(world.skipped);
+  const historical = await seedImageAsset(world.app, { kind: "avatar_image", filename: "历史待上传.png", actorMemberId: world.actorMemberId, verify: "pending" });
+  await seedImageAsset(world.app, { kind: "avatar_image", filename: "当前已核验.png", actorMemberId: world.actorMemberId, assetId: historical.asset.id });
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  let listRequests = 0;
+  await page.route("**/api/assets", async (route) => {
+    if (route.request().method() === "GET") listRequests += 1;
+    return route.continue();
+  });
+
+  await loginAndOpenAssets(page, world.origin);
+  await page.getByRole("button", { name: /人物图片/ }).click();
+  await page.getByRole("button", { name: /当前已核验/ }).waitFor();
+  await page.waitForTimeout(2500);
+  assert.equal(listRequests, 1);
+});
+
+test("V2-D restores stable focus and context after successful asset mutations", async (t) => {
+  const world = await createWorld(t, { seedCurrentPending: false });
+  if (world.skipped) return t.skip(world.skipped);
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await loginAndOpenAssets(page, world.origin);
+
+  await page.getByRole("button", { name: /商品主图/ }).click();
+  await page.getByRole("button", { name: "重命名" }).click();
+  await page.getByLabel("素材名称").fill("已更新商品主图");
+  await page.getByRole("button", { name: "保存名称" }).click();
+  await page.getByText("素材名称已保存", { exact: false }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "rename");
+
+  await page.getByRole("button", { name: "上传新版本" }).click();
+  await page.getByLabel("图片文件").setInputFiles(world.uploadPath);
+  await page.getByRole("button", { name: "上传并开始核验" }).last().click();
+  await page.getByText("上传完成，服务端正在核验", { exact: false }).first().waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "assetDetailTitle");
+  await page.getByRole("heading", { name: "已更新商品主图", exact: true }).waitFor();
+
+  await page.getByRole("button", { name: /人物图片/ }).click();
+  await page.getByRole("button", { name: /人物立绘/ }).click();
+  await page.getByRole("button", { name: "停用", exact: true }).click();
+  await page.getByRole("button", { name: "确认停用" }).click();
+  await page.locator("#assetNotice").getByText("素材已停用。", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "assetDetailTitle");
+
+  await page.getByRole("button", { name: /商品图片/ }).click();
+  await page.getByRole("button", { name: /损坏商品图/ }).click();
+  await page.getByRole("button", { name: "删除", exact: true }).click();
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await page.locator("#assetNotice").getByText("素材已删除。", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.kind), "product_image");
+});
+
+test("V2-D aligns the available-state summary with one real recommended action", async (t) => {
+  const world = await createWorld(t, { seedCurrentPending: false });
+  if (world.skipped) return t.skip(world.skipped);
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await loginAndOpenAssets(page, world.origin);
+
+  await page.getByRole("button", { name: /商品主图/ }).click();
+  assert.equal(await page.locator("#summaryNext").textContent(), "上传新的图片版本");
+  assert.equal(await page.locator('#uploadNewVersion[data-recommended-action="true"]').count(), 1);
+  assert.equal(await page.locator('[data-action="download-version"][data-recommended-action="true"]').count(), 0);
+
+  await page.getByRole("button", { name: /作品视频/ }).click();
+  await page.getByRole("button", { name: /系统登记作品/ }).click();
+  assert.equal(await page.locator("#summaryNext").textContent(), "下载系统登记作品");
+  assert.equal(await page.locator('[data-action="download-version"][data-recommended-action="true"]').count(), 1);
+  assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
 });
 
 test("V2-D ordinary members keep image rename but never receive admin or work-video mutation controls", async (t) => {

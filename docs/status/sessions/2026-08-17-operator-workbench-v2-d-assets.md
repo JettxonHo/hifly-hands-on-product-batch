@@ -41,16 +41,31 @@
 6. 旧 Assets 浏览器 seam 仍可直接设置 `#assetFile` 并触发“上传并开始核验”，feature-off legacy GUI 和 assets-disabled
    企业入口保持原行为。
 
-## 4. 验证与停止边界
+## 4. 独立审阅纠偏
+
+PR #183 首轮独立审阅提出的四项问题均按公开浏览器 seam 完成 RED → GREEN：
+
+1. `/assets.html` 的首次素材页身份请求定向返回一次 5xx 时，旧实现只剩列表刷新，管理员能力不能恢复；现在完整
+   bootstrap 重新读取身份与素材，已有身份下的“刷新当前分类”仍只刷新素材列表。回归明确断言失败实际命中素材页
+   bootstrap，恢复后“停用、删除”管理员控件重新出现。
+2. 同一 Asset 的历史版本仍为 `upload_pending`、最新版本已经 `available` 时，旧实现 2.5 秒内产生第二次 list 请求；
+   现在只按每个 Asset 的最新版本决定是否轮询，该场景保持一次初始请求。
+3. 重命名、新版本上传、停用与删除成功后的 DOM 重绘不再丢失焦点或素材上下文：分别恢复到新控件、同一详情标题
+   或明确的当前分类。全新素材仍返回新建条目的列表上下文，不强行打开详情，保持既有 Assets seam 兼容。
+4. 图片核验通过时，摘要与唯一推荐动作统一为“上传新的图片版本”；系统登记作品统一为“下载系统登记作品”。
+   两者都只有一个 `data-recommended-action`，不再同时陈述两个选择或把标记落在不同动作上。
+
+## 5. 验证与停止边界
 
 - V2-D 与既有 Assets 真实 Chrome 组合：
-  `test/operator-workbench-v2-assets-browser.test.js test/assets-browser.test.js` → 7/7 通过（V2-D 4 项、既有兼容 3 项）。
+  `test/operator-workbench-v2-assets-browser.test.js test/assets-browser.test.js` → 11/11 通过（V2-D 8 项、既有兼容 3 项）。
 - 素材 API/service：`test/assets-api.test.js test/assets-service.test.js` → 30/30 通过；没有扩展后端接口。
 - 共享前端与 A14 浏览器兼容：`test/frontend-foundation-browser.test.js test/vsa-a14-acceptance-browser.test.js`
   → 2/2 通过。
 - 临时截图仅写入 `/private/tmp/hifly-v2-d-assets-screenshots-20260817/`，不进入 Git；PNG 像素头为
-  `assets-1440.png` 1440px、`assets-768.png` 768px、`assets-390.png` 390px，三者均无页面级横向滚动。
-- `npm run check` → 229 个 JavaScript 文件通过；`npm test` → 1032 项，1018 通过、14 跳过、0 失败。
+  `assets-1440.png` 1440px、`assets-768.png` 768px、`assets-390.png` 390px，三者均无页面级横向滚动；
+  本轮修复后重新生成并逐张人工复核，1440 保持列表/详情双栏，768/390 保持顺序列表视图。
+- `npm run check` → 229 个 JavaScript 文件通过；`npm test` → 1036 项，1022 通过、14 跳过、0 失败。
   14 项跳过由 13 项未配置测试 PostgreSQL 的 integration gate 与 1 项未开启 `IDENTITY_BROWSER_SMOKE` 的 opt-in
   浏览器 gate 构成；本轮受影响的真实 Chrome seam 已由上述宿主浏览器命令单独验证。
 - `git diff --check` 通过；fixed-head CI 在 Draft PR 创建后记录。

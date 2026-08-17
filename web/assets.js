@@ -29,6 +29,7 @@
   let identity = null;
   let loading = true;
   let loadError = false;
+  let bootstrapInFlight = false;
   let refreshInFlight = false;
   let pollTimer = null;
   let tornDown = false;
@@ -84,7 +85,7 @@
 
   function schedulePolling() {
     stopPolling();
-    if (tornDown || !assets.some((asset) => asset.versions?.some((version) => pendingStatuses.has(version.status)))) return;
+    if (tornDown || !assets.some((asset) => pendingStatuses.has(latestVersion(asset)?.status))) return;
     pollTimer = setTimeout(() => { pollTimer = null; if (!tornDown) refresh({ preserveSelection: true, quiet: true }); }, 2000);
   }
 
@@ -124,6 +125,7 @@
   function renderSummary() {
     const group = currentAssets();
     const selected = selectedAsset();
+    byId("refreshAssets").textContent = identity ? "刷新当前分类" : "重新加载素材中心";
     byId("summaryKind").textContent = kindLabels[activeKind];
     byId("summaryCount").textContent = loading ? "--" : String(group.length);
     byId("summaryBlocker").textContent = "无";
@@ -136,7 +138,7 @@
     if (loadError) {
       byId("summaryStatus").textContent = group.length ? "状态可能已过期" : "加载失败";
       byId("summaryBlocker").textContent = group.length ? "最新服务端状态暂不可用" : "当前分类状态未知";
-      byId("summaryNext").textContent = "刷新当前分类";
+      byId("summaryNext").textContent = identity ? "刷新当前分类" : "重新加载素材中心";
       setRecommended(byId("refreshAssets"));
       return;
     }
@@ -169,8 +171,13 @@
       byId("summaryNext").textContent = "等待核验完成，或刷新当前分类";
       setRecommended(byId("refreshAssets"));
     } else if (version?.status === "available") {
-      byId("summaryNext").textContent = activeKind === "work_video" ? "查看或下载系统登记作品" : "查看版本，或继续上传新版本";
-      setRecommended(document.querySelector('[data-action="download-version"]'));
+      if (activeKind === "work_video") {
+        byId("summaryNext").textContent = "下载系统登记作品";
+        setRecommended(document.querySelector('[data-action="download-version"]'));
+      } else {
+        byId("summaryNext").textContent = "上传新的图片版本";
+        setRecommended(byId("uploadNewVersion"));
+      }
     } else {
       byId("summaryNext").textContent = "查看版本状态";
     }
@@ -255,11 +262,11 @@
 
     const actions = document.createElement("div"); actions.className = "asset-detail-actions";
     if (canWriteAsset(asset)) {
-      const upload = document.createElement("button"); upload.type = "button"; upload.id = "uploadNewVersion"; upload.textContent = "上传新版本"; upload.addEventListener("click", (event) => openUploadDialog(event.currentTarget, asset)); actions.append(upload);
-      const rename = document.createElement("button"); rename.type = "button"; rename.className = "secondary"; rename.textContent = "重命名"; rename.addEventListener("click", (event) => openRenameDialog(event.currentTarget, asset)); actions.append(rename);
+      const upload = document.createElement("button"); upload.type = "button"; upload.id = "uploadNewVersion"; upload.dataset.action = "upload-new-version"; upload.textContent = "上传新版本"; upload.addEventListener("click", (event) => openUploadDialog(event.currentTarget, asset)); actions.append(upload);
+      const rename = document.createElement("button"); rename.type = "button"; rename.className = "secondary"; rename.dataset.action = "rename"; rename.textContent = "重命名"; rename.addEventListener("click", (event) => openRenameDialog(event.currentTarget, asset)); actions.append(rename);
       if (isAdmin()) {
-        const disable = document.createElement("button"); disable.type = "button"; disable.className = "secondary"; disable.textContent = "停用"; disable.addEventListener("click", (event) => openDangerDialog(event.currentTarget, asset, "disable")); actions.append(disable);
-        const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "删除"; remove.addEventListener("click", (event) => openDangerDialog(event.currentTarget, asset, "delete")); actions.append(remove);
+        const disable = document.createElement("button"); disable.type = "button"; disable.className = "secondary"; disable.dataset.action = "disable"; disable.textContent = "停用"; disable.addEventListener("click", (event) => openDangerDialog(event.currentTarget, asset, "disable")); actions.append(disable);
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.dataset.action = "delete"; remove.textContent = "删除"; remove.addEventListener("click", (event) => openDangerDialog(event.currentTarget, asset, "delete")); actions.append(remove);
       }
     }
     if (actions.childElementCount) node.append(actions);
@@ -304,6 +311,15 @@
     queueMicrotask(() => document.querySelector(`[data-asset-id="${CSS.escape(selectedAssetId || "")}"]`)?.focus());
   }
 
+  function focusStableAssetContext(assetId, preferredAction = null) {
+    queueMicrotask(() => {
+      const preferred = preferredAction ? document.querySelector(`[data-action="${preferredAction}"]`) : null;
+      const detail = assetId && selectedAssetId === assetId ? byId("assetDetailTitle") : null;
+      const row = assetId ? document.querySelector(`[data-asset-id="${CSS.escape(assetId)}"]`) : null;
+      (preferred || detail || row || document.querySelector(`[data-kind="${activeKind}"]`))?.focus({ preventScroll: true });
+    });
+  }
+
   async function refresh({ preserveSelection = true, quiet = false } = {}) {
     if (refreshInFlight || tornDown) return false;
     refreshInFlight = true; byId("refreshAssets").disabled = true;
@@ -320,6 +336,25 @@
       return false;
     } finally {
       refreshInFlight = false; byId("refreshAssets").disabled = false; renderSummary();
+    }
+  }
+
+  async function bootstrap() {
+    if (bootstrapInFlight || tornDown) return false;
+    bootstrapInFlight = true; loading = true; loadError = false; byId("assetError").textContent = ""; byId("refreshAssets").disabled = true; render();
+    try {
+      identity = await request("/api/auth/me");
+      if (identity.status !== "ok") { window.location.replace("/login.html"); return false; }
+      return await refresh({ preserveSelection: true });
+    } catch (error) {
+      if (error.code !== "AUTH_REQUIRED") {
+        identity = null; loading = false; loadError = true;
+        byId("assetError").textContent = "素材中心初始化失败，请重新加载身份与素材状态。";
+        render();
+      }
+      return false;
+    } finally {
+      bootstrapInFlight = false; byId("refreshAssets").disabled = false; renderSummary();
     }
   }
 
@@ -346,8 +381,9 @@
       const authorization = await request("/api/assets/upload-authorizations", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(payload) });
       await request(authorization.upload.url, { method: "PUT", headers: { "content-type": file.type }, body: file });
       await request("/api/assets/upload-completions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ upload_session_id: authorization.upload_session_id, idempotency_key: crypto.randomUUID() }) });
-      activeKind = kind; selectedAssetId = null; byId("uploadStatus").textContent = "上传完成，服务端正在核验。";
-      await refresh({ preserveSelection: true, quiet: true }); closeDialog(byId("uploadDialog")); setNotice("上传完成，服务端正在核验。可以离开页面，稍后再刷新。", "success");
+      const targetAssetId = assetId || authorization.asset.id;
+      activeKind = kind; selectedAssetId = assetId || null; byId("uploadStatus").textContent = "上传完成，服务端正在核验。";
+      await refresh({ preserveSelection: true, quiet: true }); closeDialog(byId("uploadDialog")); focusStableAssetContext(targetAssetId); setNotice("上传完成，服务端正在核验。可以离开页面，稍后再刷新。", "success");
     } catch (error) {
       if (error.code !== "AUTH_REQUIRED") byId("uploadError").textContent = error.code === "ASSET_NOT_ACTIVE" ? "该素材已不可写，请关闭后刷新状态。" : "上传未完成，请检查图片后重试。";
     } finally { uploadBusy = false; byId("submitUpload").disabled = false; }
@@ -365,7 +401,7 @@
     renameBusy = true; byId("submitRename").disabled = true; byId("renameError").textContent = "";
     try {
       await request(`/api/assets/${encodeURIComponent(asset.id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ display_name: byId("assetDisplayName").value, expected_revision: asset.revision_number }) });
-      await refresh({ preserveSelection: true, quiet: true }); closeDialog(byId("renameDialog")); setNotice("素材名称已保存。", "success");
+      await refresh({ preserveSelection: true, quiet: true }); closeDialog(byId("renameDialog")); focusStableAssetContext(asset.id, "rename"); setNotice("素材名称已保存。", "success");
     } catch (error) {
       if (error.status === 409 || error.code === "ASSET_VERSION_CONFLICT") {
         renameConflictAssetId = asset.id; byId("renameError").textContent = "素材状态已变化。你的名称仍保留，请先载入最新状态。"; byId("renameConflictActions").hidden = false;
@@ -404,7 +440,7 @@
     try {
       const { assetId, revision, action } = dangerIntent;
       await request(`/api/assets/${encodeURIComponent(assetId)}${action === "disable" ? "/disable" : ""}`, { method: action === "delete" ? "DELETE" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expected_revision: revision }) });
-      closeDialog(byId("assetDangerDialog")); dangerIntent = null; await refresh({ preserveSelection: true, quiet: true }); setNotice(action === "delete" ? "素材已删除。" : "素材已停用。", "success");
+      closeDialog(byId("assetDangerDialog")); dangerIntent = null; await refresh({ preserveSelection: true, quiet: true }); focusStableAssetContext(action === "delete" ? null : assetId); setNotice(action === "delete" ? "素材已删除。" : "素材已停用。", "success");
     } catch (error) {
       if (error.status === 409 || error.code === "ASSET_VERSION_CONFLICT") byId("dangerError").textContent = "素材状态已变化，本次操作未执行。请关闭并刷新当前分类。";
       else if (error.code !== "AUTH_REQUIRED") byId("dangerError").textContent = "操作未完成，请稍后重试。";
@@ -431,15 +467,9 @@
   byId("renameForm").addEventListener("submit", submitRename);
   byId("reloadRename").addEventListener("click", reloadRenameIntent);
   byId("confirmDanger").addEventListener("click", confirmDanger);
-  byId("refreshAssets").addEventListener("click", () => refresh({ preserveSelection: true }));
+  byId("refreshAssets").addEventListener("click", () => identity ? refresh({ preserveSelection: true }) : bootstrap());
   byId("backToAssets").addEventListener("click", backToList);
   window.addEventListener("pagehide", () => { tornDown = true; stopPolling(); }, { once: true });
 
-  try {
-    identity = await request("/api/auth/me");
-    if (identity.status !== "ok") return window.location.replace("/login.html");
-    await refresh({ preserveSelection: false });
-  } catch (_error) {
-    loading = false; loadError = true; render();
-  }
+  await bootstrap();
 })();
