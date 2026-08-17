@@ -13,10 +13,10 @@ import { createLocalObjectStore } from "../src/assets/local-object-store.js";
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 const SHA256 = createHash("sha256").update(PNG).digest("hex");
 
-function world() {
+function world({ now = () => Date.parse("2026-08-06T08:00:00Z") } = {}) {
   const repository = createMemoryAssetRepository();
   const objectStore = createMemoryObjectStore();
-  const service = createAssetService({ repository, objectStore, now: () => Date.parse("2026-08-06T08:00:00Z") });
+  const service = createAssetService({ repository, objectStore, now });
   return { repository, objectStore, service };
 }
 
@@ -122,6 +122,44 @@ test("successful server verification makes the immutable version available", asy
   assert.equal(version.verified_content_type, "image/png");
   assert.equal(version.verified_size, PNG.length);
   assert.equal(version.verified_checksum_sha256, SHA256);
+});
+
+test("download authorization and download use the available version's verified metadata", async () => {
+  const w = world();
+  const created = await uploaded(w);
+  await w.service.completeUpload({ organizationId: "org_a", uploadSessionId: created.upload_session_id, idempotencyKey: "download-complete" });
+  await w.service.runNextVerificationJob();
+
+  const grant = await w.service.createDownloadAuthorization({ organizationId: "org_a", assetVersionId: created.asset_version.id });
+  assert.equal(grant.asset_version_id, created.asset_version.id);
+  assert.equal(grant.original_filename, "product.png");
+  assert.equal(grant.verified_content_type, "image/png");
+  assert.equal(grant.verified_size, PNG.length);
+  assert.equal(grant.verified_checksum_sha256, SHA256);
+  assert.ok(grant.token);
+  assert.ok(grant.expires_at);
+
+  const downloaded = await w.service.downloadObject({ organizationId: "org_a", token: grant.token });
+  assert.equal(downloaded.contentType, "image/png");
+  assert.equal(downloaded.original_filename, grant.original_filename);
+  assert.equal(downloaded.verified_content_type, grant.verified_content_type);
+  assert.equal(downloaded.verified_size, grant.verified_size);
+  assert.equal(downloaded.verified_checksum_sha256, grant.verified_checksum_sha256);
+  assert.equal(downloaded.body.length, grant.verified_size);
+  assert.equal(createHash("sha256").update(downloaded.body).digest("hex"), grant.verified_checksum_sha256);
+});
+
+test("download authorization metadata does not weaken organization isolation or expiry", async () => {
+  let currentTime = Date.parse("2026-08-06T08:00:00Z");
+  const w = world({ now: () => currentTime });
+  const created = await uploaded(w);
+  await w.service.completeUpload({ organizationId: "org_a", uploadSessionId: created.upload_session_id, idempotencyKey: "download-boundary-complete" });
+  await w.service.runNextVerificationJob();
+  const grant = await w.service.createDownloadAuthorization({ organizationId: "org_a", assetVersionId: created.asset_version.id });
+
+  await assert.rejects(w.service.downloadObject({ organizationId: "org_b", token: grant.token }), { code: "DOWNLOAD_AUTHORIZATION_NOT_FOUND" });
+  currentTime = Date.parse(grant.expires_at) + 1;
+  await assert.rejects(w.service.downloadObject({ organizationId: "org_a", token: grant.token }), { code: "DOWNLOAD_AUTHORIZATION_NOT_FOUND" });
 });
 
 test("asset upload defaults to product_image and accepts explicit avatar_image without changing checksum verification", async () => {

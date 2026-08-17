@@ -19,6 +19,16 @@ function precondition(body) {
 
 function commandStatus(result) { return result.replayed ? 200 : 201; }
 
+function attachmentDisposition(filename) {
+  const cleaned = String(filename || "download")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[\\/]/g, "_")
+    .trim() || "download";
+  const encoded = encodeURIComponent(cleaned)
+    .replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="download"; filename*=UTF-8''${encoded}`;
+}
+
 export async function registerWorkDeliveryRoutes(app, { service }) {
   app.get("/api/works", async (request) => ({ works: await service.listWorks({ ...actor(request),
     projectId: request.query?.projectId || request.query?.project_id || null,
@@ -58,12 +68,22 @@ export async function registerWorkDeliveryRoutes(app, { service }) {
 
   app.post("/api/works/:workId/download-authorizations", async (request, reply) => {
     const result = await service.createDownloadAuthorization({ ...actor(request), workId: request.params.workId });
-    reply.code(201).send({ download: { url: `/api/works/${encodeURIComponent(request.params.workId)}/downloads/${encodeURIComponent(result.token)}`, expires_at: result.expires_at } });
+    reply.code(201).send({ download: {
+      url: `/api/works/${encodeURIComponent(request.params.workId)}/downloads/${encodeURIComponent(result.token)}`,
+      expires_at: result.expires_at,
+      filename: result.original_filename,
+      media_type: result.verified_content_type,
+      size: result.verified_size,
+      checksum_sha256: result.verified_checksum_sha256
+    } });
   });
 
   app.get("/api/works/:workId/downloads/:token", async (request, reply) => {
     const result = await service.downloadObject?.({ ...actor(request), workId: request.params.workId, token: request.params.token });
     if (!result) throw Object.assign(new Error("WORK_DELIVERY_DOWNLOAD_UNAVAILABLE"), { code: "WORK_DELIVERY_DOWNLOAD_UNAVAILABLE" });
-    reply.type(result.contentType).send(result.body);
+    reply
+      .type(result.verified_content_type)
+      .header("Content-Disposition", attachmentDisposition(result.original_filename))
+      .send(result.body);
   });
 }

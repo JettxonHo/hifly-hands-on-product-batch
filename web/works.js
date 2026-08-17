@@ -1,6 +1,8 @@
 (async () => {
   const el = (selector) => document.querySelector(selector);
   let runtime = null, works = [], selected = null, busy = false;
+  let mobileDetailOpen = Boolean(new URLSearchParams(location.search).get("work"));
+  const dialogTriggers = new WeakMap();
   const statusLabels = { pending_review: "待检查", deliverable: "可交付", rework_required: "需要返工", delivered: "已交付" };
   const inspectionLabels = { pending: "待检查", passed: "已通过", rework_required: "需要返工", superseded: "已替代" };
   const categoryLabels = { content_not_as_planned: "内容与方案不一致", visual_quality: "画面质量", audio_or_avatar: "声音或人物", file_or_format: "文件或格式", other: "其他" };
@@ -59,6 +61,41 @@
   }
 
   function currentInspection() { return selected?.current_inspection || null; }
+
+  function setRecommended(control = null) {
+    document.querySelectorAll('#mainContent [data-recommended-action="true"]').forEach((node) => node.removeAttribute("data-recommended-action"));
+    if (control && !control.disabled && !control.hidden) control.setAttribute("data-recommended-action", "true");
+  }
+
+  function renderMobileLayer() {
+    el("#worksApp").classList.toggle("mobile-detail-open", Boolean(selected && mobileDetailOpen));
+  }
+
+  function taskSummary({ loadError = "" } = {}) {
+    const title = el("#worksTaskTitle"), description = el("#worksTaskDescription"), object = el("#worksTaskObject");
+    const status = el("#worksTaskStatus"), next = el("#worksTaskNext"), blocker = el("#worksTaskBlocker");
+    blocker.hidden = true; blocker.textContent = "";
+    if (loadError) {
+      title.textContent = "作品库读取失败"; description.textContent = "当前页面没有覆盖任何作品状态";
+      object.textContent = "作品库"; status.textContent = "读取失败"; next.textContent = "刷新作品库";
+      blocker.textContent = loadError; blocker.hidden = false; setRecommended(el("#refreshWorks")); return;
+    }
+    if (!selected) {
+      title.textContent = works.length ? "选择要处理的作品" : "等待作品登记";
+      description.textContent = works.length ? "从作品列表进入检查与交付" : "完成生产与文件核验后，作品会出现在这里";
+      object.textContent = "作品库"; status.textContent = works.length ? "待选择" : "暂无作品";
+      next.textContent = works.length ? "选择作品" : "等待作品登记"; setRecommended(null); return;
+    }
+    const inspection = currentInspection(), delivered = selected.delivery_status === "delivered";
+    title.textContent = workTitle(selected); description.textContent = selected.project_name || "来源项目已固定";
+    object.textContent = workTitle(selected); status.textContent = statusLabels[selected.delivery_status] || "状态待确认";
+    if (delivered) { next.textContent = "查看交付记录"; setRecommended(el("#viewDeliveryHistory")); }
+    else if (inspection?.status === "rework_required") {
+      next.textContent = "处理返工要求"; blocker.textContent = inspection.reason || "当前作品需要返回上游处理"; blocker.hidden = false;
+      setRecommended(el("#upstreamActionLink").hidden ? null : el("#upstreamActionLink"));
+    } else if (inspection?.status === "passed") { next.textContent = "登记真实交付"; setRecommended(el("#recordDelivery")); }
+    else { next.textContent = "完成作品检查"; setRecommended(el("#passInspection")); }
+  }
 
   function upstreamHref(inspection) {
     if (inspection?.status !== "rework_required" || !selected?.project_id || !selected?.product_id) return "";
@@ -159,32 +196,39 @@
   }
 
   function renderActions() {
-    const inspection = currentInspection(), ready = Boolean(selected && inspection?.status === "passed");
+    const inspection = currentInspection(), ready = Boolean(selected && inspection?.status === "passed"), delivered = selected?.delivery_status === "delivered";
     state(el("#actionState"), selected ? (selected.delivery_status === "delivered" ? "delivered" : inspection?.status) : "", selected ? (selected.delivery_status === "delivered" ? statusLabels : inspectionLabels) : statusLabels);
     el("#actionExplanation").textContent = actionExplanation();
     const pass = el("#passInspection"), rework = el("#requestRework"), delivery = el("#recordDelivery"), blocked = el("#deliveryBlockedReason");
     const reworkBlocked = inspection?.status === "rework_required";
-    pass.disabled = !selected || busy || reworkBlocked; pass.textContent = reworkBlocked ? "无法再次通过检查" : "标记为通过";
-    rework.disabled = !selected || busy || reworkBlocked;
-    delivery.disabled = !ready || busy;
-    blocked.textContent = ready ? "" : selected ? reworkBlocked ? "当前作品需要返工；请按提示创建新的上游生产周期和新工单。" : "交付登记需先通过检查；由内容审核人处理检查状态。" : "选择作品后可查看交付条件。";
+    el("#inspectionActionGroup").hidden = delivered;
+    el("#terminalActionGroup").hidden = !delivered;
+    pass.disabled = !selected || busy || reworkBlocked || ready || delivered; pass.textContent = reworkBlocked ? "无法再次通过检查" : ready ? "检查已通过" : "标记为通过";
+    rework.disabled = !selected || busy || reworkBlocked || delivered;
+    delivery.disabled = !selected || busy || (!ready && !delivered);
+    delivery.textContent = delivered ? "新增一次交付" : "登记一次交付";
+    delivery.classList.toggle("secondary", delivered);
+    blocked.textContent = ready || delivered ? "" : selected ? reworkBlocked ? "当前作品需要返工；请按提示创建新的上游生产周期和新工单。" : "交付登记需先通过检查；由内容审核人处理检查状态。" : "选择作品后可查看交付条件。";
     const upstream = el("#upstreamActionLink"), href = upstreamHref(inspection);
     if (href) { upstream.href = href; upstream.textContent = `返回${stageLabels[inspection.target_upstream_stage] || "上游阶段"} →`; upstream.hidden = false; }
     else { upstream.hidden = true; upstream.removeAttribute("href"); }
     const mobile = el("#mobilePrimaryAction"); mobile.disabled = busy;
     if (!selected) { mobile.textContent = "选择作品"; mobile.disabled = false; }
+    else if (!mobileDetailOpen) mobile.textContent = "查看作品详情";
+    else if (delivered) mobile.textContent = "查看交付记录";
     else if (ready) mobile.textContent = "登记一次交付";
-    else if (reworkBlocked) mobile.textContent = "选择其他作品";
+    else if (reworkBlocked) mobile.textContent = "查看返工要求";
     else mobile.textContent = pass.textContent;
+    taskSummary();
   }
 
   function renderDetail() {
     const empty = el("#workDetailEmpty"), detail = el("#workDetail");
     empty.hidden = Boolean(selected); detail.hidden = !selected;
-    if (!selected) { renderActions(); return; }
+    if (!selected) { renderActions(); renderMobileLayer(); return; }
     el("#selectedWorkName").textContent = workTitle(selected);
     state(el("#selectedDeliveryStatus"), selected.delivery_status);
-    renderSource(); renderHistory(); renderActions();
+    renderSource(); renderHistory(); renderActions(); renderMobileLayer();
   }
 
   function render() { renderList(); renderDetail(); }
@@ -197,16 +241,47 @@
       const requested = new URLSearchParams(location.search).get("work");
       const wanted = preserveSelection ? selected?.id || requested : requested;
       selected = works.find((work) => work.id === wanted) || works[0] || null;
+      if (requested && selected?.id !== requested) {
+        const next = new URL(location.href);
+        if (selected) next.searchParams.set("work", selected.id); else next.searchParams.delete("work");
+        history.replaceState(null, "", next);
+      }
+      notice(el("#worksNotice"));
       render();
+      return true;
     } catch (error) {
       stateNode.className = "inline-state error"; stateNode.textContent = error.status === 403 ? "你没有权限查看作品库。" : "作品列表读取失败，请刷新重试。";
-      notice(el("#worksNotice"), error.status === 403 ? "当前账号没有作品库权限，请联系组织管理员。" : "作品列表暂时无法读取（技术原因），请稍后刷新。", error.status === 403 ? "blocked" : "error");
+      const message = error.status === 403 ? "当前账号没有作品库权限，请联系组织管理员。" : "作品列表暂时无法读取（技术原因），请刷新作品库重试。";
+      notice(el("#worksNotice"), message, error.status === 403 ? "blocked" : "error");
+      taskSummary({ loadError: message });
+      return false;
     }
+  }
+
+  async function bootstrap({ preserveSelection = true } = {}) {
+    const refresh = el("#refreshWorks"); refresh.disabled = true;
+    try {
+      runtime = await request("/api/runtime");
+      if (runtime.worksEnabled !== true) {
+        el("#worksApp").hidden = true; el("#worksUnavailable").hidden = false;
+        el("#worksUnavailableMessage").textContent = "作品库功能尚未开放；管理员开启后，这里会显示本组织已登记的作品。";
+        taskSummary({ loadError: "作品库功能尚未开放。" }); return;
+      }
+      el("#worksUnavailable").hidden = true; el("#worksApp").hidden = false;
+      await loadWorks({ preserveSelection });
+    } catch (error) {
+      if (error.status === 401) return;
+      el("#worksApp").hidden = true; el("#worksUnavailable").hidden = false;
+      const message = error.status === 403 ? "当前账号没有作品库权限，请联系组织管理员。" : "作品库暂时无法读取（技术原因），请刷新重试。";
+      el("#worksUnavailableMessage").textContent = message;
+      taskSummary({ loadError: message });
+    } finally { refresh.disabled = false; }
   }
 
   function selectWork(id) {
     selected = works.find((work) => work.id === id) || null;
-    if (selected) { const next = new URL(location.href); next.searchParams.set("work", selected.id); history.replaceState(null, "", next); }
+    if (selected) { const next = new URL(location.href); next.searchParams.set("work", selected.id); history.replaceState(null, "", next); mobileDetailOpen = true; }
+    resetPreview();
     render();
     if (el("#workDrawer").open) el("#workDrawer").close();
   }
@@ -231,7 +306,7 @@
   function openPassDialog() {
     if (!selected || busy || currentInspection()?.status === "rework_required") return;
     el("#passWorkSummary").textContent = `作品：${workTitle(selected)} · 项目：${selected.project_name || "来源项目已固定"}`;
-    el("#passDialog").showModal();
+    showDialog(el("#passDialog"));
   }
 
   async function submitPass(event) {
@@ -244,7 +319,7 @@
 
   async function submitRework(event) {
     event.preventDefault();
-    if (!selected) return;
+    if (!selected || busy) return;
     const category = el("#reworkCategory").value, reason = el("#reworkReason").value.trim(), target = el("#reworkTarget").value;
     if (!category || !reason || !target) { el("#reworkError").textContent = "请填写返工分类、原因和返回阶段。"; return; }
     const inspection = currentInspection(); busy = true; el("#submitRework").disabled = true;
@@ -255,7 +330,7 @@
 
   async function submitDelivery(event) {
     event.preventDefault();
-    if (!selected) return;
+    if (!selected || busy) return;
     const method = el("#deliveryMethod").value, recipient = el("#deliveryRecipient").value.trim(), noteText = el("#deliveryNote").value.trim();
     const deliveredAt = new Date(el("#deliveryTime").value);
     const deliveredAtIso = Number.isNaN(deliveredAt.valueOf()) ? null : deliveredAt.toISOString();
@@ -268,42 +343,80 @@
     finally { busy = false; el("#submitDelivery").disabled = false; renderActions(); }
   }
 
+  function resetPreview() {
+    const video = el("#workVideo");
+    video.pause(); video.removeAttribute("src"); video.load(); video.hidden = true;
+    el(".preview-placeholder").hidden = false;
+    const download = el("#downloadWork"); download.hidden = true; download.removeAttribute("href"); download.removeAttribute("download");
+    el("#downloadBoundary").hidden = true;
+    el("#downloadMetadata").hidden = true;
+    for (const selector of ["#downloadFileName", "#downloadMediaType", "#downloadSize", "#downloadChecksum"]) el(selector).textContent = "";
+    notice(el("#previewNotice"));
+  }
+
+  function renderDownloadMetadata(download) {
+    el("#downloadFileName").textContent = download.filename || "文件名待确认";
+    el("#downloadMediaType").textContent = download.media_type || "媒体类型待确认";
+    el("#downloadSize").textContent = formatBytes(download.size);
+    el("#downloadChecksum").textContent = download.checksum_sha256 || "校验值待确认";
+    el("#downloadMetadata").hidden = false;
+  }
+
   async function preview() {
     if (!selected || busy) return;
     busy = true; el("#previewWork").disabled = true; notice(el("#previewNotice"), "正在准备预览…");
     try {
       const result = await request(`/api/works/${encodeURIComponent(selected.id)}/download-authorizations`, { method: "POST" });
-      const url = result.download?.url;
+      const download = result.download || {}, url = download.url;
       if (!url) throw Object.assign(new Error("WORK_DELIVERY_DOWNLOAD_UNAVAILABLE"), { status: 422 });
-      const video = el("#workVideo"); video.src = url; video.hidden = false; el("#downloadWork").href = url; el("#downloadWork").hidden = false; el(".preview-placeholder").hidden = true;
-      notice(el("#previewNotice"), "预览已准备；下载作品不会自动登记交付。", "success");
+      const video = el("#workVideo"); video.src = url; video.hidden = false;
+      const link = el("#downloadWork"); link.href = url; link.hidden = false;
+      if (download.filename) link.download = download.filename; else link.removeAttribute("download");
+      renderDownloadMetadata(download); el("#downloadBoundary").hidden = false; el(".preview-placeholder").hidden = true;
+      notice(el("#previewNotice"), "下载授权已准备；交付登记与真实字节下载验收是两个独立步骤。", "success");
     } catch (error) { notice(el("#previewNotice"), error.status === 403 ? "当前账号没有下载权限。" : "作品暂时无法预览（技术原因），可以稍后重试或联系处理人。", error.status === 403 ? "blocked" : "error"); }
     finally { busy = false; el("#previewWork").disabled = false; renderActions(); }
   }
 
   function resetDialog(form, error) { form.reset(); error.textContent = ""; }
+  function showDialog(dialog, trigger = document.activeElement) { dialogTriggers.set(dialog, trigger); dialog.showModal(); }
   function localDateTimeValue() { const now = new Date(), local = new Date(now.getTime() - now.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 16); }
-  function openDeliveryDialog() { resetDialog(el("#deliveryForm"), el("#deliveryError")); el("#deliveryTime").value = localDateTimeValue(); el("#deliveryDialog").showModal(); }
+  function openDeliveryDialog() { resetDialog(el("#deliveryForm"), el("#deliveryError")); el("#deliveryTime").value = localDateTimeValue(); showDialog(el("#deliveryDialog")); }
 
-  el("#refreshWorks").addEventListener("click", () => loadWorks({ preserveSelection: true }));
+  el("#refreshWorks").addEventListener("click", () => bootstrap({ preserveSelection: true }));
   projectFilter.addEventListener("change", renderList); deliveryFilter.addEventListener("change", renderList);
-  el("#openWorkDrawer").addEventListener("click", () => el("#workDrawer").showModal()); el("#closeWorkDrawer").addEventListener("click", () => el("#workDrawer").close());
+  el("#openWorkDrawer").addEventListener("click", () => showDialog(el("#workDrawer"))); el("#closeWorkDrawer").addEventListener("click", () => el("#workDrawer").close());
   el("#passInspection").addEventListener("click", openPassDialog); el("#passForm").addEventListener("submit", submitPass); el("#cancelPass").addEventListener("click", () => el("#passDialog").close()); el("#closePass").addEventListener("click", () => el("#passDialog").close());
-  el("#requestRework").addEventListener("click", () => { resetDialog(el("#reworkForm"), el("#reworkError")); el("#reworkDialog").showModal(); });
+  el("#requestRework").addEventListener("click", () => { resetDialog(el("#reworkForm"), el("#reworkError")); showDialog(el("#reworkDialog")); });
   el("#cancelRework").addEventListener("click", () => el("#reworkDialog").close()); el("#closeRework").addEventListener("click", () => el("#reworkDialog").close()); el("#reworkForm").addEventListener("submit", submitRework);
   el("#recordDelivery").addEventListener("click", openDeliveryDialog);
+  el("#viewDeliveryHistory").addEventListener("click", () => {
+    const heading = el("#deliveryHistoryTitle");
+    heading.scrollIntoView({ behavior: "smooth", block: "start" });
+    heading.focus({ preventScroll: true });
+  });
   el("#cancelDelivery").addEventListener("click", () => el("#deliveryDialog").close()); el("#closeDelivery").addEventListener("click", () => el("#deliveryDialog").close()); el("#deliveryForm").addEventListener("submit", submitDelivery);
   el("#previewWork").addEventListener("click", preview);
   el("#workVideo").addEventListener("error", () => notice(el("#previewNotice"), "预览暂不可用（技术原因），可以下载文件后查看。", "blocked"));
-  el("#mobilePrimaryAction").addEventListener("click", () => { if (!selected) return el("#openWorkDrawer").click(); const status = currentInspection()?.status; if (status === "rework_required") return el("#workDrawer").showModal(); if (status === "passed") return el("#recordDelivery").click(); return openPassDialog(); });
+  el("#backToWorksList").addEventListener("click", () => {
+    mobileDetailOpen = false; renderMobileLayer();
+    requestAnimationFrame(() => el(`#worksList [data-work-id="${CSS.escape(selected?.id || "")}"]`)?.focus());
+  });
+  el("#mobilePrimaryAction").addEventListener("click", () => {
+    if (!selected) return el("#openWorkDrawer").click();
+    if (!mobileDetailOpen) { mobileDetailOpen = true; renderMobileLayer(); el("#selectedWorkName").focus?.(); return; }
+    const status = currentInspection()?.status;
+    if (selected.delivery_status === "delivered") return el("#viewDeliveryHistory").click();
+    if (status === "rework_required") {
+      el("#actionPanelTitle").scrollIntoView({ behavior: "smooth", block: "start" });
+      el("#actionPanelTitle").focus({ preventScroll: true }); return;
+    }
+    if (status === "passed") return el("#recordDelivery").click();
+    return openPassDialog();
+  });
+  for (const dialog of document.querySelectorAll("dialog")) dialog.addEventListener("close", () => {
+    const trigger = dialogTriggers.get(dialog); if (trigger?.isConnected) trigger.focus(); dialogTriggers.delete(dialog);
+  });
 
-  try {
-    runtime = await request("/api/runtime");
-    if (runtime.worksEnabled !== true) { el("#worksUnavailable").hidden = false; el("#worksUnavailableMessage").textContent = "作品库功能尚未开放；管理员开启后，这里会显示本组织已登记的作品。"; return; }
-    el("#worksApp").hidden = false;
-    await loadWorks({ preserveSelection: false });
-  } catch (error) {
-    if (error.status === 403) { el("#worksUnavailable").hidden = false; el("#worksUnavailableMessage").textContent = "当前账号没有作品库权限，请联系组织管理员。"; }
-    else if (error.status !== 401) { el("#worksUnavailable").hidden = false; el("#worksUnavailableMessage").textContent = "作品库暂时无法读取（技术原因），请刷新重试。"; }
-  }
+  await bootstrap({ preserveSelection: false });
 })();

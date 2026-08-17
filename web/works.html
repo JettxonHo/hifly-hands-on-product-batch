@@ -7,11 +7,12 @@
     <link rel="stylesheet" href="/tokens.css">
     <link rel="stylesheet" href="/base.css">
     <link rel="stylesheet" href="/shell.css">
+    <link rel="stylesheet" href="/operator-task-flow.css">
     <link rel="stylesheet" href="/works.css">
     <script src="/shell.js" defer></script>
     <script src="/works.js" defer></script>
   </head>
-  <body data-shell-page="works">
+  <body class="operator-task-page" data-shell-page="works">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
     <div class="app-shell">
       <aside class="app-sidebar">
@@ -30,8 +31,18 @@
         <main id="mainContent" class="page-content works-page">
           <div class="page-header works-header">
             <div><p class="eyebrow">作品管理</p><h1>作品库</h1><p class="page-description">查看已登记作品，完成检查并记录真实交付。</p></div>
-            <div class="page-actions"><button id="refreshWorks" class="secondary" type="button">刷新</button></div>
+            <div class="page-actions"><button id="refreshWorks" class="secondary" type="button" data-refresh-scope="刷新作品库上下文">刷新</button></div>
           </div>
+
+          <section id="worksTaskSummary" class="task-summary" aria-label="当前任务" aria-live="polite">
+            <div class="task-summary-context"><p class="eyebrow">当前任务</p><h2 id="worksTaskTitle">载入作品库</h2><p id="worksTaskDescription">正在读取本组织作品</p></div>
+            <dl class="task-summary-facts">
+              <div><dt>当前对象</dt><dd id="worksTaskObject">作品库</dd></div>
+              <div><dt>业务状态</dt><dd id="worksTaskStatus">正在加载</dd></div>
+            </dl>
+            <div class="task-summary-next"><span>推荐下一步</span><strong id="worksTaskNext">等待作品载入</strong></div>
+            <p id="worksTaskBlocker" class="task-summary-blocker" hidden></p>
+          </section>
 
           <section id="worksUnavailable" class="surface works-unavailable" hidden aria-live="polite">
             <p class="eyebrow">当前状态</p><h2>作品库暂未开放</h2><p id="worksUnavailableMessage">管理员开启作品库后，这里会显示本组织已登记的作品。</p>
@@ -53,19 +64,20 @@
               <section class="surface works-detail-panel" aria-labelledby="workDetailTitle">
                 <div id="workDetailEmpty" class="work-detail-empty"><p class="eyebrow">选择一个作品</p><h2 id="workDetailTitle">查看作品详情</h2><p>从左侧列表选择作品后，可以预览、查看来源快照、检查历史和交付记录。</p></div>
                 <div id="workDetail" hidden>
-                  <div class="surface-header detail-header"><div><p class="eyebrow">作品详情</p><h2 id="selectedWorkName">已登记作品</h2></div><span id="selectedDeliveryStatus" class="state"></span></div>
-                  <div class="work-preview" aria-labelledby="previewTitle"><div class="section-head"><h3 id="previewTitle">预览</h3><button id="previewWork" class="secondary" type="button">加载预览</button></div><div id="previewStage" class="preview-stage"><div class="preview-placeholder"><span aria-hidden="true">▶</span><p>加载预览后可在此查看作品</p><small>无法预览时，可以下载文件后查看。</small></div><video id="workVideo" controls playsinline preload="metadata" hidden></video></div><p id="previewNotice" class="notice" role="status"></p><a id="downloadWork" class="button-link" href="#" hidden>下载作品</a></div>
+                  <div class="surface-header detail-header"><div><button id="backToWorksList" class="secondary mobile-only" type="button">← 返回作品列表</button><p class="eyebrow">作品详情</p><h2 id="selectedWorkName">已登记作品</h2></div><span id="selectedDeliveryStatus" class="state"></span></div>
+                  <div class="work-preview" aria-labelledby="previewTitle"><div class="section-head"><h3 id="previewTitle">预览</h3><button id="previewWork" class="secondary" type="button">加载预览</button></div><div id="previewStage" class="preview-stage"><div class="preview-placeholder"><span aria-hidden="true">▶</span><p>加载预览后可在此查看作品</p><small>无法预览时，可以下载文件后查看。</small></div><video id="workVideo" controls playsinline preload="metadata" hidden></video></div><p id="previewNotice" class="notice" role="status"></p><a id="downloadWork" class="button-link" href="#" hidden>下载作品</a><p id="downloadBoundary" class="muted" hidden>交付登记与真实字节下载验收是两个独立步骤。</p><details id="downloadMetadata" class="operator-technical-details" hidden><summary>文件技术详情</summary><dl class="download-metadata"><div><dt>文件名</dt><dd id="downloadFileName"></dd></div><div><dt>媒体类型</dt><dd id="downloadMediaType"></dd></div><div><dt>文件大小</dt><dd id="downloadSize"></dd></div><div><dt>SHA-256</dt><dd id="downloadChecksum"></dd></div></dl></details></div>
                   <section class="source-snapshot" aria-labelledby="sourceSnapshotTitle"><div class="section-head"><h3 id="sourceSnapshotTitle">作品来源快照</h3><span class="muted">登记时固定</span></div><div id="sourceSnapshotGrid" class="snapshot-grid"></div></section>
                   <section class="inspection-history" aria-labelledby="inspectionHistoryTitle"><div class="section-head"><h3 id="inspectionHistoryTitle">检查历史</h3><span class="muted">旧记录保留</span></div><div id="inspectionHistoryList" class="history-list"></div></section>
-                  <section class="delivery-history" aria-labelledby="deliveryHistoryTitle"><div class="section-head"><h3 id="deliveryHistoryTitle">交付记录</h3><span id="deliveryCount" class="muted"></span></div><div id="deliveryHistoryList" class="history-list"></div></section>
+                  <section class="delivery-history" aria-labelledby="deliveryHistoryTitle"><div class="section-head"><h3 id="deliveryHistoryTitle" tabindex="-1">交付记录</h3><span id="deliveryCount" class="muted"></span></div><div id="deliveryHistoryList" class="history-list"></div></section>
                 </div>
               </section>
 
               <aside class="surface works-action-panel" aria-labelledby="actionPanelTitle">
-                <div class="surface-header"><div><p class="eyebrow">处理</p><h2 id="actionPanelTitle">检查与交付</h2></div><span id="actionState" class="state"></span></div>
+                <div class="surface-header"><div><p class="eyebrow">处理</p><h2 id="actionPanelTitle" tabindex="-1">检查与交付</h2></div><span id="actionState" class="state"></span></div>
                 <p id="actionExplanation" class="action-explanation">选择作品后，这里会显示下一步。</p>
                 <a id="upstreamActionLink" class="button-link" href="#" hidden>返回上游阶段 →</a>
                 <div id="inspectionActionGroup" class="action-group"><button id="passInspection" type="button">标记为通过</button><button id="requestRework" class="secondary" type="button">登记返工</button></div>
+                <div id="terminalActionGroup" class="action-group" hidden><button id="viewDeliveryHistory" type="button">查看交付记录</button></div>
                 <div id="deliveryActionGroup" class="action-group"><button id="recordDelivery" type="button">登记一次交付</button><p id="deliveryBlockedReason" class="muted"></p></div>
                 <p id="actionNotice" class="notice" role="status"></p>
               </aside>

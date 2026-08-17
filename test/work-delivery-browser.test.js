@@ -50,13 +50,17 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   const worksLink = page.locator('a[data-feature="works"]'); await worksLink.waitFor();
   assert.deepEqual(await page.locator(".app-nav [data-page]").evaluateAll((links) => links.map((link) => link.dataset.page)), ["projects", "works", "assets", "members"]);
   assert.equal(await worksLink.getAttribute("aria-current"), "page"); assert.equal(await worksLink.isVisible(), true);
-  assert.equal(await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length), 3);
+  assert.equal(await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length), 2);
+  assert.equal(await page.locator('#mainContent [data-recommended-action="true"]').count(), 1);
+  assert.equal(await page.locator("#passInspection").getAttribute("data-recommended-action"), "true");
   await page.getByRole("button", { name: "标记为通过", exact: true }).click();
   const passDialog = page.getByRole("dialog", { name: "确认通过检查" }); await passDialog.waitFor();
   assert.equal(await passDialog.getByText("作品：云感保湿乳", { exact: false }).count(), 1);
   assert.equal(await passDialog.getByText("确认此作品通过检查，可交付。", { exact: true }).count(), 1);
   assert.equal((await page.locator("#selectedDeliveryStatus").textContent()).trim(), "待检查");
   await passDialog.getByRole("button", { name: "确认通过检查", exact: true }).click(); await page.locator("#selectedDeliveryStatus").filter({ hasText: "可交付" }).waitFor();
+  assert.equal(await page.locator('#mainContent [data-recommended-action="true"]').count(), 1);
+  assert.equal(await page.locator("#recordDelivery").getAttribute("data-recommended-action"), "true");
   await page.getByRole("button", { name: "登记一次交付", exact: true }).click();
   const deliveryDialog = page.getByRole("dialog", { name: "登记一次交付" });
   const chosenDeliveryTime = "2026-08-09T10:15";
@@ -64,6 +68,8 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   assert.equal(await deliveryDialog.getByLabel("交付时间").inputValue(), chosenDeliveryTime);
   await deliveryDialog.getByRole("button", { name: "确认登记交付" }).click();
   await page.getByText("交付已登记", { exact: false }).waitFor(); await page.getByText("共 1 次", { exact: true }).waitFor(); await page.locator("#selectedDeliveryStatus").filter({ hasText: "已交付" }).waitFor();
+  assert.equal(await page.locator('#mainContent [data-recommended-action="true"]').count(), 1);
+  assert.equal(await page.locator("#viewDeliveryHistory").getAttribute("data-recommended-action"), "true");
   const expectedDeliveryTime = await page.evaluate((value) => new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)), chosenDeliveryTime);
   assert.equal((await page.locator("#deliveryHistoryList time").first().textContent()).trim(), expectedDeliveryTime);
 
@@ -75,6 +81,8 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   assert.equal((await page.locator("#actionExplanation").textContent()).includes("原作品与检查历史会保留"), true);
   assert.equal(await page.locator("#upstreamActionLink").isVisible(), true);
   assert.equal(await page.locator("#upstreamActionLink").getAttribute("href"), "/plan.html?project=project-a13-browser&product=product-a13-rework");
+  assert.equal(await page.locator('#mainContent [data-recommended-action="true"]').count(), 1);
+  assert.equal(await page.locator("#upstreamActionLink").getAttribute("data-recommended-action"), "true");
 
   await page.setViewportSize({ width: 390, height: 844 }); await page.getByText("作品库", { exact: true }).first().waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
@@ -82,10 +90,12 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   assert.equal(await page.locator(".works-mobile-action button").count(), 1);
   assert.equal(await page.locator(".works-mobile-action").evaluate((node) => getComputedStyle(node).position), "fixed");
   assert.equal(await page.locator("#passInspection").isDisabled(), true); assert.equal(await page.locator("#requestRework").isDisabled(), true);
-  assert.equal(await page.locator("#mobilePrimaryAction").isDisabled(), false); assert.equal((await page.locator("#mobilePrimaryAction").textContent()).trim(), "选择其他作品");
+  assert.equal(await page.locator("#mobilePrimaryAction").isDisabled(), false); assert.equal((await page.locator("#mobilePrimaryAction").textContent()).trim(), "查看返工要求");
   await page.locator("#mobilePrimaryAction").click();
   assert.equal((await page.locator("#selectedDeliveryStatus").textContent()).trim(), "需要返工");
-  await page.getByRole("dialog", { name: "选择作品" }).getByRole("button", { name: /无上游上下文作品/ }).click();
+  assert.equal(await page.locator("#actionPanelTitle").evaluate((node) => node === document.activeElement), true);
+  await page.getByRole("button", { name: /返回作品列表/ }).click();
+  await page.locator("#worksList").getByRole("button", { name: /无上游上下文作品/ }).click();
   await page.getByRole("button", { name: "登记返工", exact: true }).click();
   const noContextRework = page.getByRole("dialog", { name: "登记返工" }); await noContextRework.getByLabel("返工分类").selectOption("visual_quality"); await noContextRework.getByLabel("返工原因").fill("需要返回上游处理"); await noContextRework.getByLabel("返回阶段").selectOption("video_plan"); await noContextRework.getByRole("button", { name: "确认登记返工" }).click();
   await page.locator("#selectedDeliveryStatus").filter({ hasText: "需要返工" }).waitFor(); assert.equal(await page.locator("#upstreamActionLink").isVisible(), false);

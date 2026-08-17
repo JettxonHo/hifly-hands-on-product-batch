@@ -149,15 +149,28 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
       if (version.status !== "available") fail("ASSET_VERSION_NOT_AVAILABLE");
       const token = randomBytes(24).toString("base64url");
       const expiresAt = new Date(now() + downloadTtlMs).toISOString();
-      downloads.set(token, { organizationId, objectKey: version.object_key, contentType: version.verified_content_type, expiresAt });
-      return { token, expires_at: expiresAt, asset_version_id: version.id };
+      const metadata = {
+        original_filename: version.original_filename,
+        verified_content_type: version.verified_content_type,
+        verified_size: version.verified_size,
+        verified_checksum_sha256: version.verified_checksum_sha256
+      };
+      downloads.set(token, { organizationId, objectKey: version.object_key, contentType: version.verified_content_type, expiresAt, ...metadata });
+      return { token, expires_at: expiresAt, asset_version_id: version.id, ...metadata };
     },
     downloadObject: async ({ organizationId, token }) => {
       const grant = downloads.get(token);
       if (!grant || grant.organizationId !== organizationId || Date.parse(grant.expiresAt) <= now()) fail("DOWNLOAD_AUTHORIZATION_NOT_FOUND");
       const body = await objectStore.get(grant.objectKey);
       if (!body) fail("OBJECT_MISSING");
-      return { body, contentType: grant.contentType };
+      return {
+        body,
+        contentType: grant.contentType,
+        original_filename: grant.original_filename,
+        verified_content_type: grant.verified_content_type,
+        verified_size: grant.verified_size,
+        verified_checksum_sha256: grant.verified_checksum_sha256
+      };
     },
     assetReferencePort, verifiedOutputAssetPort
   };
