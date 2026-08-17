@@ -1,6 +1,6 @@
 # 项目当前状态
 
-> 最后更新：2026-08-17
+> 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
 > 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；release-readiness 代码与依赖治理已部署到内部验收环境，可信 TLS 仍未完成，仍不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
@@ -93,10 +93,15 @@
 - Issue #180 / PR #181 已将 V2-C Works Review and Delivery 合并进入 `main`：作品库仓库页面完成列表/预览层级、
   四种业务状态、终态动作收敛、显式追加交付、移动端列表/详情分层，以及服务端授权的文件名、媒体类型、大小、
   校验值与真实字节下载合同；这仍不等于部署、客户采用或生产下载验收。
-- Issue #182 是 V2-D Assets by Real Type 的仓库 acceptance gate。对应实现只有随 PR 合并进入 `main` 后才计为完成；
-  届时素材中心按 `product_image`、`avatar_image`、`work_video` 三种服务端真值分组，明确 Asset/AssetVersion 层级，
-  并保持作品视频只读、图片上传与临时下载授权、乐观冲突和组织权限语义。素材用途、业务关联、缩略图、搜索和分页
-  没有现成 API 真值，不由前端推断。即使仓库实现合并，也仍需独立部署和运行时验收。
+- Issue #182 / PR #183 已将 V2-D Assets by Real Type 合并进入 `main`：素材中心按 `product_image`、
+  `avatar_image`、`work_video` 三种服务端真值分组，明确 Asset/AssetVersion 层级，并保持作品视频只读、
+  图片上传与临时下载授权、乐观冲突和组织权限语义。素材用途、业务关联、缩略图、搜索和分页没有现成 API 真值，
+  不由前端推断。该仓库实现仍未获得独立部署和运行时验收。
+- Issue #184 是 V2-E 回补审计 acceptance gate。审计报告只有随对应 PR 合并进入 `main` 后才成为当前回补真值；
+  当前证据不支持全站返工，但识别出两个严格串行的最小候选：V2-E1（Projects/Project/Copy 的业务中文、刷新作用域
+  与 Copy Tab 键盘语义）和 V2-E2（Avatar/Plan 的业务中文、技术详情层级与 Plan Tab 键盘语义）。Avatar 的短 ID
+  位于任务上下文，内部英文主要位于可见管理员/事实区和部分阻断文案，不应笼统写成全部属于主任务层。任何实现仍需独立 Issue、RED/GREEN、
+  Draft PR 与 Review；若展示修复需要改变存储/API 真值，必须先停在 Product/API gate。
 - Production 的企业 Web/API 当前只提供 `GET /api/cloud-executor/status` 只读状态；Worker 启停继续由获授权运维在
   既有部署控制面执行。V2 页面不得向组织用户推荐不存在的“启动工单/Worker”命令；未来若要 Web 启停必须另过
   Product/API、安全授权和审计 gate。
@@ -257,9 +262,9 @@
 
 ## 下一步
 
-1. Slice A/B、V2 独立设计合同、V2-A shared foundation、V2-B Production 与 V2-C Works 均已合并但尚未部署；
-   Issue #182 是 V2-D Assets 进入 `main` 的 acceptance gate。V2-D 只有随 acceptance PR 合并后才计为仓库实现；
-   之后仅按证据决定是否回补 A/B，不得把设计、仓库浏览器回归或 CI 写成生产采用。
+1. Slice A/B、V2 独立设计合同与 V2-A～V2-D 均已合并但尚未部署；Issue #184 是 V2-E 回补审计
+   acceptance gate。审计只有随 PR 合并进入 `main` 后才确定后续最小回补范围，页面实现仍需新的独立 Issue/PR；
+   不得把设计、仓库浏览器回归或 CI 写成生产采用。
 2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
