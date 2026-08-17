@@ -74,8 +74,10 @@ Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审�
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
 部署或生产采用。Issue #176 / PR #177 已完成第一片 shared IA/content/control foundation，Issue #178 / PR #179
 已完成 Production，Issue #180 / PR #181 已完成 Works，Issue #182 / PR #183 已完成 Assets。Issue #184 是
-V2-E 回补审计 acceptance gate；当前审计证据指向两个最小候选：Projects/Project/Copy 的中文与刷新作用域，以及
-Avatar/Plan 的中文、技术详情层级和 Plan Tab 语义。它们只有在审计被接受后才能按独立 Issue 严格串行实现；
+V2-E 回补审计 acceptance gate；当前审计证据指向两个最小候选：Projects/Project/Copy 的中文、刷新作用域与
+Copy Tab 键盘语义，以及 Avatar/Plan 的中文、技术详情层级和 Plan Tab 键盘语义。两个页签回补都必须包含
+完整 ARIA 关系、单一 Tab 停靠点及 ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。它们只有在审计被接受后
+才能按独立 Issue 严格串行实现；
 不因存在候选就自动授权改代码或扩 API。
 不得以竞品视觉或页面结构反向决定本项目 IA。
 

@@ -10,8 +10,8 @@ V2-A、V2-B、V2-C 与 V2-D 合并后，Projects、Project、Copy、Avatar、Pla
 
 仍有两组可证实的局部漂移，需要在本审计获接受后严格串行回补：
 
-1. **V2-E1：Projects / Project / Copy 业务语言与刷新作用域。** 主任务层仍显示 `general`、`Finding`、`QualityResult`、`Profile` 等内部值或英文对象名，Projects 刷新动作也没有说明作用域。
-2. **V2-E2：Avatar / Plan 业务语言、技术详情与页签语义。** 主任务层仍显示短内部 ID、`avatar_image`、`Evidence`、`verified capability`、`Organization`；Plan 的视觉页签缺少完整 Tab ARIA 合同。
+1. **V2-E1：Projects / Project / Copy 业务语言、刷新作用域与 Copy Tab 键盘语义。** 主任务层仍显示 `general`、`Finding`、`QualityResult`、`Profile` 等内部值或英文对象名，Projects 刷新动作没有说明作用域；Copy 页签虽有基础 ARIA 关系，但缺少完整键盘合同。
+2. **V2-E2：Avatar / Plan 业务语言、技术详情与 Plan Tab 键盘语义。** Avatar 的任务上下文显示短内部 ID，`avatar_image`、`Evidence`、`verified capability`、`Organization` 则主要出现在可见管理员/事实区和部分阻断文案；Plan 主上下文显示短 ID，且页签缺少完整 ARIA 与键盘合同。
 
 本审计不需要也不授权 V2-E 的页面实现。不得为“保持一致”改写已经通过公开 seam 的状态机、导航或恢复逻辑。
 
@@ -48,10 +48,11 @@ V2-A、V2-B、V2-C 与 V2-D 合并后，Projects、Project、Copy、Avatar、Pla
 | --- | --- | --- | --- | --- | --- |
 | P1 | Project / Copy 商品上下文 | `web/project.html` 的品类默认值及 `web/project.js`、`web/copy.js` 的主任务文案直接显示服务端值 `general`；三视口截图可见 | 运营人员看到内部默认代码，不知道真实业务含义 | 中文内容/领域映射 | 只在展示层提供业务化名称并保留原始存储值；若映射会改变存储或 API 合同，停在 Product/content gate |
 | P1 | Copy 质检与审核 | Dialog 与主任务文案直接显示 `Finding`、`QualityResult`、`Profile`；公开测试也以“接受 Finding”为可见名称 | 自动质检对象和人工审核概念混用，增加学习成本 | 中文词典/信息层级 | 主任务层改为“质检问题/质检结果/质检规则配置”；内部对象名仅可留在折叠技术详情或审计记录 |
-| P1 | Avatar 人物选择与管理 | 页面直接显示 `avatar_image`、`Evidence`、`verified capability`、`Organization`；主任务上下文显示短文案 ID | 商品运营被迫理解素材代码、证据模型和组织内部术语 | 中文词典/技术详情 | 主任务层使用“人物图片/能力依据/已验证能力/当前企业”；ID 与证据引用进入可展开技术详情，审计数据不得删除 |
+| P1 | Avatar 人物选择与管理 | 任务上下文显示短文案 ID；`avatar_image`、`Evidence`、`verified capability`、`Organization` 主要位于可见管理员/事实区及部分 blocker | 商品运营被迫理解素材代码、证据模型和组织内部术语 | 中文词典/技术详情 | 任务上下文使用业务对象；管理员/事实区使用“人物图片/能力依据/已验证能力/当前企业”；ID 与原始证据引用进入可展开技术详情，审计数据不得删除 |
 | P1 | Plan 上游上下文 | 主上下文与上游卡片显示文案/人物短 ID，例如 `copy-app`、`selectio` | 无法据此辨识业务对象，技术 ID 抢占首屏 | 信息层级 | 主层显示业务状态和已选对象名称；短 ID 只在技术详情中保留 |
 | P2 | Projects 刷新 | `web/projects.html` 使用泛化“刷新”，无 `data-refresh-scope`；错误文案与按钮没有形成明确作用域 | 用户不知道刷新列表还是整个工作台 | 控件语义 | 明确“刷新项目列表”，标记对应 scope，错误推荐动作与按钮一致 |
-| P2 | Plan 预检/审核切换 | `.decision-tabs` 只有 `role=tablist`，两个按钮缺少 `role=tab`、`aria-selected`、`aria-controls`，内容区也无完整 tabpanel 关系 | 键盘和读屏用户无法获得一致页签状态 | 控件语义/可访问性 | 沿用 Copy 已有 Tab 合同补齐 Plan 的 ARIA 与键盘行为，不改变预检/人工批准业务状态 |
+| P2 | Copy 质检/审核切换 | `web/copy.html` 已有 tablist/tab/tabpanel 与 `aria-selected`，但 `web/copy.js` 只有 click 切换，没有 roving tabindex、ArrowLeft/ArrowRight/Home/End 或焦点迁移 | 键盘用户无法按标准 Tab 模式切换质检与审核 | 控件语义/可访问性 | 在保留 QC 与人工审核状态分离的前提下补齐完整 Tab 键盘合同 |
+| P2 | Plan 预检/审核切换 | `.decision-tabs` 只有 `role=tablist`，按钮缺少 tab 角色、选中/面板关联，也没有 roving tabindex、方向键/Home/End 与焦点迁移 | 键盘和读屏用户无法获得一致页签状态 | 控件语义/可访问性 | 独立补齐 Plan 的完整 Tab ARIA 与键盘合同，不改变预检/人工批准业务状态 |
 
 ## 5. 严格串行回补建议
 
@@ -78,6 +79,7 @@ V2-A、V2-B、V2-C 与 V2-D 合并后，Projects、Project、Copy、Avatar、Pla
 1. Project 与 Copy 主业务上下文不得把 `general` 原样作为用户品类；提交/保存仍保留服务端原值。
 2. 主任务、阻断、Dialog 不再把 `Finding / QualityResult / Profile` 作为业务名称；历史与折叠审计仍可访问。
 3. Projects 的刷新按钮和错误恢复明确为“刷新项目列表”，并使用同一推荐动作。
+4. Copy 质检/审核切换必须同时具备 `tablist / tab / tabpanel`、`aria-selected / aria-controls`、单一 Tab 停靠点，以及 ArrowLeft/ArrowRight/Home/End 的焦点与选中同步；不得改变 QC 与人工批准的业务状态。
 
 **停止条件**
 
@@ -101,8 +103,8 @@ V2-A、V2-B、V2-C 与 V2-D 合并后，Projects、Project、Copy、Avatar、Pla
 
 **先 RED 的行为**
 
-1. 人物选择和视频方案的主任务层不得显示短内部 ID 或 `avatar_image / Evidence / verified capability / Organization`；ID、证据引用和原始代码仍保留在折叠技术详情。
-2. Plan 的预检/审核切换具备完整 Tab 角色、选中状态、面板关联与键盘操作。
+1. Avatar 的任务上下文和 Plan 主层不得显示短内部 ID；Avatar 可见管理员/事实区与 blocker 不再直接使用 `avatar_image / Evidence / verified capability / Organization` 作为业务名称。ID、证据引用和原始代码仍保留在折叠技术详情。
+2. Plan 预检/审核切换必须同时具备 `tablist / tab / tabpanel`、`aria-selected / aria-controls`、单一 Tab 停靠点，以及 ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。
 3. QC passed 仍不等于人工批准，preflight passed/warning 仍不等于 Plan approved。
 
 **停止条件**
@@ -120,4 +122,3 @@ V2-A、V2-B、V2-C 与 V2-D 合并后，Projects、Project、Copy、Avatar、Pla
 - loading/error/dirty/409/history/async 既有恢复路径不回归；
 - `npm run check`、完整 `npm test`、`git diff --check`、严格 allowlist 和 fixed-head CI；
 - 不部署、不访问 Provider、不把本地假数据证据写成生产证据。
-

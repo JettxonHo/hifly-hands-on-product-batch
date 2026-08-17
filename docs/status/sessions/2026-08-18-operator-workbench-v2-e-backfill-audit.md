@@ -12,7 +12,8 @@
 - V2-A/B/C/D 已进入基线；本轮以 V2 合同和已合并公开 browser seams 为准。
 - 同一 runtime/admin 的一级导航顺序一致；组织级生产任务索引不存在时“生产任务”继续隐藏。
 - 五阶段状态、唯一推荐动作、错误/冲突恢复和三视口层级未发现需要整体返工的漂移。
-- 发现两个后续最小回补候选：V2-E1（Projects/Project/Copy）与 V2-E2（Avatar/Plan）。主要问题是内部英文/ID 暴露、Projects 刷新作用域和 Plan Tab 语义，而不是领域状态或 API 错误。
+- 发现两个后续最小回补候选：V2-E1（Projects/Project/Copy）与 V2-E2（Avatar/Plan）。主要问题是内部英文/ID 暴露、Projects 刷新作用域，以及 Copy 与 Plan 都不完整的 Tab 键盘语义，而不是领域状态或 API 错误。
+- Avatar 的短文案 ID 位于任务上下文；`avatar_image`、`Evidence`、`verified capability`、`Organization` 主要位于可见管理员/事实区和部分 blocker。本审计按实际可见层级记录，不再把它们全部归入 task summary。
 
 ## 浏览器证据
 
@@ -51,6 +52,6 @@ Slice A/B 截图可证明假数据公开 seam 下的业务 DOM 与响应式行�
 ## 验证门禁
 
 - 本地 `npm run check`：通过，检查 `229` 个 JavaScript 文件。
-- 本地 `git diff --check`：通过。
+- 被审 head `188557689f6d91d71b46f03a3eda00ec1a49012f` 的 `git diff --check origin/main...HEAD` 实际因审计文档 EOF 多余空行失败；此前“通过”的记录不成立。本次修复删除该空行并重新验证，新 fixed head 的结果以 PR 证据为准。
 - 分支只允许 4 份文档；截图、临时依赖链接和一次性证据均不进入 Git。
 - fixed-head Ubuntu / Windows / identity-postgres CI 必须全部成功后，才可交由主控进行 acceptance review；CI 结果以 PR 固定 head 为准，不在提交前预写成功。
