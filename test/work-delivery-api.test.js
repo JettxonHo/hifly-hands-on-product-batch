@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { activateAdmin, identityApp, identityHeaders } from "./helpers/identity-world.js";
@@ -7,6 +8,8 @@ import { createWorkDeliveryService } from "../src/work-delivery/work-delivery-se
 
 function serviceDouble() {
   const calls = [];
+  const downloadBody = Buffer.from("fake-video");
+  const downloadChecksum = createHash("sha256").update(downloadBody).digest("hex");
   const work = { id: "work-api", status: "available", delivery_status: "pending_review", current_inspection: { id: "inspection-api", status: "pending", revision: 1 }, inspection_history: [], deliveries: [], delivery_count: 0 };
   const service = {
     calls,
@@ -15,8 +18,14 @@ function serviceDouble() {
     async markDeliverable(input) { calls.push({ method: "markDeliverable", input }); return { inspection: { id: "inspection-passed", status: "passed" }, work, replayed: false }; },
     async requestRework(input) { calls.push({ method: "requestRework", input }); return { inspection: { id: "inspection-rework", status: "rework_required" }, work, replayed: false }; },
     async createDelivery(input) { calls.push({ method: "createDelivery", input }); return { delivery: { id: "delivery-api" }, work, replayed: false }; },
-    async createDownloadAuthorization(input) { calls.push({ method: "download", input }); return { token: "short-token", expires_at: "2026-08-09T02:00:00.000Z" }; },
-    async downloadObject(input) { calls.push({ method: "downloadObject", input }); return { body: Buffer.from("fake-video"), contentType: "video/mp4" }; }
+    async createDownloadAuthorization(input) { calls.push({ method: "download", input }); return {
+      token: "short-token", expires_at: "2026-08-09T02:00:00.000Z", original_filename: "成品视频.mp4",
+      verified_content_type: "video/mp4", verified_size: downloadBody.length, verified_checksum_sha256: downloadChecksum
+    }; },
+    async downloadObject(input) { calls.push({ method: "downloadObject", input }); return {
+      body: downloadBody, original_filename: "成品视频.mp4", verified_content_type: "video/mp4",
+      verified_size: downloadBody.length, verified_checksum_sha256: downloadChecksum
+    }; }
   };
   return service;
 }
@@ -71,9 +80,39 @@ test("works routes are unavailable by default and enabled routes pass only serve
   const download = await enabled.app.inject({ method: "POST", url: "/api/works/work-api/download-authorizations", headers: mutation, payload: {} });
   assert.equal(download.statusCode, 201);
   assert.equal(download.json().download.url, "/api/works/work-api/downloads/short-token");
+  assert.equal(download.json().download.expires_at, "2026-08-09T02:00:00.000Z");
+  assert.deepEqual(download.json().download, {
+    url: "/api/works/work-api/downloads/short-token",
+    expires_at: "2026-08-09T02:00:00.000Z",
+    filename: "成品视频.mp4",
+    media_type: "video/mp4",
+    size: 10,
+    checksum_sha256: createHash("sha256").update("fake-video").digest("hex")
+  });
   const downloaded = await enabled.app.inject({ method: "GET", url: "/api/works/work-api/downloads/short-token", headers: read });
   assert.equal(downloaded.statusCode, 200);
   assert.equal(downloaded.headers["content-type"].startsWith("video/mp4"), true);
+  assert.match(downloaded.headers["content-disposition"], /^attachment; filename="download"; filename\*=UTF-8''/);
+  assert.match(downloaded.headers["content-disposition"], /%E6%88%90%E5%93%81%E8%A7%86%E9%A2%91\.mp4$/);
+  assert.equal(createHash("sha256").update(downloaded.rawPayload).digest("hex"), download.json().download.checksum_sha256);
+});
+
+test("works download content disposition cannot inject headers through a verified filename", async (t) => {
+  const service = serviceDouble();
+  service.downloadObject = async () => ({
+    body: Buffer.from("safe"), original_filename: "季度\r\nX-Injected: yes\\\"'()*.mp4",
+    verified_content_type: "video/mp4", verified_size: 4,
+    verified_checksum_sha256: createHash("sha256").update("safe").digest("hex")
+  });
+  const enabled = await identityApp(t, { workDelivery: { enabled: true, service, worker: { autoStart: false } } });
+  const auth = await activateAdmin(enabled.app);
+  const response = await enabled.app.inject({ method: "GET", url: "/api/works/work-api/downloads/short-token",
+    headers: identityHeaders({ cookies: auth.cookies }) });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["x-injected"], undefined);
+  assert.equal(/[\r\n]/.test(response.headers["content-disposition"]), false);
+  assert.match(response.headers["content-disposition"], /filename="download"/);
+  assert.match(response.headers["content-disposition"], /filename\*=UTF-8''%E5%AD%A3%E5%BA%A6X-Injected%3A%20yes_%22%27%28%29%2A\.mp4$/);
 });
 
 test("works routes keep validation and conflict errors distinguishable", async (t) => {

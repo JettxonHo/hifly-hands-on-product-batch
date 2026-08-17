@@ -78,9 +78,9 @@
 - Issue #176 / PR #177 已将 V2-A shared IA/content/control foundation 合并进入 `main`。仓库企业壳层已统一
   一级导航顺序、五阶段标签、V2 中文词典、刷新作用域及 opt-in 审计/技术详情原语；全局“生产任务”在组织级
   真实索引 gate 通过前继续隐藏。未迁移页面与显式 legacy `/index.html` 不受共享样式影响。
-- Issue #178 是 V2-B Production Task Flow 的实现与 acceptance gate。本节只有随其 acceptance PR 进入 `main`
-  后，才表示 Production 仓库页面已采用逐单业务摘要、完整工单/交接包/执行/A12/Work 状态矩阵、唯一推荐下一步、
-  完整 bootstrap 恢复以及默认折叠的 Cloud Executor/attempt/handoff 技术详情；不代表已部署或真实生产采用。
+- Issue #178 / PR #179 已将 V2-B Production Task Flow 合并进入 `main`。Production 仓库页面已采用逐单业务摘要、
+  完整工单/交接包/执行/A12/Work 状态矩阵、唯一推荐下一步、完整 bootstrap 恢复，以及默认折叠的
+  Cloud Executor/attempt/handoff 技术详情；这不代表已部署或真实生产采用。
 - Production 仅在当前商品零工单且上游 gate 允许时开放“创建生产工单”；任一已有工单（含 claimed/running、
   failed/requires_action、已交付但未完成真实字节验收）都会真实禁用两个创建入口。Work 的 `pending_review`、
   `rework_required`、`deliverable`、`delivered` 均按控制面同名状态进入作品库对应动作，不回落成生产门禁错误，
@@ -90,6 +90,9 @@
   启停命令，也不把 `worker.connection=online` 或 `readiness.status=available` 单独解释成可安全领取。
 - 固定实施顺序为：V2-A shared IA/content/control foundation → Production → Works → Assets，最后仅在证据
   需要时回补 Slice A/B；每片仍须独立 Issue、Draft PR、公开浏览器回归和 Review。
+- Issue #180 是 V2-C Works Review and Delivery 的实现与 acceptance gate。只有对应 PR 合并进入 `main`，才表示
+  作品库仓库页面完成列表/预览层级、四种业务状态、终态动作收敛、显式追加交付、移动端列表/详情分层，以及
+  服务端授权的文件名、媒体类型、大小、校验值与真实字节下载合同；这仍不等于部署、客户采用或生产下载验收。
 - Production 的企业 Web/API 当前只提供 `GET /api/cloud-executor/status` 只读状态；Worker 启停继续由获授权运维在
   既有部署控制面执行。V2 页面不得向组织用户推荐不存在的“启动工单/Worker”命令；未来若要 Web 启停必须另过
   Product/API、安全授权和审计 gate。
@@ -250,9 +253,9 @@
 
 ## 下一步
 
-1. Slice A/B、V2 独立设计合同与 V2-A shared IA/content/control foundation 均已合并但尚未部署；Issue #178
-   的 acceptance PR 是 Production 进入 `main` 的门禁。之后继续按 Works → Assets → 必要时回补 A/B 逐片实施；
-   不得把设计、仓库浏览器回归或 CI 写成生产采用。
+1. Slice A/B、V2 独立设计合同、V2-A shared foundation 与 V2-B Production 均已合并但尚未部署；Issue #180
+   是 V2-C Works 进入 `main` 的 acceptance gate。之后继续按 Assets → 必要时回补 A/B 逐片实施；不得把设计、
+   仓库浏览器回归或 CI 写成生产采用。
 2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
