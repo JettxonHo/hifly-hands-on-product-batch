@@ -75,6 +75,64 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   await taskSummary.getByText("填写制作说明并创建方案", { exact: true }).waitFor();
   await page.locator("#firstInstructions").fill("竖版种草口播，突出保湿体验与使用场景。"); await page.getByRole("button", { name: "创建视频方案" }).click();
   await page.getByText("方案 v1", { exact: true }).first().waitFor();
+  assert.equal(await page.locator("#taskContext").textContent(), "秋季视频方案 · 云感保湿乳");
+  assert.doesNotMatch((await taskSummary.textContent()) || "", /copy-app|selectio/,
+    "Primary task context must not expose shortened upstream identifiers");
+  assert.doesNotMatch((await page.locator("#contextSummary").textContent()) || "", /copy-app|selectio/,
+    "Primary product context must not expose shortened upstream identifiers");
+  const upstreamCards = page.locator("#upstreamCards .upstream-card");
+  assert.deepEqual(await upstreamCards.locator("strong").allTextContents(), ["商品快照", "文案已人工批准", "人物已确认"]);
+  assert.doesNotMatch((await page.locator("#upstreamCards").textContent()) || "", /copy-app|selectio/,
+    "Upstream cards must not expose shortened upstream identifiers");
+  const technicalDetails = page.locator("details.operator-technical-details");
+  assert.equal(await technicalDetails.getAttribute("open"), null, "Upstream technical details should remain folded by default");
+  await technicalDetails.locator("summary").click();
+  for (const [label, value] of [[
+    "product_revision_id", revision.id
+  ], [
+    "copy_version_id", "copy-approved"
+  ], [
+    "avatar_selection_id", "selection-confirmed"
+  ], [
+    "avatar_asset_version_id", "avatar-version"
+  ]]) {
+    assert.equal(await technicalDetails.getByText(label, { exact: true }).count(), 1, `Technical details should label ${label}`);
+    assert.equal(await technicalDetails.getByText(value, { exact: true }).count(), 1, `Technical details should preserve ${label}`);
+  }
+  await technicalDetails.locator("summary").click();
+  const decisionTabs = page.getByRole("tablist");
+  assert.equal(await decisionTabs.count(), 1, "Plan should expose one decision tablist");
+  const tabs = decisionTabs.getByRole("tab");
+  assert.equal(await tabs.count(), 2, "Plan should expose preflight and review tabs");
+  for (const [tabId, panelId] of [["showPreflight", "preflightPanel"], ["showReview", "reviewPanel"]]) {
+    const tab = page.locator(`#${tabId}`), panel = page.locator(`#${panelId}`);
+    assert.equal(await tab.getAttribute("aria-controls"), panelId, `${tabId} should point to its panel`);
+    assert.equal(await tab.getAttribute("aria-selected"), tabId === "showPreflight" ? "true" : "false");
+    assert.equal(await panel.getAttribute("role"), "tabpanel", `${panelId} should be a tabpanel`);
+    assert.equal(await panel.getAttribute("aria-labelledby"), tabId, `${panelId} should point back to its tab`);
+  }
+  assert.equal(await decisionTabs.locator("[role='tab'][tabindex='0']").count(), 1, "Exactly one Plan tab should be the keyboard entry point");
+  const assertTabState = async (tabId, panelId, otherTabId, otherPanelId) => {
+    assert.equal(await page.locator(`#${tabId}`).getAttribute("aria-selected"), "true");
+    assert.equal(await page.locator(`#${otherTabId}`).getAttribute("aria-selected"), "false");
+    assert.equal(await page.locator(`#${panelId}`).isVisible(), true);
+    assert.equal(await page.locator(`#${otherPanelId}`).isVisible(), false);
+    assert.equal(await page.evaluate(() => document.activeElement?.id), tabId);
+    assert.equal(await decisionTabs.locator("[role='tab'][tabindex='0']").count(), 1);
+    assert.equal(await decisionTabs.locator("[role='tab'][tabindex='0']").getAttribute("id"), tabId);
+  };
+  await page.locator("#showReview").click();
+  await assertTabState("showReview", "reviewPanel", "showPreflight", "preflightPanel");
+  await page.locator("#showReview").press("ArrowLeft");
+  await assertTabState("showPreflight", "preflightPanel", "showReview", "reviewPanel");
+  await page.locator("#showPreflight").press("ArrowRight");
+  await assertTabState("showReview", "reviewPanel", "showPreflight", "preflightPanel");
+  await page.locator("#showReview").press("Home");
+  await assertTabState("showPreflight", "preflightPanel", "showReview", "reviewPanel");
+  await page.locator("#showPreflight").press("End");
+  await assertTabState("showReview", "reviewPanel", "showPreflight", "preflightPanel");
+  await page.locator("#showPreflight").click();
+  await assertTabState("showPreflight", "preflightPanel", "showReview", "reviewPanel");
   await taskSummary.getByText("开始预检", { exact: true }).waitFor();
   assert.equal(await page.locator("#planWorkspace").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length), 3);
   await page.locator("#outputInstructions").fill("尚未保存的新制作说明");
@@ -101,7 +159,7 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   await taskSummary.getByText("提交方案审核", { exact: true }).waitFor();
   assert.equal(await taskSummary.getByText("方案已批准", { exact: true }).count(), 0);
 
-  await page.getByRole("button", { name: "审核", exact: true }).click(); await page.getByRole("button", { name: "提交方案审核" }).click();
+  await page.getByRole("tab", { name: "审核", exact: true }).click(); await page.getByRole("button", { name: "提交方案审核" }).click();
   await page.getByRole("dialog", { name: "提交方案审核" }).getByRole("button", { name: "确认提交" }).click();
   await page.getByText("审核中", { exact: true }).first().waitFor();
   await taskSummary.getByText("方案待人工决策", { exact: true }).waitFor();

@@ -14,7 +14,7 @@
     avatar_version_unavailable: "人物版本暂不可用，请联系管理员",
     authorization_expired: "人物授权已失效，请联系管理员更新授权",
     authorization_incomplete: "人物授权信息不完整，请联系管理员补全",
-    capability_evidence_missing: "人物生产能力缺少 Evidence，当前不承诺支持",
+    capability_evidence_missing: "人物生产能力缺少能力依据，当前不承诺支持",
     organization_use_not_authorized: "当前企业没有此人物的使用授权",
     avatar_materials_unavailable: "人物必要素材暂不可访问，请联系管理员"
   };
@@ -104,7 +104,7 @@
         next: "联系管理员登记或恢复可用人物", blocker: "当前企业没有可浏览的人物版本。", action: null };
     } else if (!selectedAvatar.gate.can_confirm) {
       task = { title: "当前人物暂不可确认", description: `已选中 ${selectedAvatar.display_name}，但门禁未满足。`, status: "人物受阻", statusClass: "blocked",
-        next: "选择其他可确认人物", blocker: reasonLabels[firstReason] || "当前人物的资产、授权、Evidence 或素材不可用于新确认。", action: null };
+        next: "选择其他可确认人物", blocker: reasonLabels[firstReason] || "当前人物的资产、授权、能力依据或素材不可用于新确认。", action: null };
     } else if (!current) {
       task = { title: "确认当前商品的人物", description: `已选中 ${selectedAvatar.display_name}，确认后会留下可审计记录。`, status: "待确认", statusClass: "draft",
         next: "确认此人物", blocker: "", action: element("#confirmAvatar") };
@@ -169,7 +169,7 @@
     window.HiflyOperatorStages.set(["#productionStageLink", "#mobileProductionStageLink"], runtime.productionOrdersEnabled ? "available" : "blocked");
     element("#copyApprovalState").className = `state ${approved ? "approved" : "blocked"}`;
     element("#copyApprovalState").textContent = approved ? "文案已批准" : "文案批准不可用";
-    element("#copyApprovalMeta").textContent = copyVersionId ? `当前文案 ${copyVersionId.slice(0, 8)}` : "可浏览，确认前需批准文案";
+    element("#copyApprovalMeta").textContent = approved ? "当前文案已人工批准" : "可浏览，确认前需人工批准文案";
     updateLocation();
   }
 
@@ -229,6 +229,13 @@
     element("#avatarSeed").textContent = selectedAvatar.seed_label;
     element("#avatarMaterialState").textContent = selectedAvatar.materials_accessible ? `可访问 · ${selectedAvatar.material_status || "available"}` : `不可访问 · ${selectedAvatar.material_status || "unavailable"}`;
     element("#avatarCategoryTags").textContent = selectedAvatar.category_tags?.length ? selectedAvatar.category_tags.join("、") : "未设置";
+    element("#avatarAuditCopyVersionId").textContent = copyVersionId || "未提供";
+    element("#avatarAuditAssetId").textContent = selectedAvatar.id || "未提供";
+    element("#avatarAuditAssetVersionId").textContent = selectedAvatar.asset_version?.id || "未提供";
+    element("#avatarAuditCapabilityCode").textContent = selectedAvatar.verified_capabilities?.map((item) => item.code).filter(Boolean).join("、") || "未提供";
+    element("#avatarAuditEvidenceReference").textContent = selectedAvatar.verified_capabilities?.map((item) => item.evidence_reference).filter(Boolean).join("、") || "未提供";
+    element("#avatarAuditAuthorizationScope").textContent = selectedAvatar.authorization_scope || "未提供";
+    element("#avatarAuditSourceCode").textContent = selectedAvatar.source_type || "未提供";
     const recommendation = selectedAvatar.recommendation || { recommended: false, reason: "当前没有推荐说明。" };
     const recommendationNotice = element("#avatarRecommendation");
     recommendationNotice.className = `avatar-recommendation ${recommendation.recommended ? "recommended" : "not-recommended"}`;
@@ -277,7 +284,7 @@
       ["文案批准仍有效", !reasons.includes("approved_copy_missing") && !reasons.includes("copy_version_changed"), reasonLabels[reasons.find((value) => ["approved_copy_missing","copy_version_changed"].includes(value))]],
       ["人物资产版本可用", !reasons.some((value) => ["avatar_asset_unavailable","avatar_version_unavailable"].includes(value)), "人物资产暂不可用，请联系管理员"],
       ["人物授权有效", !reasons.some((value) => value.startsWith("authorization_")), reasonLabels[reasons.find((value) => value.startsWith("authorization_"))]],
-      ["能力已有 Evidence 支持", !reasons.includes("capability_evidence_missing"), reasonLabels.capability_evidence_missing],
+      ["能力依据已提供", !reasons.includes("capability_evidence_missing"), reasonLabels.capability_evidence_missing],
       ["当前企业有权使用", !reasons.includes("organization_use_not_authorized"), reasonLabels.organization_use_not_authorized],
       ["必要素材可访问", !reasons.includes("avatar_materials_unavailable"), reasonLabels.avatar_materials_unavailable]
     ];
@@ -406,7 +413,7 @@
       }) });
       await loadWorkspace({ keepSelection: true });
       selectedAvatar = workspace.catalog.find((item) => item.id === result.avatar.id) || selectedAvatar;
-      render(); element("#enterpriseAvatarForm").reset(); setNotice(element("#enterpriseAvatarStatus"), "企业人物已登记；生产能力仅按明确 Evidence 展示。", "success");
+      render(); element("#enterpriseAvatarForm").reset(); setNotice(element("#enterpriseAvatarStatus"), "企业人物已登记；生产能力仅按明确能力依据展示。", "success");
     } catch (error) {
       if (error.message !== "AUTH_REQUIRED") setNotice(element("#enterpriseAvatarError"), error.message === "AVATAR_MATERIAL_VERIFICATION_TIMEOUT" ? "图片核验超时，请稍后刷新素材状态。" : "人物上传或登记未完成，请检查信息后重试。", "error");
     } finally { adminSubmitting = false; element("#registerEnterpriseAvatar").disabled = false; renderDetail(); }

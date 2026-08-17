@@ -102,6 +102,41 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   await taskSummary.getByText("人物 · 3/5", { exact: true }).waitFor();
   await taskSummary.getByText("确认此人物", { exact: true }).waitFor();
   await page.getByText("Phase 1 受控预置", { exact: true }).first().waitFor();
+  const visibleBusinessText = await page.evaluate(() => {
+    const container = document.createElement("div");
+    for (const selector of ["#taskSummary", "#productContext", "#avatarWorkspace"]) {
+      const node = document.querySelector(selector);
+      if (!node) continue;
+      const copy = node.cloneNode(true);
+      copy.querySelectorAll("[hidden]").forEach((hidden) => hidden.remove());
+      copy.querySelectorAll("details:not([open])").forEach((details) => details.remove());
+      container.append(copy);
+    }
+    return container.textContent;
+  });
+  assert.doesNotMatch(visibleBusinessText, /copy-app\b/i, "Main business content must not expose a shortened copy version ID");
+  assert.doesNotMatch(visibleBusinessText, /avatar_image|Evidence|verified capability|Organization/i,
+    "Main business content must not expose internal asset, evidence, capability, or organization labels");
+  assert.match(visibleBusinessText, /当前企业/);
+  assert.match(visibleBusinessText, /已验证能力/);
+  assert.equal(await page.locator("#avatarAuditDetails").getAttribute("open"), null,
+    "Technical and audit details must be opt-in and folded by default");
+  await page.locator("#avatarAuditDetails > summary").click();
+  const auditText = await page.locator("#avatarAuditDetails").innerText();
+  assert.match(auditText, /copy-approved/, "Audit details must preserve the full copy version ID");
+  assert.match(await page.locator("#avatarAuditAssetId").innerText(), /\S+/,
+    "Audit details must preserve the selected avatar asset ID when available");
+  assert.match(await page.locator("#avatarAuditAssetVersionId").innerText(), /\S+/,
+    "Audit details must preserve the selected avatar version ID");
+  assert.match(await page.locator("#avatarAuditCapabilityCode").innerText(), /\S+/,
+    "Audit details must preserve the raw capability code when available");
+  assert.match(await page.locator("#avatarAuditEvidenceReference").innerText(), /\S+/,
+    "Audit details must preserve the evidence reference when available");
+  assert.match(await page.locator("#avatarAuditAuthorizationScope").innerText(), /\S+/,
+    "Audit details must preserve the authorization scope when available");
+  assert.match(await page.locator("#avatarAuditSourceCode").innerText(), /\S+/,
+    "Audit details must preserve the source code");
+  await page.locator("#avatarAuditDetails > summary").click();
   assert.equal(await page.locator("#factsStageLink").getAttribute("data-stage-state"), "available");
   assert.equal(await page.locator("#copyStageLink").getAttribute("data-stage-state"), "completed");
   assert.equal(await page.locator('.stage-desktop [aria-current="step"]').getAttribute("data-stage-state"), "current");
@@ -146,7 +181,7 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
 
   await page.locator("#productSelector").selectOption(secondProduct.id);
   await page.waitForURL((current) => current.searchParams.get("product") === secondProduct.id && current.searchParams.get("copy") === "copy-second");
-  await page.getByText("当前文案 copy-sec").waitFor();
+  await page.getByText("当前文案已人工批准", { exact: true }).waitFor();
   await taskSummary.getByText("秋季人物选择 · 轻盈防晒霜", { exact: true }).waitFor();
   await taskSummary.getByText("确认此人物", { exact: true }).waitFor();
   await page.getByRole("button", { name: /林小满/ }).click();
@@ -232,6 +267,7 @@ test("avatar admin GUI registers verified material and members remain read-only"
   await page.locator("#enterpriseAvatarAdmin").waitFor({ state: "visible" });
   await page.locator("#enterpriseAvatarFile").setInputFiles(avatarPath);
   await page.locator("#enterpriseAvatarName").fill("GUI 企业人物"); await page.locator("#enterpriseAvatarDescription").fill("由管理员登记的人物素材");
+  await page.getByText("技术选项：能力依据", { exact: true }).click();
   await page.locator("#enterpriseAvatarTags").fill(" 美妆，护肤， 美妆 "); await page.locator("#enterpriseAvatarCapabilityCode").fill("hands_on_product");
   await page.locator("#enterpriseAvatarCapabilityLabel").fill("手持商品图"); await page.locator("#enterpriseAvatarCapabilityEvidence").fill("gui:evidence:1");
   await page.getByRole("button", { name: "上传、核验并登记" }).click();
@@ -239,7 +275,11 @@ test("avatar admin GUI registers verified material and members remain read-only"
   await page.getByRole("button", { name: /GUI 企业人物/ }).click();
   await page.getByText(/可访问 · available/).waitFor(); await page.getByText("美妆、护肤").waitFor();
   await page.getByText("✓ 手持商品图", { exact: true }).waitFor();
-  assert.equal(await page.getByText(/gui:evidence:1/).count(), 0);
+  const adminAudit = page.locator("#avatarAuditDetails");
+  assert.equal(await adminAudit.getAttribute("open"), null);
+  assert.equal(await adminAudit.getByText(/gui:evidence:1/).isVisible(), false);
+  await adminAudit.locator("summary").click();
+  await adminAudit.getByText(/gui:evidence:1/).waitFor();
   page.once("dialog", (dialog) => dialog.accept()); await page.getByRole("button", { name: "禁用企业人物" }).click();
   await page.getByText("企业人物已禁用；历史选择仍保留。", { exact: true }).waitFor();
   assert.equal(await page.locator("#disableAvatar").isHidden(), true);

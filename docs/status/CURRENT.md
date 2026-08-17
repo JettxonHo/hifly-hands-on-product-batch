@@ -98,12 +98,11 @@
   图片上传与临时下载授权、乐观冲突和组织权限语义。素材用途、业务关联、缩略图、搜索和分页没有现成 API 真值，
   不由前端推断。该仓库实现仍未获得独立部署和运行时验收。
 - Issue #184 / PR #185 已完成 V2-E 回补审计并进入 `main`。审计证据不支持全站返工，只接受两个严格串行的
-  最小回补：V2-E1（Projects/Project/Copy 的业务中文、刷新作用域
-  与 Copy Tab 键盘语义）和 V2-E2（Avatar/Plan 的业务中文、技术详情层级与 Plan Tab 键盘语义）。Avatar 的短 ID
-  位于任务上下文，内部英文主要位于可见管理员/事实区和部分阻断文案，不应笼统写成全部属于主任务层。
-  Issue #186 是 V2-E1 的独立实现与 acceptance gate；本节随其实现 PR 进入 `main` 时，只证明仓库中的 Projects、
-  Project 与 Copy 已完成该最小回补，不代表已部署或客户采用。V2-E2 必须等待 V2-E1 合并后再由独立 Issue 启动；
-  若展示修复需要改变存储/API 真值，必须先停在 Product/API gate。
+  最小回补：V2-E1（Projects/Project/Copy 的业务中文、刷新作用域与 Copy Tab 键盘语义）已通过 Issue #186 / PR #187
+  合并；V2-E2 由 Issue #188 作为 Avatar/Plan 业务中文、技术详情层级与 Plan Tab 键盘语义的独立 acceptance gate。
+  V2-E2 只在实现 PR 合并进入 `main` 后才计为仓库实现完成，且不代表已部署或客户/Provider 采用。Avatar 的内部 ID、
+  原始代码和能力依据引用只移入折叠审计详情，Plan 只使用现有 API 可证明的商品与业务状态；未新增或猜测业务名称。
+  若展示修复需要改变存储/API 真值，必须停在 Product/API gate。
 - Production 的企业 Web/API 当前只提供 `GET /api/cloud-executor/status` 只读状态；Worker 启停继续由获授权运维在
   既有部署控制面执行。V2 页面不得向组织用户推荐不存在的“启动工单/Worker”命令；未来若要 Web 启停必须另过
   Product/API、安全授权和审计 gate。
@@ -264,9 +263,9 @@
 
 ## 下一步
 
-1. Slice A/B、V2 独立设计合同、V2-A～V2-D 与 V2-E 审计均已合并但尚未部署。Issue #186 是 V2-E1
-   Projects/Project/Copy 最小回补的独立 acceptance gate；只有随实现 PR 合并进入 `main` 才计为仓库实现完成，
-   V2-E2 仍须等待并另行启动。不得把设计、仓库浏览器回归或 CI 写成生产采用。
+1. Slice A/B、V2 独立设计合同、V2-A～V2-D、V2-E 审计与 V2-E1 均已合并但尚未部署。Issue #188 是 V2-E2
+   Avatar/Plan 最小回补的独立 acceptance gate；只有随实现 PR 合并进入 `main` 才计为仓库实现完成。不得把设计、
+   仓库浏览器回归或 CI 写成生产采用。
 2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
