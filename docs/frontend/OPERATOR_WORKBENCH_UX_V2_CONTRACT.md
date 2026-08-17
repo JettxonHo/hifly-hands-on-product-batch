@@ -184,8 +184,8 @@ Provider 验收。
 ### 9.1 不可破坏的逐单时序
 
 1. **每轮激活前**：Worker 关闭；只为当前 SKU 创建一个 ProductionOrder 和 `ready` handoff；全组织
-   eligible 必须严格等于 `[currentOrderId]`；当前工单 `attempts=[]` 且 active attempts=0。全部满足后才允许
-   启动 Worker，concurrency 保持 1。
+   eligible 必须严格等于 `[currentOrderId]`；当前工单 `attempts=[]` 且 active attempts=0。全部满足后，才由
+   获授权运维人员在既有部署控制面启用 Worker，concurrency 保持 1；企业 Web 页面不提供 Worker 启停命令。
 2. **执行期间**：不得创建或暴露下一条 eligible 工单，不显示虚假百分比或预计完成时间。
 3. **terminal 后**：立即关闭 Worker并恢复 fail-closed；attempt 历史必须保留。
 4. **failed / requires_action**：停止整批，不创建下一条，不自动重试、重新领取或再次生产。
@@ -197,12 +197,14 @@ Provider 验收。
 |---|---|---|---|---|
 | 无当前 approved Plan | 不可执行 | 返回视频方案处理阻断 | 查看上游版本 | 创建工单 |
 | approved Plan、无工单 | 可准备生产 | 创建生产工单 | 查看方案摘要 | 自动创建或启动 Worker |
-| 工单 draft、无 ready package | 交接资料未就绪 | 生成/准备交接包 | 查看 package 证据 | 暴露 eligible |
-| package generating | 正在准备交接资料 | 等待 | 刷新该 package | 重复生成 package |
-| package generation_failed | 交接资料准备失败 | 处理失败并按既有合同重试 | 查看安全错误详情 | 自动重试、启动 Worker |
-| package ready、激活前门禁未全绿 | 生产门禁未通过 | 查看并处理门禁 | 展开 Worker/eligible/attempt 证据 | 显示“可执行” |
-| 全部激活前门禁已证明 | 可执行 | 由获授权管理员启动当前单 | 查看门禁快照 | 同时准备下一单 |
-| waiting_for_executor | 等待执行器领取 | 等待 | 查看技术状态 | 重复领取/重建工单 |
+| 工单 `waiting_for_executor`、尚无交接包 | 交接资料未就绪 | 生成生产交接包 | 查看工单输入快照 | 暴露为可领取 |
+| 工单 `waiting_for_executor`、当前包 `generating` | 正在准备交接资料 | 等待 | 刷新当前交接包 | 重复生成交接包 |
+| 工单 `waiting_for_executor`、当前包 `generation_failed` | 交接资料准备失败 | 经人工确认重试交接包生成 | 查看安全错误详情 | 自动重试、启用 Worker |
+| 工单 `waiting_for_executor`、当前包 `expired` | 交接包下载授权已过期 | 重新获取下载授权，待包恢复 `ready` | 查看包版本与过期时间 | 领取过期包、创建下一单 |
+| 工单 `waiting_for_executor`、所选包 `superseded` 或 `revoked` | 当前交接包不可用 | 返回当前有效包；没有有效包时按既有入口重新生成 | 将该包只读列入历史 | 把历史包当 current、领取或下载 |
+| 工单 `waiting_for_executor`、当前包 `ready`，但当前工单已有 attempt、存在 active attempt、eligible 不是唯一当前工单，或上述运行门禁无法由页面投影或获授权运维证据证明 | 生产门禁未通过 | 查看门禁并等待获授权运维处理 | 展开 package/eligible/attempt 证据 | 显示“可执行”、创建下一单 |
+| 工单 `waiting_for_executor`、当前包 `ready`、当前工单 `attempts=[]` 且 active attempts=0；部署侧已核对 eligible 严格为 `[currentOrderId]`，但 `worker.connection=offline`，或 `readiness.status` 为 disabled、unconfigured、requires_login、storage_blocked、requires_action | 等待生产环境就绪 | 等待获授权运维在既有部署控制面完成排障并启用 Worker | 查看只读 Cloud 状态和门禁快照 | 向组织用户提供启停命令 |
+| 工单 `waiting_for_executor`、当前包 `ready`，且上述激活前门禁持续成立（eligible 严格为 `[currentOrderId]`、当前工单 `attempts=[]`、active attempts=0）；`worker.connection=online`、`readiness.status=available` 且尚未出现 claim | 等待执行器领取 | 等待 | 查看只读 Cloud 状态 | 重复领取、重建工单、创建下一单 |
 | claimed / running | 正在生成 | 等待 | 展开 attempt/heartbeat | 自动重试、创建下一单 |
 | cancel_requested | 正在取消 | 等待终态 | 查看取消证据 | 当作已取消 |
 | cancelled | 已取消 | 查看结果或按新授权重新规划 | 查看历史 attempt | 复用旧 attempt 自动重跑 |
@@ -214,8 +216,10 @@ Provider 验收。
 | Work available、未验证真实下载 | 待下载验收 | 执行获授权字节下载核验 | 查看 checksum | 创建下一单 |
 | Work available 且真实下载匹配 | 本单已完成 | 查看作品 | 查看完整审计链 | Worker 未关闭时准备下一单 |
 
-Cloud Executor、eligible、attempt 和 heartbeat 在门禁异常时可提升到阻断区域，其余时候进入技术详情。
-普通运营不通过基础设施卡片启动生产；执行授权和角色继续服从既有服务端合同。
+Cloud Executor、eligible、attempt 和 heartbeat 在门禁异常时可提升到阻断区域，其余时候进入技术详情。当前企业
+Web/API 只通过 `GET /api/cloud-executor/status` 提供只读状态，没有组织管理员启动 Worker 的业务命令。普通运营只
+等待获授权运维通过既有部署控制面启用或停止 Worker；若未来需要 Web 启停能力，必须另过 Product/API、安全授权与
+审计 gate，不能由本合同或前端按钮推断。执行授权和角色继续服从既有服务端合同。
 
 ## 10. Works 合同
 

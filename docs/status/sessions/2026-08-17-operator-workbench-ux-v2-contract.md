@@ -36,12 +36,19 @@
 3. 显式 `/index.html` 继续是本地/运维 legacy fallback，不进入企业导航，也不改变真实执行确认与积分门禁。
 4. 各页统一对象、业务状态、阻断、唯一下一步和折叠技术详情；中文词典明确区分自动检查、人工批准和技术证据。
 5. Production 使用完整时序状态矩阵，保留激活前 Worker off、唯一 eligible、当前工单零 attempt、active attempts=0、
-   terminal 关 Worker、失败停批且无自动重试、成功经 A12/Work/真实字节下载后才下一条。
+   terminal 关 Worker、失败停批且无自动重试、成功经 A12/Work/真实字节下载后才下一条。源码核对确认
+   `createProductionOrder()` 直接持久化 `waiting_for_executor`，`draft/ready` 只存在于 `status_history`；矩阵因此只使用
+   当前工单、交接包、attempt 和 Cloud readiness/claim 的可观察条件。交接包矩阵覆盖 `generating`、`ready`、
+   `generation_failed`、`expired`、`superseded` 和 `revoked`；只有 `ready` 包可被领取。
 6. Works 已交付终态以查看交付记录为主；追加交付是明确次级动作并新增审计记录，不能覆盖历史或成为默认主操作。
 7. Assets 可直接按 `product_image`、`avatar_image`、`work_video` 真实类型分组；用途、关联、缩略图、搜索和分页的
    数据缺口必须另过 Product/API gate，不由前端猜测。
 8. 原 Slice C 被 V2 严格串行切片吸收：shared IA/content/control foundation → Production → Works → Assets →
    必要时回补 Slice A/B。每片独立 Issue、Draft PR、公开浏览器回归和 Review，前一片合并后才开始下一片。
+9. 当前企业端只有 `GET /api/cloud-executor/status` 只读状态接口，没有组织管理员 Worker 启停命令；页面只能提示等待
+   获授权运维使用既有部署控制面。状态字段按投影区分 `worker.connection=offline/online` 与
+   `readiness.status=disabled/unconfigured/requires_login/storage_blocked/available/busy/requires_action`。未来 Web 启停须
+   单独通过 Product/API、安全授权与审计 gate。
 
 ## 4. 证据与验证
 

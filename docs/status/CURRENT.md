@@ -79,6 +79,9 @@
 - 固定顺序为：内部审计（已完成）→ 定向外部研究（已完成）→ V2 独立设计合同 acceptance → 严格串行实施。
   原 Slice C 不再照旧实施，由 V2 合同吸收为 shared IA/content/control foundation → Production → Works → Assets，
   最后仅在证据需要时回补 Slice A/B；每片仍须独立 Issue、Draft PR、公开浏览器回归和 Review。
+- Production 的企业 Web/API 当前只提供 `GET /api/cloud-executor/status` 只读状态；Worker 启停继续由获授权运维在
+  既有部署控制面执行。V2 页面不得向组织用户推荐不存在的“启动工单/Worker”命令；未来若要 Web 启停必须另过
+  Product/API、安全授权和审计 gate。
 
 ## P0.5 内部验收环境部署
 
