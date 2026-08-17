@@ -297,6 +297,16 @@ test("approved Plan with no order exposes one business-first Production recommen
   assert.equal((await page.locator("#orderStatus").textContent()).trim(), "等待执行");
   assert.equal((await page.locator("#packageStatus").textContent()).trim(), "未生成");
 
+  async function assertCreateOrderBlocked() {
+    for (const selector of ["#createOrderButton", "#createOrderEmpty"]) {
+      const control = page.locator(selector);
+      assert.equal(await control.isDisabled(), true, `${selector} must be disabled while an order exists`);
+      await control.evaluate((button) => button.click());
+      assert.equal(await createOrderDialog.isVisible(), false, `${selector} must not open a second-order dialog`);
+    }
+  }
+  await assertCreateOrderBlocked();
+
   assert.equal(await taskSummary.isVisible(), true, "waiting order with no handoff package must keep #productionTaskSummary visible");
   const waitingOrderSummaryText = await taskSummary.innerText();
   assert.match(waitingOrderSummaryText, /云感保湿乳/);
@@ -394,6 +404,24 @@ test("approved Plan with no order exposes one business-first Production recommen
   }
 
   cloudState = {
+    worker: { connection: "online", last_heartbeat_at: "2026-08-17T08:59:00.000Z" },
+    readiness: { status: "busy" },
+    worker_state: "busy",
+    current_order: { id: selectedOrderId, status: "claimed" },
+    current_attempt: { id: "attempt-v2-production", status: "claimed", progress_phase: "claimed", heartbeat_at: "2026-08-17T08:59:00.000Z" },
+    progress: { phase: "claimed", label: "已领取", updated_at: "2026-08-17T08:59:00.000Z" },
+    execution: { status: "pending" },
+    verification: { status: "not_started" },
+    work: null,
+    delivery: { status: "not_available" },
+    failure: null
+  };
+  await reloadCloudState(cloudState);
+  await assertCloudTaskSummary({ status: "正在生成", next: "等待" });
+  assert.notEqual(await page.locator("#claimManualExecution").getAttribute("data-recommended-action"), "true");
+  await assertCreateOrderBlocked();
+
+  cloudState = {
     worker: { connection: "online", last_heartbeat_at: "2026-08-17T09:00:00.000Z" },
     readiness: { status: "busy" },
     worker_state: "busy",
@@ -430,6 +458,7 @@ test("approved Plan with no order exposes one business-first Production recommen
   });
   const failedSummaryText = await assertCloudTaskSummary({ status: /人工处理.*整批已停|整批已停.*人工处理/, next: "处理当前阻断" });
   assert.match(failedSummaryText, /不会自动重试/);
+  await assertCreateOrderBlocked();
   for (const selector of ["#retryPackageButton", "#createOrderButton", "#createOrderEmpty"]) {
     assert.notEqual(await page.locator(selector).getAttribute("data-recommended-action"), "true");
   }
@@ -491,27 +520,26 @@ test("approved Plan with no order exposes one business-first Production recommen
   });
   await assertCloudTaskSummary({ status: "正在登记作品", next: "等待" });
 
-  await reloadCloudState({
-    ...cloudState,
-    verification: { status: "passed", job_id: "verification-v2-production" },
-    work: { id: "work-v2-production", status: "available", delivery_status: "pending_review", preview_available: true, download_available: true },
-    delivery: { status: "deliverable" },
-    failure: null
-  });
-  await assertCloudTaskSummary({ status: /^(待作品验收|待交付)$/, next: /(进入|查看).*(作品|交付)/, recommended: ["productionTaskAction"] });
-
-  await reloadCloudState({
-    ...cloudState,
-    verification: { status: "passed", job_id: "verification-v2-production" },
-    work: { id: "work-v2-production", status: "available", delivery_status: "delivered", preview_available: true, download_available: true },
-    delivery: { status: "delivered" },
-    failure: null
-  });
-  const deliveredSummaryText = await assertCloudTaskSummary({ status: /^(?!本单已完成).+$/, next: /(真实下载验收|查看作品)/,
-    recommended: { optional: true, ids: ["productionTaskAction"] } });
-  assert.doesNotMatch(deliveredSummaryText, /本单已完成/);
-  assert.notEqual(await page.locator("#createOrderButton").getAttribute("data-recommended-action"), "true");
-  assert.notEqual(await page.locator("#createOrderEmpty").getAttribute("data-recommended-action"), "true");
+  for (const projection of [
+    { deliveryStatus: "pending_review", status: "作品待检查", next: "进入作品库检查" },
+    { deliveryStatus: "rework_required", status: "作品需要返工", next: "查看返工要求" },
+    { deliveryStatus: "deliverable", status: "作品可交付", next: "进入作品库登记交付" },
+    { deliveryStatus: "delivered", status: "作品已交付，待真实下载验收", next: "查看交付记录并完成真实下载验收" }
+  ]) {
+    await reloadCloudState({
+      ...cloudState,
+      verification: { status: "passed", job_id: "verification-v2-production" },
+      work: { id: "work-v2-production", status: "available", delivery_status: projection.deliveryStatus, preview_available: true, download_available: true },
+      delivery: { status: projection.deliveryStatus },
+      failure: null
+    });
+    const workSummaryText = await assertCloudTaskSummary({ status: projection.status, next: projection.next,
+      recommended: "productionTaskAction" });
+    assert.doesNotMatch(workSummaryText, /本单已完成/);
+    await assertCreateOrderBlocked();
+    assert.notEqual(await page.locator("#createOrderButton").getAttribute("data-recommended-action"), "true");
+    assert.notEqual(await page.locator("#createOrderEmpty").getAttribute("data-recommended-action"), "true");
+  }
 
   const screenshotRoot = path.join(os.tmpdir(), "hifly-v2-b-production-screenshots");
   await mkdir(screenshotRoot, { recursive: true });

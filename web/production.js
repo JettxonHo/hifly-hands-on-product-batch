@@ -123,6 +123,12 @@
     const selector = element("#productSelector"); selector.replaceChildren(...project.products.map((item) => { const option = document.createElement("option"); option.value = item.id; option.textContent = item.revision.product_name || "未命名商品"; option.selected = item.id === product.id; return option; }));
   }
 
+  function canCreateOrder() {
+    return workspace?.gate?.can_create === true
+      && Boolean(workspace?.current_plan)
+      && (workspace?.orders || []).length === 0;
+  }
+
   function renderGate() {
     const reasons = workspace?.gate?.reasons || [];
     const plan = workspace?.current_plan;
@@ -131,9 +137,16 @@
     const summary = plan ? `文案 ${short(plan.upstream_snapshot?.copy_version_id)} · 人物 ${short(plan.upstream_snapshot?.avatar_selection_id)}` : "等待当前有效已批准方案";
     element("#planContextLink").textContent = plan ? "查看方案 →" : "返回视频方案 →"; element("#contextSummary").title = summary;
     if (runtime?.manualHandoffEnabled || runtime?.manualExecutionEnabled) notice(element("#executorNotice"), "历史人工执行与交接包入口仍保留在下方；生产主路径由 Cloud Executor 状态决定。", ""); else notice(element("#executorNotice"));
-    const createDisabled = !workspace.gate.can_create;
-    for (const selector of ["#createOrderButton", "#createOrderEmpty"]) { const button = element(selector); button.disabled = createDisabled; button.title = createDisabled ? (gateLabels[reasons[0]] || "当前条件不满足，无法创建工单") : ""; }
-    if (createDisabled) notice(element("#pageNotice"), reasons.map((reason) => gateLabels[reason] || "当前方案不可创建工单").join("；") + "。请返回视频方案处理。", "blocked"); else if (!element("#pageNotice").textContent || element("#pageNotice").classList.contains("blocked")) notice(element("#pageNotice"));
+    const createDisabled = !canCreateOrder();
+    const createBlockedByOrder = workspace.gate.can_create && (workspace.orders || []).length > 0;
+    for (const selector of ["#createOrderButton", "#createOrderEmpty"]) {
+      const button = element(selector);
+      button.disabled = createDisabled;
+      button.title = createDisabled
+        ? createBlockedByOrder ? "当前商品已有生产工单，请先完成当前工单验收" : (gateLabels[reasons[0]] || "当前条件不满足，无法创建工单")
+        : "";
+    }
+    if (!workspace.gate.can_create) notice(element("#pageNotice"), reasons.map((reason) => gateLabels[reason] || "当前方案不可创建工单").join("；") + "。请返回视频方案处理。", "blocked"); else if (!element("#pageNotice").textContent || element("#pageNotice").classList.contains("blocked")) notice(element("#pageNotice"));
   }
 
   function renderTaskSummary() {
@@ -144,7 +157,7 @@
     taskAction.hidden = true;
     taskAction.removeAttribute("href");
     const selectedOrder = workspace?.orders?.find((order) => order.id === selectedOrderId) || workspace?.selected_order || null;
-    const readyToCreate = workspace?.gate?.can_create === true && Boolean(workspace?.current_plan) && (workspace?.orders || []).length === 0;
+    const readyToCreate = canCreateOrder();
     const packageStatus = selectedOrder && runtime?.manualHandoffEnabled === true
       ? packages[0]?.status || (selectedOrder.status === "waiting_for_executor" ? "absent" : null)
       : null;
@@ -240,22 +253,20 @@
         element("#productionTaskDescription").textContent = "文件核验已通过，正在形成可验收作品。";
         status.textContent = "正在登记作品"; status.className = "state waiting_for_executor";
         element("#productionTaskNextStep").textContent = "等待";
-      } else if (cloudMatchesOrder && verificationStatus === "passed" && work?.id && deliveryStatus === "delivered") {
-        element("#productionTaskTitle").textContent = "作品已交付，等待真实下载验收";
-        element("#productionTaskDescription").textContent = "交付登记不等于真实文件下载已经验收。";
-        status.textContent = "作品已交付，待真实下载验收"; status.className = "state blocked";
-        element("#productionTaskNextStep").textContent = "查看作品并完成真实下载验收";
+      } else if (cloudMatchesOrder && verificationStatus === "passed" && work?.id && ["pending_review", "rework_required", "deliverable", "delivered"].includes(deliveryStatus)) {
+        const workStates = {
+          pending_review: { title: "作品等待检查", description: "作品文件已登记，需先完成内容检查。", status: "作品待检查", tone: "blocked", next: "进入作品库检查", action: "进入作品库检查 →" },
+          rework_required: { title: "作品需要返工", description: "检查已提出返工要求，当前工单不会自动重新生产。", status: "作品需要返工", tone: "blocked", next: "查看返工要求", action: "查看返工要求 →" },
+          deliverable: { title: "作品可以交付", description: "内容检查已通过，可以进入作品库登记交付。", status: "作品可交付", tone: "ready", next: "进入作品库登记交付", action: "进入作品库登记交付 →" },
+          delivered: { title: "作品已交付，等待真实下载验收", description: "交付登记不等于真实文件下载已经验收。", status: "作品已交付，待真实下载验收", tone: "blocked", next: "查看交付记录并完成真实下载验收", action: "查看交付记录并完成真实下载验收 →" }
+        };
+        const workState = workStates[deliveryStatus];
+        element("#productionTaskTitle").textContent = workState.title;
+        element("#productionTaskDescription").textContent = workState.description;
+        status.textContent = workState.status; status.className = `state ${workState.tone}`;
+        element("#productionTaskNextStep").textContent = workState.next;
         taskAction.href = `/works.html?work=${encodeURIComponent(work.id)}&project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
-        taskAction.textContent = "查看作品并完成真实下载验收 →";
-        taskAction.hidden = false;
-        taskAction.setAttribute("data-recommended-action", "true");
-      } else if (cloudMatchesOrder && verificationStatus === "passed" && work?.id && deliveryStatus === "deliverable") {
-        element("#productionTaskTitle").textContent = "作品等待验收与交付";
-        element("#productionTaskDescription").textContent = "作品文件已登记，可以进入作品库检查。";
-        status.textContent = "待作品验收"; status.className = "state blocked";
-        element("#productionTaskNextStep").textContent = "进入作品库检查与交付";
-        taskAction.href = `/works.html?work=${encodeURIComponent(work.id)}&project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
-        taskAction.textContent = "进入作品库检查与交付 →";
+        taskAction.textContent = workState.action;
         taskAction.hidden = false;
         taskAction.setAttribute("data-recommended-action", "true");
       } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "not_started") {
@@ -645,9 +656,9 @@
       showBootstrapError("当前生产工单读取失败，请刷新重试。");
     }
   }
-  function openCreateOrder() { if (!workspace.gate.can_create || creating) return; pendingCreateKey = null; element("#createOrderError").textContent = ""; element("#createOrderForm").reset(); renderDialogSnapshot(); element("#createOrderDialog").showModal(); }
+  function openCreateOrder() { if (!canCreateOrder() || creating) return; pendingCreateKey = null; element("#createOrderError").textContent = ""; element("#createOrderForm").reset(); renderDialogSnapshot(); element("#createOrderDialog").showModal(); }
   function renderDialogSnapshot() { const plan = workspace.current_plan, upstream = plan?.upstream_snapshot || {}; element("#dialogSnapshot").replaceChildren(...[["商品快照", short(upstream.product_revision_id)], ["已批准文案", short(upstream.copy_version_id)], ["已确认人物", short(upstream.avatar_selection_id)], ["视频方案", plan ? `v${plan.version_number}` : "未就绪"]].map(([label, value]) => { const row = document.createElement("div"); row.className = "dialog-snapshot-row"; const name = document.createElement("strong"); name.textContent = label; const meta = document.createElement("span"); meta.textContent = value; row.append(name, meta); return row; })); }
-  async function submitCreate(event) { event.preventDefault(); if (creating || !workspace.gate.can_create) return; const selected = document.querySelector("input[name=executionPurpose]:checked"); if (!selected) return; creating = true; const button = element("#confirmCreateOrder"); button.disabled = true; pendingCreateKey ||= crypto.randomUUID(); element("#createOrderError").textContent = "";
+  async function submitCreate(event) { event.preventDefault(); if (creating || !canCreateOrder()) return; const selected = document.querySelector("input[name=executionPurpose]:checked"); if (!selected) return; creating = true; const button = element("#confirmCreateOrder"); button.disabled = true; pendingCreateKey ||= crypto.randomUUID(); element("#createOrderError").textContent = "";
     try { const result = await request(`/api/products/${encodeURIComponent(product.id)}/production-orders`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": pendingCreateKey }, body: JSON.stringify({ video_plan_version_id: workspace.current_plan.id, execution_purpose: selected.value }) }); selectedOrderId = result.order.id; element("#createOrderDialog").close(); await loadWorkspace(); notice(element("#pageNotice"), result.replayed ? "创建请求已受理，已为你打开对应工单。" : "生产工单已创建，已提交 Cloud Executor 等待领取。", "success"); pendingCreateKey = null; }
     catch (error) { if (error.status === 409) element("#createOrderError").textContent = "创建信息已变化或请求已冲突，请刷新后重新确认。"; else if (error.status === 422) element("#createOrderError").textContent = (error.body?.reasons || []).map((reason) => gateLabels[reason] || "当前方案不可创建工单").join("；") || "当前方案不可创建工单，请返回视频方案处理。"; else element("#createOrderError").textContent = "创建未完成（技术原因），你的操作未生效；可以使用同一目的重试。"; }
     finally { creating = false; button.disabled = !document.querySelector("input[name=executionPurpose]:checked"); }

@@ -38,6 +38,15 @@
    “查看结果或按新授权重新规划”，不复用旧 attempt 自动重跑。
 6. 初次 Production project bootstrap 定向 fail-once 后，页面将“刷新当前工单”设为唯一推荐动作；点击重新执行
    完整 runtime/project/product/workspace bootstrap 并恢复。刷新失败不会制造第二个推荐动作。
+7. RED：第一张工单创建后，两个创建入口仍为 enabled，失败态和已交付但缺少真实字节验收时也可打开第二张工单
+   Dialog。GREEN：上游 gate、已批准方案与零工单共同决定创建能力；按钮、Dialog 和提交使用同一判断，任一已有工单
+   都保持禁用。
+8. RED：控制面的真实默认 Work 状态 `pending_review` 被显示为“生产门禁未通过”，原测试还构造了
+   `work.delivery_status=pending_review` 与 `delivery.status=deliverable` 的不可能组合。GREEN：测试改用一致投影，
+   `pending_review` / `rework_required` / `deliverable` / `delivered` 分别进入检查、返工、登记交付和交付记录/真实下载验收；
+   四态均不宣称“本单已完成”或开放下一单。
+9. 控制面真实 `claimed` 形状的公开 characterization：order/attempt 为 claimed、readiness busy、execution pending、
+   progress claimed 时显示“正在生成 / 等待”，无领取或激活建议，创建下一单仍禁用；现有实现已满足，无需制造代码改动。
 
 Cloud Executor、attempt、heartbeat、handoff、eligible 投影可用性和只读执行结果默认进入“技术与审计详情”；
 业务阻断仍在任务摘要中可见。作品入口由任务摘要提供，避免把推荐动作藏进折叠详情。
@@ -57,7 +66,7 @@ Cloud Executor、attempt、heartbeat、handoff、eligible 投影可用性和只�
 - Production focused 真实 Chrome：1/1 通过；直接受影响兼容组（V2-B、V2-A foundation、ProductionOrder、
   manual handoff、manual execution、A12 work verification）6/6 通过。
 - `npm run check`：229 个 JavaScript 文件通过。
-- 默认 `npm test`（设置本机 Chrome executable）：1024 tests，1010 pass，14 skip，0 fail，约 48.6 秒。
+- 审阅修复后的默认 `npm test`（设置本机 Chrome executable）：1024 tests，1010 pass，14 skip，0 fail，约 64.5 秒。
   其中 13 个 skip 是未提供测试数据库环境时的 PostgreSQL migration/repository 集成场景，另 1 个是必须显式设置
   `IDENTITY_BROWSER_SMOKE=1` 才运行的真实身份浏览器 smoke；它们不被记作本轮浏览器 GREEN。
 - `git diff --check` 和严格 allowlist 通过；固定 head 三组 CI 由 Draft PR 记录并作为主控 acceptance 证据。

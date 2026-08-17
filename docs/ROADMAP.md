@@ -57,6 +57,9 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
    实施 Works、Assets，最后只在证据需要时回补 Slice A/B。
    Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order 零 attempt 与 active attempts=0；
    terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经 A12、Work 和真实字节下载后才准备下一条。
+   页面仅在当前商品零工单且上游 gate 允许时开放创建；claimed/running/failed/requires_action 及未完成真实字节验收的
+   Work 都不得开放下一单。`pending_review` / `rework_required` / `deliverable` / `delivered` 必须按控制面真值进入
+   Works 对应检查、返工、交付或交付记录动作。
    企业 Web/API 只读取 Cloud Executor 状态，且当前没有组织级 eligible/active-attempt 前端投影，也不提供 Worker 启停命令；
    无法证明门禁时 Production 必须保持阻断，启停继续由获授权运维在既有部署控制面完成，
    未来 Web 启停能力须另过 Product/API、安全授权和审计 gate。Works 保留深链授权并收敛已交付终态，Assets 只展示

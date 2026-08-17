@@ -81,6 +81,10 @@
 - Issue #178 是 V2-B Production Task Flow 的实现与 acceptance gate。本节只有随其 acceptance PR 进入 `main`
   后，才表示 Production 仓库页面已采用逐单业务摘要、完整工单/交接包/执行/A12/Work 状态矩阵、唯一推荐下一步、
   完整 bootstrap 恢复以及默认折叠的 Cloud Executor/attempt/handoff 技术详情；不代表已部署或真实生产采用。
+- Production 仅在当前商品零工单且上游 gate 允许时开放“创建生产工单”；任一已有工单（含 claimed/running、
+  failed/requires_action、已交付但未完成真实字节验收）都会真实禁用两个创建入口。Work 的 `pending_review`、
+  `rework_required`、`deliverable`、`delivered` 均按控制面同名状态进入作品库对应动作，不回落成生产门禁错误，
+  也不在真实字节证明前宣称本单完成或开放下一单。
 - 当前 API 不提供组织级 `eligible=[currentOrderId]` 和 active attempts=0 的可验证前端投影。V2-B 因此在 `ready`
   交接包阶段保持“生产门禁未通过”，等待获授权运维在既有部署控制面核对；前端不拼装组织队列、不显示 Worker
   启停命令，也不把 `worker.connection=online` 或 `readiness.status=available` 单独解释成可安全领取。
