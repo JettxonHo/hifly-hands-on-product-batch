@@ -362,8 +362,8 @@ test("VSA-A14 main path completes from a fresh enterprise login to inspected and
   await operatorPage.getByRole("button", { name: "确认", exact: true }).click();
   await operatorPage.getByText(/已确认。$/).waitFor();
   await operatorPage.locator("#assetOptions input").check();
-  await operatorPage.getByRole("button", { name: "设为 Ready" }).click();
-  await operatorPage.getByText("商品快照已 Ready。", { exact: true }).waitFor();
+  await operatorPage.getByRole("button", { name: "设为资料已就绪", exact: true }).click();
+  await operatorPage.getByText("商品资料已设为就绪。", { exact: true }).waitFor();
   revisionId = new URL(operatorPage.url()).searchParams.get("revision");
   productId = (await operatorPage.evaluate(async (id) => (await (await fetch(`/api/projects/${id}`)).json()).project.products[0].id, projectId));
   assert.ok(productId);

@@ -15,6 +15,7 @@
   const returnCurrentButton = document.querySelector("#returnCurrentRevision");
   const loadLatestButton = document.querySelector("#loadLatestRevision");
   const copyLink = document.querySelector("#openCopyWorkspace");
+  const copyStageLinks = [document.querySelector("#copyStageLink"), document.querySelector("#mobileCopyStageLink")];
   const taskTitle = document.querySelector("#taskSummaryTitle");
   const taskContext = document.querySelector("#taskContext");
   const taskStatus = document.querySelector("#taskStatus");
@@ -28,7 +29,7 @@
   let rendering = false;
   let conflictProductId;
   let availableAssetVersionIds = new Set();
-  const revisionLabels = { draft: "草稿", ready: "已 Ready", superseded: "已被替代" };
+  const revisionLabels = { draft: "草稿", ready: "商品资料已就绪", superseded: "已被替代" };
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
 
   async function request(url, options = {}) {
@@ -109,17 +110,17 @@
     if (!revision) {
       setTask({ title: "创建第一个商品", status: "尚未开始", statusClass: "unavailable", saved: "无商品", next: "创建第一个商品", action: productOpener });
     } else if (dirty) {
-      setTask({ title: revision.product_name, status: revision.status === "ready" ? "已 Ready · 修改中" : "草稿", statusClass: "draft", saved: "有未保存修改", next: "保存当前修改", action: saveButton });
+      setTask({ title: revision.product_name, status: revision.status === "ready" ? "资料已就绪 · 修改中" : "草稿", statusClass: "draft", saved: "有未保存修改", next: "保存当前修改", action: saveButton });
     } else if (isHistoricalRevision(revision) || revision.status === "superseded") {
       setTask({ title: revision.product_name, status: "历史版本", statusClass: "superseded", saved: "只读版本", next: "回到当前版本", blocker: "该版本仅供追溯，不能继续修改。", action: returnCurrentButton.hidden ? null : returnCurrentButton });
     } else if (revision.status === "ready") {
-      setTask({ title: revision.product_name, status: "已 Ready", statusClass: "ready", saved: "已保存", next: runtime?.copyGenerationEnabled ? "进入文案与质检" : "等待文案功能启用", action: runtime?.copyGenerationEnabled ? copyLink : null });
+      setTask({ title: revision.product_name, status: "商品资料已就绪", statusClass: "ready", saved: "已保存", next: runtime?.copyGenerationEnabled ? "进入文案" : "等待文案功能启用", action: runtime?.copyGenerationEnabled ? copyLink : null });
     } else {
       const blockers = readyBlockers();
       if (blockers.length) {
-        setTask({ title: revision.product_name || "未命名商品", status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "补齐 Ready 条件", blocker: `${blockers.length} 项待处理：${blockers.join("、")}`, action: null });
+        setTask({ title: revision.product_name || "未命名商品", status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "补齐资料就绪条件", blocker: `${blockers.length} 项待处理：${blockers.join("、")}`, action: null });
       } else {
-        setTask({ title: revision.product_name, status: "草稿", statusClass: "draft", saved: "已保存", next: "检查并设为 Ready", action: readyButton });
+        setTask({ title: revision.product_name, status: "草稿", statusClass: "draft", saved: "已保存", next: "检查并设为资料已就绪", action: readyButton });
       }
     }
   }
@@ -129,6 +130,22 @@
     dirty = true;
     copyLink.hidden = true;
     refreshTask();
+  }
+
+  function syncStageLinks() {
+    const available = runtime?.copyGenerationEnabled === true && revision?.status === "ready" && !isHistoricalRevision(revision);
+    const href = available ? `/copy.html?project=${encodeURIComponent(projectId)}&revision=${encodeURIComponent(revision.id)}` : "";
+    window.HiflyOperatorStages.set(copyStageLinks, available ? "available" : "blocked");
+    for (const link of copyStageLinks) {
+      if (!link) continue;
+      if (available) {
+        link.href = href;
+        link.removeAttribute("aria-disabled");
+      } else {
+        link.removeAttribute("href");
+        link.setAttribute("aria-disabled", "true");
+      }
+    }
   }
 
   function pointRow(point = { text: "", confirmed: false }) {
@@ -184,6 +201,7 @@
     pointList.replaceChildren(...revision.selling_points.map(pointRow));
     copyLink.hidden = runtime?.copyGenerationEnabled !== true || revision.status !== "ready" || isHistoricalRevision(revision);
     copyLink.href = `/copy.html?project=${encodeURIComponent(projectId)}&revision=${encodeURIComponent(revision.id)}`;
+    syncStageLinks();
     const current = currentRevisionForProduct(revision.product_id);
     returnCurrentButton.hidden = !current || current.id === revision.id;
     notice.textContent = "";
@@ -213,7 +231,7 @@
       meta.className = "product-meta";
       const blockers = readyBlockers(item.revision);
       const readiness = item.revision.status === "draft"
-        ? (blockers.length ? `${blockers.length} 项待处理` : "可 Ready")
+        ? (blockers.length ? `${blockers.length} 项待处理` : "可设为资料已就绪")
         : null;
       meta.textContent = [`${revisionLabels[item.revision.status] || "状态待确认"} · v${item.revision.revision_number}`, readiness].filter(Boolean).join(" · ");
       button.append(name, meta);
@@ -257,6 +275,7 @@
       editor.hidden = true;
       revision = undefined;
       dirty = false;
+      syncStageLinks();
       syncRevisionUrl();
       copyLink.hidden = true;
       renderProducts();
@@ -330,7 +349,7 @@
       await loadProject(saved.id);
       await refreshAssets();
       notice.className = "notice success";
-      notice.textContent = revision.status === "ready" ? "当前 Ready 快照未变化。" : "草稿已保存。";
+      notice.textContent = revision.status === "ready" ? "当前已就绪资料未变化。" : "草稿已保存。";
       saveStatus.textContent = "已保存";
       return true;
     } catch (error) {
@@ -408,7 +427,7 @@
       const ready = (await request(`/api/product-revisions/${revision.id}/ready`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ expected_revision: revision.revision_number }) })).revision;
       await loadProject(ready.id);
       notice.className = "notice success";
-      notice.textContent = "商品快照已 Ready。";
+      notice.textContent = "商品资料已设为就绪。";
     } catch (error) {
       if (["ASSET_NOT_ACTIVE", "ASSET_VERSION_NOT_AVAILABLE"].includes(error.message)) {
         await refreshAssets();
@@ -419,12 +438,12 @@
         const labels = { PRODUCT_NAME_REQUIRED: "填写商品名称", SELLING_POINT_REQUIRED: "确认至少一条卖点", IMAGE_REQUIRED: "选择至少一张可引用图片" };
         const blocker = error.body.reasons.map((item) => labels[item.code]).join("、");
         notice.className = "notice blocked";
-        notice.textContent = `暂不能 Ready：${blocker}。`;
-        setTask({ title: revision.product_name, status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "补齐 Ready 条件", blocker, action: null });
+        notice.textContent = `暂不能设为资料已就绪：${blocker}。`;
+        setTask({ title: revision.product_name, status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "补齐资料就绪条件", blocker, action: null });
       } else {
         notice.className = "notice error";
-        notice.textContent = "Ready 操作失败，请稍后重试。";
-        setTask({ title: revision.product_name, status: "操作失败", statusClass: "failure", saved: "已保存", next: "重新设为 Ready", blocker: "Ready 操作未完成。", action: readyButton });
+        notice.textContent = "资料就绪操作失败，请稍后重试。";
+        setTask({ title: revision.product_name, status: "操作失败", statusClass: "failure", saved: "已保存", next: "重新设为资料已就绪", blocker: "资料就绪操作未完成。", action: readyButton });
       }
     }
   });

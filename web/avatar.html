@@ -29,14 +29,14 @@
         <main id="mainContent" class="page-content avatar-page-content">
           <div class="page-header">
             <div><p class="eyebrow"><a href="/projects.html">项目</a> / <a id="projectBreadcrumb" href="/projects.html">当前项目</a> / 人物与素材</p><h1>人物与素材</h1><p class="page-description">从已有公共或企业人物中浏览，并显式确认当前商品使用的人物。</p></div>
-            <div class="page-actions"><button id="refreshAvatar" class="secondary" type="button">刷新</button></div>
+            <div class="page-actions"><button id="refreshAvatar" class="secondary" type="button" data-refresh-scope="page">刷新人物工作区</button></div>
           </div>
 
           <section class="task-summary" aria-label="当前任务" aria-live="polite">
             <div class="task-summary-context"><p class="eyebrow">当前任务</p><h2 id="taskSummaryTitle">载入人物工作区</h2><p id="taskSummaryDescription">正在读取项目与商品</p></div>
             <dl class="task-summary-facts">
               <div><dt>当前上下文</dt><dd id="taskContext">正在读取项目与商品</dd></div>
-              <div><dt>所处步骤</dt><dd id="taskStage">人物与素材 · 3/5</dd></div>
+              <div><dt>所处步骤</dt><dd id="taskStage">人物 · 3/5</dd></div>
               <div><dt>业务状态</dt><dd id="taskStatus" class="state running">正在加载</dd></div>
               <div><dt>当前文案</dt><dd id="taskCopyStatus" class="state running">正在读取</dd></div>
               <div><dt>当前人物</dt><dd id="taskSelectionStatus" class="state running">正在读取</dd></div>
@@ -46,11 +46,11 @@
           </section>
 
           <nav class="stage-strip stage-desktop" aria-label="项目阶段">
-            <a id="factsStageLink" href="/projects.html"><span>✓</span>商品与目标</a>
-            <a id="copyStageLink" href="/copy.html"><span>✓</span>文案与质检</a>
-            <strong aria-current="step"><span>3</span>人物与素材</strong><a id="planStageLink" aria-disabled="true"><span>4</span>视频方案</a><a id="productionStageLink" aria-disabled="true"><b>5</b>生成与交付</a>
+            <a id="factsStageLink" href="/projects.html" data-stage-state="available"><span>1</span>商品资料</a>
+            <a id="copyStageLink" href="/copy.html" data-stage-state="available"><span>2</span>文案</a>
+            <strong aria-current="step" data-stage-state="current"><span>3</span>人物</strong><a id="planStageLink" aria-disabled="true" data-stage-state="blocked"><span>4</span>视频方案</a><a id="productionStageLink" aria-disabled="true" data-stage-state="blocked"><b>5</b>生产</a>
           </nav>
-          <details class="stage-mobile"><summary>阶段 3/5 · 人物与素材</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品与目标</a></li><li><a id="mobileCopyStageLink" href="/copy.html">文案与质检</a></li><li aria-current="step">人物与素材</li><li><a id="mobilePlanStageLink" aria-disabled="true">视频方案</a></li><li><a id="mobileProductionStageLink" aria-disabled="true">生成与交付</a></li></ol></details>
+          <details class="stage-mobile"><summary>阶段 3/5 · 人物</summary><ol><li data-stage-state="available"><a id="mobileFactsStageLink" href="/projects.html">商品资料</a></li><li data-stage-state="available"><a id="mobileCopyStageLink" href="/copy.html">文案</a></li><li aria-current="step" data-stage-state="current">人物</li><li data-stage-state="blocked"><a id="mobilePlanStageLink" aria-disabled="true">视频方案</a></li><li data-stage-state="blocked"><a id="mobileProductionStageLink" aria-disabled="true">生产</a></li></ol></details>
 
           <section class="product-context" aria-labelledby="productContextTitle">
             <label id="productContextTitle" for="productSelector">当前商品</label>
@@ -103,7 +103,7 @@
               <h3>可用性检查</h3><ul id="selectionGateList" class="selection-gate-list"></ul>
               <p id="selectionNotice" class="notice" role="status"></p>
               <div class="selection-actions"><button id="confirmAvatar" type="button" disabled>确认此人物</button><a id="nextPlanLink" class="button-link" aria-disabled="true">视频方案尚未开放</a></div>
-              <details class="selection-history"><summary id="selectionHistorySummary">历史选择（0）</summary><div id="selectionHistory"></div></details>
+              <details class="selection-history operator-audit-details"><summary id="selectionHistorySummary">历史选择（0）</summary><div id="selectionHistory"></div></details>
             </aside>
           </div>
         </main>

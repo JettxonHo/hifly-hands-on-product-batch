@@ -90,9 +90,9 @@
     } else if (reviewStatus === "approved") {
       const productionAvailable = runtime?.productionOrdersEnabled === true && workspace.production_order_available === true;
       task = productionAvailable
-        ? { title: "方案已批准", description: "当前 HumanReview 已批准方案。", status: "已批准", statusClass: "approved",
+        ? { title: "方案已批准", description: "当前人工审核已批准方案。", status: "已批准", statusClass: "approved",
           next: "进入生产工单", blocker: "", action: element("#createOrderLink") }
-        : { title: "方案已批准", description: "当前 HumanReview 已批准方案。", status: "已批准", statusClass: "approved",
+        : { title: "方案已批准", description: "当前人工审核已批准方案。", status: "已批准", statusClass: "approved",
           next: "等待生产工单能力开放", blocker: workspace.production_order_notice || "生产工单当前未开放。", action: null };
     } else if (reviewStatus === "pending") {
       task = { title: "方案待人工决策", description: `${preflightLabels[result.status]}不等于人工批准。`, status: "待人工审核", statusClass: "pending",
@@ -125,8 +125,8 @@
     const href = productionHref();
     for (const id of ["#productionStageLink", "#mobileProductionStageLink"]) {
       const link = element(id);
-      if (runtime?.productionOrdersEnabled === true) { link.href = href; link.removeAttribute("aria-disabled"); }
-      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); }
+      if (runtime?.productionOrdersEnabled === true) { link.href = href; link.removeAttribute("aria-disabled"); window.HiflyOperatorStages.set(link, "available"); }
+      else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); window.HiflyOperatorStages.set(link, "blocked"); }
     }
   }
   function links() {
@@ -136,6 +136,10 @@
     for (const id of ["#factsStageLink","#mobileFactsStageLink"]) element(id).href = facts;
     for (const id of ["#copyStageLink","#mobileCopyStageLink"]) element(id).href = copy;
     for (const id of ["#avatarStageLink","#mobileAvatarStageLink"]) element(id).href = avatar;
+    const upstream = workspace?.current_plan?.upstream_snapshot || {};
+    window.HiflyOperatorStages.set(["#factsStageLink", "#mobileFactsStageLink"], upstream.product_revision_id ? "completed" : "available");
+    window.HiflyOperatorStages.set(["#copyStageLink", "#mobileCopyStageLink"], upstream.copy_version_id ? "completed" : "available");
+    window.HiflyOperatorStages.set(["#avatarStageLink", "#mobileAvatarStageLink"], upstream.avatar_selection_id ? "completed" : "available");
     configureProductionLinks();
     const selector = element("#productSelector"); selector.replaceChildren(...project.products.map((item) => {
       const option = document.createElement("option"); option.value = item.id; option.textContent = item.revision.product_name || "未命名商品"; option.selected = item.id === product.id; return option;

@@ -56,10 +56,9 @@
   HumanReview approved 方案才进入“等待生产工单能力”状态。
 - 三页继续复用现有 vanilla HTML/CSS/JS、API、状态机、授权和审计证据；没有新增依赖、后端 seam 或自动终态。
   浏览器回归覆盖 1440/768/390、无页面级横向滚动、可见焦点与 reduced-motion；截图只写入临时目录且不入 Git。
-- Slice B 完成后的 successor gate 顺序已由 Owner 锁定：内部问题审计与定向外部研究均已完成；Issue #174
-  是 V2 独立设计合同的 acceptance gate。合同合并后才允许按严格串行切片实施。
-- 原 Slice C（Production/Works/Assets）不再照旧实施，已由 V2 proposal 吸收为 shared IA/content/control
-  foundation → Production → Works → Assets → 必要时回补 A/B。合同尚不等于实现、部署或客户采用。
+- Slice B 完成后的 successor gate 顺序已由 Owner 锁定：内部问题审计、定向外部研究和 Issue #174 的 V2
+  独立设计合同均已合并。实现必须继续按 shared IA/content/control foundation → Production → Works → Assets →
+  必要时回补 A/B 严格串行；设计合同不等于实现、部署或客户采用。
 
 ## 运营工作台 successor gate
 
@@ -74,11 +73,14 @@
 - Issue #172 已完成定向外部研究，`docs/frontend/OPERATOR_UX_TARGETED_EXTERNAL_RESEARCH.md` 已进入
   `main`。研究只回答内部审计的明确问题，并把外部模式分类为 adopt、adapt 或 reject；它不等于最终 IA、
   页面方案、实现、部署或生产采用。
-- Issue #174 是 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 的 acceptance gate。该合同只有随
-  acceptance PR 合并进入 `main` 后才计为 `designed`；合并也只表示设计获批，代码实现、部署和客户采用仍为独立门禁。
-- 固定顺序为：内部审计（已完成）→ 定向外部研究（已完成）→ V2 独立设计合同 acceptance → 严格串行实施。
-  原 Slice C 不再照旧实施，由 V2 合同吸收为 shared IA/content/control foundation → Production → Works → Assets，
-  最后仅在证据需要时回补 Slice A/B；每片仍须独立 Issue、Draft PR、公开浏览器回归和 Review。
+- Issue #174 已将 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 合并进入 `main`，V2 设计状态为
+  `designed`；这只表示设计获批，代码实现、部署和客户采用仍为独立门禁。
+- Issue #176 的 acceptance PR 是第一片 V2-A shared IA/content/control foundation 进入 `main` 的门禁。本节
+  只有随该 PR 进入 `main` 后，才表示仓库企业壳层已统一一级导航顺序、五阶段标签、V2 中文词典、刷新作用域及 opt-in
+  审计/技术详情原语；全局“生产任务”在组织级真实索引 gate 通过前继续隐藏。未迁移页面与显式 legacy
+  `/index.html` 不受共享样式影响，Production 业务状态矩阵、Works 和 Assets 的页面重构仍未开始。
+- 固定实施顺序为：V2-A shared IA/content/control foundation → Production → Works → Assets，最后仅在证据
+  需要时回补 Slice A/B；每片仍须独立 Issue、Draft PR、公开浏览器回归和 Review。
 - Production 的企业 Web/API 当前只提供 `GET /api/cloud-executor/status` 只读状态；Worker 启停继续由获授权运维在
   既有部署控制面执行。V2 页面不得向组织用户推荐不存在的“启动工单/Worker”命令；未来若要 Web 启停必须另过
   Product/API、安全授权和审计 gate。
@@ -239,9 +241,9 @@
 
 ## 下一步
 
-1. Slice A/B 已合并但尚未部署；内部问题审计和定向外部研究已进入 `main`。Issue #174 是 V2 独立设计合同的
-   acceptance gate；合同只有随 acceptance PR 合并才计为 `designed`。之后严格按 shared foundation → Production
-   → Works → Assets → 必要时回补 A/B 逐片实施；不得把设计、仓库浏览器回归或 CI 写成生产采用。
+1. Slice A/B 与 V2 独立设计合同均已合并但尚未部署；V2-A shared IA/content/control foundation 只有随 Issue #176
+   的 acceptance PR 进入 `main` 后才计为仓库实现完成。之后继续按 Production → Works → Assets → 必要时回补 A/B
+   逐片实施；不得把设计、仓库浏览器回归或 CI 写成生产采用。
 2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。

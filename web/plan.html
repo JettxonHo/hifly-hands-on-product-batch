@@ -14,7 +14,7 @@
       <aside class="app-sidebar"><a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a><nav class="app-nav" aria-label="主导航"><a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a><a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a><a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a></nav></aside>
       <div class="app-frame"><header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
         <main id="mainContent" class="page-content plan-page-content">
-          <div class="page-header"><div><p class="eyebrow"><a href="/projects.html">项目</a> / <a id="projectBreadcrumb" href="/projects.html">当前项目</a> / 视频方案</p><h1>视频方案</h1><p class="page-description">固定商品、已批准文案和已确认人物，完成预检后提交人工审核。</p></div><div class="page-actions"><button id="refreshPlan" class="secondary" type="button">刷新</button></div></div>
+          <div class="page-header"><div><p class="eyebrow"><a href="/projects.html">项目</a> / <a id="projectBreadcrumb" href="/projects.html">当前项目</a> / 视频方案</p><h1>视频方案</h1><p class="page-description">固定商品、已批准文案和已确认人物，完成预检后提交人工审核。</p></div><div class="page-actions"><button id="refreshPlan" class="secondary" type="button" data-refresh-scope="page">刷新视频方案</button></div></div>
           <section class="task-summary" aria-label="当前任务" aria-live="polite">
             <div class="task-summary-context"><p class="eyebrow">当前任务</p><h2 id="taskSummaryTitle">载入视频方案</h2><p id="taskSummaryDescription">正在读取项目与商品</p></div>
             <dl class="task-summary-facts">
@@ -28,8 +28,8 @@
             <div class="task-summary-next"><span>推荐下一步</span><strong id="taskNext">等待视频方案载入</strong></div>
             <p id="taskBlocker" class="task-summary-blocker" hidden></p>
           </section>
-          <nav class="stage-strip stage-desktop" aria-label="项目阶段"><a id="factsStageLink" href="/projects.html"><span>✓</span>商品与目标</a><a id="copyStageLink" href="/copy.html"><span>✓</span>文案与质检</a><a id="avatarStageLink" href="/avatar.html"><span>✓</span>人物与素材</a><strong aria-current="step"><span>4</span>视频方案</strong><a id="productionStageLink" aria-disabled="true"><b>5</b>生成与交付</a></nav>
-          <details class="stage-mobile"><summary>阶段 4/5 · 视频方案</summary><ol><li><a id="mobileFactsStageLink" href="/projects.html">商品与目标</a></li><li><a id="mobileCopyStageLink" href="/copy.html">文案与质检</a></li><li><a id="mobileAvatarStageLink" href="/avatar.html">人物与素材</a></li><li aria-current="step">视频方案</li><li><a id="mobileProductionStageLink" aria-disabled="true">生成与交付</a></li></ol></details>
+          <nav class="stage-strip stage-desktop" aria-label="项目阶段"><a id="factsStageLink" href="/projects.html" data-stage-state="available"><span>1</span>商品资料</a><a id="copyStageLink" href="/copy.html" data-stage-state="available"><span>2</span>文案</a><a id="avatarStageLink" href="/avatar.html" data-stage-state="available"><span>3</span>人物</a><strong aria-current="step" data-stage-state="current"><span>4</span>视频方案</strong><a id="productionStageLink" aria-disabled="true" data-stage-state="blocked"><b>5</b>生产</a></nav>
+          <details class="stage-mobile"><summary>阶段 4/5 · 视频方案</summary><ol><li data-stage-state="available"><a id="mobileFactsStageLink" href="/projects.html">商品资料</a></li><li data-stage-state="available"><a id="mobileCopyStageLink" href="/copy.html">文案</a></li><li data-stage-state="available"><a id="mobileAvatarStageLink" href="/avatar.html">人物</a></li><li aria-current="step" data-stage-state="current">视频方案</li><li data-stage-state="blocked"><a id="mobileProductionStageLink" aria-disabled="true">生产</a></li></ol></details>
           <section class="product-context"><label for="productSelector">当前商品</label><select id="productSelector" aria-label="切换商品"></select><div class="product-context-meta"><span id="planState" class="state">尚无方案</span><span id="contextSummary" class="muted">等待读取</span></div></section>
           <p id="pageNotice" class="notice" role="status"></p>
           <button id="openVersionDrawer" class="version-drawer-trigger secondary" type="button">方案版本</button>
@@ -41,7 +41,7 @@
               <label for="outputInstructions">制作说明<textarea id="outputInstructions" maxlength="4000"></textarea></label><p id="dirtyState" class="muted"></p>
               <div class="editor-actions"><button id="saveDraft" class="secondary" type="button">保存草稿</button><button id="deriveDraft" class="secondary" type="button" hidden>基于此方案修改</button><button id="runPreflight" type="button">开始预检</button></div>
               <p id="editorNotice" class="notice" role="status"></p>
-              <details class="history-details"><summary>能力配置快照</summary><div id="capabilitySnapshot" class="capability-snapshot"></div></details>
+              <details class="history-details operator-technical-details"><summary>技术详情：能力配置快照</summary><div id="capabilitySnapshot" class="capability-snapshot"></div></details>
             </section>
             <aside class="surface decision-panel"><div class="status-pair"><span id="preflightBadge" class="state">未预检</span><span id="reviewBadge" class="state">未提交审核</span></div>
               <div class="decision-tabs" role="tablist"><button id="showPreflight" class="text-button active" type="button">预检</button><button id="showReview" class="text-button" type="button">审核</button></div>

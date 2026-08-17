@@ -16,6 +16,129 @@
   overflow-wrap: anywhere;
 }
 
+.operator-task-page .stage-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-height: 44px;
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--n-200);
+  border-radius: var(--radius-panel);
+  background: var(--n-0);
+  overflow: hidden;
+}
+
+.operator-task-page .stage-strip > * {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-left: 1px solid var(--n-200);
+  color: var(--n-500);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.operator-task-page .stage-strip > :first-child {
+  border-left: 0;
+}
+
+.operator-task-page .stage-strip span span,
+.operator-task-page .stage-strip strong span,
+.operator-task-page .stage-strip b {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--n-300);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.operator-task-page .stage-strip [data-stage-state="completed"] {
+  color: var(--success);
+}
+
+.operator-task-page .stage-strip [data-stage-state="completed"] span,
+.operator-task-page .stage-strip [data-stage-state="completed"] b {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+}
+
+.operator-task-page .stage-strip [data-stage-state="current"] {
+  color: var(--brand);
+  background: var(--brand-tint);
+}
+
+.operator-task-page .stage-strip [data-stage-state="current"] span,
+.operator-task-page .stage-strip [data-stage-state="current"] b {
+  border-color: var(--brand);
+  color: var(--n-0);
+  background: var(--brand);
+}
+
+.operator-task-page .stage-strip [data-stage-state="available"] {
+  color: var(--n-700);
+}
+
+.operator-task-page .stage-strip a[data-stage-state="available"]:hover {
+  color: var(--brand);
+  background: var(--n-050);
+}
+
+.operator-task-page .stage-strip [data-stage-state="blocked"] {
+  color: var(--n-400);
+}
+
+.operator-task-page .stage-strip a[aria-disabled="true"] {
+  cursor: default;
+}
+
+.operator-task-page .stage-mobile {
+  display: none;
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--n-200);
+  border-radius: var(--radius-control);
+  background: var(--n-0);
+}
+
+.operator-task-page .stage-mobile summary {
+  padding: 10px 12px;
+  color: var(--brand);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.operator-task-page .stage-mobile ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 32px 12px;
+  color: var(--n-500);
+}
+
+.operator-task-page .stage-mobile li[aria-current="step"] {
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.operator-task-page .stage-mobile li[data-stage-state="completed"],
+.operator-task-page .stage-mobile li[data-stage-state="completed"] a {
+  color: var(--success);
+}
+
+.operator-task-page .stage-mobile li[data-stage-state="available"],
+.operator-task-page .stage-mobile li[data-stage-state="available"] a {
+  color: var(--n-700);
+}
+
+.operator-task-page .stage-mobile li[data-stage-state="blocked"],
+.operator-task-page .stage-mobile li[data-stage-state="blocked"] a {
+  color: var(--n-400);
+}
+
 .operator-task-page .task-summary {
   display: grid;
   grid-template-columns: minmax(180px, 1.1fr) minmax(320px, 2fr);
@@ -91,6 +214,31 @@
 
 .operator-task-page [data-recommended-action="true"] {
   position: relative;
+}
+
+.operator-task-page [data-refresh-scope] {
+  white-space: nowrap;
+}
+
+.operator-task-page .operator-audit-details,
+.operator-task-page .operator-technical-details {
+  border-top: 1px solid var(--n-200);
+}
+
+.operator-task-page .operator-audit-details > summary,
+.operator-task-page .operator-technical-details > summary {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  color: var(--n-700);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.operator-task-page .operator-audit-details > summary:focus-visible,
+.operator-task-page .operator-technical-details > summary:focus-visible {
+  outline: 3px solid rgba(23, 105, 224, 0.25);
+  outline-offset: 2px;
 }
 
 .operator-task-page .operator-empty {
@@ -197,6 +345,14 @@
   .operator-task-page .task-summary {
     gap: var(--space-3);
     padding: var(--space-4);
+  }
+
+  .operator-task-page .stage-desktop {
+    display: none;
+  }
+
+  .operator-task-page .stage-mobile {
+    display: block;
   }
 
 }

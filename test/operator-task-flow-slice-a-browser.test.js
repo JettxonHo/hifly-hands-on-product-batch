@@ -211,11 +211,11 @@ test("Projects and Project present one responsive operator task path", async (t)
   await taskSummary.getByText("已保存", { exact: true }).waitFor();
   assert.match(await page.locator(".product-list [aria-current=true] .product-meta").textContent(), /草稿 · v2 · 2 项待处理/);
   assert.match(await taskSummary.textContent(), /2 项待处理：确认至少一条卖点、素材功能未启用/);
-  assert.match(await taskSummary.textContent(), /推荐下一步补齐 Ready 条件/);
+  assert.match(await taskSummary.textContent(), /推荐下一步补齐资料就绪条件/);
   await page.getByText("素材功能未启用，暂不能选择商品图片。", { exact: true }).waitFor();
   assert.equal(await page.locator('[data-recommended-action="true"]:visible').count(), 0);
-  await page.getByRole("button", { name: "设为 Ready" }).click();
-  await page.getByText(/暂不能 Ready：/).waitFor();
+  await page.getByRole("button", { name: "设为资料已就绪", exact: true }).click();
+  await page.getByText(/暂不能设为资料已就绪：/).waitFor();
   assert.match(await taskSummary.textContent(), /确认至少一条卖点/);
 
   await page.getByRole("button", { name: "创建商品" }).click();
@@ -237,7 +237,7 @@ test("Projects and Project present one responsive operator task path", async (t)
     resolve(dialog.message());
     await dialog.dismiss();
   }));
-  await page.getByRole("button", { name: "刷新" }).click();
+  await page.getByRole("button", { name: "刷新当前商品" }).click();
   assert.match(await refreshGuard, /未保存/);
   assert.equal(await page.locator('textarea[name="product_description"]').inputValue(), "切换前的本地修改");
 
@@ -345,7 +345,7 @@ test("Project deep links keep non-current Ready revisions read-only and surface 
   }));
 
   await page.goto(`${origin}/project.html?id=${projectId}&revision=revision-history`);
-  await page.locator("#revisionState").getByText("已 Ready · v1", { exact: true }).waitFor();
+  await page.locator("#revisionState").getByText("商品资料已就绪 · v1", { exact: true }).waitFor();
   assert.equal(await page.locator('#revisionForm input[name="product_name"]').isDisabled(), true);
   assert.equal(await page.locator('#revisionForm input[name="product_name"]').inputValue(), "历史商品");
   const returnCurrent = page.getByRole("button", { name: "回到当前版本" });
