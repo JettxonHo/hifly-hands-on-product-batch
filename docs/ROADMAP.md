@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-17
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营任务流 UX V1 已进入 `designed`，Slice A/B 与内部问题审计已合并，Issue #172 是定向外部研究的 acceptance gate
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营任务流 UX V1、Slice A/B、内部问题审计与定向外部研究已合并，Issue #174 是 V2 独立设计合同的 acceptance gate
 
 ## 1. 已完成基线
 
@@ -24,8 +24,9 @@ P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work �
 P0.4  3 条严格串行、受控内部试运行（已完成）
 P0.5  release-readiness：代码/依赖部署完成；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
 UX V1 运营任务流优先：designed → Slice A/B（已合并、未部署）
-    → 内部问题审计（已完成）→ 定向外部工作台研究 acceptance gate（#172）→ 设计合同
-    → taste 分片重构 → 再决定 Slice C
+    → 内部问题审计（已完成）→ 定向外部工作台研究（已完成）
+    → V2 独立设计合同 acceptance gate（#174）
+    → shared IA/content/control foundation → Production → Works → Assets → 必要时回补 A/B
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -51,23 +52,19 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
 2. Slice B：Copy/Avatar/Plan；清楚区分生成、自动检查与人工批准。Issue #168 / PR #169 已合并，Copy 以
    approved copy 为人物阶段门禁，Avatar 以当前商品的有效确认选择为 Plan 门禁，Plan 明确 preflight
    passed/warning 不等于人工批准。该仓库状态仍不代表已部署或真实生产采用。
-3. Slice C 候选范围：Production/Works/Assets；不再照旧直接实施，只在下述 successor gate 完成后决定
-   rebase 或被后续分片吸收。若保留该范围，Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order
-   零 attempt 与 active attempts=0；terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经
-   A12、Work 和真实字节下载后才准备下一条。Works 保留深链授权，Assets 不伪造 API 未提供的类型或关联。
+3. 原 Slice C 不再照旧实施。Issue #174 的 V2 合同 acceptance 通过后，其范围按严格串行切片吸收：先建立
+   shared IA/content/control foundation，再依次实施 Production、Works、Assets，最后只在证据需要时回补 Slice A/B。
+   Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order 零 attempt 与 active attempts=0；
+   terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经 A12、Work 和真实字节下载后才准备下一条。
+   Works 保留深链授权并收敛已交付终态，Assets 只展示 API 可证明的类型和状态，不伪造用途或关联。
 
 每个已批准的实施分片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一分片合并后才开始下一分片，且不自动部署。
 
-Slice B 完成后的 successor gate 顺序已获 Owner 锁定：先从本项目自己的运营角色、
-端到端任务、频率、错误成本、权限/审计、安全门禁、现有 API/领域状态和中文环境开展内部问题审计；再带着
-具体问题定向研究外部企业工作台；随后形成独立设计合同并通过 acceptance gate；最后才允许使用 taste 原则做
-可审阅的串行分片重构。完成该 gate 后，只决定原 Slice C rebase 或吸收到新的分片，不再照旧直接实施。不得以竞品视觉
-或页面结构反向决定本项目 IA。
-
-内部问题审计已成为权威输入。Issue #172 与 `docs/frontend/OPERATOR_UX_TARGETED_EXTERNAL_RESEARCH.md` 是定向
-外部研究的 acceptance gate；研究只从内部 P1/P2 出发提炼 adopt/adapt/reject，不等于最终 IA、设计合同或界面
-重构完成。研究合并后仍须单独建立并批准设计合同；原 Slice C 不照旧直接开工，只在合同通过后决定
-Production/Works/Assets rebase 或被新的 Taste 严格串行实施切片吸收。
+Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计和定向外部研究均已完成；研究只从内部 P1/P2
+出发提炼 adopt/adapt/reject，不等于最终 IA、设计合同或界面重构完成。Issue #174 与
+`docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 是下一道 acceptance gate：合同随 acceptance PR 合并进入
+`main` 后才计为 `designed`，之后才允许按 shared foundation → Production → Works → Assets → 必要回补 A/B 的顺序
+逐片实施。不得以竞品视觉或页面结构反向决定本项目 IA，也不得在合同通过前开始 Taste 实现。
 
 ## 4. 保留但不抢跑的工作
 
