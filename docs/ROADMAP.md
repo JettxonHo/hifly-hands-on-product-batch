@@ -51,8 +51,8 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
 2. Slice B：Copy/Avatar/Plan；清楚区分生成、自动检查与人工批准。Issue #168 / PR #169 已合并，Copy 以
    approved copy 为人物阶段门禁，Avatar 以当前商品的有效确认选择为 Plan 门禁，Plan 明确 preflight
    passed/warning 不等于人工批准。该仓库状态仍不代表已部署或真实生产采用。
-3. Slice C 候选范围：Production/Works/Assets；是否照旧、rebase 或被后续分片吸收，须等下述 successor gate
-   完成后决定。若保留该范围，Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order
+3. Slice C 候选范围：Production/Works/Assets；不再照旧直接实施，只在下述 successor gate 完成后决定
+   rebase 或被后续分片吸收。若保留该范围，Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order
    零 attempt 与 active attempts=0；terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经
    A12、Work 和真实字节下载后才准备下一条。Works 保留深链授权，Assets 不伪造 API 未提供的类型或关联。
 
@@ -61,7 +61,7 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定：先从本项目自己的运营角色、
 端到端任务、频率、错误成本、权限/审计、安全门禁、现有 API/领域状态和中文环境开展内部问题审计；再带着
 具体问题定向研究外部企业工作台；随后形成独立设计合同并通过 acceptance gate；最后才允许使用 taste 原则做
-可审阅的串行分片重构。完成该 gate 后，再决定原 Slice C 照旧实施、rebase 或吸收到新的分片。不得以竞品视觉
+可审阅的串行分片重构。完成该 gate 后，只决定原 Slice C rebase 或吸收到新的分片，不再照旧直接实施。不得以竞品视觉
 或页面结构反向决定本项目 IA。
 
 内部问题审计已成为权威输入。Issue #172 与 `docs/frontend/OPERATOR_UX_TARGETED_EXTERNAL_RESEARCH.md` 是定向

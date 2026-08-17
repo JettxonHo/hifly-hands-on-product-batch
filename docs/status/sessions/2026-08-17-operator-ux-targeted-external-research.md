@@ -13,9 +13,10 @@
 1. 以 `docs/frontend/OPERATOR_UX_INTERNAL_AUDIT.md` 的 P1/P2 为问题清单，而非先选竞品。
 2. 定向研究 Shopify Admin、Jira/Atlassian、Adobe Workfront/Frame.io、飞书项目四组案例。
 3. 只采用官方产品文档、官方帮助中心和官方设计系统，记录 2026-08-17 访问日期及直接链接。
-4. 对导航、任务聚合、终态、筛选/批量、素材、中文状态和 390px 层级分别给出 adopt/adapt/reject。
+4. 对导航、任务聚合、终态、筛选/批量、素材、中文状态和 390px 层级分别给出 adopt/adapt/reject；
+   其中移动端任务排序和错误恢复下一步明确标为外部模式与内部审计结合所得的 `Inference / Adapt`。
 5. 映射回现有 API、领域状态、组织授权和 Production 严格串行门禁，并列出后续设计合同 acceptance gates。
-6. 明确原 Slice C 不照旧直接开始；设计合同通过后再决定 rebase 或吸收，优先作为 Taste 严格串行实施候选。
+6. 明确原 Slice C 不照旧直接开始或实施；设计合同通过后只决定 rebase 或吸收，优先作为 Taste 严格串行实施候选。
 
 ## 来源核验方法
 
@@ -23,6 +24,15 @@
 - 案例按问题匹配选择：Shopify 回答资源集合和响应式；Jira 回答导航职责及有条件批量；Workfront/Frame.io
   回答任务聚合、媒体版本和审核终态；飞书回答中文待办、筛选和权限语义。
 - 外部产品具备的字段、搜索或批量接口不被当成本仓库现有能力。
+
+## 主控复审修正
+
+- CURRENT 与 ROADMAP 的 active 真值已统一：原 Slice C 不再照旧直接实施，设计合同通过后只决定
+  Production/Works/Assets rebase 或被新的 Taste 串行切片吸收。
+- 390px 的任务优先重排、列表/详情切换和渐进披露，明确标为 Shopify 响应式模式与本项目内部审计结合所得的
+  `Inference / Adapt`，不是外部来源原话。
+- 错误态替代陈旧内容并提供恢复下一步，明确标为权限模式与本项目 loading/error 证据结合所得的
+  `Inference / Adapt`；没有为该推断伪造一手来源。
 
 ## 允许文件
 
@@ -39,6 +49,7 @@
 - 文档相对链接检查：4 个 allowlist 文件通过。
 - Git 文件边界：严格为本 session 列出的 4 个文档。
 - 阶段措辞检查：研究只作为设计合同输入，未表述为最终设计、实现、部署或采用。
+- stale wording 检查：active CURRENT/ROADMAP 中不再存在“照旧实施、rebase 或吸收”的旧三选一。
 - Draft PR fixed-head Ubuntu、Windows、identity-postgres CI 由 PR checks 记录并在最终结果包报告。
 
 ## 未执行边界

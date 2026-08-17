@@ -33,7 +33,8 @@
   才能在 Worker off 下准备下一条。
 - UX 页面实施保持严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）与 Slice B
   （Copy/Avatar/Plan）均已合并但尚未部署。Slice B 后不直接开始 Slice C，而是先完成 Owner 已锁定的
-  successor gate；该 gate 完成后再决定 Slice C（Production/Works/Assets）照旧实施、rebase 或吸收到后续分片。
+  successor gate；该 gate 完成后只决定 Slice C（Production/Works/Assets）rebase 或吸收到后续分片，
+  不再照旧直接实施。
   每个实施分片仍须独立 Issue、Draft PR、浏览器回归和 Review，且不自动部署。
 - 旧 `gui/visual-refresh` 工作树及 CSS-only 改动不是本轮基线，不得合并、搬运或覆盖；现有 tokens、基础组件、
   vanilla HTML/CSS/JS、组织授权、状态机和 fail-closed 生产合同继续保留；唯一新增 API 是组织隔离的
@@ -58,7 +59,7 @@
 - Slice B 完成后的 successor gate 顺序已由 Owner 锁定：先从本项目运营角色、端到端任务、频率、
   错误成本、权限/审计、安全门禁、现有 API/领域状态和中文环境开展内部问题审计；再带着具体问题定向研究
   外部企业工作台；随后形成独立设计合同并经 acceptance gate，最后才允许按 taste 原则分片重构。
-- 只有上述 gate 完成后，才决定原 Slice C（Production/Works/Assets）照旧实施、rebase 或被新分片吸收。
+- 只有上述 gate 完成后，才决定原 Slice C（Production/Works/Assets）rebase 或被新分片吸收；不再照旧直接实施。
   定向研究只为后续设计合同提供来源输入；设计合同与后续重构仍不是已设计、已实现或已部署能力。
 
 ## 运营工作台 successor gate
