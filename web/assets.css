@@ -1,16 +1,63 @@
-#uploadForm { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; align-items: end; gap: 12px; margin-top: 12px; }
-#uploadForm > label { align-self: center; }
-.asset-list { display: grid; }
-.asset-row { display: grid; grid-template-columns: minmax(0, 1fr) 128px; gap: 16px; align-items: center; min-height: 58px; padding: 10px 12px; border-top: 1px solid var(--n-200); }
-.asset-row:first-child { border-top: 0; }
-.asset-row:hover { background: var(--n-50); }
-.asset-name { margin: 0 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.asset-meta { margin: 0; overflow-wrap: anywhere; color: var(--n-500); font-size: 13px; }
-.asset-row .state { justify-self: end; }
+.assets-task-page .page-content { width: min(100% - 48px, 1240px); }
+.asset-kind-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-bottom: var(--space-4); padding: 3px; border: 1px solid var(--n-200); border-radius: var(--radius-panel); background: var(--n-100); }
+.asset-kind-tabs button { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-color: transparent; color: var(--n-600); background: transparent; }
+.asset-kind-tabs button:hover:not(:disabled) { border-color: transparent; color: var(--n-900); background: var(--n-0); }
+.asset-kind-tabs button[aria-current="true"] { border-color: var(--n-200); color: var(--brand); background: var(--n-0); }
+.asset-kind-tabs strong { min-width: 24px; color: inherit; font-variant-numeric: tabular-nums; text-align: right; }
+.asset-workspace { display: grid; grid-template-columns: minmax(320px, .82fr) minmax(0, 1.35fr); gap: var(--space-4); align-items: start; }
+.asset-workspace > .surface { min-width: 0; margin-top: 0; }
+.asset-list-panel { padding-inline: 0; overflow: hidden; }
+.asset-list-panel .surface-header { padding-inline: var(--space-5); }
+.asset-list { display: grid; border-top: 1px solid var(--n-200); }
+.asset-row { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 70px; padding: 11px var(--space-5); border: 0; border-bottom: 1px solid var(--n-200); border-radius: 0; color: var(--n-900); background: var(--n-0); text-align: left; }
+.asset-row:last-child { border-bottom: 0; }
+.asset-row:hover:not(:disabled) { background: var(--n-50); }
+.asset-row[aria-current="true"] { box-shadow: inset 3px 0 0 var(--brand); background: var(--brand-tint); }
+.asset-row-main { min-width: 0; }
+.asset-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.asset-meta { display: block; margin-top: 3px; overflow-wrap: anywhere; color: var(--n-500); font-size: 12px; font-weight: 400; }
+.asset-detail { min-height: 360px; }
+.asset-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding-bottom: var(--space-4); border-bottom: 1px solid var(--n-200); }
+.asset-detail-header h2 { margin: 0; overflow-wrap: anywhere; }
+.asset-detail-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-4); }
+.asset-detail-actions button { min-height: 34px; }
+.asset-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-5); }
+.asset-facts div { min-width: 0; padding: 10px 12px; border: 1px solid var(--n-200); border-radius: var(--radius-control); background: var(--n-50); }
+.asset-facts dt { color: var(--n-500); font-size: 12px; }
+.asset-facts dd { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--n-800); font-weight: 600; }
+.asset-version-list { display: grid; gap: var(--space-3); }
+.asset-version { padding: var(--space-4); border: 1px solid var(--n-200); border-radius: var(--radius-control); }
+.asset-version.current { border-color: var(--brand-border); }
+.asset-version-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.asset-version h3 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.asset-version p { margin: 5px 0 0; color: var(--n-500); font-size: 12px; overflow-wrap: anywhere; }
+.asset-version-actions { margin-top: var(--space-3); }
+.asset-version .operator-technical-details { margin-top: var(--space-3); }
+.asset-version .operator-technical-details dl { display: grid; gap: 8px; margin: 0 0 var(--space-3); }
+.asset-version .operator-technical-details dt { color: var(--n-500); font-size: 12px; }
+.asset-version .operator-technical-details dd { margin: 1px 0 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; }
+.asset-back { display: none; margin-bottom: var(--space-4); }
+.conflict-actions { margin-top: var(--space-3); }
+#uploadForm, #renameForm { display: grid; gap: var(--space-4); }
+
+@media (max-width: 900px) {
+  .assets-task-page .page-content { width: min(100% - 32px, 760px); }
+  .asset-workspace { display: block; }
+  .asset-detail-panel { display: none; }
+  .asset-workspace[data-layer="detail"] .asset-list-panel { display: none; }
+  .asset-workspace[data-layer="detail"] .asset-detail-panel { display: block; }
+  .asset-back { display: inline-flex; }
+}
+
 @media (max-width: 680px) {
-  #uploadForm, .asset-row { grid-template-columns: 1fr; }
-  #uploadForm > label { align-self: auto; }
-  #uploadForm button { width: 100%; }
-  .asset-row { gap: 6px; padding-inline: 0; }
-  .asset-row .state { justify-self: start; }
+  .assets-task-page .page-content { width: min(100% - 24px, 100%); }
+  .assets-task-page .page-actions, .assets-task-page .page-actions button { width: 100%; }
+  .asset-kind-tabs { grid-template-columns: 1fr; }
+  .asset-kind-tabs button { min-height: 42px; }
+  .asset-list-panel .surface-header { padding-inline: var(--space-4); }
+  .asset-row { padding-inline: var(--space-4); }
+  .asset-detail-header, .asset-version-head { display: grid; }
+  .asset-facts { grid-template-columns: 1fr; }
+  .asset-detail-actions { display: grid; }
+  .asset-detail-actions button { width: 100%; }
 }

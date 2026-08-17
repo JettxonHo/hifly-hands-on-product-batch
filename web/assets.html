@@ -7,11 +7,12 @@
     <link rel="stylesheet" href="/tokens.css">
     <link rel="stylesheet" href="/base.css">
     <link rel="stylesheet" href="/shell.css">
+    <link rel="stylesheet" href="/operator-task-flow.css">
     <link rel="stylesheet" href="/assets.css">
     <script src="/shell.js" defer></script>
     <script src="/assets.js" defer></script>
   </head>
-  <body data-shell-page="assets">
+  <body class="operator-task-page assets-task-page" data-shell-page="assets">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
     <div class="app-shell">
       <aside class="app-sidebar">
@@ -23,25 +24,82 @@
         </nav>
       </aside>
       <div class="app-frame">
-        <header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
+        <header class="app-topbar">
+          <div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div>
+          <button class="identity-logout" type="button" data-shell-logout>退出</button>
+        </header>
         <main id="mainContent" class="page-content">
-          <div class="page-header"><div><p class="eyebrow">企业内容资产</p><h1>素材中心</h1><p class="page-description">上传、核验并管理商品图片。</p></div></div>
-          <section class="surface upload-section" aria-labelledby="uploadTitle">
-            <div class="surface-header"><div><h2 id="uploadTitle">上传商品图</h2><p>核验通过的图片才可被商品引用，支持 JPG、PNG、WebP。</p></div></div>
-            <form id="uploadForm">
-              <label for="assetFile">商品图片</label>
-              <input id="assetFile" type="file" accept="image/jpeg,image/png,image/webp" required>
-              <button type="submit">上传并开始核验</button>
-            </form>
-            <p id="uploadStatus" class="notice" role="status"></p>
-            <p id="assetError" class="notice error" role="alert"></p>
+          <div class="page-header">
+            <div><p class="eyebrow">企业内容资产</p><h1>素材中心</h1><p class="page-description">按真实类型查看组织素材、核验状态和历史版本。</p></div>
+            <div class="page-actions"><button id="openUpload" type="button">上传并开始核验</button></div>
+          </div>
+
+          <section class="task-summary" aria-labelledby="assetTaskTitle">
+            <div class="task-summary-context"><p class="eyebrow">当前任务</p><h2 id="assetTaskTitle">整理并核对组织素材</h2></div>
+            <dl class="task-summary-facts">
+              <div><dt>当前分类</dt><dd id="summaryKind">商品图片</dd></div>
+              <div><dt>素材状态</dt><dd id="summaryStatus">正在加载</dd></div>
+              <div><dt>可见数量</dt><dd id="summaryCount">--</dd></div>
+              <div><dt>阻断</dt><dd id="summaryBlocker">无</dd></div>
+            </dl>
+            <div class="task-summary-next"><span>推荐下一步</span><strong id="summaryNext">等待素材加载完成</strong></div>
           </section>
-          <section class="surface" aria-labelledby="libraryTitle">
-            <div class="surface-header"><div><h2 id="libraryTitle">商品图片</h2><p>状态来自服务端，可随时离开后返回。</p></div><button id="refreshAssets" class="secondary" type="button">刷新</button></div>
-            <div id="assetList" class="asset-list" aria-live="polite"><p class="empty">正在加载...</p></div>
+
+          <p id="assetError" class="notice error" role="alert"></p>
+          <p id="assetNotice" class="notice" role="status" aria-live="polite"></p>
+
+          <nav class="asset-kind-tabs" aria-label="素材分类">
+            <button type="button" data-kind="product_image" aria-current="true"><span>商品图片</span><strong id="productImageCount">0</strong></button>
+            <button type="button" data-kind="avatar_image"><span>人物图片</span><strong id="avatarImageCount">0</strong></button>
+            <button type="button" data-kind="work_video"><span>作品视频</span><strong id="workVideoCount">0</strong></button>
+          </nav>
+
+          <section class="asset-workspace" aria-label="素材目录">
+            <section id="assetListPanel" class="surface asset-list-panel" aria-labelledby="assetListTitle">
+              <div class="surface-header">
+                <div><h2 id="assetListTitle">商品图片</h2><p id="assetListDescription">核验通过后才能被商品引用。</p></div>
+                <button id="refreshAssets" class="secondary" type="button" data-refresh-scope="当前分类">刷新当前分类</button>
+              </div>
+              <div id="assetList" class="asset-list" aria-live="polite"><p class="empty">正在加载素材...</p></div>
+            </section>
+
+            <section id="assetDetailPanel" class="surface asset-detail-panel" aria-labelledby="assetDetailTitle">
+              <button id="backToAssets" class="secondary asset-back" type="button">返回素材列表</button>
+              <div id="assetDetail" class="asset-detail">
+                <div class="operator-empty"><strong id="assetDetailTitle" tabindex="-1">选择一个素材查看详情</strong><span>版本、核验结果和审计信息会显示在这里。</span></div>
+              </div>
+            </section>
           </section>
         </main>
       </div>
     </div>
+
+    <dialog id="uploadDialog" aria-labelledby="uploadTitle">
+      <div class="dialog-header"><div><p class="eyebrow">新增素材</p><h2 id="uploadTitle">上传图片</h2></div><button class="dialog-close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <form id="uploadForm" class="dialog-body">
+        <input id="uploadAssetId" type="hidden">
+        <label for="assetKind">素材类型<select id="assetKind" name="kind"><option value="product_image">商品图片</option><option value="avatar_image">人物图片</option></select></label>
+        <label for="assetFile">图片文件<input id="assetFile" type="file" accept="image/jpeg,image/png,image/webp" required></label>
+        <p class="muted">支持 JPG、PNG、WebP，最大 10 MB。服务端完成核验前不会标记为可用。</p>
+        <p id="uploadStatus" class="notice" role="status"></p>
+        <p id="uploadError" class="notice error" role="alert"></p>
+        <div class="actions"><button class="secondary" type="button" data-close-dialog>取消</button><button id="submitUpload" type="submit">上传并开始核验</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="renameDialog" aria-labelledby="renameTitle">
+      <div class="dialog-header"><h2 id="renameTitle">重命名素材</h2><button class="dialog-close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <form id="renameForm" class="dialog-body">
+        <label for="assetDisplayName">素材名称<input id="assetDisplayName" name="display_name" maxlength="120" required></label>
+        <p id="renameError" class="notice error" role="alert"></p>
+        <div id="renameConflictActions" class="conflict-actions" hidden><button id="reloadRename" class="secondary" type="button">载入最新素材状态</button></div>
+        <div class="actions"><button class="secondary" type="button" data-close-dialog>取消</button><button id="submitRename" type="submit">保存名称</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="assetDangerDialog" aria-labelledby="dangerTitle">
+      <div class="dialog-header"><h2 id="dangerTitle">确认操作</h2><button class="dialog-close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="dialog-body"><p id="dangerMessage"></p><p id="dangerError" class="notice error" role="alert"></p><div class="actions"><button class="secondary" type="button" data-close-dialog>取消</button><button id="confirmDanger" class="danger-solid" type="button">确认</button></div></div>
+    </dialog>
   </body>
 </html>

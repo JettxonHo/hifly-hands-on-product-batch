@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-17
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营工作台 V2 设计合同、V2-A shared IA/content/control foundation 与 V2-B Production 已合并；Issue #180 是 V2-C Works 的仓库 acceptance gate
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；release-readiness 代码已部署到内部验收环境，可信 TLS 仍是公网发布阻断；运营工作台 V2-A、V2-B 与 V2-C 已合并；Issue #182 是 V2-D Assets 的仓库 acceptance gate
 
 ## 1. 已完成基线
 
@@ -26,7 +26,7 @@ P0.5  release-readiness：代码/依赖部署完成；正式域名、DNS、可�
 UX V1 运营任务流优先：designed → Slice A/B（已合并、未部署）
     → 内部问题审计（已完成）→ 定向外部工作台研究（已完成）
     → V2 独立设计合同（#174，已完成）
-    → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180 acceptance）→ Assets → 必要时回补 A/B
+    → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180/#181 已完成）→ Assets（#182 acceptance）→ 必要时回补 A/B
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -53,8 +53,8 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
    approved copy 为人物阶段门禁，Avatar 以当前商品的有效确认选择为 Plan 门禁，Plan 明确 preflight
    passed/warning 不等于人工批准。该仓库状态仍不代表已部署或真实生产采用。
 3. 原 Slice C 不再照旧实施。Issue #174 的 V2 合同已通过 acceptance；其范围按严格串行切片吸收：Issue #176 / PR #177
-   已完成 shared IA/content/control foundation，Issue #178 / PR #179 已完成 Production；Issue #180 控制 Works
-   进入 `main`，之后才实施 Assets，最后只在证据需要时回补 Slice A/B。
+   已完成 shared IA/content/control foundation，Issue #178 / PR #179 已完成 Production，Issue #180 / PR #181
+   已完成 Works；Issue #182 控制 Assets 进入 `main`，最后只在证据需要时回补 Slice A/B。
    Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order 零 attempt 与 active attempts=0；
    terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经 A12、Work 和真实字节下载后才准备下一条。
    页面仅在当前商品零工单且上游 gate 允许时开放创建；claimed/running/failed/requires_action 及未完成真实字节验收的
@@ -64,15 +64,16 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 的�
    无法证明门禁时 Production 必须保持阻断，启停继续由获授权运维在既有部署控制面完成，
    未来 Web 启停能力须另过 Product/API、安全授权和审计 gate。Works 保留深链授权并收敛已交付终态；V2-C 仅以
    additive 下载授权投影暴露服务端已核验的文件名、媒体类型、大小和校验值，不新增状态或写命令。Assets 只展示
-   API 可证明的类型和状态，不伪造用途或关联。
+   API 可证明的 `product_image` / `avatar_image` / `work_video`、Asset 与 AssetVersion 状态；作品视频保持系统登记
+   只读，图片沿用现有上传、核验、管理和临时下载授权。用途与关联缺少 API 真值时明确说明，不由前端伪造。
 
 每个已批准的实施分片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一分片合并后才开始下一分片，且不自动部署。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
 部署或生产采用。Issue #176 / PR #177 已完成第一片 shared IA/content/control foundation，Issue #178 / PR #179
-已完成 Production；Issue #180 是 Works 的 acceptance gate。后续仍按 Works → Assets →
-必要回补 A/B 逐片实施。
+已完成 Production，Issue #180 / PR #181 已完成 Works；Issue #182 是 Assets 的 acceptance gate。后续只有 Assets
+合并后，才按证据决定是否回补 A/B。
 不得以竞品视觉或页面结构反向决定本项目 IA。
 
 ## 4. 保留但不抢跑的工作
