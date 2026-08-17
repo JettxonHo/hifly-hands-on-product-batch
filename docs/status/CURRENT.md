@@ -56,9 +56,9 @@
   HumanReview approved 方案才进入“等待生产工单能力”状态。
 - 三页继续复用现有 vanilla HTML/CSS/JS、API、状态机、授权和审计证据；没有新增依赖、后端 seam 或自动终态。
   浏览器回归覆盖 1440/768/390、无页面级横向滚动、可见焦点与 reduced-motion；截图只写入临时目录且不入 Git。
-- Slice B 完成后的 successor gate 顺序已由 Owner 锁定：内部问题审计、定向外部研究和 Issue #174 的 V2
-  独立设计合同均已合并。实现必须继续按 shared IA/content/control foundation → Production → Works → Assets →
-  必要时回补 A/B 严格串行；设计合同不等于实现、部署或客户采用。
+- Slice B 完成后的 successor gate 顺序已由 Owner 锁定：内部问题审计、定向外部研究、Issue #174 的 V2
+  独立设计合同和 V2-A shared foundation 均已合并。实现必须继续按 Production → Works → Assets → 必要时
+  回补 A/B 严格串行；设计合同或仓库实现不等于部署或客户采用。
 
 ## 运营工作台 successor gate
 
@@ -75,10 +75,19 @@
   页面方案、实现、部署或生产采用。
 - Issue #174 已将 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 合并进入 `main`，V2 设计状态为
   `designed`；这只表示设计获批，代码实现、部署和客户采用仍为独立门禁。
-- Issue #176 的 acceptance PR 是第一片 V2-A shared IA/content/control foundation 进入 `main` 的门禁。本节
-  只有随该 PR 进入 `main` 后，才表示仓库企业壳层已统一一级导航顺序、五阶段标签、V2 中文词典、刷新作用域及 opt-in
-  审计/技术详情原语；全局“生产任务”在组织级真实索引 gate 通过前继续隐藏。未迁移页面与显式 legacy
-  `/index.html` 不受共享样式影响，Production 业务状态矩阵、Works 和 Assets 的页面重构仍未开始。
+- Issue #176 / PR #177 已将 V2-A shared IA/content/control foundation 合并进入 `main`。仓库企业壳层已统一
+  一级导航顺序、五阶段标签、V2 中文词典、刷新作用域及 opt-in 审计/技术详情原语；全局“生产任务”在组织级
+  真实索引 gate 通过前继续隐藏。未迁移页面与显式 legacy `/index.html` 不受共享样式影响。
+- Issue #178 是 V2-B Production Task Flow 的实现与 acceptance gate。本节只有随其 acceptance PR 进入 `main`
+  后，才表示 Production 仓库页面已采用逐单业务摘要、完整工单/交接包/执行/A12/Work 状态矩阵、唯一推荐下一步、
+  完整 bootstrap 恢复以及默认折叠的 Cloud Executor/attempt/handoff 技术详情；不代表已部署或真实生产采用。
+- Production 仅在当前商品零工单且上游 gate 允许时开放“创建生产工单”；任一已有工单（含 claimed/running、
+  failed/requires_action、已交付但未完成真实字节验收）都会真实禁用两个创建入口。Work 的 `pending_review`、
+  `rework_required`、`deliverable`、`delivered` 均按控制面同名状态进入作品库对应动作，不回落成生产门禁错误，
+  也不在真实字节证明前宣称本单完成或开放下一单。
+- 当前 API 不提供组织级 `eligible=[currentOrderId]` 和 active attempts=0 的可验证前端投影。V2-B 因此在 `ready`
+  交接包阶段保持“生产门禁未通过”，等待获授权运维在既有部署控制面核对；前端不拼装组织队列、不显示 Worker
+  启停命令，也不把 `worker.connection=online` 或 `readiness.status=available` 单独解释成可安全领取。
 - 固定实施顺序为：V2-A shared IA/content/control foundation → Production → Works → Assets，最后仅在证据
   需要时回补 Slice A/B；每片仍须独立 Issue、Draft PR、公开浏览器回归和 Review。
 - Production 的企业 Web/API 当前只提供 `GET /api/cloud-executor/status` 只读状态；Worker 启停继续由获授权运维在
@@ -241,9 +250,9 @@
 
 ## 下一步
 
-1. Slice A/B 与 V2 独立设计合同均已合并但尚未部署；V2-A shared IA/content/control foundation 只有随 Issue #176
-   的 acceptance PR 进入 `main` 后才计为仓库实现完成。之后继续按 Production → Works → Assets → 必要时回补 A/B
-   逐片实施；不得把设计、仓库浏览器回归或 CI 写成生产采用。
+1. Slice A/B、V2 独立设计合同与 V2-A shared IA/content/control foundation 均已合并但尚未部署；Issue #178
+   的 acceptance PR 是 Production 进入 `main` 的门禁。之后继续按 Works → Assets → 必要时回补 A/B 逐片实施；
+   不得把设计、仓库浏览器回归或 CI 写成生产采用。
 2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
