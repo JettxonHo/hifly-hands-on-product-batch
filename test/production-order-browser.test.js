@@ -79,6 +79,7 @@ test("production workspace supports empty/create/re-entry flows at desktop and 3
   });
   await page.goto(`${origin}/production.html?project=${project.id}&product=${product.id}`);
   await page.getByRole("heading", { name: "生成与交付", exact: true }).waitFor();
+  await page.locator("#productionTechnicalDetails > summary").click();
   await page.locator("#orderListEmpty").waitFor();
   await page.getByText("云端执行器离线", { exact: true }).waitFor();
   assert.equal(await page.getByText("请启动本地 Agent", { exact: false }).count(), 0);

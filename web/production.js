@@ -1,7 +1,7 @@
 (async () => {
   const params = new URLSearchParams(location.search), projectId = params.get("project"), requestedProductId = params.get("product");
   let project, product, runtime, workspace, cloudExecutor = null, cloudStatusRequest = null, execution = null, verification = null, packages = [], creating = false, packageBusy = false, packagePoll = null, verificationPoll = null, cloudStatusPoll = null, cloudStatusPollActive = false, cloudStatusPollInFlight = false, verificationReadError = "",
-    manualBusy = false, manualUploadBusy = false, verificationBusy = false, manualCorrectionReportId = null, selectedOrderId = params.get("orderId") || null, pendingCreateKey = null, pendingPackageKey = null, pendingRetryKey = null;
+    manualBusy = false, manualUploadBusy = false, verificationBusy = false, manualCorrectionReportId = null, selectedOrderId = params.get("orderId") || null, pendingCreateKey = null, pendingPackageKey = null, pendingRetryKey = null, bootstrapFailed = false;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
   const purposeLabels = { first_production: "首次生产", rework: "返工重做", supplemental_version: "补充版本", reproduction: "再次生产" };
@@ -93,6 +93,25 @@
       workLink.href = `/works.html?work=${encodeURIComponent(value.work.id)}&project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
       workLink.hidden = false;
     } else { workLink.hidden = true; workLink.removeAttribute("href"); }
+    renderProductionTechnicalDetails(value);
+  }
+
+  function renderProductionTechnicalDetails(value) {
+    const packageValue = packages[0] || null;
+    element("#productionTechnicalOrderId").textContent = value.current_order?.id || "无";
+    element("#productionTechnicalAttemptId").textContent = value.current_attempt?.id || "无";
+    element("#productionTechnicalEligible").textContent = "页面未提供组织级可验证投影";
+    element("#productionTechnicalActiveAttempts").textContent = "页面未提供组织级可验证投影";
+    element("#productionTechnicalHeartbeat").textContent = value.current_attempt?.heartbeat_at || value.worker?.last_heartbeat_at || "无";
+    const connection = value.worker?.connection || "offline";
+    element("#productionTechnicalConnection").textContent = `${cloudConnectionLabels[connection] || "待确认"}（${connection}）`;
+    const readiness = value.readiness?.status || "requires_action";
+    element("#productionTechnicalReadiness").textContent = `${cloudReadinessLabels[readiness] || "待确认"}（${readiness}）`;
+    const progress = value.progress;
+    element("#productionTechnicalProgress").textContent = progress ? `${progress.label || "进度待确认"}（${progress.phase || "unknown"}）` : "无当前进度";
+    element("#productionTechnicalHandoff").textContent = packageValue
+      ? `v${packageValue.package_version || "?"} · ${packageLabels[packageValue.status] || "状态待确认"}（${packageValue.status}）`
+      : selectedOrderId ? "尚未生成" : "无当前交接资料";
   }
 
   function renderContext() {
@@ -115,6 +134,144 @@
     const createDisabled = !workspace.gate.can_create;
     for (const selector of ["#createOrderButton", "#createOrderEmpty"]) { const button = element(selector); button.disabled = createDisabled; button.title = createDisabled ? (gateLabels[reasons[0]] || "当前条件不满足，无法创建工单") : ""; }
     if (createDisabled) notice(element("#pageNotice"), reasons.map((reason) => gateLabels[reason] || "当前方案不可创建工单").join("；") + "。请返回视频方案处理。", "blocked"); else if (!element("#pageNotice").textContent || element("#pageNotice").classList.contains("blocked")) notice(element("#pageNotice"));
+  }
+
+  function renderTaskSummary() {
+    const summary = element("#productionTaskSummary");
+    const createOrderButton = element("#createOrderEmpty");
+    const taskAction = element("#productionTaskAction");
+    document.querySelectorAll('#mainContent [data-recommended-action="true"]').forEach((control) => control.removeAttribute("data-recommended-action"));
+    taskAction.hidden = true;
+    taskAction.removeAttribute("href");
+    const selectedOrder = workspace?.orders?.find((order) => order.id === selectedOrderId) || workspace?.selected_order || null;
+    const readyToCreate = workspace?.gate?.can_create === true && Boolean(workspace?.current_plan) && (workspace?.orders || []).length === 0;
+    const packageStatus = selectedOrder && runtime?.manualHandoffEnabled === true
+      ? packages[0]?.status || (selectedOrder.status === "waiting_for_executor" ? "absent" : null)
+      : null;
+    const supportedPackageStates = new Set(["absent", "generating", "generation_failed", "expired", "superseded", "revoked", "ready"]);
+    summary.hidden = !readyToCreate && !supportedPackageStates.has(packageStatus);
+
+    const status = element("#productionTaskStatus"); status.textContent = "正在读取"; status.className = "state";
+    const blocker = element("#productionTaskBlocker"); blocker.className = "task-summary-blocker"; blocker.textContent = ""; blocker.hidden = true;
+    if (summary.hidden) return;
+
+    element("#productionTaskProduct").textContent = product.revision.product_name || "未命名商品";
+    element("#productionTaskStage").textContent = "生产";
+    if (readyToCreate) {
+      element("#productionTaskTitle").textContent = "准备生产工单";
+      element("#productionTaskDescription").textContent = "当前已批准方案可用于生产。";
+      status.textContent = "可准备生产"; status.className = "state ready";
+      element("#productionTaskNextStep").textContent = "创建生产工单";
+      createOrderButton.setAttribute("data-recommended-action", "true");
+      return;
+    }
+
+    if (packageStatus === "absent") {
+      element("#productionTaskTitle").textContent = "准备生产交接资料";
+      element("#productionTaskDescription").textContent = "当前工单正在等待生产交接资料。";
+      status.textContent = "交接资料未就绪"; status.className = "state blocked";
+      element("#productionTaskNextStep").textContent = "生成生产交接包";
+      element("#generatePackageButton").setAttribute("data-recommended-action", "true");
+    } else if (packageStatus === "generating") {
+      element("#productionTaskTitle").textContent = "正在准备生产交接资料";
+      element("#productionTaskDescription").textContent = "交接资料正在准备，当前无需重复操作。";
+      status.textContent = "正在准备交接资料"; status.className = "state waiting_for_executor";
+      element("#productionTaskNextStep").textContent = "等待";
+    } else if (packageStatus === "generation_failed") {
+      element("#productionTaskTitle").textContent = "生产交接资料准备失败";
+      element("#productionTaskDescription").textContent = "本次准备未完成，不会自动重试。";
+      status.textContent = "交接资料准备失败"; status.className = "state failure";
+      element("#productionTaskNextStep").textContent = "经人工确认重试";
+      element("#retryPackageButton").setAttribute("data-recommended-action", "true");
+    } else if (packageStatus === "expired") {
+      element("#productionTaskTitle").textContent = "生产交接资料下载授权已过期";
+      element("#productionTaskDescription").textContent = "交接资料仍保留，需要重新获取下载授权。";
+      status.textContent = "下载授权已过期"; status.className = "state blocked";
+      element("#productionTaskNextStep").textContent = "重新获取下载授权";
+      element("#authorizePackageButton").setAttribute("data-recommended-action", "true");
+    } else if (["superseded", "revoked"].includes(packageStatus)) {
+      element("#productionTaskTitle").textContent = "当前生产交接包不可用";
+      element("#productionTaskDescription").textContent = "该交接包不能继续用于当前生产。";
+      status.textContent = "当前交接包不可用"; status.className = "state blocked";
+      element("#productionTaskNextStep").textContent = "返回当前有效包或重新生成";
+    } else if (packageStatus === "ready") {
+      const cloudMatchesOrder = cloudExecutor?.current_order?.id === selectedOrder.id;
+      const executionStatus = cloudExecutor?.execution?.status || "pending";
+      const verificationStatus = cloudExecutor?.verification?.status || "not_started";
+      const deliveryStatus = cloudExecutor?.delivery?.status || "not_available";
+      const work = cloudExecutor?.work || null;
+      const attemptRunning = cloudMatchesOrder && (cloudExecutor?.current_attempt?.status === "running" || cloudExecutor?.current_order?.status === "running" || cloudExecutor?.readiness?.status === "busy");
+
+      if (selectedOrder.status === "cancel_requested") {
+        element("#productionTaskTitle").textContent = "正在取消当前生产";
+        element("#productionTaskDescription").textContent = "取消请求已记录，当前等待服务端终态。";
+        status.textContent = "正在取消"; status.className = "state waiting_for_executor";
+        element("#productionTaskNextStep").textContent = "等待终态";
+      } else if (selectedOrder.status === "cancelled") {
+        element("#productionTaskTitle").textContent = "当前生产已取消";
+        element("#productionTaskDescription").textContent = "历史执行记录仍会保留，不会自动重新生产。";
+        status.textContent = "已取消"; status.className = "state blocked";
+        element("#productionTaskNextStep").textContent = "查看结果或按新授权重新规划";
+      } else if (cloudMatchesOrder && (executionStatus === "failed" || cloudExecutor?.readiness?.status === "requires_action" && executionStatus !== "succeeded")) {
+        element("#productionTaskTitle").textContent = "当前生产需要人工处理";
+        element("#productionTaskDescription").textContent = "本次生产已停止，需先处理当前阻断。";
+        status.textContent = "需人工处理，整批已停"; status.className = "state failure";
+        element("#productionTaskNextStep").textContent = "处理当前阻断";
+        const failureMessage = cloudExecutor?.failure?.message || "当前生产遇到阻断。";
+        blocker.textContent = failureMessage.includes("不会自动重试") ? failureMessage : `${failureMessage} 不会自动重试。`;
+        blocker.hidden = false;
+      } else if (attemptRunning) {
+        element("#productionTaskTitle").textContent = "正在生成作品";
+        element("#productionTaskDescription").textContent = "当前工单正在生成，状态会持续更新。";
+        status.textContent = "正在生成"; status.className = "state waiting_for_executor";
+        element("#productionTaskNextStep").textContent = "等待";
+      } else if (cloudMatchesOrder && executionStatus === "succeeded" && ["failed", "requires_action"].includes(verificationStatus)) {
+        element("#productionTaskTitle").textContent = "作品文件核验需要处理";
+        element("#productionTaskDescription").textContent = "生成结果已保留，需先处理文件核验问题。";
+        status.textContent = "文件核验需处理"; status.className = "state blocked";
+        element("#productionTaskNextStep").textContent = "处理核验问题";
+      } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "pending") {
+        element("#productionTaskTitle").textContent = "正在核验作品文件";
+        element("#productionTaskDescription").textContent = "正在确认作品文件是否可用于后续验收。";
+        status.textContent = "正在核验作品文件"; status.className = "state waiting_for_executor";
+        element("#productionTaskNextStep").textContent = "等待";
+      } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "passed" && !work) {
+        element("#productionTaskTitle").textContent = "正在登记作品";
+        element("#productionTaskDescription").textContent = "文件核验已通过，正在形成可验收作品。";
+        status.textContent = "正在登记作品"; status.className = "state waiting_for_executor";
+        element("#productionTaskNextStep").textContent = "等待";
+      } else if (cloudMatchesOrder && verificationStatus === "passed" && work?.id && deliveryStatus === "delivered") {
+        element("#productionTaskTitle").textContent = "作品已交付，等待真实下载验收";
+        element("#productionTaskDescription").textContent = "交付登记不等于真实文件下载已经验收。";
+        status.textContent = "作品已交付，待真实下载验收"; status.className = "state blocked";
+        element("#productionTaskNextStep").textContent = "查看作品并完成真实下载验收";
+        taskAction.href = `/works.html?work=${encodeURIComponent(work.id)}&project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
+        taskAction.textContent = "查看作品并完成真实下载验收 →";
+        taskAction.hidden = false;
+        taskAction.setAttribute("data-recommended-action", "true");
+      } else if (cloudMatchesOrder && verificationStatus === "passed" && work?.id && deliveryStatus === "deliverable") {
+        element("#productionTaskTitle").textContent = "作品等待验收与交付";
+        element("#productionTaskDescription").textContent = "作品文件已登记，可以进入作品库检查。";
+        status.textContent = "待作品验收"; status.className = "state blocked";
+        element("#productionTaskNextStep").textContent = "进入作品库检查与交付";
+        taskAction.href = `/works.html?work=${encodeURIComponent(work.id)}&project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`;
+        taskAction.textContent = "进入作品库检查与交付 →";
+        taskAction.hidden = false;
+        taskAction.setAttribute("data-recommended-action", "true");
+      } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "not_started") {
+        element("#productionTaskTitle").textContent = "生成完成，等待文件核验";
+        element("#productionTaskDescription").textContent = "生成结束不等于本单完成，仍需核验作品文件。";
+        status.textContent = "生成完成，待文件核验"; status.className = "state blocked";
+        element("#productionTaskNextStep").textContent = "等待文件核验";
+      } else {
+        element("#productionTaskTitle").textContent = "等待生产门禁核对";
+        element("#productionTaskDescription").textContent = "交接资料已就绪，但页面不能证明生产已获授权。";
+        status.textContent = "生产门禁未通过"; status.className = "state blocked";
+        element("#productionTaskNextStep").textContent = "等待获授权运维核对";
+        blocker.textContent = "激活门禁尚未由页面证明；等待获授权运维核对后再继续生产。";
+        blocker.hidden = false;
+      }
+    }
   }
 
   function orderRow(order, mobile = false) {
@@ -444,8 +601,50 @@
   async function reenterManualExecution() { const attempt = execution?.current_attempt; if (manualBusy || !attempt) return; manualBusy = true; renderManualExecution(); try { await request(`/api/manual-execution-attempts/${encodeURIComponent(attempt.id)}/reenter`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: "{}" }); await loadWorkspace(); } catch (error) { notice(element("#manualExecutionNotice"), manualError(error), "error"); } finally { manualBusy = false; renderManualExecution(); } }
   function cancelManualOrder() { if (manualBusy || !selectedOrderId) return; element("#cancelManualError").textContent = ""; element("#cancelManualDialog").showModal(); }
   async function submitCancelManual(event) { event.preventDefault(); if (manualBusy || !selectedOrderId) return; manualBusy = true; element("#confirmCancelManualButton").disabled = true; try { await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/cancel`, { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: "{}" }); element("#cancelManualDialog").close(); await loadWorkspace(); } catch (error) { element("#cancelManualError").textContent = manualError(error); } finally { manualBusy = false; element("#confirmCancelManualButton").disabled = false; renderManualExecution(); } }
-  function render() { renderContext(); renderGate(); renderCloudExecutor(); renderOrders(); renderDetail(); renderPackage(); renderManualExecution(); renderVerification(); element("#productionWorkspace").hidden = false; }
+  function render() { renderContext(); renderGate(); renderTaskSummary(); renderCloudExecutor(); renderOrders(); renderDetail(); renderPackage(); renderManualExecution(); renderVerification(); element("#productionWorkspace").hidden = false; }
   async function loadWorkspace() { workspace = await request(`/api/products/${encodeURIComponent(product.id)}/production-workspace${selectedOrderId ? `?orderId=${encodeURIComponent(selectedOrderId)}` : ""}`); selectedOrderId = workspace.orders.find((order) => order.id === selectedOrderId)?.id || workspace.selected_order?.id || workspace.orders.at(-1)?.id || null; workspace.selected_order = workspace.orders.find((order) => order.id === selectedOrderId) || null; await loadCloudExecutorStatus(); await loadPackages({ render: false }); await loadExecution({ render: false }); try { await loadVerification({ render: false }); } catch (_error) { if (!runtime?.artifactVerificationEnabled || !selectedOrderId) throw _error; } render(); }
+  function showBootstrapError(message = "生成与交付工作区加载失败，请刷新重试。") {
+    bootstrapFailed = true;
+    const pageNotice = element("#pageNotice");
+    pageNotice.dataset.bootstrapError = "true";
+    notice(pageNotice, message, "error");
+    document.querySelectorAll('#mainContent [data-recommended-action="true"]').forEach((control) => control.removeAttribute("data-recommended-action"));
+    element("#refreshProduction").setAttribute("data-recommended-action", "true");
+  }
+  function clearBootstrapError() {
+    bootstrapFailed = false;
+    const pageNotice = element("#pageNotice");
+    if (pageNotice.dataset.bootstrapError === "true") notice(pageNotice);
+    delete pageNotice.dataset.bootstrapError;
+  }
+  async function bootstrap() {
+    stopCloudStatusPolling();
+    try {
+      runtime = await request("/api/runtime");
+      if (!runtime.productionOrdersEnabled) {
+        clearBootstrapError();
+        notice(element("#pageNotice"), "生成与交付功能尚未开放。", "blocked");
+        return;
+      }
+      project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project;
+      product = project.products.find((item) => item.id === requestedProductId) || project.products[0];
+      if (!product) return location.replace(`/project.html?id=${encodeURIComponent(project.id)}`);
+      await loadWorkspace();
+      clearBootstrapError();
+      startCloudStatusPolling();
+    } catch (_error) {
+      showBootstrapError();
+    }
+  }
+  async function refreshProduction() {
+    if (bootstrapFailed || !runtime || !project || !product) return bootstrap();
+    try {
+      await loadWorkspace();
+      clearBootstrapError();
+    } catch (_error) {
+      showBootstrapError("当前生产工单读取失败，请刷新重试。");
+    }
+  }
   function openCreateOrder() { if (!workspace.gate.can_create || creating) return; pendingCreateKey = null; element("#createOrderError").textContent = ""; element("#createOrderForm").reset(); renderDialogSnapshot(); element("#createOrderDialog").showModal(); }
   function renderDialogSnapshot() { const plan = workspace.current_plan, upstream = plan?.upstream_snapshot || {}; element("#dialogSnapshot").replaceChildren(...[["商品快照", short(upstream.product_revision_id)], ["已批准文案", short(upstream.copy_version_id)], ["已确认人物", short(upstream.avatar_selection_id)], ["视频方案", plan ? `v${plan.version_number}` : "未就绪"]].map(([label, value]) => { const row = document.createElement("div"); row.className = "dialog-snapshot-row"; const name = document.createElement("strong"); name.textContent = label; const meta = document.createElement("span"); meta.textContent = value; row.append(name, meta); return row; })); }
   async function submitCreate(event) { event.preventDefault(); if (creating || !workspace.gate.can_create) return; const selected = document.querySelector("input[name=executionPurpose]:checked"); if (!selected) return; creating = true; const button = element("#confirmCreateOrder"); button.disabled = true; pendingCreateKey ||= crypto.randomUUID(); element("#createOrderError").textContent = "";
@@ -466,11 +665,10 @@
   element("#manualReportOutcome").addEventListener("change", syncReportFields); element("#manualDeviationType").addEventListener("change", syncReportFields); element("#manualRecheckReason").addEventListener("input", () => { element("#confirmRecheckManualButton").disabled = !element("#manualRecheckReason").value.trim(); });
   element("#reportManualDialog").addEventListener("close", () => { manualCorrectionReportId = null; element("#reportManualDialogTitle").textContent = "记录本次结果"; element("#manualReportCorrectionHint").hidden = true; syncReportFields(); });
   document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => element(`#${button.dataset.closeDialog}`).close()));
-  element("#mobileOrderTrigger").addEventListener("click", () => element("#orderDrawer").showModal()); element("#closeOrderDrawer").addEventListener("click", () => element("#orderDrawer").close()); element("#refreshProduction").addEventListener("click", () => loadWorkspace().catch(() => notice(element("#pageNotice"), "工单状态读取失败，请刷新重试。", "error")));
+  element("#mobileOrderTrigger").addEventListener("click", () => element("#orderDrawer").showModal()); element("#closeOrderDrawer").addEventListener("click", () => element("#orderDrawer").close()); element("#refreshProduction").addEventListener("click", refreshProduction);
   element("#productSelector").addEventListener("change", async (event) => { product = project.products.find((item) => item.id === event.currentTarget.value); selectedOrderId = null; await loadWorkspace(); });
   window.addEventListener("pagehide", stopCloudStatusPolling);
   window.addEventListener("beforeunload", stopCloudStatusPolling);
   if (!projectId) { notice(element("#pageNotice"), "缺少项目上下文，请从项目页面重新进入。", "error"); return; }
-  try { runtime = await request("/api/runtime"); if (!runtime.productionOrdersEnabled) { notice(element("#pageNotice"), "生成与交付功能尚未开放。", "blocked"); return; } project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project; product = project.products.find((item) => item.id === requestedProductId) || project.products[0]; if (!product) return location.replace(`/project.html?id=${encodeURIComponent(project.id)}`); await loadWorkspace(); startCloudStatusPolling(); }
-  catch (_error) { notice(element("#pageNotice"), "生成与交付工作区加载失败，请刷新重试。", "error"); }
+  await bootstrap();
 })();
