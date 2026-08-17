@@ -80,6 +80,8 @@ Provider 证据。
   `1440x900 / 768x900 / 390x844`；PNG 像素头已核验，人工检查未见页面级横向溢出、窄栏硬挤或主业务层 ID 泄露。
   截图没有提交到 Git。
 
-fixed-head CI 在 Draft PR 创建后核验；未通过的门禁不得写成已完成。
+- Draft PR #189 的实现提交 `412aaa87f362c938892fc31d8e4b45e9097c77c3` 在 GitHub Actions run
+  `32052750452` 中通过 Ubuntu、Windows 与 `identity-postgres` 三组检查。最终 docs-only 证据提交仍须以自己的
+  fixed-head CI 作为合并门禁；未通过的门禁不得写成已完成。
 
 本轮未部署、未 SSH、未访问 Hifly、未启动 Worker、未修改生产数据、未生成视频、未消耗积分。
