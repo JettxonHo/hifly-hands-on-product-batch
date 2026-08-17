@@ -70,10 +70,12 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   const url = `${origin}/avatar.html?project=${project.id}&product=${product.id}&copy=copy-approved`;
   let releaseRuntime;
   let runtimeAttempts = 0;
+  let initialAvatarBootstrapFailed = false;
   const runtimeGate = new Promise((resolve) => { releaseRuntime = resolve; });
   const delayedRuntime = async (route) => {
     runtimeAttempts += 1;
-    if (runtimeAttempts === 1) {
+    if (!initialAvatarBootstrapFailed && new URL(page.url()).pathname === "/avatar.html") {
+      initialAvatarBootstrapFailed = true;
       await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "TEMPORARY_RUNTIME_FAILURE" }) });
       return;
     }
@@ -94,6 +96,7 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
   await page.getByText("视频方案尚未开放", { exact: true }).waitFor();
   releaseRuntime();
   await page.getByRole("heading", { name: "人物与素材" }).waitFor();
+  assert.equal(initialAvatarBootstrapFailed, true, "The injected failure must target Avatar's own initial bootstrap");
   assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
   await taskSummary.getByText("秋季人物选择 · 云感保湿乳", { exact: true }).waitFor();
   await taskSummary.getByText("人物与素材 · 3/5", { exact: true }).waitFor();

@@ -63,8 +63,16 @@ preflight warning/passed 只代表检查完成，不等于 HumanReview approved�
 - terminal failed 状态首次出现正常，但页面 reload 后等待失败提示 30 秒超时，证明 bootstrap 在
   `renderJobState()` 写入业务状态后又清空了 Notice。最小 GREEN 删除该无条件清空；业务状态现在由
   `renderJobState()` 唯一决定，失败提示与“重试生成文案”摘要经 reload 和页面 Refresh 都保持可见。
-- Copy generation、Copy quality、Avatar、Plan 四文件组合恢复矩阵连续运行 3 次，每次 5/5 通过、0 跳过、
-  0 失败，锁定初始恢复没有测试竞态。
+- 作者侧 Copy generation、Copy quality、Avatar、Plan 四文件组合恢复矩阵曾连续运行 3 次通过；主控随后首次
+  独立组合运行复现 Avatar 4/5，证明旧证据不足以排除 Avatar/Plan 同类竞态，不能作为稳定性结论。
+
+### 第三轮独立 Review 修复 RED → GREEN
+
+- 主控四文件串行组合矩阵首次运行 4/5：Avatar 等待“加载失败”30 秒超时，紧接着 Avatar 单文件 2/2，
+  证明 Avatar 的第一次 `/api/runtime` 失败仍可能被前页延迟请求抢先消费；Plan 保留了同样实现风险。
+- Avatar 与 Plan 现在分别只在当前页面路径为 `/avatar.html`、`/plan.html` 时消费 fail-once，并以页面级
+  boolean 断言失败确实命中各自首次 bootstrap。修复后重新运行四文件组合恢复矩阵连续 3 次，每次 5/5
+  通过、0 跳过、0 失败。
 
 ## 视觉、响应式与可访问性
 

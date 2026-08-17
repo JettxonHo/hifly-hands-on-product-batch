@@ -50,9 +50,11 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   await page.locator("#newPassword").fill("Plan-Browser-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
 
   let runtimeAttempts = 0;
+  let initialPlanBootstrapFailed = false;
   const failRuntimeOnce = async (route) => {
     runtimeAttempts += 1;
-    if (runtimeAttempts === 1) {
+    if (!initialPlanBootstrapFailed && new URL(page.url()).pathname === "/plan.html") {
+      initialPlanBootstrapFailed = true;
       await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "TEMPORARY_RUNTIME_FAILURE" }) });
       return;
     }
@@ -65,6 +67,7 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   await taskSummary.getByText("加载失败", { exact: true }).waitFor();
   await page.locator("#refreshPlan[data-recommended-action='true']").click();
   await page.getByRole("heading", { name: "视频方案", exact: true }).waitFor(); await page.getByText("还没有视频方案").waitFor();
+  assert.equal(initialPlanBootstrapFailed, true, "The injected failure must target Plan's own initial bootstrap");
   assert.ok(runtimeAttempts >= 2, "Refresh should issue a fresh runtime request after the injected initial failure");
   await page.unroute("**/api/runtime", failRuntimeOnce);
   await taskSummary.getByText("秋季视频方案 · 云感保湿乳", { exact: true }).waitFor();
