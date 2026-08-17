@@ -19,7 +19,6 @@
   function stateClass(status) { return ["passed","approved"].includes(status) ? "ready" : ["queued","running","pending"].includes(status) ? "uploading" :
     ["warning","blocked","invalidated","changes_requested"].includes(status) ? "blocked" : ["failed"].includes(status) ? "failure" : ["superseded","revoked"].includes(status) ? "superseded" : ""; }
   function badge(target, label, status) { target.textContent = label; target.className = `state ${stateClass(status)}`; }
-  function short(value) { return value ? value.slice(0, 8) : "未就绪"; }
   function setTaskStatus(selector, text, status = "") {
     const target = element(selector);
     target.textContent = text;
@@ -156,24 +155,38 @@
     const desktop = workspace.versions.slice().reverse().map(versionRow), mobile = workspace.versions.slice().reverse().map(versionRow);
     element("#versionList").replaceChildren(...desktop); element("#mobileVersionList").replaceChildren(...mobile);
   }
-  function upstreamCard(label, value, href) {
+  function upstreamCard(label, href) {
     const card = document.createElement("a"); card.className = "upstream-card"; card.href = href;
-    const name = document.createElement("strong"), meta = document.createElement("span"); name.textContent = label; meta.textContent = `版本 ${short(value)} · 当前引用`; card.append(name,meta); return card;
+    const name = document.createElement("strong"), meta = document.createElement("span"); name.textContent = label; meta.textContent = "当前引用"; card.append(name,meta); return card;
   }
   function renderEditor() {
     const plan = workspace.current_plan; element("#planVersionTitle").textContent = `方案 v${plan.version_number}`;
     badge(element("#planVersionState"), planLabels[plan.status], plan.status); badge(element("#planState"), planLabels[plan.status], plan.status);
-    element("#contextSummary").textContent = `文案 ${short(plan.upstream_snapshot.copy_version_id)} · 人物 ${short(plan.upstream_snapshot.avatar_selection_id)}`;
+    element("#contextSummary").textContent = "文案已人工批准 · 人物已确认";
     element("#upstreamCards").replaceChildren(
-      upstreamCard("商品快照", plan.upstream_snapshot.product_revision_id, `/project.html?id=${encodeURIComponent(project.id)}`),
-      upstreamCard("已批准文案", plan.upstream_snapshot.copy_version_id, `/copy.html?project=${encodeURIComponent(project.id)}&revision=${encodeURIComponent(product.revision.id)}`),
-      upstreamCard("已确认人物", plan.upstream_snapshot.avatar_selection_id, `/avatar.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`));
+      upstreamCard("商品快照", `/project.html?id=${encodeURIComponent(project.id)}`),
+      upstreamCard("文案已人工批准", `/copy.html?project=${encodeURIComponent(project.id)}&revision=${encodeURIComponent(product.revision.id)}`),
+      upstreamCard("人物已确认", `/avatar.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`));
     const output = element("#outputInstructions"); output.value = plan.output_instructions; output.readOnly = plan.status !== "draft";
     element("#saveDraft").hidden = plan.status !== "draft"; element("#deriveDraft").hidden = plan.status !== "frozen";
     element("#runPreflight").hidden = plan.status === "superseded";
     dirty = false; syncDirtyControls();
+    const upstream = plan.upstream_snapshot || {};
+    const technicalIds = document.createElement("dl"); technicalIds.className = "technical-id-list";
+    for (const [label, value] of [[
+      "product_revision_id", upstream.product_revision_id
+    ], [
+      "copy_version_id", upstream.copy_version_id
+    ], [
+      "avatar_selection_id", upstream.avatar_selection_id
+    ], [
+      "avatar_asset_version_id", upstream.avatar_asset_version_id
+    ]]) {
+      const term = document.createElement("dt"), detail = document.createElement("dd");
+      term.textContent = label; detail.textContent = value || "未就绪"; technicalIds.append(term, detail);
+    }
     const caps = plan.capability_config_snapshot.verified_capabilities || [];
-    element("#capabilitySnapshot").replaceChildren(...caps.map((item) => { const row = document.createElement("span"); row.textContent = `已验证：${item.code}`; return row; }));
+    element("#capabilitySnapshot").replaceChildren(technicalIds, ...caps.map((item) => { const row = document.createElement("span"); row.textContent = `已验证：${item.code}`; return row; }));
   }
   function renderPreflight() {
     const run = workspace.preflight.current_run, result = workspace.preflight.current_result;
@@ -287,6 +300,26 @@
     if (reviewAction === "changes" && !payload.reason) return void (element("#reviewDialogError").textContent = "请填写修改意见。");
     const ok = await mutate(url, "POST", payload, true); if (ok) element("#reviewDialog").close();
   }
+  function selectDecisionTab(tabId, focus = false) {
+    const tabs = [element("#showPreflight"), element("#showReview")];
+    for (const tab of tabs) {
+      const selected = tab.id === tabId;
+      tab.setAttribute("aria-selected", String(selected)); tab.tabIndex = selected ? 0 : -1; tab.classList.toggle("active", selected);
+      element(`#${tab.getAttribute("aria-controls")}`).hidden = !selected;
+    }
+    if (focus) element(`#${tabId}`).focus();
+  }
+  function handleDecisionTabKeydown(event) {
+    const tabIds = ["showPreflight", "showReview"], currentIndex = tabIds.indexOf(event.currentTarget.id);
+    if (currentIndex < 0) return;
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowLeft") nextIndex = (currentIndex + tabIds.length - 1) % tabIds.length;
+    else if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % tabIds.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = tabIds.length - 1;
+    else return;
+    event.preventDefault(); selectDecisionTab(tabIds[nextIndex], true);
+  }
   element("#outputInstructions").addEventListener("input", () => { dirty = true; syncDirtyControls(); });
   element("#createPlan").addEventListener("click", async () => { const value = element("#firstInstructions").value.trim(); if (!value) return notice(element("#pageNotice"), "请先填写制作说明。", "blocked"); await mutate(`/api/products/${product.id}/video-plans`, "POST", { output_instructions: value, expected_head_revision: workspace.head_revision }, true); });
   element("#saveDraft").addEventListener("click", saveCurrentDraft);
@@ -294,8 +327,10 @@
   element("#runPreflight").addEventListener("click", async () => { const ok = await mutate(`/api/products/${product.id}/video-plans/${workspace.current_plan.id}/preflight`, "POST", { expected_revision: workspace.current_plan.row_version }, true); if (ok) startPolling(); });
   element("#submitReview").addEventListener("click", () => openReviewDialog("submit")); element("#approveReview").addEventListener("click", () => openReviewDialog("approve")); element("#requestChanges").addEventListener("click", () => openReviewDialog("changes"));
   element("#reviewForm").addEventListener("submit", async (event) => { event.preventDefault(); await performReview(); }); element("#closeReviewDialog").addEventListener("click", () => element("#reviewDialog").close()); element("#cancelReviewDialog").addEventListener("click", () => element("#reviewDialog").close());
-  element("#showPreflight").addEventListener("click", () => { element("#preflightPanel").hidden = false; element("#reviewPanel").hidden = true; element("#showPreflight").classList.add("active"); element("#showReview").classList.remove("active"); });
-  element("#showReview").addEventListener("click", () => { element("#preflightPanel").hidden = true; element("#reviewPanel").hidden = false; element("#showReview").classList.add("active"); element("#showPreflight").classList.remove("active"); });
+  for (const tab of [element("#showPreflight"), element("#showReview")]) {
+    tab.addEventListener("click", () => selectDecisionTab(tab.id, true));
+    tab.addEventListener("keydown", handleDecisionTabKeydown);
+  }
   element("#openVersionDrawer").addEventListener("click", () => element("#versionDialog").showModal()); element("#closeVersionDialog").addEventListener("click", () => element("#versionDialog").close());
   element("#refreshPlan").addEventListener("click", () => guardReload(() => bootstrap(workspace?.current_plan?.id || params.get("plan"))));
   element("#productSelector").addEventListener("change", (event) => {
