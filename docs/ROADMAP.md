@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-18
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；运营工作台 V2 全部切片已合并并随 `main@5c6384d` 部署到内部验收环境，真实管理员 UI 验收带 #190/#191 两个 P1 条件通过；可信 TLS 仍是公网发布阻断
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；`main@db36cc53` 已部署到内部验收环境，运营工作台 V2 与 Issue #193 migration/只读 UI 验收通过，#190/#191 两个 P1 仍未修复；可信 TLS 与 #193 受控 Provider 效果验收仍是后续门禁
 
 ## 1. 已完成基线
 
@@ -17,6 +17,9 @@
 - `main@5c6384d` 已部署到同一内部验收环境；V2 九个企业页面完成 1440/768/390 真实管理员只读验收，结论为
   核心可用、带 #190 商品图片类型混入与 #191 Production 终态投影两个 P1 条件通过。部署及验收没有启动 Worker、
   访问 Hifly、生成视频或消耗积分。
+- `main@db36cc53` 已部署到同一内部验收环境；Issue #193 两组 migration 成功，既有 ProductRevision 保持尺寸未知，
+  既有 VideoPlan 安全回填 `smart_fit`。Project/Plan/Production 的真实管理员只读验收确认新字段可见、迁移默认正确，
+  且历史工单 snapshot 不被当前值反向改写；未启动 Worker、未访问 Hifly、未生成视频或消耗积分。
 
 ## 2. 当前升级顺序
 
@@ -31,7 +34,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
     → V2 独立设计合同（#174，已完成）
     → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180/#181 已完成）→ Assets（#182/#183 已完成）→ V2-E 回补审计（#184/#185 已完成）→ V2-E1（#186/#187 已完成）→ V2-E2（#188/#189 已完成并部署）
 P1 UI  部署后条件通过收口：#190 → #191（严格串行，当前下一步）
-P1 Product  #193 实物尺寸 + 飞影原生呈现大小（仓库实现；待部署与受控 Provider 验收）
+P1 Product  #193 实物尺寸 + 飞影原生呈现大小（仓库实现、内部部署与只读验收已完成；受控 Provider 效果验收待执行）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -39,7 +42,7 @@ Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EX
 
 ## 3. 下一阶段
 
-`main@5c6384d` 与运营工作台 V2 已部署到内部验收环境。真实管理员只读验收覆盖九页、三视口、入口/导航、
+`main@db36cc53` 与运营工作台 V2、Issue #193 已部署到内部验收环境。V2 真实管理员只读验收覆盖九页、三视口、入口/导航、
 五阶段、QC/人工审核、preflight/人工批准、Works 终态动作、Assets 三类真值及 Tab 键盘合同；结论为带 #190/#191
 两个 P1 条件通过，不是无条件验收。后续严格先 #190、再 #191；#191 必须恢复 terminal Work 真值而不弱化
 fail-closed 门禁。可信 CA 证书仍缺正式域名、DNS、签发和部署实证，当前 HTTP `/healthz` 也尚未跳转 HTTPS；
@@ -83,8 +86,9 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 与 
 
 Issue #193 将商品实物事实与画面呈现档位分开：ProductRevision 记录可选的高/宽/深、容量和重量，
 VideoPlan 只使用飞影原生六档（智能适配/超大/大/中/小/超小）。映射与选中态已由当前飞影静态资源只读核实；
-执行器必须在付费生成前验证选中档位，无法验证则 fail closed。该改动尚未部署，也未执行真实付费出片；
-呈现大小不代表外观保真，瓶盖、包装、标签和形态仍由 Works 检查单独验收。
+执行器必须在付费生成前验证选中档位，无法验证则 fail closed。该改动已完成内部部署、migration 与只读 UI/历史
+snapshot 验收，但尚未执行真实付费出片或新尺寸效果验证；呈现大小不代表外观保真，瓶盖、包装、标签和形态仍由
+Works 检查单独验收。#190/#191 继续按独立 P1 严格串行处理，不因本次部署而关闭。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
