@@ -1,8 +1,8 @@
 # 项目当前状态
 
-> 最后更新：2026-08-18
+> 最后更新：2026-08-19
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issues #190/#191 的统一部署只读验收通过。Issue #193 随后完成一条获授权的真实 Provider `small` 档验收，但结果为失败：页面选中态校验出现假阳性，候选视频上传后 attempt/report 仍失败，A12 与 Work 均未形成。Issues #200/#201 已完成仓库修复；Issue #202 的代码与本记录只有随对应 PR 合并进入 `main` 后才计为仓库修复完成。部署、真实 Provider 复验与可信 TLS 仍是后续独立门禁。系统保持 disabled/fail-closed。该结果不是成功出片合同，也不等同于公网生产就绪、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：付费前完整六档唯一选中“小”，唯一 attempt 成功，A12 passed、Work available，鉴权下载字节与候选 SHA-256 一致；但成片把原图斜切蓝盖持续生成成宝石形，外观保真失败，Work 已登记 `rework_required`，没有交付、重试或第二工单。系统已恢复 disabled/fail-closed。该结果证明尺寸控件与技术闭环，不是内容通过、公网生产就绪、自动批量队列或长期稳定性证明；可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -229,8 +229,9 @@
   `HIFLY_GOODS_SIZE_SELECTION_UNVERIFIED`，从而在 `立即生成` 前 fail closed。
 - 无积分公开回归先复现“目标 `小` 父节点看似 active、但完整组选中仍为智能适配”会被旧实现放行，再锁定新实现拒绝该
   假阳性；现有测试继续证明任何选档校验失败都不会点击付费生成按钮。
-- 该结论只覆盖仓库实现和离线确定性证据。尚未部署，也没有再次访问 Hifly、创建/重试工单、启动 Worker、生成视频
-  或消耗积分；真实 Provider `small` 复验仍须新工单与新的单条积分授权。
+- Issue #200 / PR #204 已合并，并随 `main@8787b60c` 部署。后续唯一新工单的真实 Provider 复验证明：完整六档
+  图片框与文字标记一致，连续观测仅“小”处于选中态，默认“智能适配”未残留高亮，付费前校验通过。该证据只证明
+  选档真值，不自动证明成片包装外观保真。
 
 ## Issue #201 heartbeat/report 版本竞态
 
@@ -247,7 +248,8 @@
   candidate 进入 `pending_verification`，没有 failed report、重复终态、自动重试或第二次领取。既有租约失效、身份隔离、
   report 幂等、candidate 绑定与 A12/Work 条件均保持。
 - CI 的 PostgreSQL job 增加 ManualExecution/Cloud Executor 集成测试，避免真实并发合同只在本地或 memory 测试中存在。
-  Issue #201 / PR #205 已合并进入 `main`；部署、生产数据、真实 Worker、Provider 与积分均未触发。
+  Issue #201 / PR #205 已合并，并随 `main@8787b60c` 部署；后续真实复验的唯一 attempt 完成 candidate、唯一 terminal
+  report 与 A12，没有再次出现 heartbeat/report revision conflict。
 
 ## Issue #202 failed 工单首屏终态
 
@@ -260,8 +262,34 @@
 - 失败摘要明确不会自动重试、重新领取或创建下一单。在线 current order 的失败/需处理语义、
   `waiting_for_executor + ready package` 激活前 fail-closed、requires_action、取消与 succeeded+A12+Work 状态矩阵保持不变。
 - 公开真实 Chrome seam 在未修复基线得到“生产门禁未通过”（RED），最小修复后锁定失败终态、唯一安全动作、
-  创建入口禁用与 1440/768/390 无横向溢出（GREEN）。该代码与记录只有随对应 PR 合并进入 `main` 后才计为
-  仓库修复完成；尚未部署，也没有启动 Worker、访问 Hifly、修改生产数据、生成视频或消耗积分。
+  创建入口禁用与 1440/768/390 无横向溢出（GREEN）。Issue #202 / PR #206 已合并并随 `main@8787b60c`
+  部署；部署后旧 failed 工单只读显示“生产失败，已停止”与唯一“查看失败详情”，没有被离线 Worker 状态覆盖。
+
+## 2026-08-19 Issue #193 真实 `small` 档复验：技术通过、外观返工
+
+- 验收对象为 `SUNSCREEN-20260819-004 · 安热沙金瓶防晒霜（原生小档复验）`。新 ProductRevision、批准 Copy、
+  AvatarSelection 与 frozen/approved VideoPlan 均绑定到本次新工单；`presentation_size_code=small`，实物尺寸保持未知。
+  工单 `c440c19e-671e-4b27-8c38-2d8535952268` 的 ready handoff 为
+  `73829028-442a-4d74-8ddb-379e839889b5`。激活前 Worker off、eligible 仅该工单、attempts=[]、active attempts=0。
+- 第一次启动发现 Profile 中三个 Chromium `Singleton*` 符号链接仍指向旧容器；此时没有 Chromium、claim、attempt 或
+  付费动作。Worker 关闭后把三条精确链接移到 `/var/backups/hifly/cloud-profile-singletons-20260819T0054CST`
+  可恢复目录，再次激活仍属于同一获授权单次执行。
+- 真实 Provider 弹窗的完整六档图片框与文字标记连续两次唯一选中“小”，“智能适配”没有残留高亮；随后只点击一次
+  `立即生成 150积分`。发生一次付费动作，但页面余额未刷新核对，因此不声明精确扣分。
+- 唯一 attempt `5ebd4199-1f32-4d37-ac08-e73103d856dd` 与 report
+  `d72adefa-69fe-43b8-8ecc-68bd61f464fa` 均成功；Hifly `remote_id=713273`。primary candidate
+  `7ba1e9f1-1758-4200-a07d-91a2d699ba02` 为 69,782,276 bytes，SHA-256
+  `537a43d19d6dbe173cbd45e3118c3f5ce417ad2c6958781729961e08c35c33dd`。A12 verification passed，Work
+  `08fdf795-734b-4d0e-a541-0b932d12b1fb` 为 available；鉴权下载得到同字节数与同 SHA-256 的真实 MP4。
+- 成片为 23.64 秒、1600×2848、H.264/AAC。商品呈现大小在全片相对较小且稳定，尺寸档位验收为 PASS；但原图的
+  平滑斜切蓝色瓶盖被持续生成成明显蓝色钻石/宝石造型，核心包装几何失真。金色修长瓶身及 ANESSA/SPF50+ 大体保留，
+  外观保真仍为 FAIL，整体内容验收为 FAIL。
+- Work 检查 `30080e8d-4851-43b5-8913-e7e0d16500ea` 已登记 `rework_required`，类别
+  `visual_quality`、目标 `video_plan`；没有交付记录。不得把 technical success、A12 passed 或 Work available
+  解释为内容批准，也不得自动重试、重新领取或创建下一单。
+- terminal 后 Worker 立即关闭并恢复 `CLOUD_EXECUTOR_ENABLED=false`、`CLOUD_EXECUTOR_MODE=fail_closed`、
+  `LOCAL_AGENT_ENABLED=false`。最终 eligible=0、active attempts=0、waiting orders=0、total attempts=17。
+  完整证据见 `docs/status/sessions/2026-08-19-issue-193-native-small-provider-revalidation.md`。
 
 ## P0.5 内部验收环境部署
 
@@ -366,7 +394,8 @@
 - 生产 Worker 的并发上限保持 1；同一订单最多一个活动 attempt，lease 过期或阶段不确定时进入受控状态。
 - 飞影 Profile、商品/人物素材、Evidence 和输出视频位于云端持久卷；App 只读访问输出卷作为下载回退。
 - 数据库只保留 artifact/AssetVersion 等受控元数据和内部引用，公共投影不暴露 Token、Cookie、服务器路径或对象存储 key。
-- 三条试运行每轮仅短时激活 Worker；每轮终态后先停止 Worker 并恢复 fail-closed，再执行 A12、Work 和下载验收。最终 Worker 已关闭且无 eligible order 或 active attempt。
+- 三条试运行及本次单条复验都只在严格门禁后短时激活 Worker；terminal 后立即停止并恢复 fail-closed。本次 A12、Work、
+  鉴权下载和人工检查完成后，Worker 已关闭且无 eligible order、waiting order 或 active attempt。
 - Local Agent 继续保留为 legacy fallback；本轮未启动，后续也不得以它作为 P0 生产执行器。
 
 ## P0 完成定义映射
@@ -419,10 +448,10 @@
 
 ## 下一步
 
-1. 严格串行顺序 #200 → #201 → #202 已推进到 #202 acceptance gate；#200/#201 已进入 `main`，#202 只有随
-   对应代码与本记录合并后才计为仓库完成。三个 Issue 都不是重试当前失败工单的授权。
-2. 在三个缺陷分别实现、独立 Review、合并和部署复验前，不执行新的真实 Provider 生成。未来再次验证须使用唯一新工单、
-   零 attempt、单条积分授权，并分别验收尺寸档位与外观保真。
+1. #200/#201/#202 已完成实现、独立 Review、合并、部署与单条真实复验；尺寸选档和技术闭环通过，但 Work 已因瓶盖造型
+   失真登记返工。没有新的重试或再次生产授权，保持本单 `rework_required` 且不交付。
+2. 若继续改进外观保真，须先单独定义可执行的 VideoPlan/Provider 约束与验收标准；任何再次生成都必须使用新批准、唯一新工单、
+   零 attempt 与新的单条积分授权，不能复用或重试本次工单。
 3. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
 4. 保持 Cloud Executor/Local Agent disabled、Cloud Executor 并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
