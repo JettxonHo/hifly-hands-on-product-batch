@@ -1,8 +1,8 @@
 # 商品外观保真门禁合同
 
 > 生命周期：Owner 已批准产品方向；本合同随对应 PR 合并进入 `main` 后才计为 designed
-> 实现状态：未实现，当前为 Provider/Product/API `DESIGN_BLOCKER`
-> 跟踪：Issue #208
+> 实现状态：Fidelity-0 有界 Provider Evidence 已建立；产品能力仍未实现
+> 设计跟踪：Issue #208（已完成）；Fidelity-0 Evidence 跟踪：Issue #210
 
 ## 1. 目标
 
@@ -32,13 +32,14 @@
 
 ## 3. 当前能力真值
 
-只读审计及真实复验事实基线为 `origin/main@bffb90b1f6f94024a907ad66b2c4cf0170a2e593`。
+设计基线为 `origin/main@bffb90b1f6f94024a907ad66b2c4cf0170a2e593`；Fidelity-0 探测从
+`origin/main@a2a1e96e42655fa7d26f8686b9848d261c2a92af` 执行。
 
 | 层级 | 已证明 | 尚未证明 |
 |---|---|---|
-| 飞影页面 | 手持商品图生成后，弹窗在“确认”前显示候选图片；确认后才进入外层视频提交准备 | 候选 URL 的稳定期、跨会话可访问性、可安全下载的媒体合同、候选生成是否独立计费及计费口径 |
-| 飞影 HTTP | 脱敏抓包证明生成完成响应提供 `gen_id`，后续视频提交使用该引用 | `gen_id` 的有效期、跨浏览器/会话复用、候选图片 bytes 与元数据接口 |
-| Playwright | `inspectVisibleGeneratedModalState()` 能观察候选图片来源；`createHandsOnImage()` 当前随后立即点击“确认” | 保存中间候选、暂停并安全释放 Worker、人工批准后精确恢复 |
+| 飞影页面 | 一次获授权候选生成在“确认”和外层视频提交前停下；关闭浏览器上下文后，同一受控 Profile 可即时恢复候选就绪 | 候选引用的长期稳定期、跨设备恢复、正式授权下载合同，以及精确计费口径 |
+| 飞影 HTTP | 恢复响应把 `gen_id`、`image_url`、`status=3` 与 `goods_size` 绑定；受控读取取得候选 `image/jpeg` bytes、size 与 checksum | `gen_id` 和候选引用的长期有效期、正式下载 API、跨设备复用与 Provider 评分 |
+| Playwright | 本次实际上传预览与受控源文件 bytes/media/checksum 一致；流程在候选确认前安全暂停，且没有外层视频提交 | 领域候选持久化、ProductRevision AssetVersion 绑定、人工批准后生产恢复，以及 Worker 租约内的分阶段执行 |
 | 领域/API | 最终 `primary_video` 候选、A12、Work 与 Works 检查已有完整合同 | 视频前 AppearanceCandidate、自动检查、人工决定和恢复命令 |
 | 自动比较 | 无 | 受控模型/算法、可解释输出、误判边界、通过阈值与运行成本 |
 
@@ -48,6 +49,25 @@
 当成外观保真通过。
 
 因此当前不能用前端标记、提示词、DOM 图片存在或 `gen_id` 存在来宣称“外观保真已通过”。
+
+### 3.1 Fidelity-0 Provider capability 结果
+
+2026-08-19 的一次获授权能力探测建立了以下有界证据：
+
+- 本地受控源图 `SUNSCREEN-20260818-001.png` 为 419685 bytes、PNG 656x952，SHA-256 为
+  `e57cf213cbbf8f6acafed0a1bf4a47db33e7a1668237181dc77499eb9cf387c5`；Provider 商品预览受控读取与其
+  media、size、checksum 逐字节一致。本次没有可证明的 AssetVersion，因此该证据只证明 Provider 上传输入，
+  不冒充产品领域绑定；
+- 恰好执行一次候选生成。候选在“确认”和外层视频提交前就绪；没有点击确认或外层视频生成；
+- 恢复响应把 `gen_id=lZRGIwOKPBScFlEz` 与候选引用绑定。受控候选读取为 `image/jpeg`、275745 bytes、SHA-256
+  `1778a04198280c4cf2d08f78ba544085da44611d76f69b0653004bffe483244b`；完整 URL 与任何凭据均不入库；
+- 关闭浏览器上下文后，以同一受控 Profile 重新进入仍恢复同一候选就绪状态，证明即时上下文重启恢复和视频前安全暂停；
+- Provider 按钮显示候选生成需要 150 积分，但页面余额没有刷新，因此只记录“一次可能收费的候选生成动作”，
+  不宣称精确扣分。
+
+这个结果满足 Fidelity-0 对**当前 Provider seam 可取证并可在视频前暂停**的能力门禁，可以作为 Fidelity-A 独立设计的
+输入；它不证明长期或跨设备生命周期、正式下载 API、外观保真通过、ProductRevision AssetVersion 绑定，亦不实现
+Candidate/Check/Decision、人工批准、自动检查或生产恢复。
 
 ## 4. 通用产品合同
 
@@ -74,8 +94,9 @@
 5. 记录候选生成的计费事实。优先使用不产生费用的静态、脱敏抓包或只读证据；如果必须执行真实 capability probe
    或候选生成，必须在当次获得明确的单条积分授权，首失败即停。
 
-在上述证据未成立时，Issue #208 保持 `DESIGN_BLOCKER`，不得实现推测性的 Candidate/Check/Decision、前端状态或
-暂停命令。Fidelity-0 失败只能阻止继续实现或后续视频提交，不能宣称候选阶段零积分；候选生成本身可能已经收费。
+Fidelity-0 的有界 Provider Evidence 已建立，但只有本证据随独立审阅后的 PR 合并进入 `main` 才计为 accepted。
+在进入 Fidelity-A 前仍不得实现推测性的 Candidate/Check/Decision、前端状态或暂停命令。门禁失败只能阻止继续实现
+或后续视频提交，不能宣称候选阶段零积分；候选生成本身可能已经收费。
 
 ## 6. 后续领域边界的待决内容
 
@@ -136,7 +157,7 @@ Logo、标签文字被合理遮挡时可以是“无法判断”，不能推断�
 
 | 切片 | 目标 | 停止条件 |
 |---|---|---|
-| Fidelity-0 | Provider capability：证明候选 bytes/reference、生命周期、计费边界、安全暂停/恢复与精确源图上传对应关系 | 无稳定候选证据或安全暂停点时保持 DESIGN_BLOCKER，不进入实现 |
+| Fidelity-0 | Provider capability：证明候选 bytes/reference、生命周期、计费边界、安全暂停/恢复与精确源图上传对应关系 | 有界 Evidence 已建立；长期/跨设备与领域 AssetVersion 绑定留给后续设计，不自动进入实现 |
 | Fidelity-A | 领域/API：在 Fidelity-0 结论上决定状态所有权、对象、组织隔离、审计和幂等 | 无明确状态所有权或必须改变生产安全合同时停止 |
 | Fidelity-B | Provider capture：按 Fidelity-0 已接受 seam 保存精确候选，DOM/API 漂移时失败关闭 | 实现与已接受 Provider 证据不一致时停止 |
 | Fidelity-C | 运营审核：预览证据、批准/拒绝、冲突与历史 | 不得伪造自动通过或最终 Works 通过 |
@@ -147,10 +168,11 @@ Logo、标签文字被合理遮挡时可以是“无法判断”，不能推断�
 
 ## 10. 本合同的验收边界
 
-本合同合并只表示产品边界和能力缺口已设计，不表示：
+本次 Fidelity-0 确有一次获授权 Provider 候选生成动作，但没有确认候选、提交外层视频、启动 Worker/Local Agent 或部署。
+本合同与 Evidence 合并只表示产品边界已设计且有界 Provider seam 已取证，不表示：
 
 - 外观保真已实现或自动化已可用；
-- 飞影候选可稳定下载或跨会话复用；
+- 飞影候选有长期稳定下载、正式授权 API 或跨设备恢复能力；
 - 某个自动视觉模型已选定或通过验收；
-- 已部署、已访问飞影、已启动 Worker、已生成视频或已消耗积分；
+- 精确积分余额变化已确认，或候选、视频和生产能力已经实现、部署或验收；
 - 蓝色斜切瓶盖、Logo、标签或任一 SKU 已通过真实复验。

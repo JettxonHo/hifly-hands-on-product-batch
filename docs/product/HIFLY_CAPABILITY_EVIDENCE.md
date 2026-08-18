@@ -90,25 +90,35 @@
 
 ### 1.1 video.product_holding.appearance_candidate（视频前手持商品候选）
 
-- **产品目标**：是（D-035 的 Fidelity-0 Provider capability gate；当前未实现）
+- **产品目标**：是（D-035 的 Fidelity-0 Provider capability gate；Provider 证据已建立，产品能力未实现）
 - **API 文档状态**：当前公开 API V2 未确认「手里有货」候选获取接口
-- **当前页面 Evidence**：Playwright 已证明付费弹窗生成后、点击“确认”和外层视频提交前存在候选观察窗口；当前
-  `createHandsOnImage()` 会随后立即确认，没有持久化业务候选或人工暂停点
-- **当前 HTTP Evidence**：既有脱敏抓包证明手持图生成响应提供 `gen_id`，后续视频提交使用该引用
-- **当前未证明**：候选 bytes、稳定 URL/授权下载接口、媒体类型与 checksum、`gen_id` 生命周期、跨会话复用、
-  候选与精确生成请求的对应关系、Provider 外观保真评分、生成后安全暂停/恢复，以及候选生成的独立计费口径
+- **当前页面 Evidence**：一次获授权候选生成在“确认”和外层视频提交前停下；候选弹窗保持可观察，关闭浏览器上下文
+  后使用同一受控 Profile 重新进入仍恢复为候选就绪，页面动作仍为“再次生成 / 重新编辑 / 确认”。本次没有点击
+  “确认”，外层作品数量保持不变，也没有提交视频
+- **当前 HTTP Evidence**：恢复读取返回同一响应中的 `gen_id=lZRGIwOKPBScFlEz`、`image_url`、`status=3` 和
+  `goods_size`。候选引用只以脱敏形状记录：HTTPS、`hfcdn.lingverse.co`、`.jpg`、无 query；受控读取获得
+  `image/jpeg`、275745 bytes、SHA-256
+  `1778a04198280c4cf2d08f78ba544085da44611d76f69b0653004bffe483244b`。不持久化完整 URL、Cookie、Token 或请求头
+- **精确上传输入 Evidence**：本次能力探测没有可证明的 ProductRevision AssetVersion，因此按已授权合同使用确定的
+  本地源文件 `SUNSCREEN-20260818-001.png`：419685 bytes、PNG 656x952、SHA-256
+  `e57cf213cbbf8f6acafed0a1bf4a47db33e7a1668237181dc77499eb9cf387c5`。Provider 当前商品预览受控读取的
+  media、size、checksum 与本地源文件逐字节一致，证明本次实际上传输入，不把它伪装成领域 AssetVersion 绑定
+- **当前仍未证明**：候选引用的长期或永久有效期、跨设备恢复、正式授权下载 API、Provider 外观保真评分、精确
+  积分余额变化，以及生产领域中的 `source_asset_version_id` 冻结与候选持久化
 - **精确源图缺口**：ProductRevision 可引用多个 `asset_version_ids`，当前执行编译路径会选择首个商品图片引用；
-  尚无显式冻结的 `source_asset_version_id`，也没有证明其 bytes/checksum 就是实际上传给 Provider 并用于比较的源图
+  产品实现仍无显式冻结的 `source_asset_version_id`。Fidelity-A 必须把领域 AssetVersion 与本次已证明的逐字节上传
+  核对方式结合，不能依赖数组顺序或事后推断
 - **真实效果 Evidence**：2026-08-19 的真实复验中，原生 `small` 和技术闭环通过，但候选/成片把平滑斜切蓝盖
   持续改成宝石形；最终 Work=`rework_required`。这证明尺寸档位不提供商品身份一致性保证
 - **Adapter 状态**：未实现候选持久化、自动检查、人工批准或安全恢复；不得用 DOM 图片存在、截图、提示词或
   `gen_id` 存在代替这些能力
-- **SaaS 产品状态**：Provider/Product/API `DESIGN_BLOCKER`
-- **下一步门禁**：先完成 Fidelity-0，证明候选 bytes/reference、生命周期、安全暂停/恢复、精确源图上传对应关系和
-  计费边界；证据成立前不得实现推测性的 Candidate/Check/Decision、API、数据库、UI 或执行器流程
+- **SaaS 产品状态**：Fidelity-0 的有界 Provider capability Evidence 已建立；Candidate/Check/Decision 产品能力未实现
+- **下一步门禁**：该证据随独立审阅后的文档 PR 合并进入 `main` 才计为 Fidelity-0 accepted；之后只能进入独立的
+  Fidelity-A 领域/API 设计，不自动授权 Candidate/Check/Decision、API、数据库、UI 或执行器实现
 - **积分边界**：任何真实 capability probe 或候选生成都必须在当次取得明确单条积分授权并首失败即停；即使门禁
-  阻止后续视频提交，候选生成本身仍可能已经收费
-- **最后验证日期**：2026-08-19（页面/HTTP 仓库证据与一次真实外观失败；未执行新的 Provider 探测）
+  阻止后续视频提交，候选生成本身仍可能已经收费。本次恰好点击一次显示“150积分”的候选生成动作；页面余额未刷新，
+  因此精确余额变化未知，不记录为已确认扣除 150 积分
+- **最后验证日期**：2026-08-19（一次获授权候选生成；没有确认候选或提交外层视频）
 
 ### 2. avatar.public.list（公共数字人列表）
 
