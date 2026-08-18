@@ -65,8 +65,10 @@ GREEN：
 - `git diff --check`：通过。
 
 本机默认 `npm test` 在浏览器套件开始后长期无新增输出，未形成可引用的完整汇总并已停止，因此不记为通过；固定 head
-Ubuntu、Windows 与 identity-postgres CI 是本轮默认全量和 PostgreSQL 门禁，结果将在 Draft PR 固定后记录。本地或 CI
-绿色不替代部署、真实 Worker、Provider 或积分验收。
+Ubuntu、Windows 与 identity-postgres CI 是本轮默认全量和 PostgreSQL 门禁。代码提交
+`a9b1395dd214efe060d1bcf7b51c4b3c411221d2` 的 run `32145259001` 三组均为 SUCCESS：Ubuntu 59 秒、Windows
+1 分 40 秒、identity-postgres 59 秒；后者实际串行执行 Identity、ProjectContent v2、VideoPlanning v2 与本轮新增的
+ManualExecution Cloud Executor PostgreSQL 集成。本地或 CI 绿色不替代部署、真实 Worker、Provider 或积分验收。
 
 ## 文件边界
 
