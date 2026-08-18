@@ -79,8 +79,9 @@ GREEN：
 和 PostgreSQL 门禁。代码提交
 `a9b1395dd214efe060d1bcf7b51c4b3c411221d2` 的 run `32145259001` 三组均为 SUCCESS：Ubuntu 59 秒、Windows
 1 分 40 秒、identity-postgres 59 秒；后者实际串行执行 Identity、ProjectContent v2、VideoPlanning v2 与本轮新增的
-ManualExecution Cloud Executor PostgreSQL 集成。该 run 发生在异常出口纠正前，只证明当时 fixed head；本轮新 fixed head
-仍须重新通过三组 CI。本地或 CI 绿色不替代部署、真实 Worker、Provider 或积分验收。
+ManualExecution Cloud Executor PostgreSQL 集成。该 run 发生在异常出口纠正前，只证明当时 fixed head。异常出口纠正
+代码提交 `fc7f54362f117d43797dff41d5b7a207c4edfae5` 的 run `32146906399` 三组也均为 SUCCESS：Ubuntu 56 秒、
+Windows 1 分 37 秒、identity-postgres 1 分 5 秒。本地或 CI 绿色不替代部署、真实 Worker、Provider 或积分验收。
 
 ## 文件边界
 
