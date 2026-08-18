@@ -1475,27 +1475,47 @@ test("applyScriptMode falls back to the real Hifly script label", async () => {
 
 test("Hifly goods-size selection uses the exact native label and verifies the active state", async () => {
   const calls = [];
-  let active = false;
+  let selectedLabel = "智能适配";
   const container = {
-    async click() { calls.push("click"); active = true; },
-    async getAttribute(name) { calls.push(`attribute:${name}`); return active ? "img-box actived" : "img-box"; }
+    async click() { calls.push("click"); selectedLabel = "小"; }
   };
   const image = {
     async count() { return 1; },
     async isVisible() { return true; },
     locator(value) { assert.equal(value, ".."); return container; }
   };
+  const optionGroup = {
+    async evaluateAll() {
+      calls.push("selection-state");
+      return ["智能适配", "超大", "大", "中", "小", "超小"].map((label) => ({
+        label,
+        imageActive: label === selectedLabel,
+        textActive: label === selectedLabel
+      }));
+    }
+  };
   const adapter = new HiflyHandsOnProductPage({
     async waitForTimeout() {},
     locator() { throw new Error("page-wide lookup must not be used"); }
   }, { batch: { defaultTimeoutMs: 20 } }, { info() {} });
   adapter.dialogLocator = () => ({
-    locator(selector) { calls.push(`selector:${selector}`); return image; }
+    locator(selector) {
+      calls.push(`selector:${selector}`);
+      if (selector === 'img[alt="小"]') return image;
+      if (selector === ".size-wrapper .image-list .list-item") return optionGroup;
+      throw new Error(`Unexpected selector: ${selector}`);
+    }
   });
 
   await adapter.selectAndVerifyGoodsSize("small");
 
-  assert.deepEqual(calls, ["selector:img[alt=\"小\"]", "click", "attribute:class"]);
+  assert.deepEqual(calls, [
+    "selector:img[alt=\"小\"]",
+    "click",
+    "selector:.size-wrapper .image-list .list-item",
+    "selection-state",
+    "selection-state"
+  ]);
 });
 
 test("Hifly goods-size selection fails closed when the native control is absent", async () => {
@@ -1515,11 +1535,53 @@ test("Hifly goods-size selection fails closed when the active state cannot be ve
     async waitForTimeout(ms) { await new Promise((resolve) => setTimeout(resolve, ms)); }
   }, { batch: { defaultTimeoutMs: 1 } }, { info() {} });
   adapter.dialogLocator = () => ({
-    locator() {
-      return { async count() { return 1; }, async isVisible() { return true; }, locator() { return container; } };
+    locator(selector) {
+      if (selector === 'img[alt="中"]') {
+        return { async count() { return 1; }, async isVisible() { return true; }, locator() { return container; } };
+      }
+      return { async evaluateAll() { return []; } };
     }
   });
   await assert.rejects(() => adapter.selectAndVerifyGoodsSize("medium"), { code: "HIFLY_GOODS_SIZE_SELECTION_UNVERIFIED" });
+});
+
+test("Hifly goods-size selection rejects a target-only active false positive while smart fit remains selected", async () => {
+  const targetContainer = {
+    async click() {},
+    async getAttribute() { return "img-box actived"; }
+  };
+  const targetImage = {
+    async count() { return 1; },
+    async isVisible() { return true; },
+    locator(value) { assert.equal(value, ".."); return targetContainer; }
+  };
+  const optionGroup = {
+    async evaluateAll() {
+      return [
+        { label: "智能适配", imageActive: true, textActive: true },
+        { label: "超大", imageActive: false, textActive: false },
+        { label: "大", imageActive: false, textActive: false },
+        { label: "中", imageActive: false, textActive: false },
+        { label: "小", imageActive: true, textActive: false },
+        { label: "超小", imageActive: false, textActive: false }
+      ];
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout(ms) { await new Promise((resolve) => setTimeout(resolve, ms)); }
+  }, { batch: { defaultTimeoutMs: 1 } }, { info() {} });
+  adapter.dialogLocator = () => ({
+    locator(selector) {
+      if (selector === 'img[alt="小"]') return targetImage;
+      if (selector === ".size-wrapper .image-list .list-item") return optionGroup;
+      throw new Error(`Unexpected selector: ${selector}`);
+    }
+  });
+
+  await assert.rejects(
+    () => adapter.selectAndVerifyGoodsSize("small"),
+    { code: "HIFLY_GOODS_SIZE_SELECTION_UNVERIFIED" }
+  );
 });
 
 test("createHandsOnImage never clicks the paid generate action when goods-size verification fails", async () => {

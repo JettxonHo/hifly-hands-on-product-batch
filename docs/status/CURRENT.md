@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issues #190/#191 的统一部署只读验收通过。Issue #193 随后完成一条获授权的真实 Provider `small` 档验收，但结果为失败：页面选中态校验出现假阳性，候选视频上传后 attempt/report 仍失败，A12 与 Work 均未形成。系统已恢复 disabled/fail-closed；新建 Issues #200/#201/#202 分别跟踪 Provider 选档、heartbeat/report 竞态调查和 failed 工单首屏真值。该结果不是成功出片合同，也不等同于公网生产就绪、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issues #190/#191 的统一部署只读验收通过。Issue #193 随后完成一条获授权的真实 Provider `small` 档验收，但结果为失败：页面选中态校验出现假阳性，候选视频上传后 attempt/report 仍失败，A12 与 Work 均未形成。Issue #200 的仓库修复已将付费前选档验证收紧为完整六档的唯一一致选中态；部署与真实 Provider 复验仍是后续独立门禁，#201/#202 尚未开始。系统保持 disabled/fail-closed。该结果不是成功出片合同，也不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -221,6 +221,18 @@
   `LOCAL_AGENT_ENABLED=false`、`PRODUCTION_EXECUTOR=fail_closed`；Cloud Executor stopped，App healthy，
   `eligible=0`、active attempts=0、waiting=0、total attempts=16。
 
+## Issue #200 Provider 商品大小选中态
+
+- Provider 静态资源真值显示六档由同一内部状态同时驱动请求 `goods_size`、图片框 `actived` 和文字
+  `gradient`。修复继续使用已核实的六个 canonical code/value，不按 DOM 顺序猜测映射。
+- 付费前校验不再只读取目标图片父节点。当前可见“手持商品图”弹窗必须呈现完整且唯一的六档集合，图片框与文字
+  选中标记必须一致，并连续两次只选中期望档位；默认“智能适配”残留高亮、多选、标记不一致或结构漂移均返回
+  `HIFLY_GOODS_SIZE_SELECTION_UNVERIFIED`，从而在 `立即生成` 前 fail closed。
+- 无积分公开回归先复现“目标 `小` 父节点看似 active、但完整组选中仍为智能适配”会被旧实现放行，再锁定新实现拒绝该
+  假阳性；现有测试继续证明任何选档校验失败都不会点击付费生成按钮。
+- 该结论只覆盖仓库实现和离线确定性证据。尚未部署，也没有再次访问 Hifly、创建/重试工单、启动 Worker、生成视频
+  或消耗积分；真实 Provider `small` 复验仍须新工单与新的单条积分授权。
+
 ## P0.5 内部验收环境部署
 
 - 2026-08-13 将内部验收环境从 `main@40e92414d4ef4a4015da9bb3f709f775c67843b6`
@@ -377,8 +389,9 @@
 
 ## 下一步
 
-1. 严格串行处理 #200 → #201 → #202：先修复并证明付费前 Provider 选档真值，再以 TDD 确认或推翻 heartbeat/report
-   `row_version` 竞态，最后修复 failed 工单首屏终态。三个 Issue 都不是重试当前失败工单的授权。
+1. 严格串行顺序保持 #200 → #201 → #202；本快照随 #200 修复合并进入 `main` 后，下一项才是 #201：以 TDD
+   确认或推翻 heartbeat/report `row_version` 竞态，最后处理 #202 的 failed 工单首屏终态。三个 Issue 都不是
+   重试当前失败工单的授权。
 2. 在三个缺陷分别实现、独立 Review、合并和部署复验前，不执行新的真实 Provider 生成。未来再次验证须使用唯一新工单、
    零 attempt、单条积分授权，并分别验收尺寸档位与外观保真。
 3. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
