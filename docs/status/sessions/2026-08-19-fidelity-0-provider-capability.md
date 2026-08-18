@@ -73,4 +73,5 @@ ProductRevision AssetVersion 绑定、领域候选持久化、人工批准、自
 - `npm run check`：通过，230 个 JavaScript 文件。
 - `git diff --check`：通过。
 - strict allowlist：通过，仅 5 份文档。
-- Draft PR fixed-head CI：创建 PR 后记录。
+- Draft PR #211 首个提交 `65f3aae` 的 CI 全部通过：Ubuntu 52 秒、Windows 1 分 44 秒、
+  identity-postgres 2 分 23 秒。最终证据提交的 CI 仍须独立通过。
