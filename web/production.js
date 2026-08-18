@@ -132,6 +132,10 @@
 
   function persistedTerminalProjection(selectedOrder) {
     if (selectedOrder?.status !== "succeeded") return null;
+    const verificationOrderMismatch = Boolean(verification && verification.order?.id !== selectedOrder.id);
+    if (verificationReadError || verificationOrderMismatch) {
+      return { executionStatus: "succeeded", verificationReadError: true, verificationStatus: "not_started", deliveryStatus: "not_available", work: null };
+    }
     const rawVerificationStatus = verification?.job?.verification_status;
     const verificationStatus = ["queued", "running"].includes(rawVerificationStatus)
       ? "pending"
@@ -270,6 +274,14 @@
         element("#productionTaskDescription").textContent = "正在确认作品文件是否可用于后续验收。";
         status.textContent = "正在核验作品文件"; status.className = "state waiting_for_executor";
         element("#productionTaskNextStep").textContent = "等待";
+      } else if (restoredTerminal?.verificationReadError) {
+        element("#productionTaskTitle").textContent = "核验状态读取失败";
+        element("#productionTaskDescription").textContent = "当前无法读取所选工单的最新文件核验状态。";
+        status.textContent = "核验状态读取失败"; status.className = "state failure";
+        element("#productionTaskNextStep").textContent = "刷新当前工单";
+        blocker.textContent = "请刷新当前工单；读取成功前不会使用旧作品状态或开放下一单。";
+        blocker.hidden = false;
+        element("#refreshProduction").setAttribute("data-recommended-action", "true");
       } else if (restoredTerminal?.workReadError) {
         element("#productionTaskTitle").textContent = "作品状态读取失败";
         element("#productionTaskDescription").textContent = "作品已经登记，但当前无法读取最新检查与交付状态。";
@@ -544,17 +556,23 @@
       worksLink.hidden = false; worksDisabled.hidden = true;
     } else {
       worksLink.hidden = true; worksDisabled.hidden = false;
-      worksDisabled.textContent = workDeliveryReadError
-        ? "作品状态读取失败，请刷新当前工单后再进入作品库。"
+      worksDisabled.textContent = verificationReadError
+        ? "核验状态读取失败，请刷新当前工单后再进入作品库。"
+        : workDeliveryReadError
+          ? "作品状态读取失败，请刷新当前工单后再进入作品库。"
         : runtime?.worksEnabled ? "作品登记完成后，可从作品库进行检查与交付登记。" : "作品检查与交付功能暂未开放；当前仅可在本工单查看已登记作品。";
     }
-    scheduleVerificationPoll(verificationReadError ? 3000 : 2000, { force: Boolean(verificationReadError) });
+    if (!(order?.status === "succeeded" && verificationReadError)) {
+      scheduleVerificationPoll(verificationReadError ? 3000 : 2000, { force: Boolean(verificationReadError) });
+    }
   }
   async function loadVerification({ render = true } = {}) {
     if (verificationPoll) { clearTimeout(verificationPoll); verificationPoll = null; }
     if (!runtime?.artifactVerificationEnabled || !selectedOrderId) { verification = null; verificationReadError = ""; workDeliveryReadError = ""; if (render) renderVerification(); return; }
     try {
-      verification = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/work-verification`);
+      const nextVerification = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/work-verification`);
+      if (nextVerification?.order?.id !== selectedOrderId) throw new Error("WORK_VERIFICATION_ORDER_MISMATCH");
+      verification = nextVerification;
       workDeliveryReadError = "";
       if (runtime?.worksEnabled && verification?.work?.id) {
         try {
@@ -569,9 +587,10 @@
       scheduleVerificationPoll();
       return verification;
     } catch (error) {
-      verificationReadError = "核验状态暂时无法读取，正在继续自动更新。";
+      verification = null;
+      workDeliveryReadError = "";
+      verificationReadError = "核验状态暂时无法读取，请刷新当前工单。";
       renderVerification();
-      scheduleVerificationPoll(3000, { force: true });
       throw error;
     }
   }

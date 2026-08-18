@@ -41,12 +41,18 @@ persisted terminal state and rendered the activation gate instead.
 - Review RED 2: after A12 returned a registered Work but exact Work reading failed, the summary rendered `正在登记作品`.
   GREEN: Work reading has its own controlled error state, keeps the next order closed, recommends only scoped Refresh, and returns
   to `作品待检查` after the exact Work read recovers.
+- Review RED 3: after the same succeeded order first rendered Work `pending_review`, a failed outer A12 read retained the prior
+  verification object and never reached the required error state. GREEN: outer A12 failure clears verification and Work state,
+  renders `核验状态读取失败`, exposes only scoped Refresh, and restores the exact same Work only after a successful read.
+  A response whose `verification.order.id` differs from the selected order follows the same fail-visible path and cannot cross-bind.
 
 ## Safety boundary
 
 - Persistent terminal recovery is restricted to a selected order whose stored status is `succeeded`.
 - Handoff package `absent` / `generating` / `generation_failed` / `expired` / `superseded` / `revoked` / `ready` remains an
   activation concern for non-terminal orders and cannot override an already-persisted succeeded-order Work state.
+- A12 and Work projections are accepted only for the selected order. Failed or mismatched A12 reads clear prior delivery state,
+  disable Works navigation, and do not auto-retry for a succeeded order; the operator must use scoped Refresh.
 - `waiting_for_executor + ready package` still falls through the existing activation fail-closed path.
 - The organization-wide unique eligible order, zero initial attempts, active attempts=0, claimed/running/failed/requires_action,
   cancellation, stop-on-failure, no automatic retry, and no Web Worker-control contracts were not changed.
@@ -58,10 +64,11 @@ persisted terminal state and rendered the activation gate instead.
   A12/Work matrix while Cloud Executor remained offline and `current_order=null`.
 - Affected Production/API regression: Production V2, ProductionOrder browser/API, Cloud Executor control plane, Work
   verification API, and Work delivery API passed 17/17.
-- Final clean default `npm test`: 1050 total / 1036 pass / 14 existing environment-gated skips / 0 fail in 88.3 seconds. The
-  skips are the repository's optional PostgreSQL integration cases; fixed-head CI remains the required PostgreSQL evidence gate.
-  An earlier local parallel attempt stalled in the unrelated A11 browser test; that test passed 1/1 alone in 47.8 seconds before
-  the clean default rerun passed, so the stalled attempt is retained as a local runner observation rather than a product failure.
+- Final default `npm test`, with the repository's normal parallelism and the local Chrome executable made explicit: 1050 total /
+  1036 pass / 14 existing environment-gated skips / 0 fail in 121.8 seconds. The skips are the repository's optional PostgreSQL
+  integration cases; fixed-head CI remains the required PostgreSQL evidence gate. An earlier run without the explicit local Chrome
+  executable stopped making progress in three unrelated existing browser files and was terminated after more than five minutes;
+  it produced no failed assertion and is retained as a local browser-runner observation rather than product evidence.
 - `npm run check`: 230 JavaScript files checked. `git diff --check`: pass.
 - Strict allowlist: `web/production.js`, `test/operator-workbench-v2-production-browser.test.js`, `docs/status/CURRENT.md`,
   `docs/ROADMAP.md`, and this session record.

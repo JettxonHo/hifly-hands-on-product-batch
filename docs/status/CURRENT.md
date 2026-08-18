@@ -31,6 +31,8 @@
   `delivered` 均保持独立业务状态与唯一下一步。
 - A12 已登记 Work 但精确 Work 状态暂时读取失败时，首屏明确显示“作品状态读取失败”，只推荐刷新当前工单；
   不把读取失败伪装成“正在登记作品”，不使用 stale delivery，也不开放下一单。
+- A12 状态本身读取失败或响应不属于当前所选工单时，旧 verification/Work 投影立即失效，首屏明确显示
+  “核验状态读取失败”，只允许刷新当前工单；恢复后才重新显示同一工单的真实 A12/Work 状态。
 - 修复只适用于已成功工单的终态恢复。`waiting_for_executor + ready package` 的激活前 fail-closed、组织级唯一
   eligible、当前工单零 attempt、active attempts=0、claimed/running/failed/requires_action/cancel、失败停批、
   无自动重试和企业 Web 无 Worker 启停命令的合同均未改变。

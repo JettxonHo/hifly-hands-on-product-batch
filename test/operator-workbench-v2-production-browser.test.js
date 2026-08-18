@@ -196,6 +196,8 @@ test("approved Plan with no order exposes one business-first Production recommen
   let persistedOrderStatus = null;
   let persistedExecution = null;
   let persistedVerification = null;
+  let persistedVerificationReadFailures = 0;
+  let persistedVerificationOrderOverride = null;
   let persistedWork = null;
   let persistedWorkReadFailures = 0;
   let manualHandoffOverride = null;
@@ -271,15 +273,21 @@ test("approved Plan with no order exposes one business-first Production recommen
   await page.route("**/api/production-orders/*/work-verification", (route) => {
     if (route.request().method() !== "GET") return route.continue();
     const orderId = new URL(route.request().url()).pathname.split("/").at(-2);
+    if (persistedVerificationReadFailures > 0) {
+      persistedVerificationReadFailures -= 1;
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "CONTROLLED_VERIFICATION_READ_FAILURE" }) });
+    }
+    const projectedVerification = structuredClone(persistedVerification || {
+      order: { id: orderId, status: persistedOrderStatus || "waiting_for_executor" },
+      job: null,
+      work: null,
+      works: []
+    });
+    if (persistedVerificationOrderOverride) projectedVerification.order.id = persistedVerificationOrderOverride;
     return route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(persistedVerification || {
-        order: { id: orderId, status: persistedOrderStatus || "waiting_for_executor" },
-        job: null,
-        work: null,
-        works: []
-      })
+      body: JSON.stringify(projectedVerification)
     });
   });
   await page.route("**/api/works/*", (route) => {
@@ -735,6 +743,36 @@ test("approved Plan with no order exposes one business-first Production recommen
   await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "作品待检查");
   assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
   assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+  assert.equal(await page.locator("#worksLibraryLink").isVisible(), true);
+
+  persistedVerificationReadFailures = 1;
+  const failedVerificationRead = page.waitForResponse((response) =>
+    response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/production-orders/${selectedOrderId}/work-verification`
+      && response.status() === 503);
+  await page.locator("#refreshProduction").click();
+  await failedVerificationRead;
+  await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "核验状态读取失败");
+  assert.equal((await page.locator("#productionTaskNextStep").textContent()).trim(), "刷新当前工单");
+  assert.equal(await page.locator("#refreshProduction").getAttribute("data-recommended-action"), "true");
+  assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+  assert.doesNotMatch(await taskSummary.innerText(), /作品待检查|生成完成，待文件核验/);
+  assert.equal(await page.locator("#worksLibraryLink").isHidden(), true);
+
+  persistedVerificationOrderOverride = "order-from-another-selection";
+  await page.locator("#refreshProduction").click();
+  await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "核验状态读取失败");
+  assert.equal(await page.locator("#worksLibraryLink").isHidden(), true);
+  persistedVerificationOrderOverride = null;
+
+  const recoveredVerificationRead = page.waitForResponse((response) =>
+    response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/production-orders/${selectedOrderId}/work-verification`
+      && response.status() === 200);
+  await page.locator("#refreshProduction").click();
+  await recoveredVerificationRead;
+  await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "作品待检查");
+  assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
   assert.equal(await page.locator("#worksLibraryLink").isVisible(), true);
 
   const screenshotRoot = path.join(os.tmpdir(), "hifly-v2-b-production-screenshots");
