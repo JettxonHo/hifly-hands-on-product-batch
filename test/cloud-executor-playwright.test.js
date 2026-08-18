@@ -89,7 +89,7 @@ async function generatedPackageForCloudExecutor() {
         status: "confirmed", version_number: 1, display_name: "Cloud Avatar", source_type: "seeded",
         authorization_status: "valid", capability_status: "verified", capabilities: [{ code: "speech", evidence_reference: "fixture:speech" }]
       },
-      video_plan_version: { id: "plan-cloud-v1", version_number: 1, status: "frozen", output_instructions: "Vertical product video" },
+      video_plan_version: { id: "plan-cloud-v1", version_number: 1, status: "frozen", presentation_size_code: "extra_small", output_instructions: "Vertical product video" },
       asset_references: [{
         asset_id: "product-asset-cloud", asset_version_id: "product-version-cloud", role: "product_image",
         display_name: "Product image", media_type: "image/png", size: assetBody.length, checksum: sha256(assetBody),
@@ -312,6 +312,7 @@ test("cloud adapter compiles an actual generated ManualHandoffPackage archive th
     assert.equal(compiledTask.product_name, "Generated cloud product");
     assert.equal(compiledTask.script, "Generated frozen copy.");
     assert.equal(compiledTask.person_image_path, avatarPath);
+    assert.equal(compiledTask.presentation_size_code, "extra_small");
     assert.equal(compiledTask.image_path.startsWith(path.join(workspace.assetsDir, "attempt-generated")), true);
     assert.equal("task" in generated.packageRecord, false);
   } finally {

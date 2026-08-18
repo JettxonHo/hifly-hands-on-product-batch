@@ -123,6 +123,20 @@
 - 因唯一管理员忘记密码且没有第二管理员，按既有身份合同执行一次应急自重置：追加 `admin_reset` credential、设置
   `requires_password_change=true`、撤销旧会话并写入 `identity.password_reset` 审计。用户随后完成首次改密并登录；
   旧密码未被读取或回显。该动作属于受控身份恢复，不应误写为“完全没有生产数据写入”。
+
+## Issue #193 实物尺寸与商品呈现大小
+
+- Issue #193 的仓库实现为 ProductRevision 增加可选实物尺寸、容量和重量事实，未知值保持未知，
+  不从图片像素推断。VideoPlan 使用飞影原生六档商品呈现大小，并将两类事实纳入版本、
+  上游失效、Production 固定输入快照、交接包和 Playwright 执行输入。
+- 只读静态证据已核实飞影六档映射：智能适配 `0`、超大 `50`、大 `40`、中 `30`、小 `20`、
+  超小 `10`；选中态由对应图片的本地化 `alt` 与父容器 `actived` 类共同验证。执行器在付费生成前
+  必须选择并验证期望档位；控件缺失、映射不支持或选中态不可验证时 fail closed。
+- 该仓库改动没有部署，没有启动 Worker，也没有点击飞影付费生成；因此不是真实 Provider 出片验收。
+  呈现大小不自动证明外观保真，瓶盖、包装、标签或商品形态仍必须在 Works 检查中单独验收。
+- PostgreSQL 16 回归已覆盖实物尺寸默认未知、对象往返和显式清空：未知或清空使用 SQL `NULL`，不写入
+  JSONB `null`。CI 的 PostgreSQL job 严格串行执行 Identity、ProjectContent v2 与 VideoPlanning v2 集成测试；
+  VideoPlanning 测试先应用其真实依赖的 Asset migrations，避免缺表被环境 skip 掩盖。
 - 真实管理员会话验证：登录后根路径进入 Projects；显式 `/index.html` 保留 legacy 与“进入项目”入口。
   Projects、Project、Copy、Avatar、Plan、Production、Works、Assets、Members 九页均在
   `1440x900 / 768x900 / 390x844` 下无页面级横向溢出，一级导航稳定为“项目 / 作品库 / 素材中心 / 成员管理”。
@@ -292,13 +306,15 @@
 
 ## 下一步
 
-1. 严格串行处理两个部署后 P1：先修 #190，确保 Project 只接受真实 `product_image`；合并后再修 #191，恢复
+1. Issue #193 仓库合并后，先部署 migration 与应用并做无积分界面/快照/交接包验收；任何真实飞影出片
+   仍须另起受控工单，在付费生成前核对呈现档位，并单独验收外观保真。
+2. 严格串行处理两个部署后 P1：先修 #190，确保 Project 只接受真实 `product_image`；合并后再修 #191，恢复
    Production 对 terminal Work 的稳定投影。#191 修复不得弱化激活前 fail-closed、唯一 eligible、零初始 attempt、
    terminal 关 Worker、失败停批与不自动重试门禁。
-2. 继续 P0.5 release-readiness：V2 与依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
-3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
+3. 继续 P0.5 release-readiness：V2 与依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
+4. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
-4. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
+5. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
 
 ## 长期边界
 

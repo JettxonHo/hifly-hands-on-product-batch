@@ -53,10 +53,18 @@ test("authenticated API creates, restores, edits, confirms, and readies a produc
   let revision = product.json().revision;
   const saved = await app.inject({
     method: "PATCH", url: `/api/product-revisions/${revision.id}`, headers: headers(auth, true),
-    payload: { expected_revision: revision.revision_number, product_name: "云朵抱枕", selling_points: [{ text: "柔软亲肤" }], asset_version_ids: ["asset-version-1"], content_brief: { expression_style: "自然口语" } }
+    payload: {
+      expected_revision: revision.revision_number,
+      product_name: "云朵抱枕",
+      physical_dimensions: { height: 18, width: 12, unit: "cm", capacity: { value: 500, unit: "ml" } },
+      selling_points: [{ text: "柔软亲肤" }],
+      asset_version_ids: ["asset-version-1"],
+      content_brief: { expression_style: "自然口语" }
+    }
   });
   assert.equal(saved.statusCode, 200, saved.body);
   revision = saved.json().revision;
+  assert.deepEqual(revision.physical_dimensions, { height: 18, width: 12, unit: "cm", capacity: { value: 500, unit: "ml" } });
   const confirmed = await app.inject({
     method: "POST", url: `/api/product-revisions/${revision.id}/selling-points/${revision.selling_points[0].id}/confirm`, headers: headers(auth, true), payload: { expected_revision: revision.revision_number }
   });
@@ -85,6 +93,9 @@ test("API exposes ready blockers and stale revisions without internal details", 
   const invalid = await app.inject({ method: "PATCH", url: `/api/product-revisions/${revision.id}`, headers: headers(auth, true), payload: { expected_revision: 2, product_name: "商品", selling_points: "not-an-array", asset_version_ids: [] } });
   assert.equal(invalid.statusCode, 400);
   assert.deepEqual(invalid.json(), { error: "INVALID_SELLING_POINTS" });
+  const invalidDimensions = await app.inject({ method: "PATCH", url: `/api/product-revisions/${revision.id}`, headers: headers(auth, true), payload: { expected_revision: 2, product_name: "商品", physical_dimensions: { height: 18, width: 12, unit: "pixels" }, selling_points: [], asset_version_ids: [] } });
+  assert.equal(invalidDimensions.statusCode, 400);
+  assert.deepEqual(invalidDimensions.json(), { error: "INVALID_PHYSICAL_DIMENSIONS" });
 });
 
 test("product revision read seam preserves organization-scoped not-found semantics", async (t) => {

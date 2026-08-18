@@ -1473,6 +1473,78 @@ test("applyScriptMode falls back to the real Hifly script label", async () => {
   ]);
 });
 
+test("Hifly goods-size selection uses the exact native label and verifies the active state", async () => {
+  const calls = [];
+  let active = false;
+  const container = {
+    async click() { calls.push("click"); active = true; },
+    async getAttribute(name) { calls.push(`attribute:${name}`); return active ? "img-box actived" : "img-box"; }
+  };
+  const image = {
+    async count() { return 1; },
+    async isVisible() { return true; },
+    locator(value) { assert.equal(value, ".."); return container; }
+  };
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout() {},
+    locator() { throw new Error("page-wide lookup must not be used"); }
+  }, { batch: { defaultTimeoutMs: 20 } }, { info() {} });
+  adapter.dialogLocator = () => ({
+    locator(selector) { calls.push(`selector:${selector}`); return image; }
+  });
+
+  await adapter.selectAndVerifyGoodsSize("small");
+
+  assert.deepEqual(calls, ["selector:img[alt=\"小\"]", "click", "attribute:class"]);
+});
+
+test("Hifly goods-size selection fails closed when the native control is absent", async () => {
+  const adapter = new HiflyHandsOnProductPage({}, { batch: { defaultTimeoutMs: 20 } }, { info() {} });
+  adapter.dialogLocator = () => ({
+    locator() { return { async count() { return 0; }, async isVisible() { return false; } }; }
+  });
+  await assert.rejects(() => adapter.selectAndVerifyGoodsSize("large"), { code: "HIFLY_GOODS_SIZE_CONTROL_UNAVAILABLE" });
+});
+
+test("Hifly goods-size selection fails closed when the active state cannot be verified", async () => {
+  const container = {
+    async click() {},
+    async getAttribute() { return "img-box"; }
+  };
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout(ms) { await new Promise((resolve) => setTimeout(resolve, ms)); }
+  }, { batch: { defaultTimeoutMs: 1 } }, { info() {} });
+  adapter.dialogLocator = () => ({
+    locator() {
+      return { async count() { return 1; }, async isVisible() { return true; }, locator() { return container; } };
+    }
+  });
+  await assert.rejects(() => adapter.selectAndVerifyGoodsSize("medium"), { code: "HIFLY_GOODS_SIZE_SELECTION_UNVERIFIED" });
+});
+
+test("createHandsOnImage never clicks the paid generate action when goods-size verification fails", async () => {
+  let paidGenerateClicked = false;
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadPersonText: "上传人物", uploadProductText: "上传商品" }
+  }, { info() {} });
+  adapter.openHandsOnModal = async () => undefined;
+  adapter.captureStep = async () => undefined;
+  adapter.hasGeneratedImageReady = async () => false;
+  adapter.selectRecommendedPerson = async () => undefined;
+  adapter.captureProductImageSrc = async () => ({ src: "old.png", naturalWidth: 1 });
+  adapter.uploadModalFile = async () => undefined;
+  adapter.verifyProductImageReplaced = async () => undefined;
+  adapter.selectAndVerifyGoodsSize = async () => {
+    throw Object.assign(new Error("unverified"), { code: "HIFLY_GOODS_SIZE_SELECTION_UNVERIFIED" });
+  };
+  adapter.clickModalGenerate = async () => { paidGenerateClicked = true; };
+
+  await assert.rejects(() => adapter.createHandsOnImage({ image_path: "/tmp/product.png", presentation_size_code: "small" }),
+    { code: "HIFLY_GOODS_SIZE_SELECTION_UNVERIFIED" });
+  assert.equal(paidGenerateClicked, false);
+});
+
 test("createHandsOnImage edits a stale generated modal before uploading the current product", async () => {
   const calls = [];
   const adapter = new HiflyHandsOnProductPage({}, {
@@ -1501,6 +1573,7 @@ test("createHandsOnImage edits a stale generated modal before uploading the curr
     const required = options?.required === true ? "required" : "optional";
     calls.push(`upload:${label}:${filePath}:${required}`);
   };
+  adapter.selectAndVerifyGoodsSize = async (code) => calls.push(`size:${code}`);
   adapter.clickModalGenerate = async () => calls.push("generate");
   adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
   adapter.clickModalConfirm = async () => {
@@ -1527,6 +1600,8 @@ test("createHandsOnImage edits a stale generated modal before uploading the curr
     "verify",
     "capture:modal-ready",
     "ready",
+    "size:smart_fit",
+    "capture:modal-size-selected",
     "generate",
     "capture:modal-after-generate",
     "confirm"
@@ -1618,6 +1693,7 @@ test("createHandsOnImage edits a stale failed modal before continuing the curren
     calls.push(`upload:${label}:${filePath}:${required}`);
   };
   adapter.verifyProductImageReplaced = async () => calls.push("verify-product");
+  adapter.selectAndVerifyGoodsSize = async (code) => calls.push(`size:${code}`);
   adapter.clickModalGenerate = async () => calls.push("generate");
   adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
 
@@ -1732,6 +1808,7 @@ test("createHandsOnImage resets a failed modal revealed by the outer upload clic
     calls.push(`upload:${label}:${filePath}:${required}`);
   };
   adapter.verifyProductImageReplaced = async () => calls.push("verify-product");
+  adapter.selectAndVerifyGoodsSize = async (code) => calls.push(`size:${code}`);
   adapter.clickModalGenerate = async () => calls.push("generate");
   adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
 
@@ -1785,6 +1862,7 @@ test("createHandsOnImage retries when a generated modal appears before clicking 
     const required = options?.required === true ? "required" : "optional";
     calls.push(`upload:${label}:${filePath}:${required}`);
   };
+  adapter.selectAndVerifyGoodsSize = async (code) => calls.push(`size:${code}`);
   adapter.clickModalGenerate = async () => calls.push("generate");
   adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
 
@@ -1818,6 +1896,8 @@ test("createHandsOnImage retries when a generated modal appears before clicking 
     "verify",
     "capture:modal-ready",
     "ready",
+    "size:smart_fit",
+    "capture:modal-size-selected",
     "generate",
     "capture:modal-after-generate",
     "confirm"
@@ -1844,6 +1924,7 @@ test("createHandsOnImage forces a product upload even when the modal looks ready
     calls.push(`upload:${label}:${filePath}:${required}`);
     if (required === "required") throw productUploadError;
   };
+  adapter.selectAndVerifyGoodsSize = async (code) => calls.push(`size:${code}`);
   adapter.clickModalGenerate = async () => calls.push("generate");
   adapter.confirmGeneratedHandsOnImage = async () => calls.push("confirm");
 

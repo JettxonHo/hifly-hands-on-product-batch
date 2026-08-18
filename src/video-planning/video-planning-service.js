@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { DEFAULT_PRESENTATION_SIZE_CODE, normalizePresentationSizeCode } from "./presentation-size.js";
+
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const failure = (code, details = null) => Object.assign(new Error(code), { code, details });
 const stableJson = (value) => Array.isArray(value) ? `[${value.map(stableJson).join(",")}]` :
@@ -144,16 +146,18 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
   async function createPlan(input) {
     context(input); key(input.idempotencyKey);
     const output = instructions(input.outputInstructions);
+    const presentationSizeCode = normalizePresentationSizeCode(input.presentationSizeCode);
     if (!Number.isInteger(input.expectedHeadRevision) || input.expectedHeadRevision < 0) throw failure("VIDEO_PLAN_CONFLICT");
     const fingerprint = stableJson({ product_id: input.productId, output_instructions: output,
-      expected_head_revision: input.expectedHeadRevision });
+      presentation_size_code: presentationSizeCode, expected_head_revision: input.expectedHeadRevision });
     const prior = await replay(input, "create", fingerprint); if (prior) return prior;
     const { current, capability } = await upstreamForNewPlan(input), at = timestamp();
     const versions = await repository.listPlans(input.organizationId, input.productId);
     const plan = { id: randomUUID(), organization_id: input.organizationId, product_id: input.productId,
       version_number: versions.length + 1, status: "draft", row_version: 1,
       upstream_snapshot: snapshotFrom(current), capability_config_snapshot: capability,
-      output_instructions: output, parent_plan_version_id: null, created_by_member_id: input.actorMemberId,
+      output_instructions: output, presentation_size_code: presentationSizeCode, parent_plan_version_id: null,
+      created_by_member_id: input.actorMemberId,
       created_at: at, updated_at: at, frozen_at: null };
     const rKey = receiptKey(input, "create");
     await repository.createPlan({ receiptKey: rKey, fingerprint, plan, expectedHeadRevision: input.expectedHeadRevision,
@@ -165,14 +169,18 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
   async function deriveDraft(input) {
     context(input); key(input.idempotencyKey);
     const output = instructions(input.outputInstructions);
+    const requestedPresentationSizeCode = input.presentationSizeCode == null
+      ? null : normalizePresentationSizeCode(input.presentationSizeCode);
     if (!Number.isInteger(input.expectedHeadRevision) || input.expectedHeadRevision < 1) throw failure("VIDEO_PLAN_CONFLICT");
     const fingerprint = stableJson({ source_plan_id: input.planId, output_instructions: output,
-      expected_head_revision: input.expectedHeadRevision });
+      presentation_size_code: requestedPresentationSizeCode || "preserve_source", expected_head_revision: input.expectedHeadRevision });
     const prior = await replay(input, "derive", fingerprint); if (prior) return prior;
     const source = await requirePlan(input, input.planId), { current, capability } = await upstreamForNewPlan(input);
+    const presentationSizeCode = requestedPresentationSizeCode || normalizePresentationSizeCode(source.presentation_size_code);
     const versions = await repository.listPlans(input.organizationId, input.productId), at = timestamp();
     const plan = { ...source, id: randomUUID(), version_number: versions.length + 1, status: "draft", row_version: 1,
       upstream_snapshot: snapshotFrom(current), capability_config_snapshot: capability, output_instructions: output,
+      presentation_size_code: presentationSizeCode,
       parent_plan_version_id: source.id, created_by_member_id: input.actorMemberId, created_at: at,
       updated_at: at, frozen_at: null };
     const rKey = receiptKey(input, "derive");
@@ -184,9 +192,12 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
   }
 
   async function saveDraft(input) {
-    context(input); const output = instructions(input.outputInstructions), at = timestamp();
+    context(input); const output = instructions(input.outputInstructions), current = await requirePlan(input, input.planId);
+    const presentationSizeCode = input.presentationSizeCode == null
+      ? normalizePresentationSizeCode(current.presentation_size_code) : normalizePresentationSizeCode(input.presentationSizeCode);
+    const at = timestamp();
     const saved = await repository.saveDraft({ organizationId: input.organizationId, planId: input.planId,
-      expectedRevision: input.expectedRevision, outputInstructions: output, updatedAt: at,
+      expectedRevision: input.expectedRevision, outputInstructions: output, presentationSizeCode, updatedAt: at,
       audit: audit({ input, type: "video_plan.draft_saved", planId: input.planId, at }) });
     if (!saved) throw failure("VIDEO_PLAN_NOT_FOUND");
     return workspace(input, saved.id, { reconcile: false });
@@ -200,7 +211,8 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
     if (!clean(plan.output_instructions)) throw failure("VIDEO_PLAN_PREFLIGHT_BLOCKED");
     const at = timestamp(), run = { id: randomUUID(), organization_id: input.organizationId,
       video_plan_version_id: plan.id, status: "queued", input_snapshot: { upstream_snapshot: plan.upstream_snapshot,
-        capability_config_snapshot: plan.capability_config_snapshot, output_instructions: plan.output_instructions },
+        capability_config_snapshot: plan.capability_config_snapshot, output_instructions: plan.output_instructions,
+        presentation_size_code: normalizePresentationSizeCode(plan.presentation_size_code) },
       preflight_result_id: null, failure_code: null, lease_token: null, created_by_member_id: input.actorMemberId,
       started_at: null, completed_at: null, created_at: at, updated_at: at };
     const rKey = receiptKey(input, "preflight");

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { requirePresentationSizeCode } from "../video-planning/presentation-size.js";
+
 export const MANUAL_HANDOFF_CONTRACT_TYPE = "manual_handoff";
 export const MANUAL_HANDOFF_CONTRACT_VERSION = "1.0";
 export const MANUAL_HANDOFF_PACKAGE_STATES = ["generating", "ready", "generation_failed", "superseded", "expired", "revoked"];
@@ -84,7 +86,8 @@ export function buildManualHandoffManifest({ order, packageId, packageVersion, c
     !avatar.source_type || !avatar.authorization_status || !avatar.capability_status || !Array.isArray(capabilities) || capabilities.length === 0) {
     throw failure("MANUAL_HANDOFF_INPUT_SNAPSHOT_REQUIRED");
   }
-  const videoPlanSnapshot = sanitizePackageValue(plan, { organizationId });
+  const presentationSizeCode = requirePresentationSizeCode(plan.presentation_size_code);
+  const videoPlanSnapshot = sanitizePackageValue({ ...plan, presentation_size_code: presentationSizeCode }, { organizationId });
   const configuration = sanitizePackageValue(snapshot.configuration_snapshot || snapshot.capability_config_snapshot || plan.capability_config_snapshot || {}, { organizationId });
   const primaryOutput = sanitizePackageValue(snapshot.primary_output || plan.primary_output || {
     role: "primary_video", accepted_media_types: ["video/*"], expected_quantity: 1
@@ -165,6 +168,24 @@ export function buildManualHandoffManifest({ order, packageId, packageVersion, c
   return { ...base, manifest_hash: manifestHash };
 }
 
+const presentationSizeLabels = Object.freeze({
+  smart_fit: "智能适配", extra_large: "超大", large: "大", medium: "中", small: "小", extra_small: "超小"
+});
+
+function presentationSizeLabel(code) {
+  return `${presentationSizeLabels[code]}（${code}）`;
+}
+
+function formatPhysicalDimensions(value) {
+  if (!value || typeof value !== "object" || !Number.isFinite(value.height) || !Number.isFinite(value.width) || !value.unit) return "未知";
+  return `${value.height} × ${value.width}${Number.isFinite(value.depth) ? ` × ${value.depth}` : ""} ${value.unit}`;
+}
+
+function formatQuantity(value) {
+  return value && typeof value === "object" && Number.isFinite(value.value) && value.unit
+    ? `${value.value} ${value.unit}` : "未知";
+}
+
 export function renderManualHandoffReadme(manifest) {
   const optionalListSection = (title, values) => Array.isArray(values) && values.length
     ? ["", `## ${title}`, ...values.map((item) => `- ${item}`)]
@@ -178,6 +199,9 @@ export function renderManualHandoffReadme(manifest) {
     "",
     "## 固定输入",
     `- 商品：${manifest.product_revision.product_name}`,
+    `- 实物尺寸：${formatPhysicalDimensions(manifest.product_revision.physical_dimensions)}`,
+    `- 容量：${formatQuantity(manifest.product_revision.physical_dimensions?.capacity)}`,
+    `- 重量：${formatQuantity(manifest.product_revision.physical_dimensions?.weight)}`,
     `- 文案版本：${manifest.copy_snapshot.copy_version_id}（v${manifest.copy_snapshot.version_number}）`,
     "文案正文：",
     manifest.copy_snapshot.copy_body,
@@ -185,6 +209,8 @@ export function renderManualHandoffReadme(manifest) {
     `- 来源：${manifest.avatar_snapshot.source_type}`,
     `- 授权：${manifest.avatar_snapshot.authorization_status}${manifest.avatar_snapshot.authorization_summary ? `（${manifest.avatar_snapshot.authorization_summary}）` : ""}`,
     `- 视频方案：${manifest.video_plan_snapshot.output_instructions}`,
+    `- 商品呈现大小：${presentationSizeLabel(manifest.video_plan_snapshot.presentation_size_code)}`,
+    "- 外观核对：呈现大小不保证瓶盖、包装、标签或商品形态保真，成片仍须人工检查。",
     "",
     "## 作业说明",
     ...manifest.execution_steps.map((step) => `- ${step}`),

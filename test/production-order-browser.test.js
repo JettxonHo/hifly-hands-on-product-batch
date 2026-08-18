@@ -33,14 +33,15 @@ test("production workspace supports empty/create/re-entry flows at desktop and 3
     productionOrders: { enabled: true, repository: createMemoryProductionOrderRepository(),
       inputSnapshotPort: { async freezeForOrder() {
         return { approved_copy_snapshot: { copy_version_id: "copy-browser", product_revision_id: "revision-browser", version_number: 1, status: "frozen", intent: "product_recommendation", body: "浏览器冻结文案正文", review: { id: "review-browser", status: "approved" } },
-          product_revision_snapshot: { id: "revision-browser", organization_id: "org-production-browser", project_id: "project-browser", product_id: product.id, status: "ready", revision_number: 1, product_name: "云感保湿乳", product_description: "日常保湿", asset_version_ids: ["product-image-browser"] },
+          product_revision_snapshot: { id: "revision-browser", organization_id: "org-production-browser", project_id: "project-browser", product_id: product.id, status: "ready", revision_number: 1, product_name: "云感保湿乳", product_description: "日常保湿", asset_version_ids: ["product-image-browser"],
+            physical_dimensions: { height: 18, width: 12, depth: 4, unit: "cm", capacity: { value: 500, unit: "ml" } } },
           asset_references: [{ asset_id: "asset-browser", asset_version_id: "product-image-browser", role: "product_image", display_name: "商品图", media_type: "image/png", size: 5, checksum: "6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d", retrieval_mode: "embedded", access_scope: "organization", body: Buffer.from("image") }],
           avatar_selection_snapshot: { avatar_selection_id: "selection-browser", copy_version_id: "copy-browser", asset_version_id: "avatar-browser", status: "confirmed", version_number: 1, avatar_asset_id: "avatar-asset-browser", display_name: "浏览器人物", source_type: "enterprise", authorization_status: "valid", capability_status: "verified", capabilities: [{ code: "speech", evidence_reference: "seed:speech" }] } };
       } },
       planPort: { async resolveCurrentApprovedPlan({ organizationId, productId }) {
         if (organizationId !== "org-production-browser" || productId !== product.id) return null;
         return { current_valid: true, gate: { can_create: true, reasons: [] },
-          plan: { id: "plan-browser", organization_id: organizationId, product_id: productId, version_number: 2, status: "frozen",
+          plan: { id: "plan-browser", organization_id: organizationId, product_id: productId, version_number: 2, status: "frozen", presentation_size_code: "small",
             output_instructions: "竖版商品种草口播", upstream_snapshot: { product_revision_id: "revision-browser", copy_version_id: "copy-browser",
               avatar_selection_id: "selection-browser", avatar_asset_version_id: "avatar-browser" },
             capability_config_snapshot: { snapshot_version: "capability-browser", verified_capabilities: [{ code: "speech", evidence_reference: "seed:speech" }] } },
@@ -102,7 +103,13 @@ test("production workspace supports empty/create/re-entry flows at desktop and 3
   cloudStatusFailure = false;
   cloudState = { ...cloudState, progress: { phase: "waiting_provider", label: "等待云端生成", updated_at: "2026-08-12T00:01:30.000Z" }, current_attempt: { ...cloudState.current_attempt, progress_phase: "waiting_provider" } };
   await page.getByText("等待云端生成", { exact: true }).first().waitFor();
+  await page.getByText("实物尺寸：18 × 12 × 4 cm", { exact: true }).waitFor();
+  await page.getByText("商品呈现大小：小（small）", { exact: true }).waitFor();
   if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, "a09-production-1440.png"), fullPage: true });
+  await page.setViewportSize({ width: 768, height: 900 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, "a09-production-768.png"), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   assert.equal(await page.locator("#orderList [data-order-id]").count(), 1);
   assert.equal(await page.getByText("目的在创建时固定，不可修改。", { exact: true }).count() > 0, true);
   assert.equal(await page.getByRole("button", { name: "生成交接包" }).count(), 0);

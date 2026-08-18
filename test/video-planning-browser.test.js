@@ -73,8 +73,32 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   await taskSummary.getByText("秋季视频方案 · 云感保湿乳", { exact: true }).waitFor();
   await taskSummary.getByText("视频方案 · 4/5", { exact: true }).waitFor();
   await taskSummary.getByText("填写制作说明并创建方案", { exact: true }).waitFor();
-  await page.locator("#firstInstructions").fill("竖版种草口播，突出保湿体验与使用场景。"); await page.getByRole("button", { name: "创建视频方案" }).click();
+  await page.locator("#firstInstructions").fill("竖版种草口播，突出保湿体验与使用场景。");
+  await page.locator("#firstPresentationSize").selectOption("small");
+  await page.getByRole("button", { name: "创建视频方案" }).click();
   await page.getByText("方案 v1", { exact: true }).first().waitFor();
+  assert.equal(await page.locator("#presentationSize").inputValue(), "small");
+  await page.getByText("原生档位只控制画面呈现大小，不保证瓶盖、包装、标签或商品形态不变。", { exact: true }).waitFor();
+  let conflictInjected = false;
+  const conflictPlanSave = async (route) => {
+    if (!conflictInjected && route.request().method() === "PATCH") {
+      conflictInjected = true;
+      await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "VIDEO_PLAN_CONFLICT" }) });
+      return;
+    }
+    await route.fallback();
+  };
+  await page.route("**/api/products/*/video-plans/*", conflictPlanSave);
+  await page.locator("#outputInstructions").fill("本地冲突制作说明");
+  await page.locator("#presentationSize").selectOption("medium");
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await taskSummary.getByText("方案版本冲突", { exact: true }).waitFor();
+  assert.equal(await page.locator("#outputInstructions").inputValue(), "本地冲突制作说明");
+  assert.equal(await page.locator("#presentationSize").inputValue(), "medium");
+  assert.equal(conflictInjected, true);
+  await page.unroute("**/api/products/*/video-plans/*", conflictPlanSave);
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await taskSummary.getByText("开始预检", { exact: true }).waitFor();
   assert.equal(await page.locator("#taskContext").textContent(), "秋季视频方案 · 云感保湿乳");
   assert.doesNotMatch((await taskSummary.textContent()) || "", /copy-app|selectio/,
     "Primary task context must not expose shortened upstream identifiers");
@@ -136,6 +160,7 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   await taskSummary.getByText("开始预检", { exact: true }).waitFor();
   assert.equal(await page.locator("#planWorkspace").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length), 3);
   await page.locator("#outputInstructions").fill("尚未保存的新制作说明");
+  await page.locator("#presentationSize").selectOption("extra_small");
   await taskSummary.getByText("保存草稿", { exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "开始预检" }).isDisabled(), true);
   await page.getByText("有未保存的修改，请先保存后预检。", { exact: true }).waitFor();
@@ -147,6 +172,7 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   await unsavedDialog.getByRole("button", { name: "取消" }).click();
   assert.equal(await page.locator("#productSelector").inputValue(), product.id);
   assert.equal(await page.locator("#outputInstructions").inputValue(), "尚未保存的新制作说明");
+  assert.equal(await page.locator("#presentationSize").inputValue(), "extra_small");
   await page.locator("#productSelector").selectOption(secondProduct.id);
   await page.getByRole("dialog", { name: "有未保存的修改" }).getByRole("button", { name: "保存并继续" }).click();
   await page.getByText("还没有视频方案").waitFor();
@@ -183,7 +209,7 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false,
       `Plan should not overflow at ${viewport.width}px`);
     if (screenshotDir) {
-      await page.screenshot({ path: path.join(screenshotDir, `plan-${viewport.width}x${viewport.height}.png`) });
+      await page.screenshot({ path: path.join(screenshotDir, `plan-${viewport.width}x${viewport.height}.png`), fullPage: true });
     }
   }
   await page.emulateMedia({ reducedMotion: "reduce" });

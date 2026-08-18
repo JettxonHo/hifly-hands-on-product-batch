@@ -50,6 +50,8 @@
 .snapshot-card strong, .snapshot-card span { min-width: 0; overflow-wrap: anywhere; }
 .snapshot-card span { color: var(--n-500); font-size: 12px; }
 .snapshot-card > span:last-child { color: var(--brand); white-space: nowrap; }
+.snapshot-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--n-200); }
+.snapshot-fact { min-width: 0; padding: 9px 10px; border-radius: var(--radius-control); color: var(--n-700); background: var(--n-50); font-size: 12px; overflow-wrap: anywhere; }
 .order-created-meta { margin: var(--space-4) 0 0; color: var(--n-500); font-size: 13px; }
 .package-panel { padding: var(--space-4); }
 .package-panel .surface-header { align-items: center; }
@@ -155,6 +157,7 @@
   .package-actions { position: sticky; z-index: 2; bottom: 0; margin: var(--space-4) calc(var(--space-4) * -1) calc(var(--space-4) * -1); padding: 10px var(--space-4); border-top: 1px solid var(--n-200); background: rgba(255,255,255,.98); }
   .package-summary-row { grid-template-columns: 1fr; gap: 3px; }
   .snapshot-card { grid-template-columns: minmax(0, 1fr) auto; }
+  .snapshot-facts { grid-template-columns: 1fr; }
   .product-context { grid-template-columns: 1fr auto; }
   .product-context > label { grid-column: 1 / -1; }
   .product-context select { grid-column: 1 / -1; }

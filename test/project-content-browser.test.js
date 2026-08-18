@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -43,15 +43,30 @@ test("system Chrome completes and restores the project-content flow", async (t) 
   await page.locator("#newPassword").fill("Browser-Content-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
   await page.getByRole("link", { name: "项目", exact: true }).click(); await page.getByRole("button", { name: "创建项目" }).click(); await page.getByLabel("项目名称").fill("八月新品"); await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click(); await page.getByRole("link", { name: "继续项目" }).click();
   await page.getByRole("button", { name: "创建商品" }).click(); await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("云朵抱枕"); await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
+  await page.getByRole("heading", { name: "实物尺寸" }).waitFor();
+  await page.getByLabel("高度", { exact: true }).fill("18"); await page.getByLabel("宽度", { exact: true }).fill("12"); await page.getByLabel("尺寸单位", { exact: true }).selectOption("cm");
+  await page.getByLabel("容量数值（可选）", { exact: true }).fill("500"); await page.getByLabel("容量单位", { exact: true }).selectOption("ml");
   await page.getByRole("button", { name: "新增卖点" }).click(); await page.locator(".point-row input").fill("柔软亲肤"); await page.getByRole("button", { name: "保存草稿" }).click(); await page.getByText("草稿已保存。").waitFor();
   await page.getByRole("button", { name: "确认", exact: true }).click(); await page.getByText(/已确认。$/).waitFor(); await page.locator("#assetOptions input").check();
   await page.getByRole("button", { name: "设为资料已就绪", exact: true }).click(); await page.getByText("商品资料已设为就绪。").waitFor(); assert.match(await page.locator("#revisionState").textContent(), /^商品资料已就绪/);
   const revisionId = new URL(page.url()).searchParams.get("revision");
   assert.ok(revisionId);
+  assert.equal(await page.getByLabel("高度", { exact: true }).inputValue(), "18");
+  assert.equal(await page.getByLabel("尺寸单位", { exact: true }).inputValue(), "cm");
+  assert.equal(await page.getByLabel("容量单位", { exact: true }).inputValue(), "ml");
   await page.reload(); await page.locator("#revisionState").waitFor(); assert.match(await page.locator("#revisionState").textContent(), /^商品资料已就绪/);
   assert.equal(new URL(page.url()).searchParams.get("revision"), revisionId);
   assert.equal(await page.getByRole("button", { name: "设为资料已就绪", exact: true }).isDisabled(), true);
   assert.equal(await page.locator("#assetOptions input").isDisabled(), false);
+
+  const screenshotDir = process.env.ISSUE_193_SCREENSHOT_DIR;
+  if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false,
+      `Project physical facts should not overflow at ${viewport.width}px`);
+    if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `project-dimensions-${viewport.width}x${viewport.height}.png`), fullPage: true });
+  }
 
   const concurrent = await page.evaluate(async ({ revisionId }) => {
     const csrf = decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));

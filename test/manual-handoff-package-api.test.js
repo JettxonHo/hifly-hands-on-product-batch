@@ -25,7 +25,7 @@ function productionOptions() {
     planPort: { async resolveCurrentApprovedPlan({ organizationId, productId }) {
       if (organizationId !== "org_test" || productId !== "product-a") return null;
       return { current_valid: true, gate: { can_create: true, reasons: [] },
-        plan: { id: "plan-a", organization_id: organizationId, product_id: productId, version_number: 2, status: "frozen",
+        plan: { id: "plan-a", organization_id: organizationId, product_id: productId, version_number: 2, status: "frozen", presentation_size_code: "smart_fit",
           output_instructions: "竖版商品种草口播", upstream_snapshot: { product_revision_id: "revision-a", copy_version_id: "copy-a", avatar_selection_id: "selection-a", avatar_asset_version_id: "avatar-a" }, capability_config_snapshot: { snapshot_version: "capability-a" } },
         plan_review: { id: "review-a", status: "approved" }, preflight_result: { id: "preflight-a", status: "warning" } };
     } }, agentReadinessPort: { async isOnline() { return false; } }

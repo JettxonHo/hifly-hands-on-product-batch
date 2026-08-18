@@ -29,6 +29,7 @@ function publicSnapshot(value) {
     preflight_result: publicPreflight(value.preflight_result),
     upstream_snapshot: value.upstream_snapshot,
     approved_copy_snapshot: value.approved_copy_snapshot,
+    product_revision_snapshot: withoutOrganization(value.product_revision_snapshot),
     avatar_selection_snapshot: value.avatar_selection_snapshot,
     capability_config_snapshot: value.capability_config_snapshot,
     output_instructions: value.output_instructions

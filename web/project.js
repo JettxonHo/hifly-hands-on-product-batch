@@ -41,6 +41,40 @@
     return value === generalCategoryLabel ? "general" : value;
   }
 
+  function numberValue(field) {
+    const value = field.value.trim();
+    if (!value) return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function quantityValue(valueField, unitField) {
+    const value = numberValue(valueField);
+    const unit = unitField.value;
+    if (value == null && !unit) return null;
+    return { value, unit };
+  }
+
+  function physicalDimensionsPayload() {
+    const height = numberValue(revisionForm.physical_height);
+    const width = numberValue(revisionForm.physical_width);
+    const depth = numberValue(revisionForm.physical_depth);
+    const capacity = quantityValue(revisionForm.capacity_value, revisionForm.capacity_unit);
+    const weight = quantityValue(revisionForm.weight_value, revisionForm.weight_unit);
+    const hasAxis = [height, width, depth].some((value) => value != null);
+    if (!hasAxis && !capacity && !weight) return {};
+    const dimensions = {};
+    if (hasAxis) {
+      dimensions.height = height;
+      dimensions.width = width;
+      if (depth != null) dimensions.depth = depth;
+      dimensions.unit = revisionForm.physical_unit.value;
+    }
+    if (capacity) dimensions.capacity = capacity;
+    if (weight) dimensions.weight = weight;
+    return dimensions;
+  }
+
   async function request(url, options = {}) {
     const headers = new Headers(options.headers || {});
     if (options.method && options.method !== "GET") headers.set("x-identity-csrf", csrf());
@@ -84,7 +118,7 @@
 
   function setRevisionControls() {
     const immutable = revision.status === "superseded" || isHistoricalRevision(revision);
-    revisionForm.querySelectorAll("input, textarea").forEach((field) => { field.disabled = immutable; });
+    revisionForm.querySelectorAll("input, textarea, select").forEach((field) => { field.disabled = immutable; });
     document.querySelector("#addPoint").disabled = immutable;
     pointList.querySelectorAll("button").forEach((button) => { if (immutable) button.disabled = true; });
     saveButton.disabled = immutable;
@@ -207,6 +241,15 @@
     revisionForm.primary_category.value = categoryDisplayValue(revision.primary_category);
     revisionForm.expression_style.value = revision.content_brief?.expression_style || "";
     revisionForm.additional_requirements.value = revision.content_brief?.additional_requirements || "";
+    const dimensions = revision.physical_dimensions || {};
+    revisionForm.physical_height.value = dimensions.height ?? "";
+    revisionForm.physical_width.value = dimensions.width ?? "";
+    revisionForm.physical_depth.value = dimensions.depth ?? "";
+    revisionForm.physical_unit.value = dimensions.unit || "";
+    revisionForm.capacity_value.value = dimensions.capacity?.value ?? "";
+    revisionForm.capacity_unit.value = dimensions.capacity?.unit || "";
+    revisionForm.weight_value.value = dimensions.weight?.value ?? "";
+    revisionForm.weight_unit.value = dimensions.weight?.unit || "";
     pointList.replaceChildren(...revision.selling_points.map(pointRow));
     copyLink.hidden = runtime?.copyGenerationEnabled !== true || revision.status !== "ready" || isHistoricalRevision(revision);
     copyLink.href = `/copy.html?project=${encodeURIComponent(projectId)}&revision=${encodeURIComponent(revision.id)}`;
@@ -343,6 +386,7 @@
       product_description: revisionForm.product_description.value,
       primary_category: categoryPayloadValue(revisionForm.primary_category.value),
       content_brief: { expression_style: revisionForm.expression_style.value, additional_requirements: revisionForm.additional_requirements.value },
+      physical_dimensions: physicalDimensionsPayload(),
       selling_points: [...pointList.children].map((row) => ({ ...(row.dataset.id ? { id: row.dataset.id } : {}), text: row.querySelector("input").value })),
       asset_version_ids: [...document.querySelectorAll("#assetOptions input:checked")].map((input) => input.value)
     };
@@ -369,6 +413,10 @@
         notice.textContent = "页面内容已过期。本地修改仍保留，可先复制内容，或明确载入服务端最新版本。";
         loadLatestButton.hidden = false;
         setTask({ title: revision.product_name, status: "版本冲突", statusClass: "requires_action", saved: "本地修改未保存", next: "核对后载入服务端最新版本", blocker: "其他人已更新该商品。载入最新版本会放弃当前本地修改。", action: loadLatestButton });
+      } else if (error.body?.error === "INVALID_PHYSICAL_DIMENSIONS") {
+        notice.className = "notice blocked";
+        notice.textContent = "实物尺寸未保存：填写任一尺寸时需同时填写正数高度、宽度和单位；容量或重量也需成对填写数值与单位。";
+        setTask({ title: revision.product_name, status: "需要补充", statusClass: "requires_action", saved: "未保存", next: "核对实物尺寸", blocker: "未知信息可以留空，不能从商品图像素推断。", action: saveButton });
       } else {
         notice.className = "notice error";
         notice.textContent = "保存失败，请稍后重试。";

@@ -7,6 +7,7 @@
   const planLabels = { draft: "草稿", frozen: "已冻结", superseded: "已被替代" };
   const preflightLabels = { not_run: "未预检", passed: "预检通过", warning: "存在提醒", blocked: "被阻断", invalidated: "已失效" };
   const reviewLabels = { not_submitted: "未提交审核", pending: "审核中", approved: "已批准", changes_requested: "要求修改", revoked: "已撤销" };
+  const presentationSizeLabels = { smart_fit: "智能适配", extra_large: "超大", large: "大", medium: "中", small: "小", extra_small: "超小" };
   const groupLabels = { upstream_validity: "A 上游有效性", plan_completeness: "B 方案完整性", production_readiness: "C 生产准备度" };
 
   async function request(url, options = {}) {
@@ -168,6 +169,8 @@
       upstreamCard("文案已人工批准", `/copy.html?project=${encodeURIComponent(project.id)}&revision=${encodeURIComponent(product.revision.id)}`),
       upstreamCard("人物已确认", `/avatar.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`));
     const output = element("#outputInstructions"); output.value = plan.output_instructions; output.readOnly = plan.status !== "draft";
+    const presentationSize = element("#presentationSize"); presentationSize.value = plan.presentation_size_code || "smart_fit"; presentationSize.disabled = plan.status !== "draft";
+    element("#contextSummary").textContent = `文案已人工批准 · 人物已确认 · 呈现大小：${presentationSizeLabels[presentationSize.value] || "需核对"}`;
     element("#saveDraft").hidden = plan.status !== "draft"; element("#deriveDraft").hidden = plan.status !== "frozen";
     element("#runPreflight").hidden = plan.status === "superseded";
     dirty = false; syncDirtyControls();
@@ -254,11 +257,11 @@
   function startPolling() { stopPolling(); polling = setInterval(() => loadWorkspace(workspace.current_plan.id).catch(() => undefined), 800); }
   function stopPolling() { if (polling) clearInterval(polling); polling = null; }
   async function mutate(url, method, payload, idempotent = false) {
-    const local = element("#outputInstructions").value;
+    const local = { output: element("#outputInstructions").value, presentationSize: element("#presentationSize").value };
     try {
       workspace = await request(url, { method, headers: { "content-type": "application/json", ...(idempotent ? { "idempotency-key": crypto.randomUUID() } : {}) }, body: JSON.stringify(payload) }); taskConflict = false; render(); return true;
     } catch (error) {
-      if (error.status === 409) { element("#outputInstructions").value = local; dirty = true; taskConflict = true; element("#dirtyState").textContent = "此内容已被他人更新，你的修改未保存。可复制当前文字后刷新查看最新版本。"; notice(element("#editorNotice"), "版本冲突：没有覆盖他人的修改。", "blocked"); renderTaskSummary(); }
+      if (error.status === 409) { element("#outputInstructions").value = local.output; element("#presentationSize").value = local.presentationSize; dirty = true; taskConflict = true; element("#dirtyState").textContent = "此方案已被他人更新，你的制作说明和呈现大小仍保留在本页。请核对后再处理。"; notice(element("#editorNotice"), "版本冲突：没有覆盖你的本地修改。", "blocked"); renderTaskSummary(); }
       else if (error.status === 422) notice(element("#editorNotice"), "当前条件已变化，操作未执行。请刷新并按提示处理。", "blocked");
       else notice(element("#pageNotice"), "请求未完成，请稍后重试。", "error"); return false;
     }
@@ -272,7 +275,8 @@
   }
   async function saveCurrentDraft() {
     return mutate(`/api/products/${product.id}/video-plans/${workspace.current_plan.id}`, "PATCH", {
-      output_instructions: element("#outputInstructions").value, expected_revision: workspace.current_plan.row_version
+      output_instructions: element("#outputInstructions").value, presentation_size_code: element("#presentationSize").value,
+      expected_revision: workspace.current_plan.row_version
     });
   }
   function guardReload(action) {
@@ -321,9 +325,10 @@
     event.preventDefault(); selectDecisionTab(tabIds[nextIndex], true);
   }
   element("#outputInstructions").addEventListener("input", () => { dirty = true; syncDirtyControls(); });
-  element("#createPlan").addEventListener("click", async () => { const value = element("#firstInstructions").value.trim(); if (!value) return notice(element("#pageNotice"), "请先填写制作说明。", "blocked"); await mutate(`/api/products/${product.id}/video-plans`, "POST", { output_instructions: value, expected_head_revision: workspace.head_revision }, true); });
+  element("#presentationSize").addEventListener("change", () => { dirty = true; syncDirtyControls(); });
+  element("#createPlan").addEventListener("click", async () => { const value = element("#firstInstructions").value.trim(); if (!value) return notice(element("#pageNotice"), "请先填写制作说明。", "blocked"); await mutate(`/api/products/${product.id}/video-plans`, "POST", { output_instructions: value, presentation_size_code: element("#firstPresentationSize").value, expected_head_revision: workspace.head_revision }, true); });
   element("#saveDraft").addEventListener("click", saveCurrentDraft);
-  element("#deriveDraft").addEventListener("click", async () => mutate(`/api/products/${product.id}/video-plans/${workspace.current_plan.id}/derive`, "POST", { output_instructions: element("#outputInstructions").value, expected_head_revision: workspace.head_revision }, true));
+  element("#deriveDraft").addEventListener("click", async () => mutate(`/api/products/${product.id}/video-plans/${workspace.current_plan.id}/derive`, "POST", { output_instructions: element("#outputInstructions").value, presentation_size_code: element("#presentationSize").value, expected_head_revision: workspace.head_revision }, true));
   element("#runPreflight").addEventListener("click", async () => { const ok = await mutate(`/api/products/${product.id}/video-plans/${workspace.current_plan.id}/preflight`, "POST", { expected_revision: workspace.current_plan.row_version }, true); if (ok) startPolling(); });
   element("#submitReview").addEventListener("click", () => openReviewDialog("submit")); element("#approveReview").addEventListener("click", () => openReviewDialog("approve")); element("#requestChanges").addEventListener("click", () => openReviewDialog("changes"));
   element("#reviewForm").addEventListener("submit", async (event) => { event.preventDefault(); await performReview(); }); element("#closeReviewDialog").addEventListener("click", () => element("#reviewDialog").close()); element("#cancelReviewDialog").addEventListener("click", () => element("#reviewDialog").close());

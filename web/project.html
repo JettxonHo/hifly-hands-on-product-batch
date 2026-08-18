@@ -51,6 +51,19 @@
                 <label>商品名称<input name="product_name" required></label><label>品类<input name="primary_category" value="未细分品类"></label>
                 <label class="wide">商品说明<textarea name="product_description" rows="3"></textarea></label>
                 <label>表达风格<input name="expression_style"></label><label>补充要求<input name="additional_requirements"></label>
+                <section class="wide fact-panel" aria-labelledby="physicalDimensionsTitle">
+                  <div class="fact-heading"><div><h3 id="physicalDimensionsTitle">实物尺寸</h3><p>记录商品的真实尺寸事实；未知请留空，不从图片像素推断。</p></div></div>
+                  <div class="fact-grid">
+                    <label for="physicalHeight">高度</label><input id="physicalHeight" name="physical_height" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="physicalWidth">宽度</label><input id="physicalWidth" name="physical_width" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="physicalDepth">深度（可选）</label><input id="physicalDepth" name="physical_depth" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="physicalUnit">尺寸单位</label><select id="physicalUnit" name="physical_unit"><option value="">未知</option><option value="mm">毫米（mm）</option><option value="cm">厘米（cm）</option><option value="m">米（m）</option></select>
+                    <label for="capacityValue">容量数值（可选）</label><input id="capacityValue" name="capacity_value" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="capacityUnit">容量单位</label><select id="capacityUnit" name="capacity_unit"><option value="">未知</option><option value="ml">毫升（ml）</option><option value="l">升（l）</option></select>
+                    <label for="weightValue">重量数值（可选）</label><input id="weightValue" name="weight_value" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="weightUnit">重量单位</label><select id="weightUnit" name="weight_unit"><option value="">未知</option><option value="g">克（g）</option><option value="kg">千克（kg）</option></select>
+                  </div>
+                </section>
                 <div class="wide"><div class="section-head"><strong>核心卖点</strong><button id="addPoint" class="secondary" type="button">新增卖点</button></div><div id="pointList" class="point-list"></div></div>
                 <div class="wide"><strong>商品图片</strong><div id="assetOptions" class="asset-options"><p class="empty">正在加载素材...</p></div></div>
                 <div class="actions wide"><p id="editorNotice" class="notice" role="status"></p><div class="button-row"><button id="saveDraft" class="secondary" type="submit">保存草稿</button><button id="readyRevision" type="button">设为资料已就绪</button></div></div>

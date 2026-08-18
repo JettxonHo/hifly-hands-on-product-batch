@@ -42,7 +42,7 @@ function manifest(overrides = {}) {
       display_name: "Ava",
       source_type: "seeded"
     },
-    video_plan_snapshot: { id: "plan-1", output_instructions: "竖版口播" },
+    video_plan_snapshot: { id: "plan-1", presentation_size_code: "smart_fit", output_instructions: "竖版口播" },
     asset_references: [{
       asset_id: "product-asset-1",
       asset_version_id: "product-version-1",

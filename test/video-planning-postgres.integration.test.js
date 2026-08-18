@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 
+import { runAssetMigrations } from "../src/assets/postgres.js";
 import { runAvatarSelectionMigrations } from "../src/avatar-selection/postgres.js";
 import { runCopyGenerationMigrations } from "../src/copy-generation/postgres.js";
 import { runCopyQualityMigrations } from "../src/copy-quality/postgres.js";
@@ -21,10 +22,10 @@ test("clean PostgreSQL video planning migration preserves versions and serialize
   const adminPool = createIdentityPool({ connectionString }); await adminPool.query(`CREATE SCHEMA "${schema}"`);
   const pool = createIdentityPool({ connectionString: isolatedUrl(connectionString, schema) });
   t.after(async () => { await pool.end(); await adminPool.query(`DROP SCHEMA "${schema}" CASCADE`); await adminPool.end(); });
-  await runIdentityMigrations(pool); await runProjectContentMigrations(pool); await runCopyGenerationMigrations(pool);
+  await runIdentityMigrations(pool); await runAssetMigrations(pool); await runProjectContentMigrations(pool); await runCopyGenerationMigrations(pool);
   await runCopyQualityMigrations(pool); await runCopyReviewMigrations(pool); await runAvatarSelectionMigrations(pool);
   await runVideoPlanningMigrations(pool);
-  assert.equal((await pool.query("SELECT max(version)::integer version FROM video_planning_schema_migrations")).rows[0].version, 1);
+  assert.equal((await pool.query("SELECT max(version)::integer version FROM video_planning_schema_migrations")).rows[0].version, 2);
 
   const seeded = await seedInitialAdmin(createPostgresIdentityRepository({ pool, ownsPool: false }), {
     organizationId: "org-plan-pg", organizationName: "Plan PG", adminEmail: "plan-pg@example.test",
@@ -41,12 +42,13 @@ test("clean PostgreSQL video planning migration preserves versions and serialize
     upstream_snapshot: { product_revision_id: randomUUID(), copy_version_id: randomUUID(),
       avatar_selection_id: randomUUID(), avatar_asset_version_id: randomUUID() },
     capability_config_snapshot: { snapshot_version: "verified-v1", verified_capabilities: [{ code: "speech", evidence_reference: "seed:speech" }] },
-    output_instructions: "竖版口播", parent_plan_version_id: null, created_by_member_id: seeded.member.id,
+    output_instructions: "竖版口播", presentation_size_code: "large", parent_plan_version_id: null, created_by_member_id: seeded.member.id,
     created_at: at, updated_at: at, frozen_at: null };
   const audit = { id: randomUUID(), organization_id: "org-plan-pg", actor_member_id: seeded.member.id,
     event_type: "video_plan.created", video_plan_version_id: planId, created_at: at };
   await repository.createPlan({ receiptKey: "pg-create", fingerprint: "same", plan, expectedHeadRevision: 0, audit });
   assert.equal((await repository.getHead("org-plan-pg", ids.product)).row_version, 1);
+  assert.equal((await repository.getPlan("org-plan-pg", planId)).presentation_size_code, "large");
   await assert.rejects(repository.createPlan({ receiptKey: "pg-create", fingerprint: "different", plan,
     expectedHeadRevision: 0, audit }), { code: "IDEMPOTENCY_CONFLICT" });
 
@@ -54,7 +56,7 @@ test("clean PostgreSQL video planning migration preserves versions and serialize
   await repository.createRun({ receiptKey: "pg-run", fingerprint: "run", planId, expectedRevision: 1,
     run: { id: runId, organization_id: "org-plan-pg", video_plan_version_id: planId, status: "queued",
       input_snapshot: { upstream_snapshot: plan.upstream_snapshot, capability_config_snapshot: plan.capability_config_snapshot,
-        output_instructions: plan.output_instructions }, preflight_result_id: null, failure_code: null, lease_token: null,
+        output_instructions: plan.output_instructions, presentation_size_code: plan.presentation_size_code }, preflight_result_id: null, failure_code: null, lease_token: null,
       created_by_member_id: seeded.member.id, started_at: null, completed_at: null, created_at: at, updated_at: at },
     audit: { ...audit, id: randomUUID(), event_type: "video_plan.preflight_requested", preflight_run_id: runId } });
   assert.equal((await repository.getPlan("org-plan-pg", planId)).status, "frozen");
