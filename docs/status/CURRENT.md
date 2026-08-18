@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；release-readiness 代码与依赖治理已部署到内部验收环境，可信 TLS 仍未完成，仍不等同于公网生产就绪、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@5c6384d` 已部署到内部验收环境，运营工作台 V2 核心页面完成真实管理员只读验收并带 #190/#191 两个 P1 条件通过。可信 TLS 仍未完成，因此不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -12,8 +12,8 @@
 - Owner 已批准 UX 方案 A“运营任务流优先”；Issue #164 / PR #165 已将精确合同合并进入 `main`，当前状态为 `designed`。
 - `docs/frontend/OPERATOR_TASK_FLOW_UX_V1.md` 固化首屏五问、业务状态优先、唯一推荐下一步、技术详情折叠、
   Entry seam、Production 时序门禁、Works 列表+预览、Assets 类型/用途分组和 1440/768/390 验收合同。
-- Issue #166 是 Slice A 的实现与 acceptance gate。本节随其实现 PR 进入 `main` 后，只证明仓库中的 Entry、Login、
-  Projects 与 Project 已采用首屏任务摘要、唯一推荐下一步、完整页面状态和 opt-in 响应式样式；不代表已部署或客户已验收。
+- Issue #166 / PR #167 已完成 Slice A 的仓库实现；2026-08-18 该实现随 `main@5c6384d` 部署到内部验收环境，
+  Entry、Login、Projects 与 Project 的核心路径通过真实管理员只读验收。该证据仍不是客户采用或公网发布证明。
 - 企业能力开启时，直接访问 `/` 进入 Projects；登录、改密、会话恢复与成员无权限回落继续使用现有企业落点。
   显式 `/index.html` 保留本地/运维 legacy fallback，并提示企业流程进入项目；feature-off 或 runtime/auth 请求失败时
   安全保留 legacy 页面，不产生空白页、跳转循环或权限绕过。
@@ -32,7 +32,7 @@
   失败/需处理停止且不创建下一条、不自动重试；成功须经 A12 passed、Work available 与鉴权真实字节下载后，
   才能在 Worker off 下准备下一条。
 - UX 页面实施保持严格串行：Slice A（Entry seam + opt-in foundation + Projects/Project）与 Slice B
-  （Copy/Avatar/Plan）均已合并但尚未部署。Slice B 后不直接开始 Slice C，而是先完成 Owner 已锁定的
+  （Copy/Avatar/Plan）均已合并，并已随 `main@5c6384d` 部署到内部验收环境。Slice B 后不直接开始 Slice C，而是先完成 Owner 已锁定的
   successor gate；该 gate 完成后只决定 Slice C（Production/Works/Assets）rebase 或吸收到后续分片，
   不再照旧直接实施。
   每个实施分片仍须独立 Issue、Draft PR、浏览器回归和 Review，且不自动部署。
@@ -42,9 +42,9 @@
 
 ## UX V1 Slice B 仓库实现
 
-- Issue #168 / PR #169 已完成 Slice B 的实现与 acceptance gate。它只证明 Copy、Avatar 与 Plan 三个仓库页面
-  采用状态驱动的运营任务摘要、唯一推荐下一步和既有业务恢复入口；不代表已部署、客户已采用或真实飞影生产链路
-  发生变化。
+- Issue #168 / PR #169 已完成 Slice B 的实现与 acceptance gate；2026-08-18 已随 `main@5c6384d` 部署。
+  Copy、Avatar 与 Plan 的状态驱动任务摘要、唯一推荐下一步和业务状态区分已通过真实管理员只读验收；这不代表
+  客户采用，也没有改变或重新验证真实飞影生产链路。
 - Copy 首屏区分生成、质检与人工审核：生成成功不等于质检通过，QC passed 不等于 HumanReview approved。
   异步生成中可离页恢复，生成/质检失败提供同阶段重试；脏文案与 409 冲突继续保留本地输入和现有恢复动作。
   只有当前有效的人工批准文案才推荐进入人物选择。
@@ -75,12 +75,14 @@
   页面方案、实现、部署或生产采用。
 - Issue #174 已将 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 合并进入 `main`，V2 设计状态为
   `designed`；这只表示设计获批，代码实现、部署和客户采用仍为独立门禁。
-- Issue #176 / PR #177 已将 V2-A shared IA/content/control foundation 合并进入 `main`。仓库企业壳层已统一
+- Issue #176 / PR #177 已将 V2-A shared IA/content/control foundation 合并进入 `main`。企业壳层已统一
   一级导航顺序、五阶段标签、V2 中文词典、刷新作用域及 opt-in 审计/技术详情原语；全局“生产任务”在组织级
-  真实索引 gate 通过前继续隐藏。未迁移页面与显式 legacy `/index.html` 不受共享样式影响。
+  真实索引 gate 通过前继续隐藏。未迁移页面与显式 legacy `/index.html` 不受共享样式影响；该入口边界已在
+  2026-08-18 内部验收环境复核。
 - Issue #178 / PR #179 已将 V2-B Production Task Flow 合并进入 `main`。Production 仓库页面已采用逐单业务摘要、
   完整工单/交接包/执行/A12/Work 状态矩阵、唯一推荐下一步、完整 bootstrap 恢复，以及默认折叠的
-  Cloud Executor/attempt/handoff 技术详情；这不代表已部署或真实生产采用。
+  Cloud Executor/attempt/handoff 技术详情。该页面已部署并完成只读 UI 验收，但 #191 证明 Worker 关闭后
+  terminal Work 投影仍有 P1，不得把本次验收写成无条件通过或真实生产再验收。
 - Production 仅在当前商品零工单且上游 gate 允许时开放“创建生产工单”；任一已有工单（含 claimed/running、
   failed/requires_action、已交付但未完成真实字节验收）都会真实禁用两个创建入口。Work 的 `pending_review`、
   `rework_required`、`deliverable`、`delivered` 均按控制面同名状态进入作品库对应动作，不回落成生产门禁错误，
@@ -92,20 +94,47 @@
   需要时回补 Slice A/B；每片仍须独立 Issue、Draft PR、公开浏览器回归和 Review。
 - Issue #180 / PR #181 已将 V2-C Works Review and Delivery 合并进入 `main`：作品库仓库页面完成列表/预览层级、
   四种业务状态、终态动作收敛、显式追加交付、移动端列表/详情分层，以及服务端授权的文件名、媒体类型、大小、
-  校验值与真实字节下载合同；这仍不等于部署、客户采用或生产下载验收。
+  校验值与真实字节下载合同。该页面已部署并完成只读 UI 验收；本轮没有创建下载授权或重新验证真实字节下载，
+  因此不替代既有下载证据，也不等于客户采用。
 - Issue #182 / PR #183 已将 V2-D Assets by Real Type 合并进入 `main`：素材中心按 `product_image`、
   `avatar_image`、`work_video` 三种服务端真值分组，明确 Asset/AssetVersion 层级，并保持作品视频只读、
   图片上传与临时下载授权、乐观冲突和组织权限语义。素材用途、业务关联、缩略图、搜索和分页没有现成 API 真值，
-  不由前端推断。该仓库实现仍未获得独立部署和运行时验收。
+  不由前端推断。该页面已部署并通过三类素材与 `work_video` 只读的核心验收；#190 同时证明 Project 的商品图片
+  选择器仍会混入 `work_video`，需独立修复。
 - Issue #184 / PR #185 已完成 V2-E 回补审计并进入 `main`。审计证据不支持全站返工，只接受两个严格串行的
   最小回补：V2-E1（Projects/Project/Copy 的业务中文、刷新作用域与 Copy Tab 键盘语义）已通过 Issue #186 / PR #187
-  合并；V2-E2 由 Issue #188 作为 Avatar/Plan 业务中文、技术详情层级与 Plan Tab 键盘语义的独立 acceptance gate。
-  V2-E2 只在实现 PR 合并进入 `main` 后才计为仓库实现完成，且不代表已部署或客户/Provider 采用。Avatar 的内部 ID、
+  合并；V2-E2 已通过 Issue #188 / PR #189 合并并随 `main@5c6384d` 部署。Avatar/Plan 的业务中文、技术详情层级与
+  Plan Tab 键盘语义已完成真实管理员只读验收，但仍不代表客户或 Provider 采用。Avatar 的内部 ID、
   原始代码和能力依据引用只移入折叠审计详情，Plan 只使用现有 API 可证明的商品与业务状态；未新增或猜测业务名称。
   若展示修复需要改变存储/API 真值，必须停在 Product/API gate。
 - Production 的企业 Web/API 当前只提供 `GET /api/cloud-executor/status` 只读状态；Worker 启停继续由获授权运维在
   既有部署控制面执行。V2 页面不得向组织用户推荐不存在的“启动工单/Worker”命令；未来若要 Web 启停必须另过
   Product/API、安全授权和审计 gate。
+
+## 2026-08-18 运营工作台 V2 内部部署与 UI 验收
+
+- 内部验收环境已更新到精确 `main@5c6384d523cc8b251a2def04f47e99b3cdbd142a`。13 组 production migration
+  全部成功；只 recreate App 并 restart Proxy，PostgreSQL 未重启。App、PostgreSQL、Proxy 均 healthy，公网
+  `/healthz` 返回 ok。
+- 部署前数据库备份为 `/var/backups/hifly/hifly-20260818T004615Z.dump`。管理员应急密码恢复前另创建
+  `/var/backups/hifly/hifly-20260818T010850Z-pre-password-reset.dump`。
+- Cloud Executor 保持 `exited / running=false / exit=0`，`eligible=0`、`active_attempts=0`。未访问 Hifly、未生成
+  视频、未消耗积分，也未修改商品、订单、作品或交付等生产业务数据。
+- 因唯一管理员忘记密码且没有第二管理员，按既有身份合同执行一次应急自重置：追加 `admin_reset` credential、设置
+  `requires_password_change=true`、撤销旧会话并写入 `identity.password_reset` 审计。用户随后完成首次改密并登录；
+  旧密码未被读取或回显。该动作属于受控身份恢复，不应误写为“完全没有生产数据写入”。
+- 真实管理员会话验证：登录后根路径进入 Projects；显式 `/index.html` 保留 legacy 与“进入项目”入口。
+  Projects、Project、Copy、Avatar、Plan、Production、Works、Assets、Members 九页均在
+  `1440x900 / 768x900 / 390x844` 下无页面级横向溢出，一级导航稳定为“项目 / 作品库 / 素材中心 / 成员管理”。
+- Project→Copy→Avatar→Plan 五阶段、Copy 的 QC 与人工审核分离、Plan 的 preflight 与人工批准分离、Works 已交付
+  唯一推荐“查看交付记录”、Assets 三种真实分类与 `work_video` 只读均通过。Copy/Plan Tab 的 ARIA 与 roving
+  tabindex 实跑通过，九页 console errors 为空。
+- 本次结论为“部署成功、核心 V2 可用、带两个 P1 条件通过”：#190 记录商品资料页把 `work_video` 混入商品图片
+  选择器；#191 记录 Worker 关闭后 Production 抹去 terminal Work 真值。二者均未在本 docs-only 收口中修复。
+- 仍使用 IP + 自签证书；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 尚未完成。本轮不是公网生产就绪、
+  客户采用、Provider 验收、自动批量或长期稳定性证明。
+- 完整执行与证据边界见
+  `docs/status/sessions/2026-08-18-operator-workbench-v2-internal-deployment.md`。
 
 ## P0.5 内部验收环境部署
 
@@ -263,10 +292,10 @@
 
 ## 下一步
 
-1. Slice A/B、V2 独立设计合同、V2-A～V2-D、V2-E 审计与 V2-E1 均已合并但尚未部署。Issue #188 是 V2-E2
-   Avatar/Plan 最小回补的独立 acceptance gate；只有随实现 PR 合并进入 `main` 才计为仓库实现完成。不得把设计、
-   仓库浏览器回归或 CI 写成生产采用。
-2. 继续 P0.5 release-readiness：#156 深链修复和 #157 依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
+1. 严格串行处理两个部署后 P1：先修 #190，确保 Project 只接受真实 `product_image`；合并后再修 #191，恢复
+   Production 对 terminal Work 的稳定投影。#191 修复不得弱化激活前 fail-closed、唯一 eligible、零初始 attempt、
+   terminal 关 Worker、失败停批与不自动重试门禁。
+2. 继续 P0.5 release-readiness：V2 与依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 3. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
 4. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
