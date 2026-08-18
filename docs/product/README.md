@@ -38,6 +38,7 @@
 - [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md)
 - [PRODUCTIONIZATION_UPGRADE_PLAN.md](PRODUCTIONIZATION_UPGRADE_PLAN.md)
 - [CLOUD_EXECUTOR_P0.md](CLOUD_EXECUTOR_P0.md)
+- [PRODUCT_APPEARANCE_FIDELITY_GATE.md](PRODUCT_APPEARANCE_FIDELITY_GATE.md)
 
 ### Evidence
 
@@ -57,6 +58,7 @@
 7. DECISION_LOG.md
 8. OPEN_QUESTIONS.md
 9. HIFLY_CAPABILITY_EVIDENCE.md
+10. PRODUCT_APPEARANCE_FIDELITY_GATE.md
 ```
 
 | 文档 | 内容 |
@@ -74,7 +76,8 @@
 | [VERTICAL_SLICE_A_DELIVERY_PLAN.md](VERTICAL_SLICE_A_DELIVERY_PLAN.md) | D-030 的交付计划 Specification：Vertical Slice A 交付目标、Issue 拆分原则、VSA-A01～A14 边界、依赖波次、Issue 模板、单 Issue DoD、Slice 级 DoD。Development Issues #57～#70 已创建；当前实施状态见 `docs/status/CURRENT.md` |
 | [PRODUCTIONIZATION_UPGRADE_PLAN.md](PRODUCTIONIZATION_UPGRADE_PLAN.md) | D-033 的生产化升级 Specification：真实 DeepSeek、人物目录、小批量验收、声音/场景 Evidence、常驻 Local Agent 与生产基础设施的顺序、门禁和完成标准 |
 | [CLOUD_EXECUTOR_P0.md](CLOUD_EXECUTOR_P0.md) | D-034 的当前 P0 产品合同：纯云端 Cloud Executor、持久 Profile/素材/视频、串行积分安全、云端登录与真实出片完成定义；取代 D-033 中以 Local Agent 作为 P0 生产验收主路径的部分 |
-| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：D-034 P0 Cloud Executor 纯云端生产路径 |
+| [PRODUCT_APPEARANCE_FIDELITY_GATE.md](PRODUCT_APPEARANCE_FIDELITY_GATE.md) | D-035 的通用商品身份一致性 Specification：Provider evidence-first、精确源图绑定、自动检查/人工候选批准/最终 Works 验收分离、费用与失败关闭边界；不代表能力已实现 |
+| [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：D-035 通用商品外观保真门禁 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决，Q-018 已由 D-032 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 

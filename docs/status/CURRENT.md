@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-19
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：付费前完整六档唯一选中“小”，唯一 attempt 成功，A12 passed、Work available，鉴权下载字节与候选 SHA-256 一致；但成片把原图斜切蓝盖持续生成成宝石形，外观保真失败，Work 已登记 `rework_required`，没有交付、重试或第二工单。系统已恢复 disabled/fail-closed。该结果证明尺寸控件与技术闭环，不是内容通过、公网生产就绪、自动批量队列或长期稳定性证明；可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：付费前完整六档唯一选中“小”，唯一 attempt 成功，A12 passed、Work available，鉴权下载字节与候选 SHA-256 一致；但成片把原图斜切蓝盖持续生成成宝石形，外观保真失败，Work 已登记 `rework_required`，没有交付、重试或第二工单。系统已恢复 disabled/fail-closed。Issue #208 当前只进入通用外观保真的 DSE 设计与 Provider capability gate；Fidelity-0 未通过前不得实现领域/API/UI。该结果证明尺寸控件与技术闭环，不是内容通过、公网生产就绪、自动批量队列或长期稳定性证明；可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -291,6 +291,21 @@
   `LOCAL_AGENT_ENABLED=false`。最终 eligible=0、active attempts=0、waiting orders=0、total attempts=17。
   完整证据见 `docs/status/sessions/2026-08-19-issue-193-native-small-provider-revalidation.md`。
 
+## Issue #208 通用商品外观保真门禁
+
+- Owner 已把真实瓶盖几何失真提升为所有商品通用的身份一致性合同；商品呈现大小与外观保真保持独立，SKU 说明
+  只能作为可选补充，不能形成商品专用代码或固定禁词。
+- 当前页面在视频提交前存在手持商品候选窗口，既有脱敏 HTTP 证据也包含后续提交使用的 `gen_id`；但候选 bytes、
+  稳定引用及生命周期、Provider 评分、安全暂停/恢复和独立计费口径均未证明。当前为 Provider/Product/API
+  `DESIGN_BLOCKER`，不得用提示词、DOM 图片、截图、前端状态或 `gen_id` 存在冒充通过。
+- 实施前必须先完成 Fidelity-0 Provider capability gate。每次生成还必须显式冻结 `source_asset_version_id`（或经
+  独立设计接受的等价字段），证明其 bytes/checksum 就是实际上传给 Provider 并用于比较的源图；不得依赖
+  ProductRevision 多图数组顺序或事后推断。
+- 候选生成本身可能收费。任何真实 capability probe、候选生成或后续真实验收都必须在当次取得明确单条积分授权；
+  门禁只能阻止后续视频提交，不能宣称候选失败零积分。
+- D-035 与 `docs/product/PRODUCT_APPEARANCE_FIDELITY_GATE.md` 是本轮 acceptance gate；只有对应 PR 合并进入
+  `main` 后才计为 designed。当前没有实现 Candidate/Check/Decision、API、数据库、UI 或执行器改动。
+
 ## P0.5 内部验收环境部署
 
 - 2026-08-13 将内部验收环境从 `main@40e92414d4ef4a4015da9bb3f709f775c67843b6`
@@ -450,12 +465,14 @@
 
 1. #200/#201/#202 已完成实现、独立 Review、合并、部署与单条真实复验；尺寸选档和技术闭环通过，但 Work 已因瓶盖造型
    失真登记返工。没有新的重试或再次生产授权，保持本单 `rework_required` 且不交付。
-2. 若继续改进外观保真，须先单独定义可执行的 VideoPlan/Provider 约束与验收标准；任何再次生成都必须使用新批准、唯一新工单、
-   零 attempt 与新的单条积分授权，不能复用或重试本次工单。
-3. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
-4. 保持 Cloud Executor/Local Agent disabled、Cloud Executor 并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
+2. Issue #208 先完成 DSE 合同 acceptance；随后第一步只能是 Fidelity-0 Provider capability gate。未证明稳定候选
+   bytes/reference、安全暂停/恢复、精确上传源图与计费边界前，不得实现领域/API/UI 或重新生成。
+3. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
+   新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
+4. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
+5. 保持 Cloud Executor/Local Agent disabled、Cloud Executor 并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
-5. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；历史三条成功与本次
+6. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；历史三条成功与本次
    单条失败都不能直接外推。
 
 ## 长期边界

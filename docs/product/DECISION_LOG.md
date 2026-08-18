@@ -827,3 +827,34 @@
 - **工程克制**：不删除有效历史实现，不新增无业务必要的哈希或存储抽象，不为低概率 case 扩张防御；只守住凭据、积分、重复提交、组织隔离、持久化和鉴权下载等核心风险。
 - **Specification**：[CLOUD_EXECUTOR_P0.md](CLOUD_EXECUTOR_P0.md)
 - **决策来源**：Owner 于 2026-08-12 发出正式架构纠偏指令，明确纯云端 Cloud Executor 为 P0。
+
+## D-035 通用商品外观保真门禁
+
+- **日期**：2026-08-19
+- **状态**：Confirmed
+- **背景（Context）**：一条获授权的真实飞影「手里有货」复验已证明原生 `small` 档与完整技术链路通过，
+  但生成结果把源商品图的平滑斜切蓝盖持续改成宝石形；最终 Work 被登记为 `rework_required`，没有交付、
+  自动重试或第二工单。该证据说明商品呈现大小与商品身份一致性是两个独立问题，也说明提示词、技术成功、
+  A12 passed 或 Work available 都不能替代外观保真验收。
+- **决策**：系统默认要求所有商品保持轮廓/几何结构、部件数量、颜色、比例、包装、Logo 与标签文字一致；
+  只允许姿势、视角、画面相对大小、光照与合理遮挡变化。SKU 特殊说明只作为可选补充，不得形成商品专用代码、
+  固定禁词或单图硬编码。自动外观检查、人工候选批准与最终 Works 内容验收必须保持独立状态和审计证据；
+  任一视频前门禁未通过时失败关闭，不继续视频、不自动重试或创建下一工单。
+- **Provider evidence-first**：任何 Candidate/Check/Decision、API、数据库、UI 或执行器实现前，必须先通过
+  Fidelity-0 Provider capability gate，证明视频提交前候选 bytes/reference、生命周期、计费边界、安全暂停/恢复，
+  以及实际上传源图与比较基准的对应关系。证据不足时保持 `DESIGN_BLOCKER`，不得实现推测性领域对象或前端假状态。
+- **精确源图**：每次生成必须显式冻结不可变 `source_asset_version_id`（或经独立设计接受的等价字段），并证明
+  该版本的 bytes/checksum 就是实际上传给 Provider 且用于自动比较的源图；不得依赖 ProductRevision 多图数组顺序
+  或生成后反推。
+- **积分边界**：手持商品候选生成本身可能收费。失败关闭只保证不继续后续视频提交，不能宣称候选阶段零积分。
+  任何真实 capability probe、候选生成或最终验收都须在当次取得明确的单条积分授权，首失败即停并记录费用边界。
+- **被否决方案**：为安热沙、防晒霜、蓝色瓶盖或单张图片写专用规则；用提示词、DOM 图片存在、截图文件或
+  `gen_id` 存在宣称保真通过；先实现推测性的 Candidate/Check/Decision 再补 Provider 证据；让 Worker 长时间持有
+  lease 等人工；自动重生/重试；用最终 Works 验收替代视频前候选门禁。
+- **影响（Consequences）**：实施顺序固定为 Fidelity-0 Provider capability → Fidelity-A 领域/API → Fidelity-B
+  Provider capture → Fidelity-C 运营审核 → Fidelity-D Production 集成 → Fidelity-E 单条受控真实验收。若纯生成
+  模式无法满足身份一致性，受控抠图合成或产品锁定能力只能作为后续独立 Product/Provider/架构 gate 评估。
+- **Specification**：[PRODUCT_APPEARANCE_FIDELITY_GATE.md](PRODUCT_APPEARANCE_FIDELITY_GATE.md)
+- **Evidence**：[HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md)
+- **决策来源**：Owner 于 2026-08-19 明确要求把单次瓶盖形态漂移提升为所有商品通用的外观保真门禁，并明确
+  尺寸与外观保真独立、证据不足时不得伪造强保证。
