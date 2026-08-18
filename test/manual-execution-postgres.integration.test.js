@@ -3,6 +3,7 @@ import { randomUUID, createHash } from "node:crypto";
 import test from "node:test";
 
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
+import { createCloudExecutorService } from "../src/cloud-executor/cloud-executor-service.js";
 import { createManualExecutionService } from "../src/manual-execution/manual-execution-service.js";
 import { createPostgresManualExecutionRepository } from "../src/manual-execution/postgres-manual-execution-repository.js";
 import { runManualExecutionMigrations } from "../src/manual-execution/postgres.js";
@@ -35,8 +36,8 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
     WHERE table_schema=current_schema() AND ((table_name='manual_execution_candidates' AND column_name IN ('uploaded_by_member_id','uploaded_by_agent_id','uploaded_by_cloud_executor_id'))
       OR (table_name='manual_execution_reports' AND column_name IN ('submitted_by','submitted_by_agent_id','submitted_by_cloud_executor_id')))`)).rows;
   assert.deepEqual(resultIdentityColumns.map((row) => [row.table_name, row.column_name, row.is_nullable]).sort(), [
-    ["manual_execution_candidates", "uploaded_by_cloud_executor_id", "YES"],
-    ["manual_execution_candidates", "uploaded_by_agent_id", "YES"], ["manual_execution_candidates", "uploaded_by_member_id", "YES"],
+    ["manual_execution_candidates", "uploaded_by_agent_id", "YES"],
+    ["manual_execution_candidates", "uploaded_by_cloud_executor_id", "YES"], ["manual_execution_candidates", "uploaded_by_member_id", "YES"],
     ["manual_execution_reports", "submitted_by", "YES"], ["manual_execution_reports", "submitted_by_agent_id", "YES"],
     ["manual_execution_reports", "submitted_by_cloud_executor_id", "YES"]
   ]);
@@ -92,5 +93,125 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
   assert.equal((await repository.listReports(order.organization_id, started.attempt.id)).length, 1);
   await assert.rejects(pool.query("UPDATE manual_execution_reports SET outcome='failed'"), /manual execution history is append-only/);
   assert.equal((await repository.listAttempts("org-other", order.id)).length, 0);
+
+  const cloudOrderId = randomUUID(), cloudPackageId = randomUUID(), cloudJobId = randomUUID();
+  const cloudOrder = { ...order, id: cloudOrderId, status: "waiting_for_executor", row_version: 1,
+    status_history: [{ status: "waiting_for_executor", at }] };
+  await orderRepository.createOrder({ receiptKey: "cloud-order", fingerprint: "cloud-order", order: cloudOrder,
+    auditEvents: [{ id: randomUUID(), organization_id: cloudOrder.organization_id, actor_member_id: seeded.member.id,
+      production_order_id: cloudOrder.id, event_type: "production_order.created", metadata: {}, created_at: at }],
+    outboxEvent: { id: randomUUID(), organization_id: cloudOrder.organization_id, aggregate_id: cloudOrder.id,
+      event_type: "production_order.created", payload: {}, created_at: at, published_at: null } });
+  const cloudHandoffClient = await pool.connect();
+  try {
+    await cloudHandoffClient.query("BEGIN");
+    await cloudHandoffClient.query(`INSERT INTO manual_handoff_packages(id,organization_id,production_order_id,contract_type,contract_version,package_version,status,generation_request_id,generation_job_id,manifest,readme,manifest_hash,package_hash,storage_key,created_by_member_id,created_at,updated_at,row_version,status_history)
+      VALUES ($1,$2,$3,'manual_handoff','1.0',1,'ready','cloud-generation',$4,$5,$6,$7,$8,$9,$10,$11,$11,1,$12)`,
+    [cloudPackageId, cloudOrder.organization_id, cloudOrder.id, cloudJobId,
+      JSON.stringify({ accepted_media_types: ["video/mp4"] }), "说明", "manifest-cloud-pg", "package-cloud-pg",
+      "manual-handoff/cloud-package.zip", seeded.member.id, at,
+      JSON.stringify([{ from_status: "generating", to_status: "ready", at }])]);
+    await cloudHandoffClient.query(`INSERT INTO manual_handoff_package_generation_jobs(id,organization_id,package_id,type,status,attempts,max_attempts,order_snapshot,created_at,updated_at)
+      VALUES ($1,$2,$3,'manual_handoff_package_generation','succeeded',1,1,$4,$5,$5)`,
+    [cloudJobId, cloudOrder.organization_id, cloudPackageId, JSON.stringify(snapshot), at]);
+    await cloudHandoffClient.query("COMMIT");
+  } catch (error) {
+    await cloudHandoffClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    cloudHandoffClient.release();
+  }
+
+  const executorCloudId = "cloud-executor-pg";
+  const cloudReportErrors = [];
+  const repositoryWithUploadHeartbeat = {
+    ...repository,
+    async markCandidateUploaded(input) {
+      const uploadedCandidate = await repository.markCandidateUploaded(input);
+      const current = await repository.getAttempt(cloudOrder.organization_id, uploadedCandidate.candidate.execution_attempt_id);
+      await repository.heartbeatCloudAttempt({
+        receiptKey: `pg-race-heartbeat-${current.id}-${current.row_version}`,
+        fingerprint: `pg-race-heartbeat-${current.id}-${current.row_version}`,
+        attemptId: current.id,
+        organizationId: cloudOrder.organization_id,
+        executorCloudId,
+        expectedRevision: current.row_version,
+        now: "2026-08-08T10:00:01.000Z",
+        leaseExpiresAt: "2026-08-08T10:00:31.000Z",
+        progressPhase: "upload_completed",
+        audit: null
+      });
+      return uploadedCandidate;
+    },
+    async saveReport(input) {
+      try {
+        return await repository.saveReport(input);
+      } catch (error) {
+        cloudReportErrors.push(error?.code);
+        throw error;
+      }
+    }
+  };
+  let verificationRequests = 0;
+  const cloudService = createCloudExecutorService({
+    repository: repositoryWithUploadHeartbeat,
+    orderPort: {
+      listOrdersForCloudExecutor: () => orderRepository.listOrders(cloudOrder.organization_id),
+      getOrderForCloudExecutor: (input) => orderRepository.getOrder(cloudOrder.organization_id, input.orderId),
+      transitionOrderForCloudExecutor: (input) => orderRepository.transitionOrder({
+        organizationId: cloudOrder.organization_id,
+        orderId: input.orderId,
+        expectedRevision: input.expectedRevision,
+        fromStatuses: input.fromStatuses,
+        toStatus: input.toStatus,
+        at: input.at,
+        actorCloudExecutorId: input.actorCloudExecutorId,
+        reason: input.reason
+      })
+    },
+    packagePort: {
+      async listPackagesForCloudExecutor(input) {
+        return input.productionOrderId === cloudOrder.id ? [{
+          id: cloudPackageId, organization_id: cloudOrder.organization_id, production_order_id: cloudOrder.id,
+          package_version: 1, status: "ready", manifest_hash: "manifest-cloud-pg", package_hash: "package-cloud-pg"
+        }] : [];
+      },
+      async getPackageForCloudExecutor() { return null; }
+    },
+    candidateStore: createMemoryObjectStore(),
+    verificationPort: {
+      async requestVerification() { verificationRequests += 1; return { job: { id: "cloud-verification-pg" }, replayed: false }; },
+      async wake() {}
+    },
+    readinessPort: { async check() { return { ready: true }; } },
+    executor: { async run() { return { body: Buffer.from("cloud-pg-candidate"), mediaType: "video/mp4" }; } },
+    enabled: true,
+    mode: "fake",
+    organizationId: cloudOrder.organization_id,
+    executorCloudId,
+    heartbeatIntervalMs: 30_000,
+    now: () => Date.parse(at)
+  });
+
+  const cloudResult = await cloudService.runOnce();
+  assert.deepEqual(cloudReportErrors, []);
+  assert.equal(cloudResult.status, "succeeded");
+  const cloudAttempts = await repository.listAttempts(cloudOrder.organization_id, cloudOrder.id);
+  const cloudReports = await repository.listReports(cloudOrder.organization_id, cloudAttempts[0].id);
+  const cloudCandidates = await repository.listCandidates(cloudOrder.organization_id, cloudAttempts[0].id);
+  assert.equal(cloudAttempts.length, 1);
+  assert.equal(cloudAttempts[0].status, "succeeded");
+  assert.equal(cloudReports.length, 1);
+  assert.equal(cloudReports[0].outcome, "completed");
+  assert.equal(cloudCandidates.length, 1);
+  assert.equal(cloudCandidates[0].execution_attempt_id, cloudAttempts[0].id);
+  assert.equal(cloudCandidates[0].status, "pending_verification");
+  assert.equal(Number((await pool.query(`SELECT count(*) FROM manual_execution_status_ledger
+    WHERE organization_id=$1 AND execution_attempt_id=$2 AND to_status='succeeded'`,
+  [cloudOrder.organization_id, cloudAttempts[0].id])).rows[0].count), 1);
+  assert.equal(verificationRequests, 1);
+  assert.equal((await repository.listReports("org-other", cloudAttempts[0].id)).length, 0);
+  assert.equal((await cloudService.runOnce()).status, "standby");
+  assert.equal((await repository.listReports(cloudOrder.organization_id, cloudAttempts[0].id)).length, 1);
   await repository.close();
 });

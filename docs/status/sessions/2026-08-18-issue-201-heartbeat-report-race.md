@@ -1,0 +1,81 @@
+# Issue #201 Cloud Executor heartbeat/report 版本竞态
+
+> 日期：2026-08-18
+> 基线：`origin/main@c072493689c8f87385fa6ccb335feb7aa1afb25c`
+> 分支：`codex/issue201-heartbeat-report-race`
+> 状态：仓库修复候选；随对应 PR 合并进入 `main` 后计为仓库修复完成，部署与真实 Provider 复验另行 gate
+
+## 范围与边界
+
+本轮只处理 Issue #201：确定性复现 candidate 上传完成后 heartbeat 与 terminal report 竞争 attempt
+`row_version` 的行为，并在不放宽乐观锁、租约、身份或终态合同的前提下收束 Cloud Executor 完成时序。
+
+本轮没有 SSH、部署、访问 Hifly、启动生产 Worker/Local Agent、创建或重试生产工单、修改生产数据、生成视频或
+消耗积分；没有开始 Issue #202。2026-08-18 真实运行的约 104ms 时间线只作为调查起点，根因结论来自本轮隔离 TDD。
+
+## 确认的根因
+
+未修复基线的调用顺序为：
+
+1. `runAttempt()` 在执行器返回后读取一次 `currentAttempt`；
+2. candidate 授权、对象写入与上传完成继续执行；
+3. 定时或 progress heartbeat 可在此期间把同一 attempt 的 `row_version` 加一；
+4. terminal `saveReport()` 仍使用上传前 attempt 的 `expectedRevision`；
+5. repository 拒绝旧 revision，外层 catch 随后使用最新 attempt 记录 failed report。
+
+memory repository 与真实 PostgreSQL 16 均使用同一公开 Cloud Executor service seam，在
+`markCandidateUploaded()` 完成后确定性插入一次真实 heartbeat。两套 RED 都捕获：
+
+```text
+actual report errors = ["MANUAL_EXECUTION_ATTEMPT_CONFLICT"]
+expected report errors = []
+```
+
+并且未修复服务返回 `failed` 而不是 `succeeded`。因此 Issue #201 的 heartbeat/report revision 竞态已确认，
+不再只是从生产事件时间线推断。
+
+## 最小修复
+
+- 执行期 heartbeat 通过单一队列串行，避免定时 heartbeat 与 progress heartbeat 自身重叠；
+- terminal report 前关闭新的定时 heartbeat，并等待已经排队的 heartbeat 完成；
+- heartbeat 或 progress heartbeat 失败仍转换为 `CLOUD_EXECUTOR_LEASE_LOST`，保持 fail closed；
+- candidate 上传完成后重新读取同一组织、同一 Cloud Executor 所属且仍为 `running` 的 exact attempt；
+- 使用该最新 `row_version` 一次写入 terminal report 与 candidate 状态；repository 的 `expectedRevision` 校验完全保留；
+- failed、requires_action 与 completed 三类 terminal report 共用相同的 heartbeat 收束与最新 attempt 门禁。
+
+该修复不自动重试 Provider、不复用失败生产单、不创建第二个 attempt，也不改变 A12/Work 触发条件。
+
+## TDD 与验证
+
+RED：
+
+```text
+node --test --test-name-pattern='candidate upload completion survives' test/cloud-executor.test.js
+IDENTITY_TEST_DATABASE_URL=<temporary-postgresql-16> node --test test/manual-execution-postgres.integration.test.js
+```
+
+未修复精确基线两条命令均失败，并明确捕获 `MANUAL_EXECUTION_ATTEMPT_CONFLICT`。
+
+GREEN：
+
+- memory 竞态 seam：1/1；
+- PostgreSQL 16 集成：1/1；
+- Cloud Executor + ManualExecution service + control plane + Playwright adapter 相关组：40/40；
+- `npm run check`：230 个 JavaScript 文件；
+- `git diff --check`：通过。
+
+本机默认 `npm test` 在浏览器套件开始后长期无新增输出，未形成可引用的完整汇总并已停止，因此不记为通过；固定 head
+Ubuntu、Windows 与 identity-postgres CI 是本轮默认全量和 PostgreSQL 门禁，结果将在 Draft PR 固定后记录。本地或 CI
+绿色不替代部署、真实 Worker、Provider 或积分验收。
+
+## 文件边界
+
+- `.github/workflows/ci.yml`
+- `src/cloud-executor/cloud-executor-service.js`
+- `test/cloud-executor.test.js`
+- `test/manual-execution-postgres.integration.test.js`
+- `docs/status/CURRENT.md`
+- `docs/ROADMAP.md`
+- `docs/status/sessions/2026-08-18-issue-201-heartbeat-report-race.md`
+
+未修改 API、数据库 migration、repository 并发规则、领域状态、依赖、部署或 Provider 页面实现。

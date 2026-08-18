@@ -66,6 +66,8 @@ jobs:
         run: node --test test/project-content-postgres.integration.test.js
       - name: Run VideoPlanning v2 PostgreSQL integration
         run: node --test test/video-planning-postgres.integration.test.js
+      - name: Run ManualExecution Cloud Executor PostgreSQL integration
+        run: node --test test/manual-execution-postgres.integration.test.js
       - name: Run identity browser smoke
         env:
           IDENTITY_BROWSER_SMOKE: "1"

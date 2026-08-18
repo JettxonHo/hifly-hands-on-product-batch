@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issues #190/#191 的统一部署只读验收通过。Issue #193 随后完成一条获授权的真实 Provider `small` 档验收，但结果为失败：页面选中态校验出现假阳性，候选视频上传后 attempt/report 仍失败，A12 与 Work 均未形成。Issue #200 的仓库修复已将付费前选档验证收紧为完整六档的唯一一致选中态；部署与真实 Provider 复验仍是后续独立门禁，#201/#202 尚未开始。系统保持 disabled/fail-closed。该结果不是成功出片合同，也不等同于公网生产就绪、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issues #190/#191 的统一部署只读验收通过。Issue #193 随后完成一条获授权的真实 Provider `small` 档验收，但结果为失败：页面选中态校验出现假阳性，候选视频上传后 attempt/report 仍失败，A12 与 Work 均未形成。Issue #200 已完成仓库修复；Issue #201 已用 memory 与 PostgreSQL 隔离 TDD 确认 heartbeat/report 版本竞态并形成最小修复候选，只有随对应 PR 合并进入 `main` 后才计为仓库修复完成。部署、真实 Provider 复验与 Issue #202 仍是后续独立门禁。系统保持 disabled/fail-closed。该结果不是成功出片合同，也不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -232,6 +232,21 @@
   假阳性；现有测试继续证明任何选档校验失败都不会点击付费生成按钮。
 - 该结论只覆盖仓库实现和离线确定性证据。尚未部署，也没有再次访问 Hifly、创建/重试工单、启动 Worker、生成视频
   或消耗积分；真实 Provider `small` 复验仍须新工单与新的单条积分授权。
+
+## Issue #201 heartbeat/report 版本竞态
+
+- memory repository 与真实 PostgreSQL 16 的 Cloud Executor 服务 seam 均确定性插入同一交错：candidate 上传完成后、
+  terminal report 持久化前，heartbeat 将 attempt `row_version` 推进一版。未修复基线两套 RED 都捕获
+  `MANUAL_EXECUTION_ATTEMPT_CONFLICT`，并观察到成功候选被外层失败收口改写为 failed；因此上次真实运行的竞态
+  假设现已由隔离 TDD 确认。
+- 最小修复不放宽 repository 乐观锁：执行器终态前停止接受新的定时 heartbeat，等待已排队 heartbeat 完成，检查
+  heartbeat/progress 错误后重新读取并验证同一 Cloud Executor 所属、仍为 running 的 attempt，再以最新 revision
+  写入唯一 terminal report。成功 candidate 上传期间仍续租；失败、需人工处理和成功报告使用相同终态快照门禁。
+- GREEN 同时证明：只有一个 attempt、一个绑定该 attempt 的 primary candidate、一个 completed report 和一次 A12 请求；
+  candidate 进入 `pending_verification`，没有 failed report、重复终态、自动重试或第二次领取。既有租约失效、身份隔离、
+  report 幂等、candidate 绑定与 A12/Work 条件均保持。
+- CI 的 PostgreSQL job 增加 ManualExecution/Cloud Executor 集成测试，避免真实并发合同只在本地或 memory 测试中存在。
+  本分支只有随对应 PR 合并进入 `main` 后才计为 #201 仓库修复完成；部署、生产数据、真实 Worker、Provider 与积分均未触发。
 
 ## P0.5 内部验收环境部署
 

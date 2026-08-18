@@ -340,16 +340,34 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       const executionOrder = await getOrder(claimedOrder.id);
       let heartbeatError = null;
       let progressError = null;
+      let heartbeatsClosed = false;
+      let heartbeatWork = Promise.resolve();
+      let timer = null;
+      const queueHeartbeat = (phase) => {
+        if (heartbeatsClosed) return Promise.reject(failure("CLOUD_EXECUTOR_LEASE_LOST"));
+        const pending = heartbeatWork.then(() => heartbeat(attempt, phase));
+        heartbeatWork = pending.catch(() => undefined);
+        return pending;
+      };
       const reportProgress = async ({ phase, evidence = null } = {}) => {
         try {
-          const saved = await heartbeat(attempt, phase);
+          const saved = await queueHeartbeat(phase);
           return { ...saved, evidence };
         } catch (error) {
           progressError ||= error;
           throw error;
         }
       };
-      const timer = setInterval(() => heartbeat(attempt).catch((error) => { heartbeatError ||= error; }), heartbeatIntervalMs);
+      const finishHeartbeats = async () => {
+        heartbeatsClosed = true;
+        clearInterval(timer);
+        await heartbeatWork;
+        if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+        const current = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
+        if (current.status !== "running") throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+        return current;
+      };
+      timer = setInterval(() => queueHeartbeat("executing").catch((error) => { heartbeatError ||= error; }), heartbeatIntervalMs);
       timer.unref?.();
       try {
         if (!['fake', 'playwright'].includes(mode) || typeof executor?.run !== "function") throw failure("CLOUD_EXECUTOR_FAIL_CLOSED");
@@ -358,8 +376,8 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           order: executionOrder, attempt, package: packageRecord,
           ...(packageArchive ? { packageArchive } : {}), progress: reportProgress, checkpoint: reportProgress });
         if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
-        const currentAttempt = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
         if (result?.status === "requires_action" || result?.outcome === "requires_action") {
+          const currentAttempt = await finishHeartbeats();
           const requiresAction = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "requires_action",
             failureStage: clean(result?.failureStage) || "unknown_post_submit",
             requiresActionReason: clean(result?.requiresActionReason) || "Cloud Executor requires human action",
@@ -369,18 +387,21 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
             report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
         }
         if (!result || result.ok === false || result.status === "failed" || result.failure) {
+          const currentAttempt = await finishHeartbeats();
           const failed = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "failed",
             failureStage: clean(result?.failureStage) || (mode === "playwright" ? "playwright_execution" : "fake_execution") });
           halted = true;
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
-        const candidate = await candidateForResult(currentAttempt, packageRecord, result);
+        const candidate = await candidateForResult(attempt, packageRecord, result);
         const uploaded = await saveCandidate(candidate);
+        const currentAttempt = await finishHeartbeats();
         const completed = await saveReport({ attempt: currentAttempt, order: executionOrder, candidate: uploaded.candidate, outcome: "completed" });
         const verification = await triggerVerification({ order: executionOrder, attempt: completed.attempt, report: completed.report, candidate: uploaded.candidate });
         return { status: "succeeded", attempt: publicAttempt(completed.attempt), report: publicReport(completed.report),
           candidate: publicCandidate(uploaded.candidate), verification, replayed: completed.replayed };
       } finally {
+        heartbeatsClosed = true;
         clearInterval(timer);
       }
     } catch (error) {

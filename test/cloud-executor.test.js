@@ -323,6 +323,57 @@ test("fake execution heartbeats the single leased attempt before reporting", asy
   assert.equal(saved.status, "succeeded");
 });
 
+test("candidate upload completion survives a heartbeat before the terminal report", async () => {
+  const world = makeCloudWorld();
+  const reportErrors = [];
+  const markCandidateUploaded = world.repository.markCandidateUploaded.bind(world.repository);
+  const saveReport = world.repository.saveReport.bind(world.repository);
+  world.repository.markCandidateUploaded = async (input) => {
+    const uploaded = await markCandidateUploaded(input);
+    const current = await world.repository.getAttempt(ORGANIZATION_ID, uploaded.candidate.execution_attempt_id);
+    await world.repository.heartbeatCloudAttempt({
+      receiptKey: `race-heartbeat-${current.id}-${current.row_version}`,
+      fingerprint: `race-heartbeat-${current.id}-${current.row_version}`,
+      attemptId: current.id,
+      organizationId: ORGANIZATION_ID,
+      executorCloudId: CLOUD_EXECUTOR_ID,
+      expectedRevision: current.row_version,
+      now: "2026-08-12T00:00:01.000Z",
+      leaseExpiresAt: "2026-08-12T00:00:31.000Z",
+      progressPhase: "upload_completed",
+      audit: null
+    });
+    return uploaded;
+  };
+  world.repository.saveReport = async (input) => {
+    try {
+      return await saveReport(input);
+    } catch (error) {
+      reportErrors.push(error?.code);
+      throw error;
+    }
+  };
+
+  const result = await world.service.runOnce();
+
+  assert.deepEqual(reportErrors, []);
+  assert.equal(result.status, "succeeded");
+  const attempts = await world.repository.listAttempts(ORGANIZATION_ID, world.order.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, result.attempt.id);
+  const candidates = await world.repository.listCandidates(ORGANIZATION_ID, result.attempt.id);
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].status, "succeeded");
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].outcome, "completed");
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].execution_attempt_id, attempts[0].id);
+  assert.equal(candidates[0].status, "pending_verification");
+  const terminalTransitions = (await world.repository.listStatusTransitions(ORGANIZATION_ID))
+    .filter((value) => value.attempt_id === attempts[0].id && value.to_status === "succeeded");
+  assert.equal(terminalTransitions.length, 1);
+  assert.equal(world.verificationCalls.filter((value) => value.productionOrderId).length, 1);
+});
+
 test("concurrent worker polls have one in-flight claim", async () => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
