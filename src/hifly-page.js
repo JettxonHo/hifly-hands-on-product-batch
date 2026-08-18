@@ -606,10 +606,38 @@ export class HiflyHandsOnProductPage {
     }
     const container = image.locator("..");
     await container.click({ timeout: this.config.batch.defaultTimeoutMs });
+    const optionRows = dialog.locator(".size-wrapper .image-list .list-item");
+    const expectedLabels = new Set(Object.values(options).map((entry) => entry.label));
     const deadline = Date.now() + this.config.batch.defaultTimeoutMs;
+    let consecutiveMatches = 0;
     while (Date.now() < deadline) {
-      const className = await container.getAttribute("class").catch(() => "");
-      if (String(className || "").split(/\s+/).includes("actived")) return;
+      const states = await optionRows.evaluateAll((rows) => rows
+        .filter((row) => row.getClientRects().length > 0)
+        .map((row) => {
+          const imageElement = row.querySelector("img[alt]");
+          const imageBox = imageElement?.parentElement;
+          const text = row.querySelector(".text");
+          return {
+            label: imageElement?.getAttribute("alt") || "",
+            imageActive: imageBox?.classList.contains("actived") === true,
+            textActive: text?.classList.contains("gradient") === true
+          };
+        })).catch(() => []);
+      const labels = new Set(states.map((state) => state.label));
+      const completeCanonicalGroup = states.length === expectedLabels.size
+        && labels.size === expectedLabels.size
+        && [...expectedLabels].every((label) => labels.has(label));
+      const consistentSelection = completeCanonicalGroup
+        && states.every((state) => state.imageActive === state.textActive);
+      const selected = consistentSelection
+        ? states.filter((state) => state.imageActive)
+        : [];
+      if (selected.length === 1 && selected[0].label === option.label) {
+        consecutiveMatches += 1;
+        if (consecutiveMatches >= 2) return;
+      } else {
+        consecutiveMatches = 0;
+      }
       await this.page.waitForTimeout(100);
     }
     throw Object.assign(new Error("Hifly goods-size selection could not be verified"), {
