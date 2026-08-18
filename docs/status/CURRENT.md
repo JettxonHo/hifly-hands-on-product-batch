@@ -25,9 +25,12 @@
   提供 attempt/report，work verification 提供 A12 job 与 Work ID，`GET /api/works/:workId` 提供检查和交付真值；
   不需要新增或修改 API、数据库、领域状态与权限合同。
 - 当所选工单已为 `succeeded` 时，Production 首屏从该工单的持久化 execution、A12 与 Work 投影恢复下一步，
-  不再因 Cloud Executor 离线或 `current_order=null` 回落为激活前“生产门禁未通过”。A12 未发起、排队/运行、
+  不再因 Cloud Executor 离线、`current_order=null`、交接包下载授权过期或手工交接功能关闭而回落为激活前状态。
+  A12 未发起、排队/运行、
   失败/需处理、通过但尚未登记 Work，以及 Work 的 `pending_review` / `rework_required` / `deliverable` /
   `delivered` 均保持独立业务状态与唯一下一步。
+- A12 已登记 Work 但精确 Work 状态暂时读取失败时，首屏明确显示“作品状态读取失败”，只推荐刷新当前工单；
+  不把读取失败伪装成“正在登记作品”，不使用 stale delivery，也不开放下一单。
 - 修复只适用于已成功工单的终态恢复。`waiting_for_executor + ready package` 的激活前 fail-closed、组织级唯一
   eligible、当前工单零 attempt、active attempts=0、claimed/running/failed/requires_action/cancel、失败停批、
   无自动重试和企业 Web 无 Worker 启停命令的合同均未改变。

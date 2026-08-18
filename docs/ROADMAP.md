@@ -46,7 +46,8 @@ Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EX
 五阶段、QC/人工审核、preflight/人工批准、Works 终态动作、Assets 三类真值及 Tab 键盘合同；结论为带 #190/#191
 两个 P1 条件通过，不是无条件验收。#190 的仓库修复已合并，只接受服务端 `kind=product_image`、Asset `active`、
 AssetVersion `available` 的交集，并保持非商品图片与脏历史选择不能满足 Ready 或进入保存 payload。#191 当前严格
-串行恢复 terminal Work 真值且不弱化 fail-closed 门禁；只有 accompanying implementation 合并后才计为仓库完成。
+串行恢复 terminal Work 真值且不弱化 fail-closed 门禁；成功工单终态不依赖 Worker claim 或交接包生命周期，精确
+Work 读取失败须可见且只允许 scoped refresh。只有 accompanying implementation 合并后才计为仓库完成。
 两项合并后再统一部署和真实管理员复验。可信 CA 证书仍缺正式域名、DNS、签发和部署实证，当前 HTTP `/healthz` 也尚未跳转 HTTPS；
 必须按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 完成严格 CA 与 HTTP→HTTPS 验收后，才能评估公网发布。
 继续保持 Mac Local Agent 关闭、Cloud Executor 默认 disabled/fail-closed 与 concurrency=1；任何新增真实生成仍需新的授权和逐单门禁。

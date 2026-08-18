@@ -197,11 +197,14 @@ test("approved Plan with no order exposes one business-first Production recommen
   let persistedExecution = null;
   let persistedVerification = null;
   let persistedWork = null;
+  let persistedWorkReadFailures = 0;
+  let manualHandoffOverride = null;
   await page.route("**/api/runtime", async (route) => {
     const response = await route.fetch();
     const body = await response.json();
     return route.fulfill({ response, json: {
       ...body,
+      manualHandoffEnabled: manualHandoffOverride ?? body.manualHandoffEnabled,
       manualExecutionEnabled: true,
       artifactVerificationEnabled: true,
       worksEnabled: true
@@ -281,6 +284,10 @@ test("approved Plan with no order exposes one business-first Production recommen
   });
   await page.route("**/api/works/*", (route) => {
     if (route.request().method() !== "GET" || !persistedWork) return route.continue();
+    if (persistedWorkReadFailures > 0) {
+      persistedWorkReadFailures -= 1;
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "CONTROLLED_WORK_READ_FAILURE" }) });
+    }
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ work: persistedWork }) });
   });
 
@@ -698,6 +705,37 @@ test("approved Plan with no order exposes one business-first Production recommen
   await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "作品待检查");
   assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), "作品待检查");
   assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+
+  packageState = "expired";
+  await reloadPersistedTerminal({ verificationStatus: "passed", deliveryStatus: "pending_review" });
+  assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), "作品待检查");
+  assert.equal((await page.locator("#productionTaskNextStep").textContent()).trim(), "进入作品库检查");
+  assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
+  assert.notEqual(await page.locator("#authorizePackageButton").getAttribute("data-recommended-action"), "true");
+
+  manualHandoffOverride = false;
+  await reloadPersistedTerminal({ verificationStatus: "passed", deliveryStatus: "pending_review" });
+  assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), "作品待检查");
+  assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
+  manualHandoffOverride = null;
+
+  persistedWorkReadFailures = 1;
+  await reloadPersistedTerminal({ verificationStatus: "passed", deliveryStatus: "pending_review" });
+  assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), "作品状态读取失败");
+  assert.equal((await page.locator("#productionTaskNextStep").textContent()).trim(), "刷新当前工单");
+  assert.equal(await page.locator("#refreshProduction").getAttribute("data-recommended-action"), "true");
+  assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+  assert.doesNotMatch(await taskSummary.innerText(), /正在登记作品/);
+  assert.equal(await page.locator("#worksLibraryLink").isHidden(), true);
+  assert.match(await page.locator("#worksLibraryDisabled").textContent(), /刷新当前工单/);
+  const recoveredWork = page.waitForResponse((response) =>
+    response.request().method() === "GET" && new URL(response.url()).pathname === "/api/works/work-v2-production-persisted");
+  await page.locator("#refreshProduction").click();
+  await recoveredWork;
+  await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "作品待检查");
+  assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
+  assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+  assert.equal(await page.locator("#worksLibraryLink").isVisible(), true);
 
   const screenshotRoot = path.join(os.tmpdir(), "hifly-v2-b-production-screenshots");
   await mkdir(screenshotRoot, { recursive: true });
