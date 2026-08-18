@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-18
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；`main@80bdfd45` 已部署到内部验收环境，运营工作台 V2、Issue #193 migration/只读 UI 以及 Issues #190/#191 统一部署后的真实管理员只读验收均通过。可信 TLS 与 #193 受控 Provider 效果验收仍是后续门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；`main@80bdfd45` 已部署到内部验收环境，运营工作台 V2、Issue #193 migration/只读 UI 以及 Issues #190/#191 统一部署后的真实管理员只读验收均通过。Issue #193 的首条受控 Provider `small` 档验收已执行但总体失败；#200/#201/#202 成为下一组严格串行缺陷门禁。可信 TLS 仍未完成
 
 ## 1. 已完成基线
 
@@ -37,7 +37,8 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
     → V2 独立设计合同（#174，已完成）
     → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180/#181 已完成）→ Assets（#182/#183 已完成）→ V2-E 回补审计（#184/#185 已完成）→ V2-E1（#186/#187 已完成）→ V2-E2（#188/#189 已完成并部署）
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
-P1 Product  #193 实物尺寸 + 飞影原生呈现大小（仓库实现、内部部署与只读验收已完成；受控 Provider 效果验收待执行）
+P1 Product  #193 实物尺寸 + 飞影原生呈现大小（仓库实现、内部部署与只读验收已完成；首条受控 Provider 效果验收失败）
+P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态确认与修复 → #202 failed 工单首屏终态（待严格串行处理）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -51,7 +52,9 @@ Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EX
 exact Work 的“作品待检查”和唯一作品库动作，创建工单保持 disabled；没有点击 Works、下载、保存、创建或其他写操作。
 这只证明两个 P1 已统一部署且内部只读验收通过。可信 CA 证书仍缺正式域名、DNS、签发和部署实证，当前 HTTP `/healthz` 也尚未跳转 HTTPS；
 必须按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 完成严格 CA 与 HTTP→HTTPS 验收后，才能评估公网发布。
-继续保持 Mac Local Agent 关闭、Cloud Executor 默认 disabled/fail-closed 与 concurrency=1；任何新增真实生成仍需新的授权和逐单门禁。
+随后执行的一条获授权真实 `small` 档验收并未通过：Provider 弹窗在付费动作后仍视觉高亮“智能适配”，候选视频虽已上传，
+但唯一 attempt/report 最终失败，A12 与 Work 均未形成；成片尺寸也未小于 baseline。系统已恢复 disabled/fail-closed。
+下一步严格串行为 #200 → #201 → #202；在三项分别完成实现、Review、合并和部署复验前，不执行新的真实生成。
 
 P0.4 的三条结果证明人工控制下的严格串行路径可重复完成，但不构成自动队列批量运行、更大规模、长时间稳定性、并行能力或公网生产 SLA 的证据。
 
@@ -90,10 +93,10 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 与 
 每个已批准的实施分片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一分片合并后才开始下一分片，且不自动部署。
 
 Issue #193 将商品实物事实与画面呈现档位分开：ProductRevision 记录可选的高/宽/深、容量和重量，
-VideoPlan 只使用飞影原生六档（智能适配/超大/大/中/小/超小）。映射与选中态已由当前飞影静态资源只读核实；
-执行器必须在付费生成前验证选中档位，无法验证则 fail closed。该改动已完成内部部署、migration 与只读 UI/历史
-snapshot 验收，但尚未执行真实付费出片或新尺寸效果验证；呈现大小不代表外观保真，瓶盖、包装、标签和形态仍由
-Works 检查单独验收。#190/#191 已统一部署并完成内部只读复验，但该证据不替代 #193 的真实 Provider 效果验收。
+VideoPlan 只使用飞影原生六档（智能适配/超大/大/中/小/超小）。静态资源只读证据曾支持映射与 DOM 选中态；
+真实 `small` 档付费验收现已证明 `img alt + parent actived` 可能是假阳性，因此 #200 必须重新建立 Provider 选档真值，
+且无法验证时在付费前 fail closed。本次成片的尺寸验收 FAIL、外观保真 PARTIAL/FAIL；候选上传后报告失败的并发根因
+仍待 #201 隔离 TDD 确认，failed 工单首屏错误待 #202 修复。#190/#191 的统一部署只读复验仍成立，但不覆盖这些新缺陷。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
@@ -109,6 +112,7 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 ## 4. 保留但不抢跑的工作
 
 - #190/#191 已完成代码、独立 Review、统一部署与真实管理员只读复验；后续不得为重复确认这两项而启动 Worker 或生成视频。
+- #200/#201/#202 必须严格串行完成；不得把本次失败工单、已上传 forensic candidate 或三个缺陷 Issue 解释为重试授权。
 - 文案增强、人物推荐、背景/场景/姿势、动效精修、Capture HTTP、Local Agent 新功能、并行生产、复杂对象存储和高可用全部暂停。
 - Local Agent 保留已验证代码但默认关闭，并从生产主路径/操作说明中退出；纯云端稳定至少 10 条或 1～2 周后再决定是否删除。
 - 当前 2C4G/2C4G 级试运行服务器只证明内部功能闭环，不承诺正式生产 SLA。

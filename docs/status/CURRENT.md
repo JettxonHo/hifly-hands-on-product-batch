@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issue #193 migration/只读 UI 验收与 Issues #190/#191 统一部署后的真实管理员只读验收均通过，Cloud Executor 与 Local Agent 全程保持关闭。可信 TLS 与 #193 的受控 Provider 效果验收仍未完成，因此不等同于公网生产就绪、真实新尺寸出片、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issues #190/#191 的统一部署只读验收通过。Issue #193 随后完成一条获授权的真实 Provider `small` 档验收，但结果为失败：页面选中态校验出现假阳性，候选视频上传后 attempt/report 仍失败，A12 与 Work 均未形成。系统已恢复 disabled/fail-closed；新建 Issues #200/#201/#202 分别跟踪 Provider 选档、heartbeat/report 竞态调查和 failed 工单首屏真值。该结果不是成功出片合同，也不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -185,9 +185,41 @@
   保存 ProductRevision、derive/save/preflight/review Plan，也没有创建工单或新交接包。
 - #190/#191 已随精确 `main@80bdfd4500c66cd564daeb7a3badcfd070478809` 统一部署并完成真实管理员只读复验；
   两项旧行为均未再出现。该复验没有点击 Works、下载、保存、创建、刷新或其他写操作。
-- 未访问 Hifly、未启动 Worker、未生成视频、未消耗积分。呈现大小不自动证明瓶盖、包装、标签或商品形态保真；
-  下一次真实生成仍需独立单条积分授权。入口仍是 IP + 自签证书，不能宣称公网生产就绪。
+- 上述部署与只读验收阶段未访问 Hifly、未启动 Worker、未生成视频、未消耗积分。随后另一次获授权的真实单条
+  Provider 验收已执行，结果见下节；不能再把 #193 写成“尚未执行真实付费出片”。呈现大小仍不自动证明瓶盖、
+  包装、标签或商品形态保真。入口仍是 IP + 自签证书，不能宣称公网生产就绪。
 - 完整部署与证据边界见 `docs/status/sessions/2026-08-18-issue-193-internal-deployment.md`。
+
+## 2026-08-18 Issue #193 真实 `small` 档单条验收失败
+
+- 验收对象为 `SUNSCREEN-20260818-003 · 安热沙金瓶防晒霜（原生小档验收）`。Product、ProductRevision、
+  CopyVersion、AvatarSelection、VideoPlan、Order 与 ready handoff 均已固定；Plan 为 `frozen / approved / warning`，
+  `presentation_size_code=small`，交接 manifest 也包含 `small`。
+- 激活前 Worker off，组织级 eligible 只有当前 order，当前 order attempts=0 且 active attempts=0。第一次容器启动因
+  Profile 中上一容器遗留的 Chromium `Singleton*` 锁未领取工单、未创建 attempt、未进入付费动作；三把锁已移动到
+  Profile 内可恢复目录而非删除。第二次启动仍属于同一获授权单次执行。
+- 唯一 attempt `b5ba1480-da8e-408c-933a-312ab3ac1afd` 最终为 `failed`，报告
+  `26906357-d092-43e2-99bf-e91bc29694b8` 为 `outcome=failed / failure_stage=playwright_execution /
+  retryability=not_retryable`，没有自动重试。
+- Hifly 产生 `remote_id=713098`；候选 `638fc536-3452-42c8-965e-719f16e18083` 已上传为
+  `video/mp4`，50,650,990 bytes，SHA-256
+  `3921fc8e803cf319598505e542d59463987f7d018f80e0f10497e5ded460f260`。本机 forensic 副本不是
+  A12/Work 鉴权下载；本轮 `A12 jobs=0`、`Works=0`，因此不满足正式成功合同。
+- 真实 Provider 证据显示：点击“立即生成 150积分”后，弹窗仍视觉高亮“智能适配”，而非期望的“小”。当前
+  `img alt + parent actived` 校验在真实页面可能是假阳性，Issue #200 跟踪选档真值与付费前 fail-closed 修复。
+  成片仍为双手托持，商品尺寸未小于 baseline；金瓶和斜蓝盖保留、未变泵头，但瓶身比例与标签清晰度不完全保真。
+  尺寸验收为 FAIL，外观保真为 PARTIAL/FAIL，总体为 FAIL。
+- 候选授权、heartbeat、上传与失败报告在约 104ms 内交错。源码确认 heartbeat 与报告写入都使用并递增
+  attempt `row_version`，现有时间序列强烈支持 completion 使用旧 revision 的竞态假设；但尚无隔离 TDD，不能把
+  `MANUAL_EXECUTION_ATTEMPT_CONFLICT` 写成已确认根因。Issue #201 负责复现、确认或推翻并修复。
+- 订单已经明确 `failed`，但 Production 首屏仍显示激活前的“等待生产门禁核对 / 生产门禁未通过”。Issue #202
+  独立跟踪 failed 工单持久终态投影；不得把它与竞态或“重试当前失败工单”合并。
+- Provider 按钮显示 150 积分，且发生一次付费生成动作；点击前与外层提交后 header 都显示 `44007`，但最终余额
+  没有刷新验证，因此不得声称精确扣分数。完整对象、时间序列、候选与安全收尾见
+  `docs/status/sessions/2026-08-18-issue-193-native-small-provider-acceptance.md`。
+- 最终恢复 `CLOUD_EXECUTOR_ENABLED=false`、`CLOUD_EXECUTOR_MODE=fail_closed`、
+  `LOCAL_AGENT_ENABLED=false`、`PRODUCTION_EXECUTOR=fail_closed`；Cloud Executor stopped，App healthy，
+  `eligible=0`、active attempts=0、waiting=0、total attempts=16。
 
 ## P0.5 内部验收环境部署
 
@@ -345,14 +377,15 @@
 
 ## 下一步
 
-1. Issues #190/#191 已统一部署并完成真实管理员只读复验；继续保持 Cloud Executor/Local Agent disabled、
-   `eligible=0`、`active_attempts=0`、`waiting_orders=0`，不得把只读 UI 证据外推为新的生产运行证明。
-2. Issue #193 migration、应用与无积分只读界面/历史快照验收已经完成；任何真实飞影效果验收仍须另起受控
-   零-attempt 工单并获得单条积分授权，在付费生成前核对呈现档位，并单独验收外观保真。
-3. 继续 P0.5 release-readiness：V2 与依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
-4. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
+1. 严格串行处理 #200 → #201 → #202：先修复并证明付费前 Provider 选档真值，再以 TDD 确认或推翻 heartbeat/report
+   `row_version` 竞态，最后修复 failed 工单首屏终态。三个 Issue 都不是重试当前失败工单的授权。
+2. 在三个缺陷分别实现、独立 Review、合并和部署复验前，不执行新的真实 Provider 生成。未来再次验证须使用唯一新工单、
+   零 attempt、单条积分授权，并分别验收尺寸档位与外观保真。
+3. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
+4. 保持 Cloud Executor/Local Agent disabled、Cloud Executor 并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
-5. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；本次三条结果不能直接外推。
+5. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；历史三条成功与本次
+   单条失败都不能直接外推。
 
 ## 长期边界
 
