@@ -41,9 +41,25 @@ test("system Chrome completes and restores the project-content flow", async (t) 
   const page = await browser.newPage();
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL); await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
   await page.locator("#newPassword").fill("Browser-Content-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
+  const mixedAssets = [
+    { ...authorized.asset, kind: "product_image", status: "active", versions: [{ ...authorized.asset_version, status: "available" }] },
+    { ...authorized.asset, id: "avatar-asset-190", kind: "avatar_image", status: "active", versions: [{ ...authorized.asset_version, id: "avatar-version-190", asset_id: "avatar-asset-190", original_filename: "人物立绘.png", status: "available" }] },
+    { ...authorized.asset, id: "work-asset-190", kind: "work_video", status: "active", versions: [{ ...authorized.asset_version, id: "work-version-190", asset_id: "work-asset-190", original_filename: "历史成片.mp4", status: "available" }] }
+  ];
+  await page.route("**/api/assets", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ assets: mixedAssets })
+  }));
   await page.getByRole("link", { name: "项目", exact: true }).click(); await page.getByRole("button", { name: "创建项目" }).click(); await page.getByLabel("项目名称").fill("八月新品"); await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click(); await page.getByRole("link", { name: "继续项目" }).click();
+  const projectId = new URL(page.url()).searchParams.get("id");
+  assert.ok(projectId);
   await page.getByRole("button", { name: "创建商品" }).click(); await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("云朵抱枕"); await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
   await page.getByRole("heading", { name: "实物尺寸" }).waitFor();
+  assert.equal(await page.getByText("product.png · 版本 1", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("人物立绘.png · 版本 1", { exact: true }).count(), 0);
+  assert.equal(await page.getByText("历史成片.mp4 · 版本 1", { exact: true }).count(), 0);
+  assert.equal(await page.locator("#assetOptions input").count(), 1);
   await page.getByLabel("高度", { exact: true }).fill("18"); await page.getByLabel("宽度", { exact: true }).fill("12"); await page.getByLabel("尺寸单位", { exact: true }).selectOption("cm");
   await page.getByLabel("容量数值（可选）", { exact: true }).fill("500"); await page.getByLabel("容量单位", { exact: true }).selectOption("ml");
   await page.getByRole("button", { name: "新增卖点" }).click(); await page.locator(".point-row input").fill("柔软亲肤"); await page.getByRole("button", { name: "保存草稿" }).click(); await page.getByText("草稿已保存。").waitFor();
@@ -123,4 +139,39 @@ test("system Chrome completes and restores the project-content flow", async (t) 
   await page.getByRole("button", { name: "设为资料已就绪", exact: true }).click();
   await page.getByText("素材已不可引用，请重新选择。", { exact: true }).waitFor();
   assert.equal(await page.locator("#assetOptions input").count(), 0);
+
+  await page.unroute("**/api/assets");
+  const actualProject = await page.evaluate(async (id) => (await fetch(`/api/projects/${id}`)).json(), projectId);
+  const staleProject = structuredClone(actualProject);
+  const staleRevision = staleProject.project.products.find((item) => item.revision.id === currentRevisionId).revision;
+  staleRevision.status = "draft";
+  staleRevision.asset_version_ids = ["avatar-version-190", "work-version-190"];
+  staleRevision.selling_points = [{ id: "point-stale-190", text: "已确认卖点", confirmed: true }];
+  await page.route(`${origin}/api/projects/${projectId}`, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(staleProject)
+  }));
+  await page.route("**/api/assets", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ assets: mixedAssets })
+  }));
+  let savedPayload;
+  await page.route(`${origin}/api/product-revisions/${currentRevisionId}`, async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    savedPayload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ revision: { ...staleRevision, revision_number: staleRevision.revision_number + 1, asset_version_ids: [] } })
+    });
+  });
+  await page.reload();
+  await page.getByText("选择至少一张可引用图片", { exact: false }).waitFor();
+  assert.equal(await page.locator("#assetOptions input").count(), 1);
+  assert.equal(await page.locator("#assetOptions input:checked").count(), 0);
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await page.getByText("草稿已保存。", { exact: true }).waitFor();
+  assert.deepEqual(savedPayload.asset_version_ids, []);
 });
