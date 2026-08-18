@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@db36cc53` 已部署到内部验收环境，Issue #193 migration 与三页真实管理员只读验收通过。Issue #190 已合并进入仓库但尚未部署；Issue #191 的窄修复与本状态更新只有一起合并进入 `main` 后才计为仓库已修复。两项合并后的统一部署与真实管理员复验仍是独立后续门禁。可信 TLS 与 #193 的受控 Provider 效果验收均未完成，因此不等同于公网生产就绪、真实新尺寸出片、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issue #193 migration/只读 UI 验收与 Issues #190/#191 统一部署后的真实管理员只读验收均通过，Cloud Executor 与 Local Agent 全程保持关闭。可信 TLS 与 #193 的受控 Provider 效果验收仍未完成，因此不等同于公网生产就绪、真实新尺寸出片、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -17,7 +17,9 @@
 - 公开真实 Chrome 回归使用同一个 `/api/assets` fixture 同时提供三类 active+available 素材：修复前人物图片
   实际进入候选（RED），修复后仅商品图片可见可选，并继续覆盖历史 revision 只读、dirty 保护、409 恢复、
   素材失效刷新和 Ready 竞态提示。
-- 该修复已通过 Issue #190 / PR #196 合并进入 `main@3566a1b`；尚未部署或完成内部验收环境复验。
+- 该修复已通过 Issue #190 / PR #196 合并，并随 `main@80bdfd45` 部署到内部验收环境。真实管理员只读验收确认
+  服务端 active+available 素材中 `product_image=5`、`work_video=7`，Project 商品图片候选恰好只显示 5 个
+  商品图片文件且没有任何 mp4/作品视频；本轮没有保存或修改 revision。
 
 ## Issue #191 Production 终态真值恢复
 
@@ -38,8 +40,9 @@
   无自动重试和企业 Web 无 Worker 启停命令的合同均未改变。
 - 公开真实 Chrome 回归先复现 succeeded + A12 passed + Work pending_review + Worker offline 时错误显示
   “生产门禁未通过”（RED），再锁定持久化 A12/Work 状态矩阵、刷新恢复、唯一推荐动作及 1440/768/390。
-- 该结论只有在 accompanying implementation 与本状态更新合并进入 `main` 后才表示仓库修复；尚未部署。
-  #190 与 #191 合并后的统一部署和真实管理员复验仍是独立后续门禁。
+- 该修复已通过 Issue #191 / PR #197 合并，并随 `main@80bdfd45` 部署到内部验收环境。真实管理员只读验收在
+  Worker offline、`current_order=null` 时确认 persisted succeeded 工单首屏为“作品待检查”，唯一推荐动作
+  “进入作品库检查”指向 exact Work；“生产门禁未通过”未出现，创建工单入口保持 disabled。
 
 ## UX V1 Slice A 仓库实现
 
@@ -115,8 +118,8 @@
   2026-08-18 内部验收环境复核。
 - Issue #178 / PR #179 已将 V2-B Production Task Flow 合并进入 `main`。Production 仓库页面已采用逐单业务摘要、
   完整工单/交接包/执行/A12/Work 状态矩阵、唯一推荐下一步、完整 bootstrap 恢复，以及默认折叠的
-  Cloud Executor/attempt/handoff 技术详情。该页面已部署并完成只读 UI 验收，但 #191 证明 Worker 关闭后
-  terminal Work 投影仍有 P1，不得把本次验收写成无条件通过或真实生产再验收。
+  Cloud Executor/attempt/handoff 技术详情。#191 已修复 Worker 关闭后的 terminal Work 投影，并随
+  `main@80bdfd45` 完成真实管理员只读验收；该证据仍不是新一轮真实生产、客户采用或公网发布证明。
 - Production 仅在当前商品零工单且上游 gate 允许时开放“创建生产工单”；任一已有工单（含 claimed/running、
   failed/requires_action、已交付但未完成真实字节验收）都会真实禁用两个创建入口。Work 的 `pending_review`、
   `rework_required`、`deliverable`、`delivered` 均按控制面同名状态进入作品库对应动作，不回落成生产门禁错误，
@@ -133,8 +136,8 @@
 - Issue #182 / PR #183 已将 V2-D Assets by Real Type 合并进入 `main`：素材中心按 `product_image`、
   `avatar_image`、`work_video` 三种服务端真值分组，明确 Asset/AssetVersion 层级，并保持作品视频只读、
   图片上传与临时下载授权、乐观冲突和组织权限语义。素材用途、业务关联、缩略图、搜索和分页没有现成 API 真值，
-  不由前端推断。该页面已部署并通过三类素材与 `work_video` 只读的核心验收；#190 同时证明 Project 的商品图片
-  选择器仍会混入 `work_video`，需独立修复。
+  不由前端推断。该页面已部署并通过三类素材与 `work_video` 只读的核心验收；#190 已收敛 Project 商品图片
+  选择器，并随 `main@80bdfd45` 完成真实管理员只读验收。
 - Issue #184 / PR #185 已完成 V2-E 回补审计并进入 `main`。审计证据不支持全站返工，只接受两个严格串行的
   最小回补：V2-E1（Projects/Project/Copy 的业务中文、刷新作用域与 Copy Tab 键盘语义）已通过 Issue #186 / PR #187
   合并；V2-E2 已通过 Issue #188 / PR #189 合并并随 `main@5c6384d` 部署。Avatar/Plan 的业务中文、技术详情层级与
@@ -180,8 +183,8 @@
   显示六档原生选择并以“智能适配”承接迁移默认；历史 ProductionOrder 的冻结 input snapshot 没有新字段，页面诚实
   显示“实物尺寸：未知 / 商品呈现大小：未设置”，没有用当前 Plan 反向改写历史。三页 console errors=[]，本轮没有
   保存 ProductRevision、derive/save/preflight/review Plan，也没有创建工单或新交接包。
-- #190 的仓库修复已合并但尚未部署；#191 的仓库修复只有随 accompanying implementation 合并后才成立。
-  当前内部验收环境仍保留部署时观察到的两项旧行为，本轮没有把仓库修复误写成部署完成。
+- #190/#191 已随精确 `main@80bdfd4500c66cd564daeb7a3badcfd070478809` 统一部署并完成真实管理员只读复验；
+  两项旧行为均未再出现。该复验没有点击 Works、下载、保存、创建、刷新或其他写操作。
 - 未访问 Hifly、未启动 Worker、未生成视频、未消耗积分。呈现大小不自动证明瓶盖、包装、标签或商品形态保真；
   下一次真实生成仍需独立单条积分授权。入口仍是 IP + 自签证书，不能宣称公网生产就绪。
 - 完整部署与证据边界见 `docs/status/sessions/2026-08-18-issue-193-internal-deployment.md`。
@@ -342,11 +345,10 @@
 
 ## 下一步
 
-1. Issue #193 migration、应用与无积分只读界面/历史快照验收已经完成；任何真实飞影效果验收仍须另起受控
+1. Issues #190/#191 已统一部署并完成真实管理员只读复验；继续保持 Cloud Executor/Local Agent disabled、
+   `eligible=0`、`active_attempts=0`、`waiting_orders=0`，不得把只读 UI 证据外推为新的生产运行证明。
+2. Issue #193 migration、应用与无积分只读界面/历史快照验收已经完成；任何真实飞影效果验收仍须另起受控
    零-attempt 工单并获得单条积分授权，在付费生成前核对呈现档位，并单独验收外观保真。
-2. #190 已合并；当前严格串行完成 #191，恢复 Production 对 terminal Work 的稳定投影。#191 修复不得弱化
-   激活前 fail-closed、唯一 eligible、零初始 attempt、terminal 关 Worker、失败停批与不自动重试门禁。
-   两项合并后再进入统一部署与真实管理员复验。
 3. 继续 P0.5 release-readiness：V2 与依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 4. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
