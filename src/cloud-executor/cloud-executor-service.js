@@ -334,22 +334,49 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
 
   async function runAttempt(claimedAttempt, claimedOrder, packageRecord) {
     let started;
+    let finishHeartbeats = null;
     try {
       started = await startAttempt(claimedAttempt, claimedOrder);
       const attempt = started.attempt;
       const executionOrder = await getOrder(claimedOrder.id);
       let heartbeatError = null;
       let progressError = null;
+      let heartbeatsClosed = false;
+      let heartbeatWork = Promise.resolve();
+      let timer = null;
+      const queueHeartbeat = (phase) => {
+        if (heartbeatsClosed) return Promise.reject(failure("CLOUD_EXECUTOR_LEASE_LOST"));
+        const pending = heartbeatWork.then(() => heartbeat(attempt, phase));
+        heartbeatWork = pending.catch(() => undefined);
+        return pending;
+      };
       const reportProgress = async ({ phase, evidence = null } = {}) => {
         try {
-          const saved = await heartbeat(attempt, phase);
+          const saved = await queueHeartbeat(phase);
           return { ...saved, evidence };
         } catch (error) {
           progressError ||= error;
           throw error;
         }
       };
-      const timer = setInterval(() => heartbeat(attempt).catch((error) => { heartbeatError ||= error; }), heartbeatIntervalMs);
+      let heartbeatFinish = null;
+      finishHeartbeats = () => {
+        if (!heartbeatFinish) heartbeatFinish = (async () => {
+          try {
+            heartbeatsClosed = true;
+            clearInterval(timer);
+            await heartbeatWork;
+            if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+            const current = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
+            if (current.status !== "running") throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+            return current;
+          } catch {
+            throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+          }
+        })();
+        return heartbeatFinish;
+      };
+      timer = setInterval(() => queueHeartbeat("executing").catch((error) => { heartbeatError ||= error; }), heartbeatIntervalMs);
       timer.unref?.();
       try {
         if (!['fake', 'playwright'].includes(mode) || typeof executor?.run !== "function") throw failure("CLOUD_EXECUTOR_FAIL_CLOSED");
@@ -358,8 +385,8 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           order: executionOrder, attempt, package: packageRecord,
           ...(packageArchive ? { packageArchive } : {}), progress: reportProgress, checkpoint: reportProgress });
         if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
-        const currentAttempt = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
         if (result?.status === "requires_action" || result?.outcome === "requires_action") {
+          const currentAttempt = await finishHeartbeats();
           const requiresAction = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "requires_action",
             failureStage: clean(result?.failureStage) || "unknown_post_submit",
             requiresActionReason: clean(result?.requiresActionReason) || "Cloud Executor requires human action",
@@ -369,32 +396,48 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
             report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
         }
         if (!result || result.ok === false || result.status === "failed" || result.failure) {
+          const currentAttempt = await finishHeartbeats();
           const failed = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "failed",
             failureStage: clean(result?.failureStage) || (mode === "playwright" ? "playwright_execution" : "fake_execution") });
           halted = true;
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
-        const candidate = await candidateForResult(currentAttempt, packageRecord, result);
+        const candidate = await candidateForResult(attempt, packageRecord, result);
         const uploaded = await saveCandidate(candidate);
+        const currentAttempt = await finishHeartbeats();
         const completed = await saveReport({ attempt: currentAttempt, order: executionOrder, candidate: uploaded.candidate, outcome: "completed" });
         const verification = await triggerVerification({ order: executionOrder, attempt: completed.attempt, report: completed.report, candidate: uploaded.candidate });
         return { status: "succeeded", attempt: publicAttempt(completed.attempt), report: publicReport(completed.report),
           candidate: publicCandidate(uploaded.candidate), verification, replayed: completed.replayed };
       } finally {
+        heartbeatsClosed = true;
         clearInterval(timer);
       }
     } catch (error) {
       halted = true;
-      if (error?.code === "CLOUD_EXECUTOR_LEASE_LOST") {
-        const current = await repository.getAttempt(identity.organizationId, claimedAttempt.id);
-        if (current && ["claimed", "running"].includes(current.status) && hasExpiredLease(current, now())) await expireLease(current);
-      } else if (started?.attempt?.status === "running") {
-        const current = await repository.getAttempt(identity.organizationId, claimedAttempt.id);
+      let terminalError = error;
+      let terminalAttempt = null;
+      if (finishHeartbeats) {
+        try {
+          terminalAttempt = await finishHeartbeats();
+        } catch {
+          terminalError = failure("CLOUD_EXECUTOR_LEASE_LOST");
+        }
+      }
+      if (terminalError?.code === "CLOUD_EXECUTOR_LEASE_LOST") {
+        try {
+          const current = await repository.getAttempt(identity.organizationId, claimedAttempt.id);
+          if (current && ["claimed", "running"].includes(current.status) && hasExpiredLease(current, now())) await expireLease(current);
+        } catch {
+          // Lease-loss cleanup is best effort; it must not reopen terminal reporting or replace the stable error.
+        }
+      } else if (started?.attempt?.status === "running" && terminalAttempt) {
+        const current = terminalAttempt;
         const order = await getOrder(claimedOrder.id);
         if (current?.status === "running" && order.status === "running") {
-          if (error?.code === "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN" || error?.outcome === "requires_action") {
+          if (terminalError?.code === "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN" || terminalError?.outcome === "requires_action") {
             const requiresAction = await saveReport({ attempt: current, order, outcome: "requires_action",
-              failureStage: "unknown_post_submit", requiresActionReason: error.message, progressPhase: "unknown_post_submit" });
+              failureStage: "unknown_post_submit", requiresActionReason: terminalError.message, progressPhase: "unknown_post_submit" });
             return { status: "requires_action", stopped: true, attempt: publicAttempt(requiresAction.attempt),
               report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
           }
@@ -403,7 +446,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
       }
-      throw error;
+      throw terminalError;
     }
   }
 

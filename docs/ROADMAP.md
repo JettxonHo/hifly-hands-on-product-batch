@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-18
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；`main@80bdfd45` 已部署到内部验收环境，运营工作台 V2、Issue #193 migration/只读 UI 以及 Issues #190/#191 统一部署后的真实管理员只读验收均通过。Issue #193 的首条受控 Provider `small` 档验收已执行但总体失败；#200 已完成仓库侧付费前选档 fail-closed 修复，部署与真实 Provider 复验待后续，#201/#202 尚未开始。可信 TLS 仍未完成
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；`main@80bdfd45` 已部署到内部验收环境，运营工作台 V2、Issue #193 migration/只读 UI 以及 Issues #190/#191 统一部署后的真实管理员只读验收均通过。Issue #193 的首条受控 Provider `small` 档验收已执行但总体失败；#200 已完成仓库修复，#201 已由 memory/PostgreSQL TDD 确认 heartbeat/report 竞态并形成最小修复候选，合并后才计为仓库完成。部署、真实 Provider 复验、#202 与可信 TLS 仍待后续独立门禁
 
 ## 1. 已完成基线
 
@@ -38,7 +38,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
     → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180/#181 已完成）→ Assets（#182/#183 已完成）→ V2-E 回补审计（#184/#185 已完成）→ V2-E1（#186/#187 已完成）→ V2-E2（#188/#189 已完成并部署）
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（仓库实现、内部部署与只读验收已完成；首条受控 Provider 效果验收失败）
-P1 Runtime  #200 Provider 选档真值（随本变更合并进入 main 后计为仓库修复完成；部署/Provider 复验另行 gate）→ #201 heartbeat/report 竞态确认与修复 → #202 failed 工单首屏终态
+P1 Runtime  #200 Provider 选档真值（仓库修复已完成）→ #201 heartbeat/report 竞态（memory/PostgreSQL 根因已确认；修复候选随 PR 合并后计为仓库完成）→ #202 failed 工单首屏终态
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -54,7 +54,7 @@ exact Work 的“作品待检查”和唯一作品库动作，创建工单保持
 必须按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 完成严格 CA 与 HTTP→HTTPS 验收后，才能评估公网发布。
 随后执行的一条获授权真实 `small` 档验收并未通过：Provider 弹窗在付费动作后仍视觉高亮“智能适配”，候选视频虽已上传，
 但唯一 attempt/report 最终失败，A12 与 Work 均未形成；成片尺寸也未小于 baseline。系统已恢复 disabled/fail-closed。
-下一步严格串行为完成 #200 acceptance gate 后进入 #201，再处理 #202；在三项分别完成实现、Review、合并和部署复验前，
+下一步严格串行为完成 #201 acceptance gate 后再处理 #202；在三项分别完成实现、Review、合并和部署复验前，
 不执行新的真实生成。#200 的仓库修复要求完整六档集合、图片框与文字选中态一致、且连续两次只有期望档位被选中；
 它不等于已部署或已通过真实 Provider 付费复验。
 
@@ -98,8 +98,9 @@ Issue #193 将商品实物事实与画面呈现档位分开：ProductRevision �
 VideoPlan 只使用飞影原生六档（智能适配/超大/大/中/小/超小）。静态资源只读证据曾支持映射与 DOM 选中态；
 真实 `small` 档付费验收现已证明 `img alt + parent actived` 可能是假阳性。#200 的仓库修复以完整六档、双选中标记与唯一
 期望选项重新建立付费前 Provider DOM 真值，无法验证时 fail closed；部署与真实 Provider 复验仍待后续。本次成片的尺寸
-验收 FAIL、外观保真 PARTIAL/FAIL；候选上传后报告失败的并发根因
-仍待 #201 隔离 TDD 确认，failed 工单首屏错误待 #202 修复。#190/#191 的统一部署只读复验仍成立，但不覆盖这些新缺陷。
+验收 FAIL、外观保真 PARTIAL/FAIL；候选上传后报告失败已由 #201 的 memory 与 PostgreSQL 隔离 RED 确认为
+`MANUAL_EXECUTION_ATTEMPT_CONFLICT` 竞态，并形成不放宽乐观锁、覆盖正常返回与异常收口的统一终态时序修复候选；
+failed 工单首屏错误仍待 #202 修复。#190/#191 的统一部署只读复验仍成立，但不覆盖这些新缺陷。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、

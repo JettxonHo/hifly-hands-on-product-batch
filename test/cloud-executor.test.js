@@ -124,6 +124,49 @@ function packageRecordFor(orderId, index) {
   };
 }
 
+function throwingHeartbeatRace(error) {
+  let releaseHeartbeat;
+  let signalHeartbeatStarted;
+  let signalHeartbeatFinished;
+  const heartbeatRelease = new Promise((resolve) => { releaseHeartbeat = resolve; });
+  const heartbeatStarted = new Promise((resolve) => { signalHeartbeatStarted = resolve; });
+  const heartbeatFinished = new Promise((resolve) => { signalHeartbeatFinished = resolve; });
+  const reportErrors = [];
+  return {
+    reportErrors,
+    executor: {
+      async run({ progress }) {
+        void progress({ phase: "provider_submitted" });
+        await heartbeatStarted;
+        setTimeout(releaseHeartbeat, 0);
+        throw error;
+      }
+    },
+    install(repository) {
+      const heartbeatCloudAttempt = repository.heartbeatCloudAttempt.bind(repository);
+      const saveReport = repository.saveReport.bind(repository);
+      repository.heartbeatCloudAttempt = async (input) => {
+        signalHeartbeatStarted();
+        await heartbeatRelease;
+        try {
+          return await heartbeatCloudAttempt(input);
+        } finally {
+          signalHeartbeatFinished();
+        }
+      };
+      repository.saveReport = async (input) => {
+        await heartbeatFinished;
+        try {
+          return await saveReport(input);
+        } catch (caught) {
+          reportErrors.push(caught?.code);
+          throw caught;
+        }
+      };
+    }
+  };
+}
+
 test("disabled cloud executor is fail-closed before readiness or claim", async () => {
   const world = makeCloudWorld({ enabled: false, mode: "fail_closed" });
   const result = await world.service.runOnce();
@@ -304,6 +347,119 @@ test("an unexpected fake executor error is terminal and records a failed report"
   assert.equal(world.orders[1].status, "waiting_for_executor");
 });
 
+test("queued heartbeat is drained before an executor exception records one failed report", async () => {
+  const race = throwingHeartbeatRace(new Error("fake failure"));
+  const world = makeCloudWorld({ executor: race.executor });
+  race.install(world.repository);
+
+  const result = await world.service.runOnce();
+
+  assert.deepEqual(race.reportErrors, []);
+  assert.equal(result.status, "failed");
+  const attempts = await world.repository.listAttempts(ORGANIZATION_ID, world.order.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, attempts[0].id);
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].status, "failed");
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].outcome, "failed");
+  assert.equal(world.verificationCalls.length, 0);
+});
+
+test("queued heartbeat is drained before a post-submit exception requires action once", async () => {
+  const race = throwingHeartbeatRace(Object.assign(new Error("unknown post-submit result"), {
+    code: "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN"
+  }));
+  const world = makeCloudWorld({ executor: race.executor });
+  race.install(world.repository);
+
+  const result = await world.service.runOnce();
+
+  assert.deepEqual(race.reportErrors, []);
+  assert.equal(result.status, "requires_action");
+  const attempts = await world.repository.listAttempts(ORGANIZATION_ID, world.order.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, attempts[0].id);
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].status, "requires_action");
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].outcome, "requires_action");
+  assert.equal(reports[0].failure_stage, "unknown_post_submit");
+  assert.equal(world.verificationCalls.length, 0);
+});
+
+test("heartbeat gate failure after an executor exception writes no terminal report", async () => {
+  const world = makeCloudWorld({ executor: {
+    async run({ progress }) {
+      await assert.rejects(progress({ phase: "provider_submitted" }));
+      throw new Error("executor failure after heartbeat failure");
+    }
+  } });
+  world.repository.heartbeatCloudAttempt = async () => {
+    throw Object.assign(new Error("heartbeat conflict"), { code: "MANUAL_EXECUTION_ATTEMPT_CONFLICT" });
+  };
+
+  await assert.rejects(world.service.runOnce(), { code: "CLOUD_EXECUTOR_LEASE_LOST" });
+
+  const attempts = await world.repository.listAttempts(ORGANIZATION_ID, world.order.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, attempts[0].id);
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].status, "running");
+  assert.equal(reports.length, 0);
+  assert.equal(world.verificationCalls.length, 0);
+});
+
+test("terminal heartbeat gate read failure loses the lease and writes no report", async () => {
+  const world = makeCloudWorld({ executor: { async run() { throw new Error("fake failure"); } } });
+  const getAttempt = world.repository.getAttempt.bind(world.repository);
+  const saveReport = world.repository.saveReport.bind(world.repository);
+  let getAttemptCalls = 0;
+  let saveReportCalls = 0;
+  world.repository.getAttempt = async (...args) => {
+    getAttemptCalls += 1;
+    if (getAttemptCalls === 1) {
+      throw Object.assign(new Error("attempt read unavailable"), { code: "ATTEMPT_READ_FAILED" });
+    }
+    return getAttempt(...args);
+  };
+  world.repository.saveReport = async (input) => {
+    saveReportCalls += 1;
+    return saveReport(input);
+  };
+
+  await assert.rejects(world.service.runOnce(), { code: "CLOUD_EXECUTOR_LEASE_LOST" });
+
+  const attempts = await world.repository.listAttempts(ORGANIZATION_ID, world.order.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, attempts[0].id);
+  assert.equal(saveReportCalls, 0);
+  assert.equal(attempts[0].status, "running");
+  assert.equal(reports.length, 0);
+});
+
+test("terminal heartbeat gate ownership mismatch loses the lease and writes no report", async () => {
+  const world = makeCloudWorld({ executor: { async run() { throw new Error("fake failure"); } } });
+  const getAttempt = world.repository.getAttempt.bind(world.repository);
+  const saveReport = world.repository.saveReport.bind(world.repository);
+  let getAttemptCalls = 0;
+  let saveReportCalls = 0;
+  world.repository.getAttempt = async (...args) => {
+    getAttemptCalls += 1;
+    const current = await getAttempt(...args);
+    if (getAttemptCalls === 1) return { ...current, executor_cloud_id: "different-cloud-executor" };
+    return current;
+  };
+  world.repository.saveReport = async (input) => {
+    saveReportCalls += 1;
+    return saveReport(input);
+  };
+
+  await assert.rejects(world.service.runOnce(), { code: "CLOUD_EXECUTOR_LEASE_LOST" });
+
+  const attempts = await world.repository.listAttempts(ORGANIZATION_ID, world.order.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, attempts[0].id);
+  assert.equal(saveReportCalls, 0);
+  assert.equal(attempts[0].status, "running");
+  assert.equal(reports.length, 0);
+});
+
 test("fake execution heartbeats the single leased attempt before reporting", async () => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
@@ -321,6 +477,57 @@ test("fake execution heartbeats the single leased attempt before reporting", asy
   const saved = await world.repository.getAttempt(ORGANIZATION_ID, result.attempt.id);
   assert.ok(saved.row_version >= 4);
   assert.equal(saved.status, "succeeded");
+});
+
+test("candidate upload completion survives a heartbeat before the terminal report", async () => {
+  const world = makeCloudWorld();
+  const reportErrors = [];
+  const markCandidateUploaded = world.repository.markCandidateUploaded.bind(world.repository);
+  const saveReport = world.repository.saveReport.bind(world.repository);
+  world.repository.markCandidateUploaded = async (input) => {
+    const uploaded = await markCandidateUploaded(input);
+    const current = await world.repository.getAttempt(ORGANIZATION_ID, uploaded.candidate.execution_attempt_id);
+    await world.repository.heartbeatCloudAttempt({
+      receiptKey: `race-heartbeat-${current.id}-${current.row_version}`,
+      fingerprint: `race-heartbeat-${current.id}-${current.row_version}`,
+      attemptId: current.id,
+      organizationId: ORGANIZATION_ID,
+      executorCloudId: CLOUD_EXECUTOR_ID,
+      expectedRevision: current.row_version,
+      now: "2026-08-12T00:00:01.000Z",
+      leaseExpiresAt: "2026-08-12T00:00:31.000Z",
+      progressPhase: "upload_completed",
+      audit: null
+    });
+    return uploaded;
+  };
+  world.repository.saveReport = async (input) => {
+    try {
+      return await saveReport(input);
+    } catch (error) {
+      reportErrors.push(error?.code);
+      throw error;
+    }
+  };
+
+  const result = await world.service.runOnce();
+
+  assert.deepEqual(reportErrors, []);
+  assert.equal(result.status, "succeeded");
+  const attempts = await world.repository.listAttempts(ORGANIZATION_ID, world.order.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, result.attempt.id);
+  const candidates = await world.repository.listCandidates(ORGANIZATION_ID, result.attempt.id);
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].status, "succeeded");
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].outcome, "completed");
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].execution_attempt_id, attempts[0].id);
+  assert.equal(candidates[0].status, "pending_verification");
+  const terminalTransitions = (await world.repository.listStatusTransitions(ORGANIZATION_ID))
+    .filter((value) => value.attempt_id === attempts[0].id && value.to_status === "succeeded");
+  assert.equal(terminalTransitions.length, 1);
+  assert.equal(world.verificationCalls.filter((value) => value.productionOrderId).length, 1);
 });
 
 test("concurrent worker polls have one in-flight claim", async () => {
