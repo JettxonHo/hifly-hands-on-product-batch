@@ -134,6 +134,9 @@
   必须选择并验证期望档位；控件缺失、映射不支持或选中态不可验证时 fail closed。
 - 该仓库改动没有部署，没有启动 Worker，也没有点击飞影付费生成；因此不是真实 Provider 出片验收。
   呈现大小不自动证明外观保真，瓶盖、包装、标签或商品形态仍必须在 Works 检查中单独验收。
+- PostgreSQL 16 回归已覆盖实物尺寸默认未知、对象往返和显式清空：未知或清空使用 SQL `NULL`，不写入
+  JSONB `null`。CI 的 PostgreSQL job 严格串行执行 Identity、ProjectContent v2 与 VideoPlanning v2 集成测试；
+  VideoPlanning 测试先应用其真实依赖的 Asset migrations，避免缺表被环境 skip 掩盖。
 - 真实管理员会话验证：登录后根路径进入 Projects；显式 `/index.html` 保留 legacy 与“进入项目”入口。
   Projects、Project、Copy、Avatar、Plan、Production、Works、Assets、Members 九页均在
   `1440x900 / 768x900 / 390x844` 下无页面级横向溢出，一级导航稳定为“项目 / 作品库 / 素材中心 / 成员管理”。

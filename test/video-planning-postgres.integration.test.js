@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 
+import { runAssetMigrations } from "../src/assets/postgres.js";
 import { runAvatarSelectionMigrations } from "../src/avatar-selection/postgres.js";
 import { runCopyGenerationMigrations } from "../src/copy-generation/postgres.js";
 import { runCopyQualityMigrations } from "../src/copy-quality/postgres.js";
@@ -21,7 +22,7 @@ test("clean PostgreSQL video planning migration preserves versions and serialize
   const adminPool = createIdentityPool({ connectionString }); await adminPool.query(`CREATE SCHEMA "${schema}"`);
   const pool = createIdentityPool({ connectionString: isolatedUrl(connectionString, schema) });
   t.after(async () => { await pool.end(); await adminPool.query(`DROP SCHEMA "${schema}" CASCADE`); await adminPool.end(); });
-  await runIdentityMigrations(pool); await runProjectContentMigrations(pool); await runCopyGenerationMigrations(pool);
+  await runIdentityMigrations(pool); await runAssetMigrations(pool); await runProjectContentMigrations(pool); await runCopyGenerationMigrations(pool);
   await runCopyQualityMigrations(pool); await runCopyReviewMigrations(pool); await runAvatarSelectionMigrations(pool);
   await runVideoPlanningMigrations(pool);
   assert.equal((await pool.query("SELECT max(version)::integer version FROM video_planning_schema_migrations")).rows[0].version, 2);

@@ -84,7 +84,7 @@
 - Implementation: added nullable JSONB `physical_dimensions` migration v2, object-shape constraint, frozen/superseded immutability guard, and repository insert/update persistence.
 - Updated integration coverage checks migration version 2, JSONB round-trip, omitted-field preservation, and direct frozen-row immutability.
 - Command: `node --test test/project-content-service.test.js test/project-content-api.test.js test/project-content-postgres.integration.test.js`
-- Result: **GREEN** for 19 runnable tests / 0 fail; PostgreSQL integration was skipped because `PROJECT_CONTENT_TEST_DATABASE_URL` is unset.
+- Initial result: **GREEN** for 19 runnable tests / 0 fail; the PostgreSQL integration was skipped because `PROJECT_CONTENT_TEST_DATABASE_URL` was unset. The fixed-head PostgreSQL evidence and subsequent correction are recorded in RED/GREEN 14 below; this initial skip was not database proof.
 
 ### RED 7 — Product UI public browser seam
 
@@ -170,6 +170,16 @@
 - GREEN: immediately before `clickModalGenerate`, the adapter selects the exact localized native option and verifies the provider's `actived` state. Unsupported code, missing control, or unverifiable selected state fails closed. Retry/reopen repeats the selection proof before any paid click.
 - No live Provider request or paid generation was used for this test.
 
+### RED/GREEN 14 — PostgreSQL nullable JSONB and CI evidence gate
+
+- Public seam: ProductContent and VideoPlanning repository integrations against a temporary local PostgreSQL 16 container.
+- RED A: `PROJECT_CONTENT_TEST_DATABASE_URL=... node --test test/project-content-postgres.integration.test.js` failed on the first default product with PostgreSQL `23514`, constraint `project_content_physical_dimensions_object_check`. The repository bound `JSON.stringify(null)` as JSONB `null` instead of SQL `NULL`.
+- GREEN A: nullable dimensions now bind SQL `NULL`; the integration explicitly proves default unknown is SQL `NULL`, an object round-trips through JSONB, explicit clear returns to SQL `NULL`, and the object can be restored before Ready.
+- RED B: `IDENTITY_TEST_DATABASE_URL=... node --test test/video-planning-postgres.integration.test.js` failed with PostgreSQL `42P01 relation "asset_versions" does not exist` because its real AvatarSelection dependency ran without Asset migrations.
+- GREEN B: the VideoPlanning integration applies Asset migrations before ProjectContent and downstream migrations.
+- CI gate: the PostgreSQL job now exports `PROJECT_CONTENT_TEST_DATABASE_URL` and strictly serializes Identity, ProjectContent v2, and VideoPlanning v2 integration commands. These tests can no longer remain skipped while the job reports green.
+- Local PostgreSQL 16 result: all three repository integrations passed sequentially, 3/3, followed by the existing identity browser smoke without changing production data or external systems.
+
 ## Read-only Hifly evidence gate
 
 - Existing sanitized capture evidence proved only the default request field `goods_size: 0`.
@@ -205,6 +215,7 @@
 
 ## Final local verification
 
+- Temporary PostgreSQL 16 RED evidence: ProjectContent failed with `23514`; VideoPlanning failed with `42P01`. After the minimal fixes, the exact Identity → ProjectContent v2 → VideoPlanning v2 sequence passed 3/3.
 - `node --test test/local-agent-cli.test.js`: 15/15 pass after updating the legacy package fixture to the known `smart_fit` default.
 - `IDENTITY_BROWSER_EXECUTABLE=... node --test test/manual-handoff-package-api.test.js test/manual-handoff-package-browser.test.js test/manual-handoff-package-real-chain.test.js test/vsa-a14-acceptance-browser.test.js`: 6/6 pass.
 - `IDENTITY_BROWSER_EXECUTABLE=... node --test test/project-content-browser.test.js test/video-planning-browser.test.js test/production-order-browser.test.js`: 3/3 pass with the responsive screenshots above.
@@ -214,7 +225,7 @@
 
 ## Remaining evidence gates
 
-- PostgreSQL integrations require the repository CI database environment; local runs without the relevant database URLs skip those existing environment-gated cases.
+- PostgreSQL integrations remain environment-gated in the default cross-platform suite, but the dedicated PostgreSQL CI job now supplies both database URLs and runs the Issue #193 ProjectContent and VideoPlanning integrations explicitly and serially.
 - A future deployment must apply both new migrations before App/Worker use.
 - Any paid Provider acceptance requires a separately controlled zero-attempt order and explicit execution authorization. Size selection must be observed before the paid action, and the resulting Work must still be reviewed for cap, package, label, and shape fidelity.
 - Work `8899a538-1ba7-47cd-870c-2a43cbb8ac39` remains `rework_required`; this implementation does not reinterpret or clear that production truth.
