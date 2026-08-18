@@ -91,6 +91,8 @@ GREEN 将所有终态门禁失败归一为 `CLOUD_EXECUTOR_LEASE_LOST`，并要�
 owned/running attempt；两条回归 2/2、Cloud Executor 23/23、相关组 45/45，真实 PostgreSQL 16 集成仍为 1/1。
 同一候选在最终检查时重新运行默认 `npm test`，得到 1057 total / 1043 pass / 14 既有环境门禁 skip / 0 fail；此前
 影刀临时文件竞态未在本次运行复现。该结果不改写上一次真实失败记录，也不替代 fixed-head CI。
+修复代码 head `0667e7f643c529e7ccdff978ffd3217e8fba9e83` 的 Actions run `32149178789` 三组均为
+SUCCESS：Ubuntu 40 秒、Windows 1 分 42 秒、identity-postgres 55 秒；后者继续实际执行本轮 PostgreSQL 回归。
 
 ## 文件边界
 
