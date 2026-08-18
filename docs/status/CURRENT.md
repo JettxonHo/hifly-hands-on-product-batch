@@ -2,10 +2,23 @@
 
 > 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@db36cc53` 已部署到内部验收环境，Issue #193 migration 与三页真实管理员只读验收通过，#190/#191 两个既有 P1 仍未修复。可信 TLS 与 #193 的受控 Provider 效果验收均未完成，因此不等同于公网生产就绪、真实新尺寸出片、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@db36cc53` 已部署到内部验收环境，Issue #193 migration 与三页真实管理员只读验收通过。Issue #190 的窄修复与本状态更新必须作为同一变更进入 `main` 后才计为仓库已修复，且仍未部署；#191 仍未修复。可信 TLS 与 #193 的受控 Provider 效果验收均未完成，因此不等同于公网生产就绪、真实新尺寸出片、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## Issue #190 商品图片候选类型收敛
+
+- Product/API gate 确认现有 `GET /api/assets` 已为每个 Asset 投影服务端 `kind`，Project 页面可直接使用
+  `product_image` 真值，不需要新增或修改 API、数据库、领域状态与权限合同。
+- Project 的“商品图片”候选只接纳 `kind=product_image`、Asset `active` 且 AssetVersion `available` 的版本。
+  `avatar_image` 与 `work_video` 不再展示或可选；历史/脏 revision 中残留的非商品图片版本 ID 不进入
+  可引用集合、不能满足 Ready blocker，也不会进入前端保存 payload。
+- 公开真实 Chrome 回归使用同一个 `/api/assets` fixture 同时提供三类 active+available 素材：修复前人物图片
+  实际进入候选（RED），修复后仅商品图片可见可选，并继续覆盖历史 revision 只读、dirty 保护、409 恢复、
+  素材失效刷新和 Ready 竞态提示。
+- 该结论只有在 accompanying implementation 与本状态更新合并进入 `main` 后才表示仓库修复；尚未部署或完成
+  内部验收环境复验。#191 Production 终态投影仍是下一项独立 P1，不在本切片范围内。
 
 ## UX V1 Slice A 仓库实现
 

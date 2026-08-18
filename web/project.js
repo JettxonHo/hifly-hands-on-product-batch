@@ -338,7 +338,7 @@
   async function loadAssets() {
     const box = document.querySelector("#assetOptions");
     const assets = (await request("/api/assets")).assets
-      .filter((asset) => asset.status === "active")
+      .filter((asset) => asset.kind === "product_image" && asset.status === "active")
       .flatMap((asset) => asset.versions.filter((version) => version.status === "available"));
     availableAssetVersionIds = new Set(assets.map((asset) => asset.id));
     box.replaceChildren();
