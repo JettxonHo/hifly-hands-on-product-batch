@@ -2,7 +2,7 @@
 
 > 状态：Accepted structure / Evidence continuously updated（台账结构已接受；证据随调研持续更新）
 > Owner：owner（JettxonHo）
-> 最后更新：2026-08-12
+> 最后更新：2026-08-19
 > 适用范围：记录飞影 Provider 各能力的当前实际确认状态，是 DSE 体系中的 Evidence 文档
 > 非目标：本文件不是营销功能列表；不自行改变产品决策（决策见 [DECISION_LOG.md](DECISION_LOG.md)）；不把「产品目标」误写为「已经实现」
 
@@ -67,21 +67,48 @@
 ### 1. video.product_holding（手里有货）
 
 - **产品目标**：是（D-018 正式路线第 0 项，保留当前能力）
-- **当前确认**：单条 Cloud Web → Mac Local Agent → Playwright → 飞影「手里有货」→ 下载 → 云端候选回传 → 核验 → Work 登记已真实验证
+- **当前确认**：Cloud Control Plane → Cloud Executor → Playwright → 飞影「手里有货」→ 下载 → A12 → Work →
+  鉴权字节下载的单条与严格串行内部链路已有真实证据；该证据不证明商品外观保真、自动批量或公网生产 SLA。
 - **API 文档状态**：当前未确认（未从 API V2 文档确认该能力）
-- **当前账号权限**：网页登录态（现有本地执行路径）
-- **真实调用状态**：2026-08-12 已生成飞影作品 `696679`，完成下载、上传与 Work 登记；官方 API 路径未验证且公开文档仍未确认该能力
-- **Adapter 状态**：Local Agent 的 Playwright 执行器已实现并完成单条真实验收
-- **SaaS 产品状态**：单条最小闭环已完成；小批量、人物策略与场景参数仍未完成
+- **当前账号权限**：网页登录态（当前生产验证路径为 Cloud Executor；Local Agent 仅保留 legacy fallback）
+- **真实调用状态**：2026-08-19 一条新工单以唯一 attempt 完成原生 `small` 选档、视频下载、A12、Work 与
+  鉴权字节校验；尺寸和技术链路 PASS，但商品瓶盖几何发生失真，外观保真 FAIL，Work=`rework_required`，
+  无交付、重试或第二工单。官方 API 路径仍未确认。
+- **Adapter 状态**：Cloud Executor 的 Playwright 执行器已实现并完成受控真实验收；商品外观保真门禁未实现
+- **SaaS 产品状态**：纯云端单条与三条人工严格串行内部试运行已有证据；视频前外观候选门禁、自动检查与人工候选批准未完成
 - **已确认输入**：商品图（product image）、数字人/人物图（avatar/person image）
 - **未确认输入**：独立背景（independent background）、scene、voice、pose、framing
 - **异步任务与状态**：现有执行经 batch/task 状态机与证据跟踪
-- **授权要求**：沿用现有本地执行约束；敏感资产要求见 D-011
-- **消耗或积分影响**：真实生成可能消耗飞影积分；未经 owner 授权不得真实执行
-- **当前证据来源**：仓库 `README.md`、`AGENTS.md`、`docs/status/CURRENT.md`、`docs/SOP.md`、`test/` 确定性测试
-- **未解决问题**：背景与场景来源见 Q-017；capability 封装、VideoPlan 参数映射、组合范围待 HIFLY-001
-- **最后验证日期**：2026-08-12（作品 `696679`；详细证据见 `docs/status/CURRENT.md`）
-- **边界声明**：不得把单条成功扩张为小批量稳定性、公开 API 支持、独立背景/姿势控制或正式生产 SLA 已完成。
+- **授权要求**：沿用现有真实执行与积分门禁；敏感资产要求见 D-011
+- **消耗或积分影响**：手持商品候选生成与后续视频生成均可能收费；真实 capability probe、候选生成或视频验收
+  必须在当次取得明确单条授权。视频前门禁失败只能阻止后续提交，不能证明候选阶段零积分。
+- **当前证据来源**：仓库 `README.md`、`AGENTS.md`、`docs/status/CURRENT.md`、`docs/SOP.md`、`test/` 与
+  `docs/status/sessions/2026-08-19-issue-193-native-small-provider-revalidation.md`
+- **未解决问题**：背景与场景来源见 Q-017；视频前候选获取、外观保真与安全恢复见 D-035 / Issue #208
+- **最后验证日期**：2026-08-19（真实 `small` 工单：技术与尺寸 PASS，外观保真 FAIL）
+- **边界声明**：不得把技术成功扩张为内容批准、小批量自动稳定性、公开 API 支持、独立背景/姿势控制或正式生产 SLA 已完成。
+
+### 1.1 video.product_holding.appearance_candidate（视频前手持商品候选）
+
+- **产品目标**：是（D-035 的 Fidelity-0 Provider capability gate；当前未实现）
+- **API 文档状态**：当前公开 API V2 未确认「手里有货」候选获取接口
+- **当前页面 Evidence**：Playwright 已证明付费弹窗生成后、点击“确认”和外层视频提交前存在候选观察窗口；当前
+  `createHandsOnImage()` 会随后立即确认，没有持久化业务候选或人工暂停点
+- **当前 HTTP Evidence**：既有脱敏抓包证明手持图生成响应提供 `gen_id`，后续视频提交使用该引用
+- **当前未证明**：候选 bytes、稳定 URL/授权下载接口、媒体类型与 checksum、`gen_id` 生命周期、跨会话复用、
+  候选与精确生成请求的对应关系、Provider 外观保真评分、生成后安全暂停/恢复，以及候选生成的独立计费口径
+- **精确源图缺口**：ProductRevision 可引用多个 `asset_version_ids`，当前执行编译路径会选择首个商品图片引用；
+  尚无显式冻结的 `source_asset_version_id`，也没有证明其 bytes/checksum 就是实际上传给 Provider 并用于比较的源图
+- **真实效果 Evidence**：2026-08-19 的真实复验中，原生 `small` 和技术闭环通过，但候选/成片把平滑斜切蓝盖
+  持续改成宝石形；最终 Work=`rework_required`。这证明尺寸档位不提供商品身份一致性保证
+- **Adapter 状态**：未实现候选持久化、自动检查、人工批准或安全恢复；不得用 DOM 图片存在、截图、提示词或
+  `gen_id` 存在代替这些能力
+- **SaaS 产品状态**：Provider/Product/API `DESIGN_BLOCKER`
+- **下一步门禁**：先完成 Fidelity-0，证明候选 bytes/reference、生命周期、安全暂停/恢复、精确源图上传对应关系和
+  计费边界；证据成立前不得实现推测性的 Candidate/Check/Decision、API、数据库、UI 或执行器流程
+- **积分边界**：任何真实 capability probe 或候选生成都必须在当次取得明确单条积分授权并首失败即停；即使门禁
+  阻止后续视频提交，候选生成本身仍可能已经收费
+- **最后验证日期**：2026-08-19（页面/HTTP 仓库证据与一次真实外观失败；未执行新的 Provider 探测）
 
 ### 2. avatar.public.list（公共数字人列表）
 
@@ -301,9 +328,9 @@
 
 ---
 
-## 本轮证据边界声明
+## 2026-08-19 D-035 文档更新边界
 
-本 PR 没有：
+Issue #208 / 对应文档 PR 只把已有仓库证据和已完成的 2026-08-19 单条复验事实纳入台账。本次文档更新本身没有：
 
 - 登录飞影；
 - 使用 Token；
@@ -312,6 +339,7 @@
 - 创建数字人；
 - 创建视频；
 - 执行 MULTI-002；
-- 生成新的真实运行证据。
+- 生成新的真实运行证据或验证候选 Provider seam。
 
-本轮只完成文档确认与 fake-only adapter/API 实现，不得编造账号权限、run、task ID、积分或真实成功记录。后续任何状态升级（第 2 层及以上）必须伴随真实调研记录与 owner 授权。
+本节不撤销前文已经引用的历史真实证据，但不得据此编造候选 bytes、URL、生命周期、评分、暂停/恢复、独立计费口径
+或外观保真成功。后续任何 capability 状态升级或真实探测必须有当次 Owner 授权和可审阅的运行记录。
