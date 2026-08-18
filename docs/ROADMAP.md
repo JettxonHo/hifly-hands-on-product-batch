@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-18
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；`main@80bdfd45` 已部署到内部验收环境，运营工作台 V2、Issue #193 migration/只读 UI 以及 Issues #190/#191 统一部署后的真实管理员只读验收均通过。Issue #193 的首条受控 Provider `small` 档验收已执行但总体失败；#200/#201 已完成仓库修复，#202 只有随对应代码与记录合并进入 `main` 后才计为仓库修复完成。部署、真实 Provider 复验与可信 TLS 仍待后续独立门禁
+> 最后更新：2026-08-19
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验已完成唯一 attempt、A12、Work 和鉴权字节下载，商品呈现大小 PASS；但蓝色斜切瓶盖被生成成宝石形，外观保真 FAIL，Work 已登记返工且没有交付或重试。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -23,6 +23,9 @@
 - `main@80bdfd45` 已部署到同一内部验收环境；#190 确认 Project 只列出服务端 active+available 的 5 个
   `product_image`，#191 确认 Worker offline、`current_order=null` 时 persisted succeeded 工单仍显示 exact Work
   “作品待检查”与唯一作品库动作。部署和只读验收没有启动 Worker、访问 Hifly、写生产业务对象或消耗积分。
+- `main@8787b60c` 已部署到同一内部验收环境；#200 付费前完整六档唯一选中真值、#201 terminal heartbeat drain 与
+  #202 failed 工单持久终态均进入运行时。一条获授权的新 `small` 工单完成唯一 attempt、A12 passed、Work available
+  和鉴权真实字节下载；尺寸选档通过，但包装瓶盖几何失真，Work 为 `rework_required`，没有交付或第二工单。
 
 ## 2. 当前升级顺序
 
@@ -37,8 +40,8 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
     → V2 独立设计合同（#174，已完成）
     → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180/#181 已完成）→ Assets（#182/#183 已完成）→ V2-E 回补审计（#184/#185 已完成）→ V2-E1（#186/#187 已完成）→ V2-E2（#188/#189 已完成并部署）
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
-P1 Product  #193 实物尺寸 + 飞影原生呈现大小（仓库实现、内部部署与只读验收已完成；首条受控 Provider 效果验收失败）
-P1 Runtime  #200 Provider 选档真值（仓库修复已完成）→ #201 heartbeat/report 竞态（仓库修复已完成）→ #202 failed 工单首屏终态（随对应代码与记录合并后计为仓库完成）
+P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
+P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -46,17 +49,16 @@ Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EX
 
 ## 3. 下一阶段
 
-`main@80bdfd45` 已部署到内部验收环境。#190 的真实管理员只读复验确认 Project 商品图片候选只包含服务端
+`main@8787b60c` 已部署到内部验收环境。#190 的真实管理员只读复验确认 Project 商品图片候选只包含服务端
 `kind=product_image`、Asset `active`、AssetVersion `available` 的交集；5 个商品图片可见，无 `work_video`/mp4，
 且没有保存 revision。#191 的复验确认 persisted succeeded 工单在 Worker offline、`current_order=null` 时仍显示
 exact Work 的“作品待检查”和唯一作品库动作，创建工单保持 disabled；没有点击 Works、下载、保存、创建或其他写操作。
 这只证明两个 P1 已统一部署且内部只读验收通过。可信 CA 证书仍缺正式域名、DNS、签发和部署实证，当前 HTTP `/healthz` 也尚未跳转 HTTPS；
 必须按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 完成严格 CA 与 HTTP→HTTPS 验收后，才能评估公网发布。
-随后执行的一条获授权真实 `small` 档验收并未通过：Provider 弹窗在付费动作后仍视觉高亮“智能适配”，候选视频虽已上传，
-但唯一 attempt/report 最终失败，A12 与 Work 均未形成；成片尺寸也未小于 baseline。系统已恢复 disabled/fail-closed。
-严格串行现已推进到 #202 acceptance gate；在三项分别完成实现、Review、合并和统一部署复验前，
-不执行新的真实生成。#200 的仓库修复要求完整六档集合、图片框与文字选中态一致、且连续两次只有期望档位被选中；
-它不等于已部署或已通过真实 Provider 付费复验。
+#200/#201/#202 合并部署后执行的一条获授权新 `small` 工单，已在付费前证明完整六档的图片框与文字标记一致、连续两次
+唯一选中“小”，并以唯一 attempt 完成 candidate、terminal report、A12 passed、Work available 与鉴权真实字节下载。
+技术链路和商品呈现大小验收为 PASS；但成片全程把原图的斜切蓝盖生成为蓝色钻石/宝石形，外观保真与整体内容验收为
+FAIL。Work 已登记 `rework_required`，没有交付、自动重试、重新领取或第二工单；系统已恢复 disabled/fail-closed。
 
 P0.4 的三条结果证明人工控制下的严格串行路径可重复完成，但不构成自动队列批量运行、更大规模、长时间稳定性、并行能力或公网生产 SLA 的证据。
 
@@ -95,12 +97,10 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 与 
 每个已批准的实施分片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一分片合并后才开始下一分片，且不自动部署。
 
 Issue #193 将商品实物事实与画面呈现档位分开：ProductRevision 记录可选的高/宽/深、容量和重量，
-VideoPlan 只使用飞影原生六档（智能适配/超大/大/中/小/超小）。静态资源只读证据曾支持映射与 DOM 选中态；
-真实 `small` 档付费验收现已证明 `img alt + parent actived` 可能是假阳性。#200 的仓库修复以完整六档、双选中标记与唯一
-期望选项重新建立付费前 Provider DOM 真值，无法验证时 fail closed；部署与真实 Provider 复验仍待后续。本次成片的尺寸
-验收 FAIL、外观保真 PARTIAL/FAIL；候选上传后报告失败已由 #201 的 memory 与 PostgreSQL 隔离 RED 确认为
-`MANUAL_EXECUTION_ATTEMPT_CONFLICT` 竞态，并以不放宽乐观锁、覆盖正常返回与异常收口的统一终态时序完成仓库修复；
-#202 只有随对应 failed 工单首屏代码与记录合并后才计为仓库完成。#190/#191 的统一部署只读复验仍成立，但不覆盖这些新缺陷。
+VideoPlan 只使用飞影原生六档（智能适配/超大/大/中/小/超小）。#200 以完整六档、图片框与文字双标记及连续唯一选中
+建立付费前 Provider DOM 真值；#201 以不放宽乐观锁的 terminal heartbeat drain 关闭 report 竞态；#202 恢复 failed 工单
+持久终态。三项已合并部署。新单条真实复验证明选档与技术闭环通过，但也证明尺寸档位不等于包装保真：蓝色斜切瓶盖
+被持续生成成宝石形。当前 Work 为 `rework_required`；再次生成须先有新的外观约束方案、独立批准和单条积分授权。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
@@ -116,7 +116,7 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 ## 4. 保留但不抢跑的工作
 
 - #190/#191 已完成代码、独立 Review、统一部署与真实管理员只读复验；后续不得为重复确认这两项而启动 Worker 或生成视频。
-- #200/#201/#202 必须严格串行完成；不得把本次失败工单、已上传 forensic candidate 或三个缺陷 Issue 解释为重试授权。
+- #200/#201/#202 已严格串行完成并部署；不得把本次技术成功、返工 Work 或已下载候选解释为再次生成授权。
 - 文案增强、人物推荐、背景/场景/姿势、动效精修、Capture HTTP、Local Agent 新功能、并行生产、复杂对象存储和高可用全部暂停。
 - Local Agent 保留已验证代码但默认关闭，并从生产主路径/操作说明中退出；纯云端稳定至少 10 条或 1～2 周后再决定是否删除。
 - 当前 2C4G/2C4G 级试运行服务器只证明内部功能闭环，不承诺正式生产 SLA。
