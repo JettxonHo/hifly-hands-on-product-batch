@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issues #190/#191 的统一部署只读验收通过。Issue #193 随后完成一条获授权的真实 Provider `small` 档验收，但结果为失败：页面选中态校验出现假阳性，候选视频上传后 attempt/report 仍失败，A12 与 Work 均未形成。Issue #200 已完成仓库修复；Issue #201 已用 memory 与 PostgreSQL 隔离 TDD 确认 heartbeat/report 版本竞态并形成最小修复候选，只有随对应 PR 合并进入 `main` 后才计为仓库修复完成。部署、真实 Provider 复验与 Issue #202 仍是后续独立门禁。系统保持 disabled/fail-closed。该结果不是成功出片合同，也不等同于公网生产就绪、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@80bdfd4500c66cd564daeb7a3badcfd070478809` 已部署到内部验收环境。Issues #190/#191 的统一部署只读验收通过。Issue #193 随后完成一条获授权的真实 Provider `small` 档验收，但结果为失败：页面选中态校验出现假阳性，候选视频上传后 attempt/report 仍失败，A12 与 Work 均未形成。Issues #200/#201 已完成仓库修复；Issue #202 的代码与本记录只有随对应 PR 合并进入 `main` 后才计为仓库修复完成。部署、真实 Provider 复验与可信 TLS 仍是后续独立门禁。系统保持 disabled/fail-closed。该结果不是成功出片合同，也不等同于公网生产就绪、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -209,11 +209,10 @@
   `img alt + parent actived` 校验在真实页面可能是假阳性，Issue #200 跟踪选档真值与付费前 fail-closed 修复。
   成片仍为双手托持，商品尺寸未小于 baseline；金瓶和斜蓝盖保留、未变泵头，但瓶身比例与标签清晰度不完全保真。
   尺寸验收为 FAIL，外观保真为 PARTIAL/FAIL，总体为 FAIL。
-- 候选授权、heartbeat、上传与失败报告在约 104ms 内交错。源码确认 heartbeat 与报告写入都使用并递增
-  attempt `row_version`，现有时间序列强烈支持 completion 使用旧 revision 的竞态假设；但尚无隔离 TDD，不能把
-  `MANUAL_EXECUTION_ATTEMPT_CONFLICT` 写成已确认根因。Issue #201 负责复现、确认或推翻并修复。
+- 候选授权、heartbeat、上传与失败报告在约 104ms 内交错。Issue #201 后续已用 memory 与 PostgreSQL 隔离 TDD
+  确认 `MANUAL_EXECUTION_ATTEMPT_CONFLICT` 竞态，并以不放宽乐观锁的统一终态门禁完成仓库修复。
 - 订单已经明确 `failed`，但 Production 首屏仍显示激活前的“等待生产门禁核对 / 生产门禁未通过”。Issue #202
-  独立跟踪 failed 工单持久终态投影；不得把它与竞态或“重试当前失败工单”合并。
+  独立跟踪 failed 工单持久终态投影；本次修复只有进入 `main` 后才成立，不得把它与竞态或“重试当前失败工单”合并。
 - Provider 按钮显示 150 积分，且发生一次付费生成动作；点击前与外层提交后 header 都显示 `44007`，但最终余额
   没有刷新验证，因此不得声称精确扣分数。完整对象、时间序列、候选与安全收尾见
   `docs/status/sessions/2026-08-18-issue-193-native-small-provider-acceptance.md`。
@@ -248,7 +247,21 @@
   candidate 进入 `pending_verification`，没有 failed report、重复终态、自动重试或第二次领取。既有租约失效、身份隔离、
   report 幂等、candidate 绑定与 A12/Work 条件均保持。
 - CI 的 PostgreSQL job 增加 ManualExecution/Cloud Executor 集成测试，避免真实并发合同只在本地或 memory 测试中存在。
-  本分支只有随对应 PR 合并进入 `main` 后才计为 #201 仓库修复完成；部署、生产数据、真实 Worker、Provider 与积分均未触发。
+  Issue #201 / PR #205 已合并进入 `main`；部署、生产数据、真实 Worker、Provider 与积分均未触发。
+
+## Issue #202 failed 工单首屏终态
+
+- Product/API gate 确认现有 Production workspace、manual execution 与 Cloud Executor 状态投影已足够，不需要扩展
+  API、数据库、领域状态或权限合同。
+- 对所选持久化 `failed` 工单，即使 Worker offline、`current_order=null`，或 Cloud status 仍残留同一工单的
+  claimed/running/failed 与 pending execution 投影，首屏仍优先显示“生产失败，已停止”；只有 exact execution
+  workspace 中同一工单的 failed attempt 与 failed report 同时成立时才提供唯一“查看失败详情”动作，否则只允许
+  返回视频方案检查输入。
+- 失败摘要明确不会自动重试、重新领取或创建下一单。在线 current order 的失败/需处理语义、
+  `waiting_for_executor + ready package` 激活前 fail-closed、requires_action、取消与 succeeded+A12+Work 状态矩阵保持不变。
+- 公开真实 Chrome seam 在未修复基线得到“生产门禁未通过”（RED），最小修复后锁定失败终态、唯一安全动作、
+  创建入口禁用与 1440/768/390 无横向溢出（GREEN）。该代码与记录只有随对应 PR 合并进入 `main` 后才计为
+  仓库修复完成；尚未部署，也没有启动 Worker、访问 Hifly、修改生产数据、生成视频或消耗积分。
 
 ## P0.5 内部验收环境部署
 
@@ -406,9 +419,8 @@
 
 ## 下一步
 
-1. 严格串行顺序保持 #200 → #201 → #202；本快照随 #200 修复合并进入 `main` 后，下一项才是 #201：以 TDD
-   确认或推翻 heartbeat/report `row_version` 竞态，最后处理 #202 的 failed 工单首屏终态。三个 Issue 都不是
-   重试当前失败工单的授权。
+1. 严格串行顺序 #200 → #201 → #202 已推进到 #202 acceptance gate；#200/#201 已进入 `main`，#202 只有随
+   对应代码与本记录合并后才计为仓库完成。三个 Issue 都不是重试当前失败工单的授权。
 2. 在三个缺陷分别实现、独立 Review、合并和部署复验前，不执行新的真实 Provider 生成。未来再次验证须使用唯一新工单、
    零 attempt、单条积分授权，并分别验收尺寸档位与外观保真。
 3. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
