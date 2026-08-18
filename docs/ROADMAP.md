@@ -42,7 +42,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
-P1 Fidelity #208 DSE acceptance → Fidelity-0 Provider capability → Fidelity-A～E（当前只到 acceptance，后续均未授权）
+P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence（当前待独立 acceptance）→ 合并后仅进入 Fidelity-A 独立设计；Fidelity-A 实现及 Fidelity-B～E 均未授权
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
