@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-18
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；`main@db36cc53` 已部署到内部验收环境，运营工作台 V2 与 Issue #193 migration/只读 UI 验收通过。#190 的窄修复仅在 accompanying implementation 合并进入 `main` 后计为仓库完成，且仍待部署；#191 仍未修复。可信 TLS 与 #193 受控 Provider 效果验收仍是后续门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；`main@db36cc53` 已部署到内部验收环境，运营工作台 V2 与 Issue #193 migration/只读 UI 验收通过。#190 已合并但尚未部署；#191 的窄修复只有随 accompanying implementation 合并进入 `main` 后才计为仓库完成。两项合并后的统一部署/复验、可信 TLS 与 #193 受控 Provider 效果验收仍是后续门禁
 
 ## 1. 已完成基线
 
@@ -33,7 +33,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
     → 内部问题审计（已完成）→ 定向外部工作台研究（已完成）
     → V2 独立设计合同（#174，已完成）
     → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180/#181 已完成）→ Assets（#182/#183 已完成）→ V2-E 回补审计（#184/#185 已完成）→ V2-E1（#186/#187 已完成）→ V2-E2（#188/#189 已完成并部署）
-P1 UI  部署后条件通过收口：#190（本变更进入 main 后仓库完成、待部署）→ #191（未开始，严格串行）
+P1 UI  部署后条件通过收口：#190（已合并、待统一部署）→ #191（当前仓库修复；合并后再统一部署/复验）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（仓库实现、内部部署与只读验收已完成；受控 Provider 效果验收待执行）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
@@ -44,10 +44,12 @@ Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EX
 
 `main@db36cc53` 与运营工作台 V2、Issue #193 已部署到内部验收环境。V2 真实管理员只读验收覆盖九页、三视口、入口/导航、
 五阶段、QC/人工审核、preflight/人工批准、Works 终态动作、Assets 三类真值及 Tab 键盘合同；结论为带 #190/#191
-两个 P1 条件通过，不是无条件验收。#190 的仓库修复只接受服务端 `kind=product_image`、Asset `active`、
-AssetVersion `available` 的交集，并保持非商品图片与脏历史选择不能满足 Ready 或进入保存 payload；它仍需合并和
-后续部署复验。只有 #190 通过独立 Review 并合并后才开始 #191；#191 必须恢复 terminal Work 真值而不弱化
-fail-closed 门禁。可信 CA 证书仍缺正式域名、DNS、签发和部署实证，当前 HTTP `/healthz` 也尚未跳转 HTTPS；
+两个 P1 条件通过，不是无条件验收。#190 的仓库修复已合并，只接受服务端 `kind=product_image`、Asset `active`、
+AssetVersion `available` 的交集，并保持非商品图片与脏历史选择不能满足 Ready 或进入保存 payload。#191 当前严格
+串行恢复 terminal Work 真值且不弱化 fail-closed 门禁；成功工单终态不依赖 Worker claim 或交接包生命周期，精确
+A12/Work 读取失败或工单绑定不匹配须清空旧投影、可见且只允许 scoped refresh。只有 accompanying implementation
+合并后才计为仓库完成。
+两项合并后再统一部署和真实管理员复验。可信 CA 证书仍缺正式域名、DNS、签发和部署实证，当前 HTTP `/healthz` 也尚未跳转 HTTPS；
 必须按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 完成严格 CA 与 HTTP→HTTPS 验收后，才能评估公网发布。
 继续保持 Mac Local Agent 关闭、Cloud Executor 默认 disabled/fail-closed 与 concurrency=1；任何新增真实生成仍需新的授权和逐单门禁。
 
@@ -71,7 +73,8 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 与 
    完成 shared IA/content/control foundation，Issue #178 / PR #179 完成 Production，Issue #180 / PR #181
    完成 Works，Issue #182 / PR #183 完成 Assets，Issue #184 / PR #185 完成 V2-E 回补审计，Issue #186 / PR #187
    完成 V2-E1 Projects/Project/Copy 最小回补；Issue #188 / PR #189 已完成 V2-E2 Avatar/Plan 最小回补。
-   所有 V2 切片已随 `main@5c6384d` 部署，部署后两个 P1 由 #190/#191 独立跟踪。
+   所有 V2 切片已随 `main@5c6384d` 部署，部署后两个 P1 由 #190/#191 独立跟踪；#190 已合并，#191 当前修复，
+   两项完成后统一部署复验。
    Production 必须按时序保持激活前 Worker off、唯一当前 eligible、当前 order 零 attempt 与 active attempts=0；
    terminal 后立即关 Worker并保留 attempt；失败停批且无自动重试；成功经 A12、Work 和真实字节下载后才准备下一条。
    页面仅在当前商品零工单且上游 gate 允许时开放创建；claimed/running/failed/requires_action 及未完成真实字节验收的
@@ -90,7 +93,7 @@ Issue #193 将商品实物事实与画面呈现档位分开：ProductRevision �
 VideoPlan 只使用飞影原生六档（智能适配/超大/大/中/小/超小）。映射与选中态已由当前飞影静态资源只读核实；
 执行器必须在付费生成前验证选中档位，无法验证则 fail closed。该改动已完成内部部署、migration 与只读 UI/历史
 snapshot 验收，但尚未执行真实付费出片或新尺寸效果验证；呈现大小不代表外观保真，瓶盖、包装、标签和形态仍由
-Works 检查单独验收。#190/#191 继续按独立 P1 严格串行处理，不因本次部署而关闭。
+Works 检查单独验收。#190 已合并，#191 继续按独立 P1 严格串行处理；两项仓库修复不因既有部署证据而视为已部署。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
@@ -105,7 +108,7 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 
 ## 4. 保留但不抢跑的工作
 
-- #190 与 #191 必须严格串行处理；不得用文档结论代替代码 RED/GREEN、独立 Review 和修复后部署验收。
+- #190 已合并，#191 仍须完成代码 RED/GREEN 与独立 Review；两项随后统一进入部署和真实管理员复验。
 - 文案增强、人物推荐、背景/场景/姿势、动效精修、Capture HTTP、Local Agent 新功能、并行生产、复杂对象存储和高可用全部暂停。
 - Local Agent 保留已验证代码但默认关闭，并从生产主路径/操作说明中退出；纯云端稳定至少 10 条或 1～2 周后再决定是否删除。
 - 当前 2C4G/2C4G 级试运行服务器只证明内部功能闭环，不承诺正式生产 SLA。

@@ -1,6 +1,6 @@
 (async () => {
   const params = new URLSearchParams(location.search), projectId = params.get("project"), requestedProductId = params.get("product");
-  let project, product, runtime, workspace, cloudExecutor = null, cloudStatusRequest = null, execution = null, verification = null, packages = [], creating = false, packageBusy = false, packagePoll = null, verificationPoll = null, cloudStatusPoll = null, cloudStatusPollActive = false, cloudStatusPollInFlight = false, verificationReadError = "",
+  let project, product, runtime, workspace, cloudExecutor = null, cloudStatusRequest = null, execution = null, verification = null, packages = [], creating = false, packageBusy = false, packagePoll = null, verificationPoll = null, cloudStatusPoll = null, cloudStatusPollActive = false, cloudStatusPollInFlight = false, verificationReadError = "", workDeliveryReadError = "",
     manualBusy = false, manualUploadBusy = false, verificationBusy = false, manualCorrectionReportId = null, selectedOrderId = params.get("orderId") || null, pendingCreateKey = null, pendingPackageKey = null, pendingRetryKey = null, bootstrapFailed = false;
   const element = (selector) => document.querySelector(selector);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
@@ -130,6 +130,28 @@
       && (workspace?.orders || []).length === 0;
   }
 
+  function persistedTerminalProjection(selectedOrder) {
+    if (selectedOrder?.status !== "succeeded") return null;
+    const verificationOrderMismatch = Boolean(verification && verification.order?.id !== selectedOrder.id);
+    if (verificationReadError || verificationOrderMismatch) {
+      return { executionStatus: "succeeded", verificationReadError: true, verificationStatus: "not_started", deliveryStatus: "not_available", work: null };
+    }
+    const rawVerificationStatus = verification?.job?.verification_status;
+    const verificationStatus = ["queued", "running"].includes(rawVerificationStatus)
+      ? "pending"
+      : ["passed", "failed", "requires_action"].includes(rawVerificationStatus)
+        ? rawVerificationStatus
+        : "not_started";
+    const work = verification?.delivery_work || null;
+    return {
+      executionStatus: execution?.current_attempt?.status === "succeeded" || selectedOrder.status === "succeeded" ? "succeeded" : "pending",
+      verificationStatus,
+      deliveryStatus: work?.delivery_status || "not_available",
+      workReadError: Boolean(workDeliveryReadError && verification?.work?.id && !work),
+      work
+    };
+  }
+
   function renderGate() {
     const reasons = workspace?.gate?.reasons || [];
     const plan = workspace?.current_plan;
@@ -162,8 +184,10 @@
     const packageStatus = selectedOrder && runtime?.manualHandoffEnabled === true
       ? packages[0]?.status || (selectedOrder.status === "waiting_for_executor" ? "absent" : null)
       : null;
+    const cloudMatchesOrder = Boolean(selectedOrder && cloudExecutor?.current_order?.id === selectedOrder.id);
+    const persistedTerminal = persistedTerminalProjection(selectedOrder);
     const supportedPackageStates = new Set(["absent", "generating", "generation_failed", "expired", "superseded", "revoked", "ready"]);
-    summary.hidden = !readyToCreate && !supportedPackageStates.has(packageStatus);
+    summary.hidden = !readyToCreate && !persistedTerminal && !supportedPackageStates.has(packageStatus);
 
     const status = element("#productionTaskStatus"); status.textContent = "正在读取"; status.className = "state";
     const blocker = element("#productionTaskBlocker"); blocker.className = "task-summary-blocker"; blocker.textContent = ""; blocker.hidden = true;
@@ -180,40 +204,41 @@
       return;
     }
 
-    if (packageStatus === "absent") {
+    if (!persistedTerminal && packageStatus === "absent") {
       element("#productionTaskTitle").textContent = "准备生产交接资料";
       element("#productionTaskDescription").textContent = "当前工单正在等待生产交接资料。";
       status.textContent = "交接资料未就绪"; status.className = "state blocked";
       element("#productionTaskNextStep").textContent = "生成生产交接包";
       element("#generatePackageButton").setAttribute("data-recommended-action", "true");
-    } else if (packageStatus === "generating") {
+    } else if (!persistedTerminal && packageStatus === "generating") {
       element("#productionTaskTitle").textContent = "正在准备生产交接资料";
       element("#productionTaskDescription").textContent = "交接资料正在准备，当前无需重复操作。";
       status.textContent = "正在准备交接资料"; status.className = "state waiting_for_executor";
       element("#productionTaskNextStep").textContent = "等待";
-    } else if (packageStatus === "generation_failed") {
+    } else if (!persistedTerminal && packageStatus === "generation_failed") {
       element("#productionTaskTitle").textContent = "生产交接资料准备失败";
       element("#productionTaskDescription").textContent = "本次准备未完成，不会自动重试。";
       status.textContent = "交接资料准备失败"; status.className = "state failure";
       element("#productionTaskNextStep").textContent = "经人工确认重试";
       element("#retryPackageButton").setAttribute("data-recommended-action", "true");
-    } else if (packageStatus === "expired") {
+    } else if (!persistedTerminal && packageStatus === "expired") {
       element("#productionTaskTitle").textContent = "生产交接资料下载授权已过期";
       element("#productionTaskDescription").textContent = "交接资料仍保留，需要重新获取下载授权。";
       status.textContent = "下载授权已过期"; status.className = "state blocked";
       element("#productionTaskNextStep").textContent = "重新获取下载授权";
       element("#authorizePackageButton").setAttribute("data-recommended-action", "true");
-    } else if (["superseded", "revoked"].includes(packageStatus)) {
+    } else if (!persistedTerminal && ["superseded", "revoked"].includes(packageStatus)) {
       element("#productionTaskTitle").textContent = "当前生产交接包不可用";
       element("#productionTaskDescription").textContent = "该交接包不能继续用于当前生产。";
       status.textContent = "当前交接包不可用"; status.className = "state blocked";
       element("#productionTaskNextStep").textContent = "返回当前有效包或重新生成";
-    } else if (packageStatus === "ready") {
-      const cloudMatchesOrder = cloudExecutor?.current_order?.id === selectedOrder.id;
-      const executionStatus = cloudExecutor?.execution?.status || "pending";
-      const verificationStatus = cloudExecutor?.verification?.status || "not_started";
-      const deliveryStatus = cloudExecutor?.delivery?.status || "not_available";
-      const work = cloudExecutor?.work || null;
+    } else if (persistedTerminal || packageStatus === "ready") {
+      const restoredTerminal = cloudMatchesOrder ? null : persistedTerminal;
+      const executionStatus = restoredTerminal?.executionStatus || cloudExecutor?.execution?.status || "pending";
+      const verificationStatus = restoredTerminal?.verificationStatus || cloudExecutor?.verification?.status || "not_started";
+      const deliveryStatus = restoredTerminal?.deliveryStatus || cloudExecutor?.delivery?.status || "not_available";
+      const work = restoredTerminal?.work || cloudExecutor?.work || null;
+      const terminalMatchesOrder = cloudMatchesOrder || Boolean(persistedTerminal);
       const attemptRunning = cloudMatchesOrder && (cloudExecutor?.current_attempt?.status === "running" || cloudExecutor?.current_order?.status === "running" || cloudExecutor?.readiness?.status === "busy");
 
       if (selectedOrder.status === "cancel_requested") {
@@ -239,22 +264,38 @@
         element("#productionTaskDescription").textContent = "当前工单正在生成，状态会持续更新。";
         status.textContent = "正在生成"; status.className = "state waiting_for_executor";
         element("#productionTaskNextStep").textContent = "等待";
-      } else if (cloudMatchesOrder && executionStatus === "succeeded" && ["failed", "requires_action"].includes(verificationStatus)) {
+      } else if (terminalMatchesOrder && executionStatus === "succeeded" && ["failed", "requires_action"].includes(verificationStatus)) {
         element("#productionTaskTitle").textContent = "作品文件核验需要处理";
         element("#productionTaskDescription").textContent = "生成结果已保留，需先处理文件核验问题。";
         status.textContent = "文件核验需处理"; status.className = "state blocked";
         element("#productionTaskNextStep").textContent = "处理核验问题";
-      } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "pending") {
+      } else if (terminalMatchesOrder && executionStatus === "succeeded" && verificationStatus === "pending") {
         element("#productionTaskTitle").textContent = "正在核验作品文件";
         element("#productionTaskDescription").textContent = "正在确认作品文件是否可用于后续验收。";
         status.textContent = "正在核验作品文件"; status.className = "state waiting_for_executor";
         element("#productionTaskNextStep").textContent = "等待";
-      } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "passed" && !work) {
+      } else if (restoredTerminal?.verificationReadError) {
+        element("#productionTaskTitle").textContent = "核验状态读取失败";
+        element("#productionTaskDescription").textContent = "当前无法读取所选工单的最新文件核验状态。";
+        status.textContent = "核验状态读取失败"; status.className = "state failure";
+        element("#productionTaskNextStep").textContent = "刷新当前工单";
+        blocker.textContent = "请刷新当前工单；读取成功前不会使用旧作品状态或开放下一单。";
+        blocker.hidden = false;
+        element("#refreshProduction").setAttribute("data-recommended-action", "true");
+      } else if (restoredTerminal?.workReadError) {
+        element("#productionTaskTitle").textContent = "作品状态读取失败";
+        element("#productionTaskDescription").textContent = "作品已经登记，但当前无法读取最新检查与交付状态。";
+        status.textContent = "作品状态读取失败"; status.className = "state failure";
+        element("#productionTaskNextStep").textContent = "刷新当前工单";
+        blocker.textContent = "请刷新当前工单；在读取成功前不会开放下一单。";
+        blocker.hidden = false;
+        element("#refreshProduction").setAttribute("data-recommended-action", "true");
+      } else if (terminalMatchesOrder && executionStatus === "succeeded" && verificationStatus === "passed" && !work) {
         element("#productionTaskTitle").textContent = "正在登记作品";
         element("#productionTaskDescription").textContent = "文件核验已通过，正在形成可验收作品。";
         status.textContent = "正在登记作品"; status.className = "state waiting_for_executor";
         element("#productionTaskNextStep").textContent = "等待";
-      } else if (cloudMatchesOrder && verificationStatus === "passed" && work?.id && ["pending_review", "rework_required", "deliverable", "delivered"].includes(deliveryStatus)) {
+      } else if (terminalMatchesOrder && verificationStatus === "passed" && work?.id && ["pending_review", "rework_required", "deliverable", "delivered"].includes(deliveryStatus)) {
         const workStates = {
           pending_review: { title: "作品等待检查", description: "作品文件已登记，需先完成内容检查。", status: "作品待检查", tone: "blocked", next: "进入作品库检查", action: "进入作品库检查 →" },
           rework_required: { title: "作品需要返工", description: "检查已提出返工要求，当前工单不会自动重新生产。", status: "作品需要返工", tone: "blocked", next: "查看返工要求", action: "查看返工要求 →" },
@@ -270,7 +311,7 @@
         taskAction.textContent = workState.action;
         taskAction.hidden = false;
         taskAction.setAttribute("data-recommended-action", "true");
-      } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "not_started") {
+      } else if (terminalMatchesOrder && executionStatus === "succeeded" && verificationStatus === "not_started") {
         element("#productionTaskTitle").textContent = "生成完成，等待文件核验";
         element("#productionTaskDescription").textContent = "生成结束不等于本单完成，仍需核验作品文件。";
         status.textContent = "生成完成，待文件核验"; status.className = "state blocked";
@@ -493,6 +534,7 @@
     if (currentJob && ["failed", "requires_action"].includes(status)) rows.push(["处理提示", verificationFailureReason(job)]);
     if (!currentJob && ready) rows.push(["处理提示", "请使用最新的更正报告重新核验。"]);
     if (verificationReadError) rows.push(["读取提示", verificationReadError]);
+    if (workDeliveryReadError) rows.push(["作品状态", workDeliveryReadError]);
     if (job?.attempts != null) rows.push(["尝试次数", `${job.attempts}/${job.max_attempts}`]);
     if (order?.status === "succeeded" && status !== "passed") rows.push(["工单提醒", "执行完成不等于工单完成"]);
     summary.replaceChildren(...rows.map(([label, text]) => { const row = document.createElement("div"); row.className = "verification-check-row"; const title = document.createElement("strong"); title.textContent = label; const value = document.createElement("span"); value.textContent = text; row.append(title, value); return row; }));
@@ -505,7 +547,7 @@
       element("#workChecksum").textContent = "文件内容已核对";
     }
     let worksLink = element("#worksLibraryLink"), worksDisabled = element("#worksLibraryDisabled");
-    if (runtime?.worksEnabled && work) {
+    if (runtime?.worksEnabled && work && !workDeliveryReadError) {
       if (worksLink.tagName !== "A") {
         const anchor = document.createElement("a"); anchor.id = "worksLibraryLink"; anchor.className = "button-link"; anchor.textContent = "进入作品库检查与交付 →";
         worksLink.replaceWith(anchor); worksLink = anchor;
@@ -514,23 +556,41 @@
       worksLink.hidden = false; worksDisabled.hidden = true;
     } else {
       worksLink.hidden = true; worksDisabled.hidden = false;
-      worksDisabled.textContent = runtime?.worksEnabled ? "作品登记完成后，可从作品库进行检查与交付登记。" : "作品检查与交付功能暂未开放；当前仅可在本工单查看已登记作品。";
+      worksDisabled.textContent = verificationReadError
+        ? "核验状态读取失败，请刷新当前工单后再进入作品库。"
+        : workDeliveryReadError
+          ? "作品状态读取失败，请刷新当前工单后再进入作品库。"
+        : runtime?.worksEnabled ? "作品登记完成后，可从作品库进行检查与交付登记。" : "作品检查与交付功能暂未开放；当前仅可在本工单查看已登记作品。";
     }
-    scheduleVerificationPoll(verificationReadError ? 3000 : 2000, { force: Boolean(verificationReadError) });
+    if (!(order?.status === "succeeded" && verificationReadError)) {
+      scheduleVerificationPoll(verificationReadError ? 3000 : 2000, { force: Boolean(verificationReadError) });
+    }
   }
   async function loadVerification({ render = true } = {}) {
     if (verificationPoll) { clearTimeout(verificationPoll); verificationPoll = null; }
-    if (!runtime?.artifactVerificationEnabled || !selectedOrderId) { verification = null; verificationReadError = ""; if (render) renderVerification(); return; }
+    if (!runtime?.artifactVerificationEnabled || !selectedOrderId) { verification = null; verificationReadError = ""; workDeliveryReadError = ""; if (render) renderVerification(); return; }
     try {
-      verification = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/work-verification`);
+      const nextVerification = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/work-verification`);
+      if (nextVerification?.order?.id !== selectedOrderId) throw new Error("WORK_VERIFICATION_ORDER_MISMATCH");
+      verification = nextVerification;
+      workDeliveryReadError = "";
+      if (runtime?.worksEnabled && verification?.work?.id) {
+        try {
+          const deliveryWorkspace = await request(`/api/works/${encodeURIComponent(verification.work.id)}`);
+          verification.delivery_work = deliveryWorkspace.work;
+        } catch (_error) {
+          workDeliveryReadError = "作品状态暂时无法读取，请刷新当前工单。";
+        }
+      }
       verificationReadError = "";
       if (render) renderVerification();
       scheduleVerificationPoll();
       return verification;
     } catch (error) {
-      verificationReadError = "核验状态暂时无法读取，正在继续自动更新。";
+      verification = null;
+      workDeliveryReadError = "";
+      verificationReadError = "核验状态暂时无法读取，请刷新当前工单。";
       renderVerification();
-      scheduleVerificationPoll(3000, { force: true });
       throw error;
     }
   }

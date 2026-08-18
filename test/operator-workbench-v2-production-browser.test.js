@@ -193,6 +193,25 @@ test("approved Plan with no order exposes one business-first Production recommen
     delivery: { status: "not_available" },
     failure: null
   };
+  let persistedOrderStatus = null;
+  let persistedExecution = null;
+  let persistedVerification = null;
+  let persistedVerificationReadFailures = 0;
+  let persistedVerificationOrderOverride = null;
+  let persistedWork = null;
+  let persistedWorkReadFailures = 0;
+  let manualHandoffOverride = null;
+  await page.route("**/api/runtime", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    return route.fulfill({ response, json: {
+      ...body,
+      manualHandoffEnabled: manualHandoffOverride ?? body.manualHandoffEnabled,
+      manualExecutionEnabled: true,
+      artifactVerificationEnabled: true,
+      worksEnabled: true
+    } });
+  });
   await page.route("**/api/cloud-executor/status", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -201,11 +220,15 @@ test("approved Plan with no order exposes one business-first Production recommen
   await page.route(`**/api/products/${product.id}/production-workspace*`, async (route) => {
     const response = await route.fetch();
     const body = await response.json();
-    if (cloudState.current_order?.id) {
-      body.orders = body.orders.map((order) => order.id === cloudState.current_order.id
-        ? { ...order, status: cloudState.current_order.status }
+    const persistedOrderId = new URL(route.request().url()).searchParams.get("orderId") || body.selected_order?.id || body.orders.at(-1)?.id;
+    const projectedOrder = cloudState.current_order || (persistedOrderStatus && persistedOrderId
+      ? { id: persistedOrderId, status: persistedOrderStatus }
+      : null);
+    if (projectedOrder?.id) {
+      body.orders = body.orders.map((order) => order.id === projectedOrder.id
+        ? { ...order, status: projectedOrder.status }
         : order);
-      if (body.selected_order?.id === cloudState.current_order.id) body.selected_order = { ...body.selected_order, status: cloudState.current_order.status };
+      if (body.selected_order?.id === projectedOrder.id) body.selected_order = { ...body.selected_order, status: projectedOrder.status };
     }
     return route.fulfill({ response, json: body });
   });
@@ -232,6 +255,48 @@ test("approved Plan with no order exposes one business-first Production recommen
       contentType: "application/json",
       body: JSON.stringify({ packages: packageProjection ? [packageProjection] : [] })
     });
+  });
+  await page.route("**/api/production-orders/*/manual-execution", (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const orderId = new URL(route.request().url()).pathname.split("/").at(-2);
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(persistedExecution || {
+        order: { id: orderId, status: persistedOrderStatus || "waiting_for_executor" },
+        current_attempt: null,
+        candidates: [],
+        reports: []
+      })
+    });
+  });
+  await page.route("**/api/production-orders/*/work-verification", (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const orderId = new URL(route.request().url()).pathname.split("/").at(-2);
+    if (persistedVerificationReadFailures > 0) {
+      persistedVerificationReadFailures -= 1;
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "CONTROLLED_VERIFICATION_READ_FAILURE" }) });
+    }
+    const projectedVerification = structuredClone(persistedVerification || {
+      order: { id: orderId, status: persistedOrderStatus || "waiting_for_executor" },
+      job: null,
+      work: null,
+      works: []
+    });
+    if (persistedVerificationOrderOverride) projectedVerification.order.id = persistedVerificationOrderOverride;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(projectedVerification)
+    });
+  });
+  await page.route("**/api/works/*", (route) => {
+    if (route.request().method() !== "GET" || !persistedWork) return route.continue();
+    if (persistedWorkReadFailures > 0) {
+      persistedWorkReadFailures -= 1;
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "CONTROLLED_WORK_READ_FAILURE" }) });
+    }
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ work: persistedWork }) });
   });
 
   let initialProductionBootstrapFailed = false;
@@ -540,6 +605,175 @@ test("approved Plan with no order exposes one business-first Production recommen
     assert.notEqual(await page.locator("#createOrderButton").getAttribute("data-recommended-action"), "true");
     assert.notEqual(await page.locator("#createOrderEmpty").getAttribute("data-recommended-action"), "true");
   }
+
+  const persistedCandidate = {
+    id: "candidate-v2-production-persisted",
+    role: "primary_video",
+    status: "pending_verification",
+    checksum: "a".repeat(64)
+  };
+  const persistedReport = {
+    id: "report-v2-production-persisted",
+    report_version: 1,
+    outcome: "completed",
+    submitted_at: "2026-08-18T07:00:00.000Z",
+    primary_output: { upload_reference: persistedCandidate.id, checksum: persistedCandidate.checksum }
+  };
+  const persistedJob = {
+    id: "verification-v2-production-persisted",
+    report_id: persistedReport.id,
+    candidate_id: persistedCandidate.id,
+    primary_output_checksum: persistedCandidate.checksum,
+    status: "succeeded",
+    verification_status: "passed"
+  };
+  persistedOrderStatus = "succeeded";
+  persistedExecution = {
+    order: { id: selectedOrderId, status: "succeeded" },
+    current_attempt: { id: "attempt-v2-production-persisted", status: "succeeded" },
+    candidates: [persistedCandidate],
+    reports: [persistedReport]
+  };
+  cloudState = {
+    worker: { connection: "offline", last_heartbeat_at: null },
+    readiness: { status: "disabled" },
+    worker_state: "disabled",
+    current_order: null,
+    current_attempt: null,
+    progress: null,
+    execution: { status: "pending" },
+    verification: { status: "not_started" },
+    work: null,
+    delivery: { status: "not_available" },
+    failure: null
+  };
+
+  async function reloadPersistedTerminal({ verificationStatus, deliveryStatus = null }) {
+    const includesWork = Boolean(deliveryStatus);
+    const pendingStatus = ["queued", "running"].includes(verificationStatus);
+    persistedVerification = {
+      order: { id: selectedOrderId, status: "succeeded" },
+      job: verificationStatus === "not_started" ? null : {
+        ...persistedJob,
+        status: pendingStatus ? verificationStatus : "succeeded",
+        verification_status: verificationStatus
+      },
+      work: includesWork ? { id: "work-v2-production-persisted", status: "available" } : null,
+      works: includesWork ? [{ id: "work-v2-production-persisted", status: "available" }] : []
+    };
+    persistedWork = includesWork ? {
+      id: "work-v2-production-persisted",
+      status: "available",
+      delivery_status: deliveryStatus,
+      current_inspection: {
+        id: "inspection-v2-production-persisted",
+        status: deliveryStatus === "rework_required" ? "rework_required" : deliveryStatus === "pending_review" ? "pending" : "passed",
+        revision: 1
+      },
+      deliveries: deliveryStatus === "delivered" ? [{ id: "delivery-v2-production-persisted" }] : []
+    } : null;
+    await page.reload();
+    await page.locator("#productionWorkspace:not([hidden])").waitFor();
+    await page.locator("#productionTaskSummary:not([hidden])").waitFor();
+  }
+
+  for (const projection of [
+    { verificationStatus: "not_started", status: "生成完成，待文件核验", next: "等待文件核验" },
+    { verificationStatus: "queued", status: "正在核验作品文件", next: "等待" },
+    { verificationStatus: "running", status: "正在核验作品文件", next: "等待" },
+    { verificationStatus: "requires_action", status: "文件核验需处理", next: "处理核验问题" },
+    { verificationStatus: "failed", status: "文件核验需处理", next: "处理核验问题" },
+    { verificationStatus: "passed", status: "正在登记作品", next: "等待" }
+  ]) {
+    await reloadPersistedTerminal(projection);
+    assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), projection.status);
+    assert.equal((await page.locator("#productionTaskNextStep").textContent()).trim(), projection.next);
+    assert.equal(await page.locator('[data-recommended-action="true"]').count(), 0);
+  }
+
+  for (const projection of [
+    { deliveryStatus: "pending_review", status: "作品待检查", next: "进入作品库检查" },
+    { deliveryStatus: "rework_required", status: "作品需要返工", next: "查看返工要求" },
+    { deliveryStatus: "deliverable", status: "作品可交付", next: "进入作品库登记交付" },
+    { deliveryStatus: "delivered", status: "作品已交付，待真实下载验收", next: "查看交付记录并完成真实下载验收" }
+  ]) {
+    await reloadPersistedTerminal({ verificationStatus: "passed", deliveryStatus: projection.deliveryStatus });
+    assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), projection.status);
+    assert.equal((await page.locator("#productionTaskNextStep").textContent()).trim(), projection.next);
+    assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
+    assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+    await assertCreateOrderBlocked();
+  }
+
+  await reloadPersistedTerminal({ verificationStatus: "passed", deliveryStatus: "pending_review" });
+  const refreshedWorkspace = page.waitForResponse((response) =>
+    response.request().method() === "GET" && new URL(response.url()).pathname === `/api/products/${product.id}/production-workspace`);
+  await page.locator("#refreshProduction").click();
+  await refreshedWorkspace;
+  await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "作品待检查");
+  assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), "作品待检查");
+  assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+
+  packageState = "expired";
+  await reloadPersistedTerminal({ verificationStatus: "passed", deliveryStatus: "pending_review" });
+  assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), "作品待检查");
+  assert.equal((await page.locator("#productionTaskNextStep").textContent()).trim(), "进入作品库检查");
+  assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
+  assert.notEqual(await page.locator("#authorizePackageButton").getAttribute("data-recommended-action"), "true");
+
+  manualHandoffOverride = false;
+  await reloadPersistedTerminal({ verificationStatus: "passed", deliveryStatus: "pending_review" });
+  assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), "作品待检查");
+  assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
+  manualHandoffOverride = null;
+
+  persistedWorkReadFailures = 1;
+  await reloadPersistedTerminal({ verificationStatus: "passed", deliveryStatus: "pending_review" });
+  assert.equal((await page.locator("#productionTaskStatus").textContent()).trim(), "作品状态读取失败");
+  assert.equal((await page.locator("#productionTaskNextStep").textContent()).trim(), "刷新当前工单");
+  assert.equal(await page.locator("#refreshProduction").getAttribute("data-recommended-action"), "true");
+  assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+  assert.doesNotMatch(await taskSummary.innerText(), /正在登记作品/);
+  assert.equal(await page.locator("#worksLibraryLink").isHidden(), true);
+  assert.match(await page.locator("#worksLibraryDisabled").textContent(), /刷新当前工单/);
+  const recoveredWork = page.waitForResponse((response) =>
+    response.request().method() === "GET" && new URL(response.url()).pathname === "/api/works/work-v2-production-persisted");
+  await page.locator("#refreshProduction").click();
+  await recoveredWork;
+  await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "作品待检查");
+  assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
+  assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+  assert.equal(await page.locator("#worksLibraryLink").isVisible(), true);
+
+  persistedVerificationReadFailures = 1;
+  const failedVerificationRead = page.waitForResponse((response) =>
+    response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/production-orders/${selectedOrderId}/work-verification`
+      && response.status() === 503);
+  await page.locator("#refreshProduction").click();
+  await failedVerificationRead;
+  await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "核验状态读取失败");
+  assert.equal((await page.locator("#productionTaskNextStep").textContent()).trim(), "刷新当前工单");
+  assert.equal(await page.locator("#refreshProduction").getAttribute("data-recommended-action"), "true");
+  assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
+  assert.doesNotMatch(await taskSummary.innerText(), /作品待检查|生成完成，待文件核验/);
+  assert.equal(await page.locator("#worksLibraryLink").isHidden(), true);
+
+  persistedVerificationOrderOverride = "order-from-another-selection";
+  await page.locator("#refreshProduction").click();
+  await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "核验状态读取失败");
+  assert.equal(await page.locator("#worksLibraryLink").isHidden(), true);
+  persistedVerificationOrderOverride = null;
+
+  const recoveredVerificationRead = page.waitForResponse((response) =>
+    response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/production-orders/${selectedOrderId}/work-verification`
+      && response.status() === 200);
+  await page.locator("#refreshProduction").click();
+  await recoveredVerificationRead;
+  await page.waitForFunction(() => document.querySelector("#productionTaskStatus")?.textContent.trim() === "作品待检查");
+  assert.equal(await page.locator("#productionTaskAction").getAttribute("data-recommended-action"), "true");
+  assert.equal(await page.locator("#worksLibraryLink").isVisible(), true);
 
   const screenshotRoot = path.join(os.tmpdir(), "hifly-v2-b-production-screenshots");
   await mkdir(screenshotRoot, { recursive: true });
