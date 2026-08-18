@@ -64,5 +64,6 @@
 
 - This is local repository and real-system-Chrome evidence with controlled application data. It is not deployment, production
   UI revalidation, Hifly/Provider evidence, a new video, or points evidence.
-- Issue #191 was not started. After #190 receives independent review and merges, deployment/revalidation remains a separate gate
-  before the strictly serial #191 task can begin.
+- Issue #191 was not started. After #190 receives independent review and merges, #191 may begin from the resulting `main`.
+  Deployment and internal revalidation remain a separate later gate after both repository fixes have merged; they are not a
+  prerequisite for starting #191.
