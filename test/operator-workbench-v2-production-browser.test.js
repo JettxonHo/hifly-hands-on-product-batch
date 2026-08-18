@@ -528,6 +528,71 @@ test("approved Plan with no order exposes one business-first Production recommen
     assert.notEqual(await page.locator(selector).getAttribute("data-recommended-action"), "true");
   }
 
+  persistedOrderStatus = "failed";
+  persistedExecution = {
+    order: { id: selectedOrderId, status: "failed" },
+    current_attempt: { id: "attempt-v2-production-persisted-failed", status: "failed" },
+    candidates: [],
+    reports: [{
+      id: "report-v2-production-persisted-failed",
+      report_version: 1,
+      outcome: "failed",
+      submitted_at: "2026-08-18T12:37:29.994Z",
+      error_category: "cloud_executor",
+      failure_stage: "playwright_execution",
+      retryability: "not_retryable"
+    }]
+  };
+  persistedVerification = {
+    order: { id: selectedOrderId, status: "failed" },
+    job: null,
+    work: null,
+    works: []
+  };
+  await reloadCloudState({
+    worker: { connection: "offline", last_heartbeat_at: null },
+    readiness: { status: "disabled" },
+    worker_state: "disabled",
+    current_order: null,
+    current_attempt: null,
+    progress: null,
+    execution: { status: "pending" },
+    verification: { status: "not_started" },
+    work: null,
+    delivery: { status: "not_available" },
+    failure: null
+  });
+  const persistedFailedSummary = await assertCloudTaskSummary({
+    status: "生产失败，已停止",
+    next: "查看失败详情",
+    recommended: "productionTaskAction"
+  });
+  assert.match(persistedFailedSummary, /不会自动重试/);
+  assert.doesNotMatch(persistedFailedSummary, /等待生产门禁核对|生产门禁未通过|等待获授权运维核对/);
+  assert.equal(await page.locator("#productionTaskAction").getAttribute("href"), "#manualHistorySection");
+  assert.equal(await page.locator("#manualHistorySection").isVisible(), true);
+  assert.equal(await page.locator("#reenterManualExecution").isHidden(), true);
+  await assertCreateOrderBlocked();
+
+  const failedScreenshotRoot = path.join(os.tmpdir(), "hifly-issue202-failed-order-screenshots");
+  await mkdir(failedScreenshotRoot, { recursive: true });
+  for (const viewport of [
+    { width: 1440, height: 1000, name: "failed-order-1440.png" },
+    { width: 768, height: 1024, name: "failed-order-768.png" },
+    { width: 390, height: 844, name: "failed-order-390.png" }
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false,
+      `${viewport.width}px failed-order summary must not overflow horizontally`);
+    assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1,
+      `${viewport.width}px failed-order summary must expose one safe recommendation`);
+    await page.screenshot({ path: path.join(failedScreenshotRoot, viewport.name) });
+  }
+
+  persistedOrderStatus = null;
+  persistedExecution = null;
+  persistedVerification = null;
+
   await reloadCloudState({
     ...cloudState,
     current_order: { id: selectedOrderId, status: "cancel_requested" },

@@ -152,6 +152,14 @@
     };
   }
 
+  function persistedFailedProjection(selectedOrder) {
+    if (selectedOrder?.status !== "failed") return null;
+    const executionMatchesOrder = execution?.order?.id === selectedOrder.id;
+    return {
+      report: executionMatchesOrder ? latestExecutionReport() : null
+    };
+  }
+
   function renderGate() {
     const reasons = workspace?.gate?.reasons || [];
     const plan = workspace?.current_plan;
@@ -185,9 +193,10 @@
       ? packages[0]?.status || (selectedOrder.status === "waiting_for_executor" ? "absent" : null)
       : null;
     const cloudMatchesOrder = Boolean(selectedOrder && cloudExecutor?.current_order?.id === selectedOrder.id);
+    const persistedFailure = cloudMatchesOrder ? null : persistedFailedProjection(selectedOrder);
     const persistedTerminal = persistedTerminalProjection(selectedOrder);
     const supportedPackageStates = new Set(["absent", "generating", "generation_failed", "expired", "superseded", "revoked", "ready"]);
-    summary.hidden = !readyToCreate && !persistedTerminal && !supportedPackageStates.has(packageStatus);
+    summary.hidden = !readyToCreate && !persistedFailure && !persistedTerminal && !supportedPackageStates.has(packageStatus);
 
     const status = element("#productionTaskStatus"); status.textContent = "正在读取"; status.className = "state";
     const blocker = element("#productionTaskBlocker"); blocker.className = "task-summary-blocker"; blocker.textContent = ""; blocker.hidden = true;
@@ -204,7 +213,19 @@
       return;
     }
 
-    if (!persistedTerminal && packageStatus === "absent") {
+    if (persistedFailure) {
+      element("#productionTaskTitle").textContent = "当前生产已失败";
+      element("#productionTaskDescription").textContent = "本次生产已停止，工单与执行记录仍会保留。";
+      status.textContent = "生产失败，已停止"; status.className = "state failure";
+      const hasFailureDetails = runtime?.manualExecutionEnabled === true && Boolean(persistedFailure.report);
+      element("#productionTaskNextStep").textContent = hasFailureDetails ? "查看失败详情" : "返回视频方案检查输入";
+      blocker.textContent = "当前工单不会自动重试、重新领取或创建下一单。";
+      blocker.hidden = false;
+      taskAction.href = hasFailureDetails ? "#manualHistorySection" : planHref();
+      taskAction.textContent = hasFailureDetails ? "查看失败详情 →" : "返回视频方案检查输入 →";
+      taskAction.hidden = false;
+      taskAction.setAttribute("data-recommended-action", "true");
+    } else if (!persistedTerminal && packageStatus === "absent") {
       element("#productionTaskTitle").textContent = "准备生产交接资料";
       element("#productionTaskDescription").textContent = "当前工单正在等待生产交接资料。";
       status.textContent = "交接资料未就绪"; status.className = "state blocked";
