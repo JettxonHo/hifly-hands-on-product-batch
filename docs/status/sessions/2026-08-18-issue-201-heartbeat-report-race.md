@@ -34,6 +34,11 @@ expected report errors = []
 并且未修复服务返回 `failed` 而不是 `succeeded`。因此 Issue #201 的 heartbeat/report revision 竞态已确认，
 不再只是从生产事件时间线推断。
 
+第一版候选只在执行器正常返回的 completed、failed、requires_action 分支调用 heartbeat 收束器；执行器抛异常、
+candidate 保存异常或 post-submit unknown 抛异常仍由外层 catch 直接读取 attempt 并写报告。独立审阅后新增的 memory 与
+PostgreSQL RED 均在排队 heartbeat 后让执行器抛异常，并再次确定性捕获 `MANUAL_EXECUTION_ATTEMPT_CONFLICT`；这证明
+异常出口也必须进入同一终态门禁，而不是把既有绿色外推到未覆盖路径。
+
 ## 最小修复
 
 - 执行期 heartbeat 通过单一队列串行，避免定时 heartbeat 与 progress heartbeat 自身重叠；
@@ -41,7 +46,8 @@ expected report errors = []
 - heartbeat 或 progress heartbeat 失败仍转换为 `CLOUD_EXECUTOR_LEASE_LOST`，保持 fail closed；
 - candidate 上传完成后重新读取同一组织、同一 Cloud Executor 所属且仍为 `running` 的 exact attempt；
 - 使用该最新 `row_version` 一次写入 terminal report 与 candidate 状态；repository 的 `expectedRevision` 校验完全保留；
-- failed、requires_action 与 completed 三类 terminal report 共用相同的 heartbeat 收束与最新 attempt 门禁。
+- 正常返回和抛异常形成的 failed、requires_action 与 completed terminal report 全部共用同一个幂等 heartbeat 收束器
+  与最新 attempt 门禁；heartbeat gate 自身失败时转为 `CLOUD_EXECUTOR_LEASE_LOST`，不继续写 terminal report。
 
 该修复不自动重试 Provider、不复用失败生产单、不创建第二个 attempt，也不改变 A12/Work 触发条件。
 
@@ -60,15 +66,21 @@ GREEN：
 
 - memory 竞态 seam：1/1；
 - PostgreSQL 16 集成：1/1；
-- Cloud Executor + ManualExecution service + control plane + Playwright adapter 相关组：40/40；
+- 正常 candidate 上传竞态以及异常 failed/requires_action 竞态均有 memory RED；异常 failed 分支另有 PostgreSQL RED；
+- `test/cloud-executor.test.js`：21/21，其中 heartbeat gate 失败明确保持零 terminal report；
+- Cloud Executor + ManualExecution service + control plane + Playwright adapter 相关组：43/43；
 - `npm run check`：230 个 JavaScript 文件；
 - `git diff --check`：通过。
 
-本机默认 `npm test` 在浏览器套件开始后长期无新增输出，未形成可引用的完整汇总并已停止，因此不记为通过；固定 head
-Ubuntu、Windows 与 identity-postgres CI 是本轮默认全量和 PostgreSQL 门禁。代码提交
+初版候选的本机默认 `npm test` 曾在浏览器套件开始后长期无新增输出，未形成可引用的完整汇总，因此未记为通过。异常出口
+纠正后重新运行默认全量得到 1055 total / 1040 pass / 14 skip / 1 fail；唯一失败是既有
+`yingdao-rpa-executor.test.js` 在临时 task 文件已被清理后读取并触发 `ENOENT`，同时产生测试结束后的 timeout rejection，
+与本轮 7 文件 allowlist 无关，故不把本机全量记为绿色。固定 head Ubuntu、Windows 与 identity-postgres CI 是本轮默认全量
+和 PostgreSQL 门禁。代码提交
 `a9b1395dd214efe060d1bcf7b51c4b3c411221d2` 的 run `32145259001` 三组均为 SUCCESS：Ubuntu 59 秒、Windows
 1 分 40 秒、identity-postgres 59 秒；后者实际串行执行 Identity、ProjectContent v2、VideoPlanning v2 与本轮新增的
-ManualExecution Cloud Executor PostgreSQL 集成。本地或 CI 绿色不替代部署、真实 Worker、Provider 或积分验收。
+ManualExecution Cloud Executor PostgreSQL 集成。该 run 发生在异常出口纠正前，只证明当时 fixed head；本轮新 fixed head
+仍须重新通过三组 CI。本地或 CI 绿色不替代部署、真实 Worker、Provider 或积分验收。
 
 ## 文件边界
 

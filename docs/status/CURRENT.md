@@ -241,7 +241,8 @@
   假设现已由隔离 TDD 确认。
 - 最小修复不放宽 repository 乐观锁：执行器终态前停止接受新的定时 heartbeat，等待已排队 heartbeat 完成，检查
   heartbeat/progress 错误后重新读取并验证同一 Cloud Executor 所属、仍为 running 的 attempt，再以最新 revision
-  写入唯一 terminal report。成功 candidate 上传期间仍续租；失败、需人工处理和成功报告使用相同终态快照门禁。
+  写入唯一 terminal report。成功 candidate 上传期间仍续租；执行器正常返回及抛异常形成的失败、需人工处理和成功
+  报告均使用相同终态快照门禁，heartbeat gate 失败则按 lease-lost 停闭且不写 terminal report。
 - GREEN 同时证明：只有一个 attempt、一个绑定该 attempt 的 primary candidate、一个 completed report 和一次 A12 请求；
   candidate 进入 `pending_verification`，没有 failed report、重复终态、自动重试或第二次领取。既有租约失效、身份隔离、
   report 幂等、candidate 绑定与 A12/Work 条件均保持。

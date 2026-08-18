@@ -213,5 +213,115 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
   assert.equal((await repository.listReports("org-other", cloudAttempts[0].id)).length, 0);
   assert.equal((await cloudService.runOnce()).status, "standby");
   assert.equal((await repository.listReports(cloudOrder.organization_id, cloudAttempts[0].id)).length, 1);
+
+  const errorOrderId = randomUUID(), errorPackageId = randomUUID(), errorJobId = randomUUID();
+  const errorOrder = { ...order, id: errorOrderId, status: "waiting_for_executor", row_version: 1,
+    status_history: [{ status: "waiting_for_executor", at }] };
+  await orderRepository.createOrder({ receiptKey: "cloud-error-order", fingerprint: "cloud-error-order", order: errorOrder,
+    auditEvents: [{ id: randomUUID(), organization_id: errorOrder.organization_id, actor_member_id: seeded.member.id,
+      production_order_id: errorOrder.id, event_type: "production_order.created", metadata: {}, created_at: at }],
+    outboxEvent: { id: randomUUID(), organization_id: errorOrder.organization_id, aggregate_id: errorOrder.id,
+      event_type: "production_order.created", payload: {}, created_at: at, published_at: null } });
+  const errorHandoffClient = await pool.connect();
+  try {
+    await errorHandoffClient.query("BEGIN");
+    await errorHandoffClient.query(`INSERT INTO manual_handoff_packages(id,organization_id,production_order_id,contract_type,contract_version,package_version,status,generation_request_id,generation_job_id,manifest,readme,manifest_hash,package_hash,storage_key,created_by_member_id,created_at,updated_at,row_version,status_history)
+      VALUES ($1,$2,$3,'manual_handoff','1.0',1,'ready','cloud-error-generation',$4,$5,$6,$7,$8,$9,$10,$11,$11,1,$12)`,
+    [errorPackageId, errorOrder.organization_id, errorOrder.id, errorJobId,
+      JSON.stringify({ accepted_media_types: ["video/mp4"] }), "说明", "manifest-cloud-error-pg", "package-cloud-error-pg",
+      "manual-handoff/cloud-error-package.zip", seeded.member.id, at,
+      JSON.stringify([{ from_status: "generating", to_status: "ready", at }])]);
+    await errorHandoffClient.query(`INSERT INTO manual_handoff_package_generation_jobs(id,organization_id,package_id,type,status,attempts,max_attempts,order_snapshot,created_at,updated_at)
+      VALUES ($1,$2,$3,'manual_handoff_package_generation','succeeded',1,1,$4,$5,$5)`,
+    [errorJobId, errorOrder.organization_id, errorPackageId, JSON.stringify(snapshot), at]);
+    await errorHandoffClient.query("COMMIT");
+  } catch (error) {
+    await errorHandoffClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    errorHandoffClient.release();
+  }
+
+  let releaseErrorHeartbeat;
+  let signalErrorHeartbeatStarted;
+  let signalErrorHeartbeatFinished;
+  const errorHeartbeatRelease = new Promise((resolve) => { releaseErrorHeartbeat = resolve; });
+  const errorHeartbeatStarted = new Promise((resolve) => { signalErrorHeartbeatStarted = resolve; });
+  const errorHeartbeatFinished = new Promise((resolve) => { signalErrorHeartbeatFinished = resolve; });
+  const errorReportErrors = [];
+  const repositoryWithErrorHeartbeat = {
+    ...repository,
+    async heartbeatCloudAttempt(input) {
+      signalErrorHeartbeatStarted();
+      await errorHeartbeatRelease;
+      try {
+        return await repository.heartbeatCloudAttempt(input);
+      } finally {
+        signalErrorHeartbeatFinished();
+      }
+    },
+    async saveReport(input) {
+      await errorHeartbeatFinished;
+      try {
+        return await repository.saveReport(input);
+      } catch (error) {
+        errorReportErrors.push(error?.code);
+        throw error;
+      }
+    }
+  };
+  const errorCloudService = createCloudExecutorService({
+    repository: repositoryWithErrorHeartbeat,
+    orderPort: {
+      listOrdersForCloudExecutor: () => orderRepository.listOrders(errorOrder.organization_id),
+      getOrderForCloudExecutor: (input) => orderRepository.getOrder(errorOrder.organization_id, input.orderId),
+      transitionOrderForCloudExecutor: (input) => orderRepository.transitionOrder({
+        organizationId: errorOrder.organization_id,
+        orderId: input.orderId,
+        expectedRevision: input.expectedRevision,
+        fromStatuses: input.fromStatuses,
+        toStatus: input.toStatus,
+        at: input.at,
+        actorCloudExecutorId: input.actorCloudExecutorId,
+        reason: input.reason
+      })
+    },
+    packagePort: {
+      async listPackagesForCloudExecutor(input) {
+        return input.productionOrderId === errorOrder.id ? [{
+          id: errorPackageId, organization_id: errorOrder.organization_id, production_order_id: errorOrder.id,
+          package_version: 1, status: "ready", manifest_hash: "manifest-cloud-error-pg", package_hash: "package-cloud-error-pg"
+        }] : [];
+      },
+      async getPackageForCloudExecutor() { return null; }
+    },
+    candidateStore: createMemoryObjectStore(),
+    verificationPort: { async requestVerification() { throw new Error("verification must not run"); }, async wake() {} },
+    readinessPort: { async check() { return { ready: true }; } },
+    executor: {
+      async run({ progress }) {
+        void progress({ phase: "provider_submitted" });
+        await errorHeartbeatStarted;
+        setTimeout(releaseErrorHeartbeat, 0);
+        throw new Error("deterministic PostgreSQL executor failure");
+      }
+    },
+    enabled: true,
+    mode: "fake",
+    organizationId: errorOrder.organization_id,
+    executorCloudId,
+    heartbeatIntervalMs: 30_000,
+    now: () => Date.parse(at)
+  });
+
+  const errorCloudResult = await errorCloudService.runOnce();
+  assert.deepEqual(errorReportErrors, []);
+  assert.equal(errorCloudResult.status, "failed");
+  const errorAttempts = await repository.listAttempts(errorOrder.organization_id, errorOrder.id);
+  const errorReports = await repository.listReports(errorOrder.organization_id, errorAttempts[0].id);
+  assert.equal(errorAttempts.length, 1);
+  assert.equal(errorAttempts[0].status, "failed");
+  assert.equal(errorReports.length, 1);
+  assert.equal(errorReports[0].outcome, "failed");
   await repository.close();
 });

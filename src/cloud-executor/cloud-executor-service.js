@@ -334,6 +334,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
 
   async function runAttempt(claimedAttempt, claimedOrder, packageRecord) {
     let started;
+    let finishHeartbeats = null;
     try {
       started = await startAttempt(claimedAttempt, claimedOrder);
       const attempt = started.attempt;
@@ -358,14 +359,18 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           throw error;
         }
       };
-      const finishHeartbeats = async () => {
-        heartbeatsClosed = true;
-        clearInterval(timer);
-        await heartbeatWork;
-        if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
-        const current = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
-        if (current.status !== "running") throw failure("CLOUD_EXECUTOR_LEASE_LOST");
-        return current;
+      let heartbeatFinish = null;
+      finishHeartbeats = () => {
+        if (!heartbeatFinish) heartbeatFinish = (async () => {
+          heartbeatsClosed = true;
+          clearInterval(timer);
+          await heartbeatWork;
+          if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+          const current = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
+          if (current.status !== "running") throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+          return current;
+        })();
+        return heartbeatFinish;
       };
       timer = setInterval(() => queueHeartbeat("executing").catch((error) => { heartbeatError ||= error; }), heartbeatIntervalMs);
       timer.unref?.();
@@ -406,16 +411,25 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       }
     } catch (error) {
       halted = true;
-      if (error?.code === "CLOUD_EXECUTOR_LEASE_LOST") {
+      let terminalError = error;
+      let terminalAttempt = null;
+      if (finishHeartbeats) {
+        try {
+          terminalAttempt = await finishHeartbeats();
+        } catch (heartbeatGateError) {
+          terminalError = heartbeatGateError;
+        }
+      }
+      if (terminalError?.code === "CLOUD_EXECUTOR_LEASE_LOST") {
         const current = await repository.getAttempt(identity.organizationId, claimedAttempt.id);
         if (current && ["claimed", "running"].includes(current.status) && hasExpiredLease(current, now())) await expireLease(current);
       } else if (started?.attempt?.status === "running") {
-        const current = await repository.getAttempt(identity.organizationId, claimedAttempt.id);
+        const current = terminalAttempt || await repository.getAttempt(identity.organizationId, claimedAttempt.id);
         const order = await getOrder(claimedOrder.id);
         if (current?.status === "running" && order.status === "running") {
-          if (error?.code === "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN" || error?.outcome === "requires_action") {
+          if (terminalError?.code === "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN" || terminalError?.outcome === "requires_action") {
             const requiresAction = await saveReport({ attempt: current, order, outcome: "requires_action",
-              failureStage: "unknown_post_submit", requiresActionReason: error.message, progressPhase: "unknown_post_submit" });
+              failureStage: "unknown_post_submit", requiresActionReason: terminalError.message, progressPhase: "unknown_post_submit" });
             return { status: "requires_action", stopped: true, attempt: publicAttempt(requiresAction.attempt),
               report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
           }
@@ -424,7 +438,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
       }
-      throw error;
+      throw terminalError;
     }
   }
 

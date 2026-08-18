@@ -99,8 +99,8 @@ VideoPlan 只使用飞影原生六档（智能适配/超大/大/中/小/超小�
 真实 `small` 档付费验收现已证明 `img alt + parent actived` 可能是假阳性。#200 的仓库修复以完整六档、双选中标记与唯一
 期望选项重新建立付费前 Provider DOM 真值，无法验证时 fail closed；部署与真实 Provider 复验仍待后续。本次成片的尺寸
 验收 FAIL、外观保真 PARTIAL/FAIL；候选上传后报告失败已由 #201 的 memory 与 PostgreSQL 隔离 RED 确认为
-`MANUAL_EXECUTION_ATTEMPT_CONFLICT` 竞态，并形成不放宽乐观锁的完成时序修复候选；failed 工单首屏错误仍待 #202
-修复。#190/#191 的统一部署只读复验仍成立，但不覆盖这些新缺陷。
+`MANUAL_EXECUTION_ATTEMPT_CONFLICT` 竞态，并形成不放宽乐观锁、覆盖正常返回与异常收口的统一终态时序修复候选；
+failed 工单首屏错误仍待 #202 修复。#190/#191 的统一部署只读复验仍成立，但不覆盖这些新缺陷。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
