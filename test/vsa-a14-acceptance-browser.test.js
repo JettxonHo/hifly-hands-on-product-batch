@@ -240,6 +240,7 @@ test("VSA-A14 main path completes from a fresh enterprise login to inspected and
               id: planId,
               version_number: 1,
               status: "frozen",
+              presentation_size_code: "smart_fit",
               output_instructions: "竖版种草口播，突出清爽亲肤。",
               upstream_snapshot: {
                 product_revision_id: revisionId,

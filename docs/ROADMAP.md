@@ -31,6 +31,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
     → V2 独立设计合同（#174，已完成）
     → shared IA/content/control foundation（#176/#177 已完成）→ Production（#178/#179 已完成）→ Works（#180/#181 已完成）→ Assets（#182/#183 已完成）→ V2-E 回补审计（#184/#185 已完成）→ V2-E1（#186/#187 已完成）→ V2-E2（#188/#189 已完成并部署）
 P1 UI  部署后条件通过收口：#190 → #191（严格串行，当前下一步）
+P1 Product  #193 实物尺寸 + 飞影原生呈现大小（仓库实现；待部署与受控 Provider 验收）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -79,6 +80,11 @@ Issue #164 / PR #165 合并进入 `main`，状态为 `designed`。Slice A/B 与 
    只读，图片沿用现有上传、核验、管理和临时下载授权。用途与关联缺少 API 真值时明确说明，不由前端伪造。
 
 每个已批准的实施分片独立 Issue、独立 Draft PR、独立浏览器回归；只有前一分片合并后才开始下一分片，且不自动部署。
+
+Issue #193 将商品实物事实与画面呈现档位分开：ProductRevision 记录可选的高/宽/深、容量和重量，
+VideoPlan 只使用飞影原生六档（智能适配/超大/大/中/小/超小）。映射与选中态已由当前飞影静态资源只读核实；
+执行器必须在付费生成前验证选中档位，无法验证则 fail closed。该改动尚未部署，也未执行真实付费出片；
+呈现大小不代表外观保真，瓶盖、包装、标签和形态仍由 Works 检查单独验收。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、

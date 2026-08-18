@@ -42,6 +42,7 @@ function manifest(overrides = {}) {
     },
     video_plan_snapshot: {
       id: "plan-1",
+      presentation_size_code: "medium",
       output_instructions: "竖版口播"
     },
     asset_references: [{
@@ -131,6 +132,30 @@ test("loads avatar_asset_version_id mappings from a JSON config and compiles one
     assert.deepEqual(await readFile(item.image_path), PRODUCT_BYTES);
     assert.equal(item.resolved_person_image_path, avatarPath);
     assert.equal(item.resolved_person_source, "local_agent_mapping");
+    assert.equal(item.presentation_size_code, "medium");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("missing or unsupported presentation size is rejected before an executor receives a batch item", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "local-agent-compiler-test-"));
+  const avatarPath = path.join(root, "avatar.png");
+  await mkdir(path.join(root, "assets"), { recursive: true });
+  await writeFile(avatarPath, "avatar-image");
+  await writeFile(path.join(root, "assets", "product-version-1"), PRODUCT_BYTES);
+  try {
+    const missing = manifest();
+    delete missing.video_plan_snapshot.presentation_size_code;
+    await assert.rejects(() => compilePackageToBatchItem({
+      manifest: missing, extractionRoot: root, avatarMappings: { "avatar-version-1": avatarPath }
+    }), { code: "LOCAL_AGENT_PRESENTATION_SIZE_REQUIRED" });
+
+    const unsupported = manifest();
+    unsupported.video_plan_snapshot.presentation_size_code = "provider-index-2";
+    await assert.rejects(() => compilePackageToBatchItem({
+      manifest: unsupported, extractionRoot: root, avatarMappings: { "avatar-version-1": avatarPath }
+    }), { code: "LOCAL_AGENT_PRESENTATION_SIZE_UNSUPPORTED" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

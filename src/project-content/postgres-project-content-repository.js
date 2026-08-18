@@ -31,13 +31,13 @@ function uow(client) {
     async findProduct(organizationId, id) { return product(one(await client.query("SELECT * FROM project_content_products WHERE organization_id=$1 AND id=$2 FOR UPDATE", [organizationId, id]))); },
     async listProductsByProject(organizationId, projectId) { return (await client.query("SELECT * FROM project_content_products WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at", [organizationId, projectId])).rows.map(product); },
     async insertRevision(value) {
-      await client.query(`INSERT INTO project_content_product_revisions(id,organization_id,project_id,product_id,status,revision_number,product_name,product_description,primary_category,content_brief,asset_version_ids,selling_points,parent_revision_id,created_by_member_id,created_at,updated_at,ready_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-      [value.id, value.organization_id, value.project_id, value.product_id, value.status, value.revision_number, value.product_name, value.product_description, value.primary_category, JSON.stringify(value.content_brief), JSON.stringify(value.asset_version_ids), JSON.stringify(value.selling_points), value.parent_revision_id, value.created_by_member_id, value.created_at, value.updated_at, value.ready_at]);
+      await client.query(`INSERT INTO project_content_product_revisions(id,organization_id,project_id,product_id,status,revision_number,product_name,product_description,primary_category,content_brief,physical_dimensions,asset_version_ids,selling_points,parent_revision_id,created_by_member_id,created_at,updated_at,ready_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      [value.id, value.organization_id, value.project_id, value.product_id, value.status, value.revision_number, value.product_name, value.product_description, value.primary_category, JSON.stringify(value.content_brief), JSON.stringify(value.physical_dimensions), JSON.stringify(value.asset_version_ids), JSON.stringify(value.selling_points), value.parent_revision_id, value.created_by_member_id, value.created_at, value.updated_at, value.ready_at]);
     },
     async updateRevision(value) {
-      await client.query(`UPDATE project_content_product_revisions SET status=$2,revision_number=$3,product_name=$4,product_description=$5,primary_category=$6,content_brief=$7,asset_version_ids=$8,selling_points=$9,updated_at=$10,ready_at=$11 WHERE id=$1`,
-      [value.id, value.status, value.revision_number, value.product_name, value.product_description, value.primary_category, JSON.stringify(value.content_brief), JSON.stringify(value.asset_version_ids), JSON.stringify(value.selling_points), value.updated_at, value.ready_at]);
+      await client.query(`UPDATE project_content_product_revisions SET status=$2,revision_number=$3,product_name=$4,product_description=$5,primary_category=$6,content_brief=$7,physical_dimensions=$8,asset_version_ids=$9,selling_points=$10,updated_at=$11,ready_at=$12 WHERE id=$1`,
+      [value.id, value.status, value.revision_number, value.product_name, value.product_description, value.primary_category, JSON.stringify(value.content_brief), JSON.stringify(value.physical_dimensions), JSON.stringify(value.asset_version_ids), JSON.stringify(value.selling_points), value.updated_at, value.ready_at]);
     },
     async findRevision(organizationId, id) { return revision(one(await client.query("SELECT * FROM project_content_product_revisions WHERE organization_id=$1 AND id=$2 FOR UPDATE", [organizationId, id]))); },
     async appendAudit(event) {

@@ -37,6 +37,7 @@ export async function registerProjectContentRoutes(app, { service }) {
       ...actor(request), productRevisionId: request.params.revisionId, expectedRevision: request.body?.expected_revision,
       productName: request.body?.product_name, productDescription: request.body?.product_description,
       primaryCategory: request.body?.primary_category, contentBrief: request.body?.content_brief,
+      ...(Object.hasOwn(request.body || {}, "physical_dimensions") ? { physicalDimensions: request.body.physical_dimensions } : {}),
       sellingPoints: request.body?.selling_points, assetVersionIds: request.body?.asset_version_ids
     })
   }));

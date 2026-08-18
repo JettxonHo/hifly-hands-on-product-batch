@@ -37,15 +37,18 @@ export async function registerVideoPlanningRoutes(app, { service }) {
   })));
   app.post("/api/products/:productId/video-plans", async (request, reply) => reply.code(201).send(workspace(await service.createPlan({
     ...actor(request), productId: request.params.productId, outputInstructions: request.body?.output_instructions,
+    presentationSizeCode: request.body?.presentation_size_code,
     expectedHeadRevision: request.body?.expected_head_revision, idempotencyKey: request.headers["idempotency-key"]
   }))));
   app.patch("/api/products/:productId/video-plans/:planId", async (request) => workspace(await service.saveDraft({
     ...actor(request), productId: request.params.productId, planId: request.params.planId,
-    outputInstructions: request.body?.output_instructions, expectedRevision: request.body?.expected_revision
+    outputInstructions: request.body?.output_instructions, presentationSizeCode: request.body?.presentation_size_code,
+    expectedRevision: request.body?.expected_revision
   })));
   app.post("/api/products/:productId/video-plans/:planId/derive", async (request, reply) => reply.code(201).send(workspace(await service.deriveDraft({
     ...actor(request), productId: request.params.productId, planId: request.params.planId,
     outputInstructions: request.body?.output_instructions, expectedHeadRevision: request.body?.expected_head_revision,
+    presentationSizeCode: request.body?.presentation_size_code,
     idempotencyKey: request.headers["idempotency-key"]
   }))));
   app.post("/api/products/:productId/video-plans/:planId/preflight", async (request, reply) => reply.code(202).send(workspace(await service.requestPreflight({

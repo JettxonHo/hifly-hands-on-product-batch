@@ -163,7 +163,8 @@ function apiError(error, request = null) {
   if (["VIDEO_PLAN_NOT_FOUND", "VIDEO_PLAN_REVIEW_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
   if (["VIDEO_PLAN_CONFLICT", "VIDEO_PLAN_IMMUTABLE", "VIDEO_PLAN_DERIVE_BLOCKED", "VIDEO_PLAN_REVIEW_CONFLICT",
     "VIDEO_PLAN_REVIEW_ACTIVE_EXISTS", "PREFLIGHT_RUN_LEASE_LOST"].includes(error?.code)) return { statusCode: 409, code: error.code };
-  if (["VIDEO_PLAN_CONTEXT_REQUIRED", "VIDEO_PLAN_OUTPUT_INSTRUCTIONS_REQUIRED", "VIDEO_PLAN_CAPABILITY_SNAPSHOT_REQUIRED"].includes(error?.code)) {
+  if (["VIDEO_PLAN_CONTEXT_REQUIRED", "VIDEO_PLAN_OUTPUT_INSTRUCTIONS_REQUIRED", "VIDEO_PLAN_CAPABILITY_SNAPSHOT_REQUIRED",
+    "VIDEO_PLAN_PRESENTATION_SIZE_REQUIRED", "VIDEO_PLAN_PRESENTATION_SIZE_UNSUPPORTED"].includes(error?.code)) {
     return { statusCode: 400, code: error.code };
   }
   if (error?.code === "VIDEO_PLAN_FORBIDDEN") return { statusCode: 403, code: error.code };
@@ -245,7 +246,8 @@ function apiError(error, request = null) {
   if (error?.code === "PRODUCT_REVISION_READY_BLOCKED") {
     return { statusCode: 422, code: error.code, reasons: error.reasons };
   }
-  if (["PROJECT_CONTENT_CONTEXT_REQUIRED", "PROJECT_NAME_REQUIRED", "INVALID_CONTENT_BRIEF", "INVALID_SELLING_POINTS", "INVALID_SELLING_POINT_ID", "SELLING_POINT_EMPTY"].includes(error?.code)) {
+  if (["PROJECT_CONTENT_CONTEXT_REQUIRED", "PROJECT_NAME_REQUIRED", "INVALID_CONTENT_BRIEF", "INVALID_PHYSICAL_DIMENSIONS",
+    "INVALID_SELLING_POINTS", "INVALID_SELLING_POINT_ID", "SELLING_POINT_EMPTY"].includes(error?.code)) {
     return { statusCode: 400, code: error.code };
   }
   if (["ASSET_NOT_FOUND", "ASSET_VERSION_NOT_FOUND", "UPLOAD_SESSION_NOT_FOUND", "DOWNLOAD_AUTHORIZATION_NOT_FOUND", "OBJECT_MISSING"].includes(error?.code)) {

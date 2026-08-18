@@ -52,12 +52,13 @@ export function createMemoryVideoPlanningRepository() {
       appendAudit(audit);
       return clone(plan);
     },
-    async saveDraft({ organizationId, planId, expectedRevision, outputInstructions, updatedAt, audit }) {
+    async saveDraft({ organizationId, planId, expectedRevision, outputInstructions, presentationSizeCode, updatedAt, audit }) {
       const plan = plans.get(planId);
       if (!plan || plan.organization_id !== organizationId) return null;
       if (plan.status !== "draft") throw failure("VIDEO_PLAN_IMMUTABLE");
       if (plan.row_version !== expectedRevision) throw failure("VIDEO_PLAN_CONFLICT");
-      Object.assign(plan, { output_instructions: outputInstructions, row_version: plan.row_version + 1, updated_at: updatedAt });
+      Object.assign(plan, { output_instructions: outputInstructions, presentation_size_code: presentationSizeCode,
+        row_version: plan.row_version + 1, updated_at: updatedAt });
       appendAudit(audit); return clone(plan);
     },
     async deriveDraft({ receiptKey, fingerprint, sourcePlanId, expectedHeadRevision, plan, audit }) {

@@ -43,6 +43,7 @@ test("video planning API preserves passed vs approved and restores state", async
     payload: { output_instructions: "竖版种草口播，突出核心卖点。", expected_head_revision: 0 } });
   assert.equal(created.statusCode, 201);
   assert.equal(created.json().current_plan.status, "draft");
+  assert.equal(created.json().current_plan.presentation_size_code, "smart_fit");
   assert.equal("organization_id" in created.json().current_plan, false);
 
   const preflight = await app.inject({ method: "POST", url: `/api/products/product-a/video-plans/${created.json().current_plan.id}/preflight`,
@@ -124,4 +125,10 @@ test("video planning API maps conflict, gate and cross-organization errors", asy
     headers: identityHeaders({ cookies: auth.cookies }) });
   assert.equal(cross.statusCode, 404);
   assert.equal(cross.json().error, "VIDEO_PLAN_NOT_FOUND");
+
+  const invalidSize = await app.inject({ method: "POST", url: "/api/products/product-b/video-plans",
+    headers: { ...headers, "idempotency-key": "invalid-presentation-size" },
+    payload: { output_instructions: "完整制作说明", presentation_size_code: "second-button", expected_head_revision: 0 } });
+  assert.equal(invalidSize.statusCode, 400);
+  assert.equal(invalidSize.json().error, "VIDEO_PLAN_PRESENTATION_SIZE_UNSUPPORTED");
 });

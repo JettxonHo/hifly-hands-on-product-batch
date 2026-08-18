@@ -3,6 +3,11 @@ import { randomUUID } from "node:crypto";
 const failure = (code, details = {}) => Object.assign(new Error(code), { code, ...details });
 const text = (value) => typeof value === "string" ? value.trim() : "";
 const optionalText = (value) => value == null || text(value) === "" ? null : text(value);
+const PHYSICAL_DIMENSION_UNITS = new Set(["mm", "cm", "m"]);
+const QUANTITY_UNITS = {
+  capacity: new Set(["ml", "l"]),
+  weight: new Set(["g", "kg"])
+};
 
 function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -29,6 +34,37 @@ function normalizeBrief(value) {
     if (field != null && typeof field !== "string") throw failure("INVALID_CONTENT_BRIEF");
     const clean = optionalText(field);
     if (clean) normalized[key] = clean;
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function normalizePhysicalDimensions(value) {
+  if (value == null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw failure("INVALID_PHYSICAL_DIMENSIONS");
+
+  const hasAxis = ["height", "width", "depth"].some((key) => value[key] != null && value[key] !== "");
+  const normalized = {};
+  const positiveFinite = (candidate) => typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0;
+  if (hasAxis) {
+    if (!positiveFinite(value.height) || !positiveFinite(value.width) || !PHYSICAL_DIMENSION_UNITS.has(text(value.unit))) {
+      throw failure("INVALID_PHYSICAL_DIMENSIONS");
+    }
+    if (value.depth != null && value.depth !== "" && !positiveFinite(value.depth)) {
+      throw failure("INVALID_PHYSICAL_DIMENSIONS");
+    }
+    normalized.height = value.height;
+    normalized.width = value.width;
+    if (value.depth != null && value.depth !== "") normalized.depth = value.depth;
+    normalized.unit = text(value.unit);
+  }
+  for (const key of ["capacity", "weight"]) {
+    if (value[key] == null || value[key] === "") continue;
+    if (typeof value[key] !== "object" || Array.isArray(value[key]) || !positiveFinite(value[key].value)) {
+      throw failure("INVALID_PHYSICAL_DIMENSIONS");
+    }
+    const unit = text(value[key].unit);
+    if (!QUANTITY_UNITS[key].has(unit)) throw failure("INVALID_PHYSICAL_DIMENSIONS");
+    normalized[key] = { value: value[key].value, unit };
   }
   return Object.keys(normalized).length ? normalized : null;
 }
@@ -66,6 +102,7 @@ function snapshotFields(revision) {
     product_description: revision.product_description,
     primary_category: revision.primary_category,
     content_brief: revision.content_brief,
+    physical_dimensions: revision.physical_dimensions,
     asset_version_ids: revision.asset_version_ids,
     selling_points: revision.selling_points
   };
@@ -134,7 +171,8 @@ export function createProjectContentService({ repository, assetReferencePort, re
       const revision = {
         id: randomUUID(), organization_id: input.organizationId, project_id: project.id, product_id: product.id,
         status: "draft", revision_number: 1, product_name: productName, product_description: null,
-        primary_category: "general", content_brief: null, asset_version_ids: [], selling_points: [],
+        primary_category: "general", content_brief: null, physical_dimensions: normalizePhysicalDimensions(input.physicalDimensions),
+        asset_version_ids: [], selling_points: [],
         parent_revision_id: null, created_by_member_id: input.actorMemberId, created_at: createdAt, updated_at: createdAt, ready_at: null
       };
       product.current_revision_id = revision.id;
@@ -167,6 +205,9 @@ export function createProjectContentService({ repository, assetReferencePort, re
       const changed = {
         product_name: text(input.productName), product_description: optionalText(input.productDescription),
         primary_category: optionalText(input.primaryCategory) || "general", content_brief: normalizeBrief(input.contentBrief),
+        physical_dimensions: Object.hasOwn(input, "physicalDimensions")
+          ? normalizePhysicalDimensions(input.physicalDimensions)
+          : current.physical_dimensions || null,
         asset_version_ids: [...new Set(Array.isArray(input.assetVersionIds) ? input.assetVersionIds.filter((id) => typeof id === "string" && id) : [])],
         selling_points: normalizePointInputs(input.sellingPoints, current.selling_points)
       };

@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { extractManualHandoffArchive } from "../manual-handoff/manual-handoff-package-store.js";
+import { requirePresentationSizeCode } from "../video-planning/presentation-size.js";
 import { localAgentError } from "./errors.js";
 
 const PRODUCT_IMAGE_ROLES = new Set(["product_image", "product_main_image"]);
@@ -149,6 +150,14 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
   const product = manifest.product_revision || manifest.product_revision_snapshot || {};
   const copy = manifest.copy_snapshot || manifest.approved_copy_snapshot || {};
   const plan = manifest.video_plan_snapshot || manifest.video_plan_version || {};
+  let presentationSizeCode;
+  try {
+    presentationSizeCode = requirePresentationSizeCode(plan.presentation_size_code);
+  } catch (error) {
+    throw localAgentError(error?.code === "VIDEO_PLAN_PRESENTATION_SIZE_REQUIRED"
+      ? "LOCAL_AGENT_PRESENTATION_SIZE_REQUIRED"
+      : "LOCAL_AGENT_PRESENTATION_SIZE_UNSUPPORTED", { outcome: "requires_action" });
+  }
   const productName = text(product.product_name) || text(manifest.product_id);
   if (!productName) throw localAgentError("LOCAL_AGENT_PACKAGE_INVALID");
 
@@ -166,7 +175,8 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
     resolved_script_mode: "frozen_copy",
     avatar: { asset_version_id: avatarId },
     voice: plan.voice || null,
-    duration_seconds: Number.isFinite(plan.duration_seconds) ? plan.duration_seconds : null
+    duration_seconds: Number.isFinite(plan.duration_seconds) ? plan.duration_seconds : null,
+    presentation_size_code: presentationSizeCode
   };
 }
 

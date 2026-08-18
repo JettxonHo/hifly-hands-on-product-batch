@@ -125,6 +125,122 @@ test("saving an incomplete snapshot remains draft and stale writes are rejected"
   }), { code: "PRODUCT_REVISION_CONFLICT" });
 });
 
+test("saving a product revision preserves structured physical dimensions as an explicit fact", async () => {
+  const ctx = world();
+  const { revision } = await createProductDraft(ctx);
+  const saved = await ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: revision.id,
+    expectedRevision: revision.revision_number,
+    productName: "云朵抱枕",
+    physicalDimensions: { height: 18, width: 12, depth: 4, unit: "cm", capacity: { value: 500, unit: "ml" } },
+    sellingPoints: [{ text: "柔软亲肤" }],
+    assetVersionIds: []
+  });
+  assert.deepEqual(saved.physical_dimensions, {
+    height: 18,
+    width: 12,
+    depth: 4,
+    unit: "cm",
+    capacity: { value: 500, unit: "ml" }
+  });
+});
+
+test("physical dimensions require height, width, and unit when an axis is supplied", async () => {
+  const ctx = world();
+  const { revision } = await createProductDraft(ctx);
+  await assert.rejects(ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: revision.id,
+    expectedRevision: revision.revision_number,
+    productName: "云朵抱枕",
+    physicalDimensions: { height: 18, unit: "cm" },
+    sellingPoints: [],
+    assetVersionIds: []
+  }), { code: "INVALID_PHYSICAL_DIMENSIONS" });
+});
+
+test("physical dimensions reject unsupported axis and quantity units", async () => {
+  const ctx = world();
+  const { revision } = await createProductDraft(ctx);
+  await assert.rejects(ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: revision.id,
+    expectedRevision: revision.revision_number,
+    productName: "云朵抱枕",
+    physicalDimensions: { height: 18, width: 12, unit: "inch" },
+    sellingPoints: [],
+    assetVersionIds: []
+  }), { code: "INVALID_PHYSICAL_DIMENSIONS" });
+  await assert.rejects(ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: revision.id,
+    expectedRevision: revision.revision_number,
+    productName: "云朵抱枕",
+    physicalDimensions: { capacity: { value: 500, unit: "gallon" } },
+    sellingPoints: [],
+    assetVersionIds: []
+  }), { code: "INVALID_PHYSICAL_DIMENSIONS" });
+});
+
+test("empty physical dimensions mean unknown and omitted input preserves the existing fact", async () => {
+  const ctx = world();
+  const { revision } = await createProductDraft(ctx);
+  const saved = await ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: revision.id,
+    expectedRevision: revision.revision_number,
+    productName: "云朵抱枕",
+    physicalDimensions: { height: 18, width: 12, unit: "cm" },
+    sellingPoints: [],
+    assetVersionIds: []
+  });
+  const preserved = await ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: saved.id,
+    expectedRevision: saved.revision_number,
+    productName: saved.product_name,
+    sellingPoints: saved.selling_points,
+    assetVersionIds: saved.asset_version_ids
+  });
+  assert.deepEqual(preserved.physical_dimensions, saved.physical_dimensions);
+  const cleared = await ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: preserved.id,
+    expectedRevision: preserved.revision_number,
+    productName: preserved.product_name,
+    physicalDimensions: {},
+    sellingPoints: preserved.selling_points,
+    assetVersionIds: preserved.asset_version_ids
+  });
+  assert.equal(cleared.physical_dimensions, null);
+});
+
+test("capacity-only and weight-only facts do not fabricate physical axes", async () => {
+  const ctx = world();
+  const { revision } = await createProductDraft(ctx);
+  const capacity = await ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: revision.id,
+    expectedRevision: revision.revision_number,
+    productName: "云朵抱枕",
+    physicalDimensions: { capacity: { value: 500, unit: "ml" } },
+    sellingPoints: [],
+    assetVersionIds: []
+  });
+  assert.deepEqual(capacity.physical_dimensions, { capacity: { value: 500, unit: "ml" } });
+  const weight = await ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: capacity.id,
+    expectedRevision: capacity.revision_number,
+    productName: "云朵抱枕",
+    physicalDimensions: { weight: { value: 250, unit: "g" } },
+    sellingPoints: [],
+    assetVersionIds: []
+  });
+  assert.deepEqual(weight.physical_dimensions, { weight: { value: 250, unit: "g" } });
+});
+
 test("selling points have stable ids and editing confirmed text forces unconfirmed", async () => {
   const ctx = world();
   const { revision } = await createProductDraft(ctx);

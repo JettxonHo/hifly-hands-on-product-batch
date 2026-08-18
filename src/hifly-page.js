@@ -575,11 +575,48 @@ export class HiflyHandsOnProductPage {
         throw new Error("generated hands-on image appeared before clicking generate; refusing to confirm a possible stale asset");
       }
 
+      await this.selectAndVerifyGoodsSize(product.presentation_size_code || "smart_fit");
+      await this.captureStep(product, "modal-size-selected");
       await this.clickModalGenerate();
       await this.captureStep(product, "modal-after-generate");
       await this.confirmGeneratedHandsOnImage();
       return;
     }
+  }
+
+  async selectAndVerifyGoodsSize(code) {
+    const options = {
+      smart_fit: { label: "智能适配", providerValue: 0 },
+      extra_large: { label: "超大", providerValue: 50 },
+      large: { label: "大", providerValue: 40 },
+      medium: { label: "中", providerValue: 30 },
+      small: { label: "小", providerValue: 20 },
+      extra_small: { label: "超小", providerValue: 10 }
+    };
+    const option = options[code];
+    if (!option) throw Object.assign(new Error("Unsupported Hifly goods-size code"), { code: "HIFLY_GOODS_SIZE_UNSUPPORTED" });
+    const dialog = this.dialogLocator();
+    const image = dialog.locator(`img[alt="${option.label}"]`);
+    if (await image.count().catch(() => 0) !== 1 || !await image.isVisible().catch(() => false)) {
+      throw Object.assign(new Error("Hifly goods-size control is unavailable"), {
+        code: "HIFLY_GOODS_SIZE_CONTROL_UNAVAILABLE",
+        presentation_size_code: code,
+        provider_value: option.providerValue
+      });
+    }
+    const container = image.locator("..");
+    await container.click({ timeout: this.config.batch.defaultTimeoutMs });
+    const deadline = Date.now() + this.config.batch.defaultTimeoutMs;
+    while (Date.now() < deadline) {
+      const className = await container.getAttribute("class").catch(() => "");
+      if (String(className || "").split(/\s+/).includes("actived")) return;
+      await this.page.waitForTimeout(100);
+    }
+    throw Object.assign(new Error("Hifly goods-size selection could not be verified"), {
+      code: "HIFLY_GOODS_SIZE_SELECTION_UNVERIFIED",
+      presentation_size_code: code,
+      provider_value: option.providerValue
+    });
   }
 
   async resetAndReopenHandsOnModal(product) {

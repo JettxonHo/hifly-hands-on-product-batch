@@ -17,10 +17,12 @@ const order = {
   created_by_member_id: "member-a", created_at: "2026-08-08T09:00:00.000Z", updated_at: "2026-08-08T09:00:00.000Z",
   input_snapshot: {
     project_id: "project-a",
-    product_revision: { id: "revision-a-v4", version_number: 4, status: "ready", product_name: "云感保湿乳", asset_version_ids: ["asset-version-a"] },
+    product_revision: { id: "revision-a-v4", version_number: 4, status: "ready", product_name: "云感保湿乳",
+      physical_dimensions: { height: 18, width: 12, depth: 4, unit: "cm", capacity: { value: 500, unit: "ml" }, weight: { value: 520, unit: "g" } },
+      asset_version_ids: ["asset-version-a"] },
     copy_snapshot: { copy_version_id: "copy-a-v3", version_number: 3, status: "frozen", intent: "product_recommendation", copy_body: "先展示使用场景，再说明保湿体验。", approved_review_id: "review-copy-a", approved_at: "2026-08-08T08:10:00.000Z", review: { id: "review-copy-a", status: "approved", decided_at: "2026-08-08T08:10:00.000Z" } },
     avatar_snapshot: { avatar_selection_id: "selection-a-v2", avatar_asset_id: "avatar-a", avatar_asset_version_id: "avatar-version-a-v2", status: "confirmed", version_number: 2, display_name: "林小满", source_type: "seeded", authorization_status: "valid", capability_status: "verified", authorization_summary: "企业授权有效", capabilities: [{ code: "speech", evidence_reference: "seed:speech" }], verified_capability_snapshot: { speech: "mandarin" } },
-    video_plan_version: { id: "plan-a-v2", version_number: 2, status: "frozen", output_instructions: "竖版商品种草口播" },
+    video_plan_version: { id: "plan-a-v2", version_number: 2, status: "frozen", presentation_size_code: "small", output_instructions: "竖版商品种草口播" },
     configuration_snapshot: { snapshot_version: "capability-v2", verified_capabilities: [{ code: "mandarin_speech", evidence_reference: "seed:speech-v2" }], password: "should-not-ship", permanent_url: "https://permanent.example" },
     execution_steps: ["确认人物与商品素材", "按说明完成人工制作"],
     business_constraints: ["不得修改已批准文案"],
@@ -68,6 +70,9 @@ test("generates an immutable authoritative manifest and derived README without s
   assert.equal(ready.package_version, 1);
   assert.equal(ready.contract_type, "manual_handoff");
   assert.equal(ready.contract_version, "1.0");
+  assert.equal(ready.manifest.video_plan_snapshot.presentation_size_code, "small");
+  assert.deepEqual(ready.manifest.product_revision.physical_dimensions,
+    { height: 18, width: 12, depth: 4, unit: "cm", capacity: { value: 500, unit: "ml" }, weight: { value: 520, unit: "g" } });
   assert.match(ready.manifest_hash, /^[a-f0-9]{64}$/);
   assert.match(ready.package_hash, /^[a-f0-9]{64}$/);
   assert.equal(ready.manifest_hash, sha256(canonicalJson({ ...ready.manifest, manifest_hash: null, package_hash: null })));
@@ -81,6 +86,11 @@ test("generates an immutable authoritative manifest and derived README without s
   assert.equal(entries["README.md"].includes("输出一条竖版视频"), true);
   assert.equal(entries["README.md"].includes("人工执行者需自行确认执行环境"), true);
   assert.equal(entries["README.md"].includes("开始前核对包版本与完整性摘要"), true);
+  assert.equal(entries["README.md"].includes("商品呈现大小：小（small）"), true);
+  assert.equal(entries["README.md"].includes("实物尺寸：18 × 12 × 4 cm"), true);
+  assert.equal(entries["README.md"].includes("容量：500 ml"), true);
+  assert.equal(entries["README.md"].includes("重量：520 g"), true);
+  assert.equal(entries["README.md"].includes("呈现大小不保证瓶盖、包装、标签或商品形态保真"), true);
   const inspected = JSON.stringify(entries);
   assert.equal(/secret|cookie|password|token|permanent\.example/i.test(inspected), false);
   assert.equal(executionAttempts.length, 0);
@@ -153,6 +163,13 @@ test("package inspection rejects cross-organization references and omits forbidd
   unsafeOrder.input_snapshot.asset_references.push({ asset_id: "foreign", asset_version_id: "foreign-v", organization_id: "org-other", retrieval_mode: "provider_existing" });
   const { service } = world();
   await assert.rejects(service.buildManifest({ ...actor, order: unsafeOrder }), { code: "MANUAL_HANDOFF_CROSS_ORGANIZATION_DATA" });
+});
+
+test("manual handoff rejects a plan without a canonical presentation size", async () => {
+  const legacyOrder = structuredClone(order);
+  delete legacyOrder.input_snapshot.video_plan_version.presentation_size_code;
+  const { service } = world({ sourceOrder: legacyOrder });
+  await assert.rejects(service.buildManifest({ ...actor, order: legacyOrder }), { code: "VIDEO_PLAN_PRESENTATION_SIZE_REQUIRED" });
 });
 
 test("legacy orders without frozen business facts fail safely and never become ready", async () => {

@@ -18,6 +18,7 @@ function productionOptions({ blocked = false } = {}) {
           current_valid: !blocked,
           gate: { can_create: !blocked, reasons: blocked ? ["plan_review_revoked"] : [] },
           plan: { id: "plan-a-v2", organization_id: "org_test", product_id: productId, version_number: 2, status: "frozen",
+            presentation_size_code: "small",
             output_instructions: "竖版商品种草口播", upstream_snapshot: { product_revision_id: "revision-a", copy_version_id: "copy-a",
               avatar_selection_id: "selection-a", avatar_asset_version_id: "avatar-a" },
             capability_config_snapshot: { snapshot_version: "capability-v1", verified_capabilities: [{ code: "speech", evidence_reference: "seed:speech" }] } },
@@ -28,7 +29,8 @@ function productionOptions({ blocked = false } = {}) {
     },
     inputSnapshotPort: { async freezeForOrder() {
       return { approved_copy_snapshot: { copy_version_id: "copy-a", product_revision_id: "revision-a", version_number: 1, status: "frozen", intent: "product_recommendation", body: "API 冻结文案正文", review: { id: "review-a", status: "approved" } },
-        product_revision_snapshot: { id: "revision-a", organization_id: "org_test", project_id: "project-a", product_id: "product-a", status: "ready", revision_number: 1, product_name: "云朵抱枕", product_description: "日常使用", asset_version_ids: ["product-image-a"] },
+        product_revision_snapshot: { id: "revision-a", organization_id: "org_test", project_id: "project-a", product_id: "product-a", status: "ready", revision_number: 1, product_name: "云朵抱枕", product_description: "日常使用", asset_version_ids: ["product-image-a"],
+          physical_dimensions: { height: 18, width: 12, depth: 4, unit: "cm", capacity: { value: 500, unit: "ml" }, weight: { value: 200, unit: "g" } } },
         asset_references: [{ asset_id: "asset-a", asset_version_id: "product-image-a", role: "product_image", display_name: "商品图", media_type: "image/png", size: 5, checksum: "6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d", retrieval_mode: "embedded", access_scope: "organization", body: Buffer.from("image") }],
         avatar_selection_snapshot: { avatar_selection_id: "selection-a", copy_version_id: "copy-a", asset_version_id: "avatar-a", status: "confirmed", version_number: 1, avatar_asset_id: "avatar-asset-a", display_name: "人物甲", source_type: "enterprise", authorization_status: "valid", capability_status: "verified", capabilities: [{ code: "speech", evidence_reference: "seed:speech" }] } };
     } },
@@ -65,6 +67,9 @@ test("production order API requires identity, creates an offline waiting order, 
   assert.equal(created.json().order.execution_purpose, "first_production");
   assert.equal("organization_id" in created.json().order, false);
   assert.equal(created.json().execution_environment.online, false);
+  assert.equal(created.json().order.input_snapshot.video_plan_version.presentation_size_code, "small");
+  assert.deepEqual(created.json().order.input_snapshot.product_revision_snapshot.physical_dimensions,
+    { height: 18, width: 12, depth: 4, unit: "cm", capacity: { value: 500, unit: "ml" }, weight: { value: 200, unit: "g" } });
 
   const replay = await app.inject({ method: "POST", url: "/api/products/product-a/production-orders",
     headers: { ...mutation, "idempotency-key": "api-order-create" },
@@ -85,6 +90,8 @@ test("production order API requires identity, creates an offline waiting order, 
   const detail = await app.inject({ method: "GET", url: `/api/production-orders/${created.json().order.id}`, headers: read });
   assert.equal(detail.statusCode, 200);
   assert.equal(detail.json().order.id, created.json().order.id);
+  assert.deepEqual(detail.json().order.input_snapshot.product_revision_snapshot.physical_dimensions,
+    created.json().order.input_snapshot.product_revision_snapshot.physical_dimensions);
 
   const workspace = await app.inject({ method: "GET", url: `/api/products/product-a/production-workspace?orderId=${created.json().order.id}`, headers: read });
   assert.equal(workspace.statusCode, 200);

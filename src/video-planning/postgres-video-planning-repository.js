@@ -67,10 +67,10 @@ export function createPostgresVideoPlanningRepository({ pool, ownsPool = false }
         const current = head(one(await client.query("SELECT * FROM video_plan_heads WHERE organization_id=$1 AND product_id=$2 FOR UPDATE",
           [value.organization_id,value.product_id])));
         if ((current?.row_version || 0) !== expectedHeadRevision) throw failure("VIDEO_PLAN_CONFLICT");
-        await client.query(`INSERT INTO video_plan_versions(id,organization_id,product_id,version_number,status,row_version,upstream_snapshot,capability_config_snapshot,output_instructions,parent_plan_version_id,created_by_member_id,created_at,updated_at,frozen_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, [value.id,value.organization_id,value.product_id,value.version_number,
+        await client.query(`INSERT INTO video_plan_versions(id,organization_id,product_id,version_number,status,row_version,upstream_snapshot,capability_config_snapshot,output_instructions,presentation_size_code,parent_plan_version_id,created_by_member_id,created_at,updated_at,frozen_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [value.id,value.organization_id,value.product_id,value.version_number,
           value.status,value.row_version,JSON.stringify(value.upstream_snapshot),JSON.stringify(value.capability_config_snapshot),value.output_instructions,
-          value.parent_plan_version_id,value.created_by_member_id,value.created_at,value.updated_at,value.frozen_at]);
+          value.presentation_size_code || "smart_fit", value.parent_plan_version_id,value.created_by_member_id,value.created_at,value.updated_at,value.frozen_at]);
         await client.query(`INSERT INTO video_plan_heads(organization_id,product_id,current_plan_id,row_version,updated_at) VALUES ($1,$2,$3,1,$4)
           ON CONFLICT (organization_id,product_id) DO UPDATE SET current_plan_id=excluded.current_plan_id,row_version=video_plan_heads.row_version+1,updated_at=excluded.updated_at`,
         [value.organization_id,value.product_id,value.id,value.updated_at]);
@@ -79,11 +79,11 @@ export function createPostgresVideoPlanningRepository({ pool, ownsPool = false }
         await appendAudit(client,audit); return value;
       });
     },
-    async saveDraft({ organizationId, planId, expectedRevision, outputInstructions, updatedAt, audit }) {
+    async saveDraft({ organizationId, planId, expectedRevision, outputInstructions, presentationSizeCode, updatedAt, audit }) {
       return withTransaction(pool, async (client) => {
-        const saved = plan(one(await client.query(`UPDATE video_plan_versions SET output_instructions=$4,row_version=row_version+1,updated_at=$5
+        const saved = plan(one(await client.query(`UPDATE video_plan_versions SET output_instructions=$4,presentation_size_code=$5,row_version=row_version+1,updated_at=$6
           WHERE organization_id=$1 AND id=$2 AND status='draft' AND row_version=$3 RETURNING *`,
-        [organizationId,planId,expectedRevision,outputInstructions,updatedAt])));
+        [organizationId,planId,expectedRevision,outputInstructions,presentationSizeCode || "smart_fit",updatedAt])));
         if (!saved) {
           const current = plan(one(await client.query("SELECT * FROM video_plan_versions WHERE organization_id=$1 AND id=$2", [organizationId,planId])));
           if (!current) return null;
@@ -103,10 +103,10 @@ export function createPostgresVideoPlanningRepository({ pool, ownsPool = false }
         if (!source) return null;
         if (source.status !== "frozen") throw failure("VIDEO_PLAN_DERIVE_BLOCKED");
         await client.query("UPDATE video_plan_versions SET status='superseded',updated_at=$2 WHERE id=$1", [sourcePlanId,value.created_at]);
-        await client.query(`INSERT INTO video_plan_versions(id,organization_id,product_id,version_number,status,row_version,upstream_snapshot,capability_config_snapshot,output_instructions,parent_plan_version_id,created_by_member_id,created_at,updated_at,frozen_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, [value.id,value.organization_id,value.product_id,value.version_number,
+        await client.query(`INSERT INTO video_plan_versions(id,organization_id,product_id,version_number,status,row_version,upstream_snapshot,capability_config_snapshot,output_instructions,presentation_size_code,parent_plan_version_id,created_by_member_id,created_at,updated_at,frozen_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [value.id,value.organization_id,value.product_id,value.version_number,
           value.status,value.row_version,JSON.stringify(value.upstream_snapshot),JSON.stringify(value.capability_config_snapshot),value.output_instructions,
-          value.parent_plan_version_id,value.created_by_member_id,value.created_at,value.updated_at,value.frozen_at]);
+          value.presentation_size_code || "smart_fit", value.parent_plan_version_id,value.created_by_member_id,value.created_at,value.updated_at,value.frozen_at]);
         await client.query("UPDATE video_plan_heads SET current_plan_id=$3,row_version=row_version+1,updated_at=$4 WHERE organization_id=$1 AND product_id=$2",
           [value.organization_id,value.product_id,value.id,value.updated_at]);
         await client.query("INSERT INTO video_planning_idempotency_receipts(receipt_key,payload_fingerprint,result,created_at) VALUES ($1,$2,$3,$4)",

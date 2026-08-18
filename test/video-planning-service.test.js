@@ -39,6 +39,13 @@ async function createAndPreflight(state, suffix = "one", outputInstructions = "�
   return state.service.getWorkspace(actor);
 }
 
+test("creates a plan with the canonical Hifly presentation size", async () => {
+  const state = world();
+  const created = await state.service.createPlan({ ...actor, outputInstructions: "首版制作说明",
+    presentationSizeCode: "small", expectedHeadRevision: 0, idempotencyKey: "create-presentation-size" });
+  assert.equal(created.current_plan.presentation_size_code, "small");
+});
+
 test("creates an immutable draft snapshot and derives edits from frozen plans", async () => {
   const state = world();
   const first = await state.service.createPlan({ ...actor, outputInstructions: "首版制作说明", expectedHeadRevision: 0,

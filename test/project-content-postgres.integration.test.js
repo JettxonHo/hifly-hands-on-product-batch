@@ -33,7 +33,7 @@ test("clean PostgreSQL project-content migration and shared A03 transaction roll
   await runIdentityMigrations(pool);
   await runAssetMigrations(pool);
   await runProjectContentMigrations(pool);
-  assert.equal((await pool.query("SELECT max(version)::integer version FROM project_content_schema_migrations")).rows[0].version, 1);
+  assert.equal((await pool.query("SELECT max(version)::integer version FROM project_content_schema_migrations")).rows[0].version, 2);
 
   const identityRepository = createPostgresIdentityRepository({ pool, ownsPool: false });
   const seeded = await seedInitialAdmin(identityRepository, {
@@ -50,7 +50,7 @@ test("clean PostgreSQL project-content migration and shared A03 transaction roll
   const { revision } = await service.createProduct({ ...actor, projectId: project.id, idempotencyKey: "pg-product", productName: "商品" });
   const available = await insertAssetVersion(pool, actor.organizationId, actor.actorMemberId, "available");
   const unavailable = await insertAssetVersion(pool, actor.organizationId, actor.actorMemberId, "verifying");
-  let draft = await service.saveRevision({ ...actor, productRevisionId: revision.id, expectedRevision: 1, productName: "商品", sellingPoints: [{ text: "卖点" }], assetVersionIds: [available, unavailable] });
+  let draft = await service.saveRevision({ ...actor, productRevisionId: revision.id, expectedRevision: 1, productName: "商品", physicalDimensions: { height: 18, width: 12, unit: "cm", weight: { value: 250, unit: "g" } }, sellingPoints: [{ text: "卖点" }], assetVersionIds: [available, unavailable] });
   draft = await service.confirmSellingPoint({ ...actor, productRevisionId: draft.id, pointId: draft.selling_points[0].id, expectedRevision: draft.revision_number });
   await assert.rejects(service.readyRevision({ ...actor, productRevisionId: draft.id, expectedRevision: draft.revision_number, idempotencyKey: "pg-ready-fail" }), { code: "ASSET_VERSION_NOT_AVAILABLE" });
   assert.equal((await service.getRevision({ ...actor, productRevisionId: draft.id })).status, "draft");
@@ -60,6 +60,8 @@ test("clean PostgreSQL project-content migration and shared A03 transaction roll
   draft = await service.saveRevision({ ...actor, productRevisionId: draft.id, expectedRevision: draft.revision_number, productName: "商品", sellingPoints: draft.selling_points, assetVersionIds: [available] });
   const ready = await service.readyRevision({ ...actor, productRevisionId: draft.id, expectedRevision: draft.revision_number, idempotencyKey: "pg-ready-ok" });
   assert.equal(ready.status, "ready");
+  assert.deepEqual(ready.physical_dimensions, { height: 18, width: 12, unit: "cm", weight: { value: 250, unit: "g" } });
   assert.equal((await pool.query("SELECT count(*)::integer count FROM asset_references WHERE reference_id=$1", [ready.id])).rows[0].count, 1);
   await assert.rejects(pool.query("UPDATE project_content_product_revisions SET product_name='覆盖' WHERE id=$1", [ready.id]), /immutable/);
+  await assert.rejects(pool.query("UPDATE project_content_product_revisions SET physical_dimensions='{}'::jsonb WHERE id=$1", [ready.id]), /immutable/);
 });

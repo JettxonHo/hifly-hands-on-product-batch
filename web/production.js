@@ -12,6 +12,7 @@
   const statusLabels = { draft: "草稿", ready: "已就绪", waiting_for_executor: "等待执行", claimed: "已领取", running: "执行中", requires_action: "需要处理", succeeded: "已完成", failed: "失败", cancel_requested: "取消中", cancelled: "已取消" };
   const packageLabels = { generating: "生成中", ready: "可下载", generation_failed: "生成未完成", superseded: "已由新版本替代", expired: "下载权限已过期", revoked: "已停用" };
   const planLabels = { frozen: "已批准方案", draft: "草稿方案", superseded: "已被替代" };
+  const presentationSizeLabels = { smart_fit: "智能适配", extra_large: "超大", large: "大", medium: "中", small: "小", extra_small: "超小" };
   const outcomeLabels = { completed: "已完成，等待核验", requires_action: "需要处理", failed: "执行失败", cancelled: "已取消" };
   const verificationLabels = { queued: "等待核验", running: "核验中", passed: "核验通过", failed: "核验未完成", requires_action: "需要处理" };
   const cloudReadinessLabels = { disabled: "未启用", unconfigured: "未配置", requires_login: "需要重新登录飞影", storage_blocked: "磁盘不足", available: "待命", busy: "执行中", requires_action: "需要人工处理" };
@@ -298,6 +299,25 @@
     updateLocation();
   }
   function snapshotCard(label, value, href) { const card = document.createElement("a"); card.className = "snapshot-card"; card.href = href; const copy = document.createElement("span"); const title = document.createElement("strong"); title.textContent = label; const meta = document.createElement("span"); meta.textContent = value; copy.append(title, meta); const link = document.createElement("span"); link.textContent = "查看 →"; card.append(copy, link); return card; }
+  function quantityText(value) { return value && typeof value === "object" && Number.isFinite(value.value) && typeof value.unit === "string" && value.unit ? `${value.value} ${value.unit}` : null; }
+  function physicalDimensionsText(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "未知";
+    const axis = Number.isFinite(value.height) && Number.isFinite(value.width) && typeof value.unit === "string" && value.unit
+      ? `${value.height} × ${value.width}${Number.isFinite(value.depth) ? ` × ${value.depth}` : ""} ${value.unit}` : null;
+    return axis || "未知";
+  }
+  function snapshotFact(label, value) { const row = document.createElement("div"); row.className = "snapshot-fact"; row.textContent = `${label}：${value}`; return row; }
+  function renderSnapshotFacts(snapshot, plan) {
+    const dimensions = snapshot?.product_revision_snapshot?.physical_dimensions;
+    const code = typeof plan?.presentation_size_code === "string" && plan.presentation_size_code.trim() ? plan.presentation_size_code.trim() : null;
+    const presentation = code && presentationSizeLabels[code] ? `${presentationSizeLabels[code]}（${code}）` : "未设置";
+    const facts = [snapshotFact("实物尺寸", physicalDimensionsText(dimensions))];
+    const capacity = quantityText(dimensions?.capacity), weight = quantityText(dimensions?.weight);
+    if (capacity) facts.push(snapshotFact("容量", capacity));
+    if (weight) facts.push(snapshotFact("重量", weight));
+    facts.push(snapshotFact("商品呈现大小", presentation));
+    element("#snapshotFacts").replaceChildren(...facts);
+  }
   function renderDetail() {
     const order = workspace.orders.find((item) => item.id === selectedOrderId) || null; element("#orderDetailEmpty").hidden = Boolean(order); element("#orderDetail").hidden = !order;
     if (!order) { element("#orderEmptyDescription").textContent = workspace.orders.length ? "选择左侧工单查看固定输入快照。" : workspace.gate.can_create ? "方案通过人工审核后，选择业务目的并创建第一个生产工单。" : "当前没有可创建工单的已批准方案，请返回视频方案处理。"; return; }
@@ -309,6 +329,7 @@
       snapshotCard("已确认人物", `${short(upstream.avatar_selection_id)} · 版本 ${short(upstream.avatar_asset_version_id)}`, `/avatar.html?project=${encodeURIComponent(project.id)}&product=${encodeURIComponent(product.id)}`),
       snapshotCard("视频方案", `v${plan.version_number || "?"} · 已批准`, planHref())
     );
+    renderSnapshotFacts(snapshot, plan);
     element("#orderCreatedMeta").textContent = `创建于 ${formatTime(order.created_at)} · 工单输入只读固定。`;
     notice(element("#orderDetailNotice"), order.status === "waiting_for_executor" ? "工单已提交，等待 Cloud Executor 领取；不会自动开始其他执行路径。" : "");
   }
