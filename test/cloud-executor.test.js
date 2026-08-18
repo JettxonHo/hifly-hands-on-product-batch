@@ -407,6 +407,59 @@ test("heartbeat gate failure after an executor exception writes no terminal repo
   assert.equal(world.verificationCalls.length, 0);
 });
 
+test("terminal heartbeat gate read failure loses the lease and writes no report", async () => {
+  const world = makeCloudWorld({ executor: { async run() { throw new Error("fake failure"); } } });
+  const getAttempt = world.repository.getAttempt.bind(world.repository);
+  const saveReport = world.repository.saveReport.bind(world.repository);
+  let getAttemptCalls = 0;
+  let saveReportCalls = 0;
+  world.repository.getAttempt = async (...args) => {
+    getAttemptCalls += 1;
+    if (getAttemptCalls === 1) {
+      throw Object.assign(new Error("attempt read unavailable"), { code: "ATTEMPT_READ_FAILED" });
+    }
+    return getAttempt(...args);
+  };
+  world.repository.saveReport = async (input) => {
+    saveReportCalls += 1;
+    return saveReport(input);
+  };
+
+  await assert.rejects(world.service.runOnce(), { code: "CLOUD_EXECUTOR_LEASE_LOST" });
+
+  const attempts = await world.repository.listAttempts(ORGANIZATION_ID, world.order.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, attempts[0].id);
+  assert.equal(saveReportCalls, 0);
+  assert.equal(attempts[0].status, "running");
+  assert.equal(reports.length, 0);
+});
+
+test("terminal heartbeat gate ownership mismatch loses the lease and writes no report", async () => {
+  const world = makeCloudWorld({ executor: { async run() { throw new Error("fake failure"); } } });
+  const getAttempt = world.repository.getAttempt.bind(world.repository);
+  const saveReport = world.repository.saveReport.bind(world.repository);
+  let getAttemptCalls = 0;
+  let saveReportCalls = 0;
+  world.repository.getAttempt = async (...args) => {
+    getAttemptCalls += 1;
+    const current = await getAttempt(...args);
+    if (getAttemptCalls === 1) return { ...current, executor_cloud_id: "different-cloud-executor" };
+    return current;
+  };
+  world.repository.saveReport = async (input) => {
+    saveReportCalls += 1;
+    return saveReport(input);
+  };
+
+  await assert.rejects(world.service.runOnce(), { code: "CLOUD_EXECUTOR_LEASE_LOST" });
+
+  const attempts = await world.repository.listAttempts(ORGANIZATION_ID, world.order.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, attempts[0].id);
+  assert.equal(saveReportCalls, 0);
+  assert.equal(attempts[0].status, "running");
+  assert.equal(reports.length, 0);
+});
+
 test("fake execution heartbeats the single leased attempt before reporting", async () => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });

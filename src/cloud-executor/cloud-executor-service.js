@@ -362,13 +362,17 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       let heartbeatFinish = null;
       finishHeartbeats = () => {
         if (!heartbeatFinish) heartbeatFinish = (async () => {
-          heartbeatsClosed = true;
-          clearInterval(timer);
-          await heartbeatWork;
-          if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
-          const current = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
-          if (current.status !== "running") throw failure("CLOUD_EXECUTOR_LEASE_LOST");
-          return current;
+          try {
+            heartbeatsClosed = true;
+            clearInterval(timer);
+            await heartbeatWork;
+            if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+            const current = attemptOwned(await repository.getAttempt(identity.organizationId, attempt.id));
+            if (current.status !== "running") throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+            return current;
+          } catch {
+            throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+          }
         })();
         return heartbeatFinish;
       };
@@ -416,15 +420,19 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       if (finishHeartbeats) {
         try {
           terminalAttempt = await finishHeartbeats();
-        } catch (heartbeatGateError) {
-          terminalError = heartbeatGateError;
+        } catch {
+          terminalError = failure("CLOUD_EXECUTOR_LEASE_LOST");
         }
       }
       if (terminalError?.code === "CLOUD_EXECUTOR_LEASE_LOST") {
-        const current = await repository.getAttempt(identity.organizationId, claimedAttempt.id);
-        if (current && ["claimed", "running"].includes(current.status) && hasExpiredLease(current, now())) await expireLease(current);
-      } else if (started?.attempt?.status === "running") {
-        const current = terminalAttempt || await repository.getAttempt(identity.organizationId, claimedAttempt.id);
+        try {
+          const current = await repository.getAttempt(identity.organizationId, claimedAttempt.id);
+          if (current && ["claimed", "running"].includes(current.status) && hasExpiredLease(current, now())) await expireLease(current);
+        } catch {
+          // Lease-loss cleanup is best effort; it must not reopen terminal reporting or replace the stable error.
+        }
+      } else if (started?.attempt?.status === "running" && terminalAttempt) {
+        const current = terminalAttempt;
         const order = await getOrder(claimedOrder.id);
         if (current?.status === "running" && order.status === "running") {
           if (terminalError?.code === "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN" || terminalError?.outcome === "requires_action") {

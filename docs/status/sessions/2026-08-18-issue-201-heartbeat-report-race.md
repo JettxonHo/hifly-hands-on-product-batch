@@ -47,7 +47,8 @@ PostgreSQL RED 均在排队 heartbeat 后让执行器抛异常，并再次确定
 - candidate 上传完成后重新读取同一组织、同一 Cloud Executor 所属且仍为 `running` 的 exact attempt；
 - 使用该最新 `row_version` 一次写入 terminal report 与 candidate 状态；repository 的 `expectedRevision` 校验完全保留；
 - 正常返回和抛异常形成的 failed、requires_action 与 completed terminal report 全部共用同一个幂等 heartbeat 收束器
-  与最新 attempt 门禁；heartbeat gate 自身失败时转为 `CLOUD_EXECUTOR_LEASE_LOST`，不继续写 terminal report。
+  与最新 attempt 门禁；排队 heartbeat/progress、最终 attempt 读取、Cloud Executor 归属校验或 running 状态任一失败均统一
+  转为 `CLOUD_EXECUTOR_LEASE_LOST`，不继续写 terminal report，也不通过兜底重读恢复报告写入。
 
 该修复不自动重试 Provider、不复用失败生产单、不创建第二个 attempt，也不改变 A12/Work 触发条件。
 
@@ -67,8 +68,8 @@ GREEN：
 - memory 竞态 seam：1/1；
 - PostgreSQL 16 集成：1/1；
 - 正常 candidate 上传竞态以及异常 failed/requires_action 竞态均有 memory RED；异常 failed 分支另有 PostgreSQL RED；
-- `test/cloud-executor.test.js`：21/21，其中 heartbeat gate 失败明确保持零 terminal report；
-- Cloud Executor + ManualExecution service + control plane + Playwright adapter 相关组：43/43；
+- `test/cloud-executor.test.js`：23/23，其中 heartbeat 冲突、最终 attempt 读取失败与归属不匹配均明确保持零 terminal report；
+- Cloud Executor + ManualExecution service + control plane + Playwright adapter 相关组：45/45；
 - `npm run check`：230 个 JavaScript 文件；
 - `git diff --check`：通过。
 
@@ -82,6 +83,14 @@ GREEN：
 ManualExecution Cloud Executor PostgreSQL 集成。该 run 发生在异常出口纠正前，只证明当时 fixed head。异常出口纠正
 代码提交 `fc7f54362f117d43797dff41d5b7a207c4edfae5` 的 run `32146906399` 三组也均为 SUCCESS：Ubuntu 56 秒、
 Windows 1 分 37 秒、identity-postgres 1 分 5 秒。本地或 CI 绿色不替代部署、真实 Worker、Provider 或积分验收。
+
+第二轮独立审阅进一步指出：第一版异常收口只把已标记为 lease-lost 的门禁错误视为 fail closed；最终 attempt 读取失败或
+归属不匹配会保留原错误码，外层随后通过兜底读取写 failed/requires_action。新增两条 memory RED 在未修复 head
+`b7ac56d63b3d94083d6bc2ffea05478c0686d72c` 均得到 `Missing expected rejection`，证明旧实现实际落回了终态报告路径。
+GREEN 将所有终态门禁失败归一为 `CLOUD_EXECUTOR_LEASE_LOST`，并要求 terminal write 只能消费门禁成功返回的 exact
+owned/running attempt；两条回归 2/2、Cloud Executor 23/23、相关组 45/45，真实 PostgreSQL 16 集成仍为 1/1。
+同一候选在最终检查时重新运行默认 `npm test`，得到 1057 total / 1043 pass / 14 既有环境门禁 skip / 0 fail；此前
+影刀临时文件竞态未在本次运行复现。该结果不改写上一次真实失败记录，也不替代 fixed-head CI。
 
 ## 文件边界
 
