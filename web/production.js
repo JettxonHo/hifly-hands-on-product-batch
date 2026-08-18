@@ -130,6 +130,23 @@
       && (workspace?.orders || []).length === 0;
   }
 
+  function persistedTerminalProjection(selectedOrder) {
+    if (selectedOrder?.status !== "succeeded") return null;
+    const rawVerificationStatus = verification?.job?.verification_status;
+    const verificationStatus = ["queued", "running"].includes(rawVerificationStatus)
+      ? "pending"
+      : ["passed", "failed", "requires_action"].includes(rawVerificationStatus)
+        ? rawVerificationStatus
+        : "not_started";
+    const work = verification?.delivery_work || null;
+    return {
+      executionStatus: execution?.current_attempt?.status === "succeeded" || selectedOrder.status === "succeeded" ? "succeeded" : "pending",
+      verificationStatus,
+      deliveryStatus: work?.delivery_status || "not_available",
+      work
+    };
+  }
+
   function renderGate() {
     const reasons = workspace?.gate?.reasons || [];
     const plan = workspace?.current_plan;
@@ -210,10 +227,12 @@
       element("#productionTaskNextStep").textContent = "返回当前有效包或重新生成";
     } else if (packageStatus === "ready") {
       const cloudMatchesOrder = cloudExecutor?.current_order?.id === selectedOrder.id;
-      const executionStatus = cloudExecutor?.execution?.status || "pending";
-      const verificationStatus = cloudExecutor?.verification?.status || "not_started";
-      const deliveryStatus = cloudExecutor?.delivery?.status || "not_available";
-      const work = cloudExecutor?.work || null;
+      const persistedTerminal = !cloudMatchesOrder ? persistedTerminalProjection(selectedOrder) : null;
+      const executionStatus = persistedTerminal?.executionStatus || cloudExecutor?.execution?.status || "pending";
+      const verificationStatus = persistedTerminal?.verificationStatus || cloudExecutor?.verification?.status || "not_started";
+      const deliveryStatus = persistedTerminal?.deliveryStatus || cloudExecutor?.delivery?.status || "not_available";
+      const work = persistedTerminal?.work || cloudExecutor?.work || null;
+      const terminalMatchesOrder = cloudMatchesOrder || Boolean(persistedTerminal);
       const attemptRunning = cloudMatchesOrder && (cloudExecutor?.current_attempt?.status === "running" || cloudExecutor?.current_order?.status === "running" || cloudExecutor?.readiness?.status === "busy");
 
       if (selectedOrder.status === "cancel_requested") {
@@ -239,22 +258,22 @@
         element("#productionTaskDescription").textContent = "当前工单正在生成，状态会持续更新。";
         status.textContent = "正在生成"; status.className = "state waiting_for_executor";
         element("#productionTaskNextStep").textContent = "等待";
-      } else if (cloudMatchesOrder && executionStatus === "succeeded" && ["failed", "requires_action"].includes(verificationStatus)) {
+      } else if (terminalMatchesOrder && executionStatus === "succeeded" && ["failed", "requires_action"].includes(verificationStatus)) {
         element("#productionTaskTitle").textContent = "作品文件核验需要处理";
         element("#productionTaskDescription").textContent = "生成结果已保留，需先处理文件核验问题。";
         status.textContent = "文件核验需处理"; status.className = "state blocked";
         element("#productionTaskNextStep").textContent = "处理核验问题";
-      } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "pending") {
+      } else if (terminalMatchesOrder && executionStatus === "succeeded" && verificationStatus === "pending") {
         element("#productionTaskTitle").textContent = "正在核验作品文件";
         element("#productionTaskDescription").textContent = "正在确认作品文件是否可用于后续验收。";
         status.textContent = "正在核验作品文件"; status.className = "state waiting_for_executor";
         element("#productionTaskNextStep").textContent = "等待";
-      } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "passed" && !work) {
+      } else if (terminalMatchesOrder && executionStatus === "succeeded" && verificationStatus === "passed" && !work) {
         element("#productionTaskTitle").textContent = "正在登记作品";
         element("#productionTaskDescription").textContent = "文件核验已通过，正在形成可验收作品。";
         status.textContent = "正在登记作品"; status.className = "state waiting_for_executor";
         element("#productionTaskNextStep").textContent = "等待";
-      } else if (cloudMatchesOrder && verificationStatus === "passed" && work?.id && ["pending_review", "rework_required", "deliverable", "delivered"].includes(deliveryStatus)) {
+      } else if (terminalMatchesOrder && verificationStatus === "passed" && work?.id && ["pending_review", "rework_required", "deliverable", "delivered"].includes(deliveryStatus)) {
         const workStates = {
           pending_review: { title: "作品等待检查", description: "作品文件已登记，需先完成内容检查。", status: "作品待检查", tone: "blocked", next: "进入作品库检查", action: "进入作品库检查 →" },
           rework_required: { title: "作品需要返工", description: "检查已提出返工要求，当前工单不会自动重新生产。", status: "作品需要返工", tone: "blocked", next: "查看返工要求", action: "查看返工要求 →" },
@@ -270,7 +289,7 @@
         taskAction.textContent = workState.action;
         taskAction.hidden = false;
         taskAction.setAttribute("data-recommended-action", "true");
-      } else if (cloudMatchesOrder && executionStatus === "succeeded" && verificationStatus === "not_started") {
+      } else if (terminalMatchesOrder && executionStatus === "succeeded" && verificationStatus === "not_started") {
         element("#productionTaskTitle").textContent = "生成完成，等待文件核验";
         element("#productionTaskDescription").textContent = "生成结束不等于本单完成，仍需核验作品文件。";
         status.textContent = "生成完成，待文件核验"; status.className = "state blocked";
@@ -523,6 +542,10 @@
     if (!runtime?.artifactVerificationEnabled || !selectedOrderId) { verification = null; verificationReadError = ""; if (render) renderVerification(); return; }
     try {
       verification = await request(`/api/production-orders/${encodeURIComponent(selectedOrderId)}/work-verification`);
+      if (runtime?.worksEnabled && verification?.work?.id) {
+        const deliveryWorkspace = await request(`/api/works/${encodeURIComponent(verification.work.id)}`);
+        verification.delivery_work = deliveryWorkspace.work;
+      }
       verificationReadError = "";
       if (render) renderVerification();
       scheduleVerificationPoll();

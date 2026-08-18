@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@db36cc53` 已部署到内部验收环境，Issue #193 migration 与三页真实管理员只读验收通过。Issue #190 的窄修复与本状态更新必须作为同一变更进入 `main` 后才计为仓库已修复，且仍未部署；#191 仍未修复。可信 TLS 与 #193 的受控 Provider 效果验收均未完成，因此不等同于公网生产就绪、真实新尺寸出片、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@db36cc53` 已部署到内部验收环境，Issue #193 migration 与三页真实管理员只读验收通过。Issue #190 已合并进入仓库但尚未部署；Issue #191 的窄修复与本状态更新只有一起合并进入 `main` 后才计为仓库已修复。两项合并后的统一部署与真实管理员复验仍是独立后续门禁。可信 TLS 与 #193 的受控 Provider 效果验收均未完成，因此不等同于公网生产就绪、真实新尺寸出片、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -17,8 +17,24 @@
 - 公开真实 Chrome 回归使用同一个 `/api/assets` fixture 同时提供三类 active+available 素材：修复前人物图片
   实际进入候选（RED），修复后仅商品图片可见可选，并继续覆盖历史 revision 只读、dirty 保护、409 恢复、
   素材失效刷新和 Ready 竞态提示。
-- 该结论只有在 accompanying implementation 与本状态更新合并进入 `main` 后才表示仓库修复；尚未部署或完成
-  内部验收环境复验。#191 Production 终态投影仍是下一项独立 P1，不在本切片范围内。
+- 该修复已通过 Issue #190 / PR #196 合并进入 `main@3566a1b`；尚未部署或完成内部验收环境复验。
+
+## Issue #191 Production 终态真值恢复
+
+- Product/API gate 确认现有组织隔离 seam 已足够：Production workspace 提供所选持久化工单，manual execution
+  提供 attempt/report，work verification 提供 A12 job 与 Work ID，`GET /api/works/:workId` 提供检查和交付真值；
+  不需要新增或修改 API、数据库、领域状态与权限合同。
+- 当所选工单已为 `succeeded` 时，Production 首屏从该工单的持久化 execution、A12 与 Work 投影恢复下一步，
+  不再因 Cloud Executor 离线或 `current_order=null` 回落为激活前“生产门禁未通过”。A12 未发起、排队/运行、
+  失败/需处理、通过但尚未登记 Work，以及 Work 的 `pending_review` / `rework_required` / `deliverable` /
+  `delivered` 均保持独立业务状态与唯一下一步。
+- 修复只适用于已成功工单的终态恢复。`waiting_for_executor + ready package` 的激活前 fail-closed、组织级唯一
+  eligible、当前工单零 attempt、active attempts=0、claimed/running/failed/requires_action/cancel、失败停批、
+  无自动重试和企业 Web 无 Worker 启停命令的合同均未改变。
+- 公开真实 Chrome 回归先复现 succeeded + A12 passed + Work pending_review + Worker offline 时错误显示
+  “生产门禁未通过”（RED），再锁定持久化 A12/Work 状态矩阵、刷新恢复、唯一推荐动作及 1440/768/390。
+- 该结论只有在 accompanying implementation 与本状态更新合并进入 `main` 后才表示仓库修复；尚未部署。
+  #190 与 #191 合并后的统一部署和真实管理员复验仍是独立后续门禁。
 
 ## UX V1 Slice A 仓库实现
 
@@ -159,8 +175,8 @@
   显示六档原生选择并以“智能适配”承接迁移默认；历史 ProductionOrder 的冻结 input snapshot 没有新字段，页面诚实
   显示“实物尺寸：未知 / 商品呈现大小：未设置”，没有用当前 Plan 反向改写历史。三页 console errors=[]，本轮没有
   保存 ProductRevision、derive/save/preflight/review Plan，也没有创建工单或新交接包。
-- #190 与 #191 仍为既有 P1：Project 仍会把 `work_video` 混入商品图片；Worker 关闭后 Production 顶层摘要仍会
-  抹去 terminal Work 真值。本轮只部署并验证 #193，没有把两项误写成已修复。
+- #190 的仓库修复已合并但尚未部署；#191 的仓库修复只有随 accompanying implementation 合并后才成立。
+  当前内部验收环境仍保留部署时观察到的两项旧行为，本轮没有把仓库修复误写成部署完成。
 - 未访问 Hifly、未启动 Worker、未生成视频、未消耗积分。呈现大小不自动证明瓶盖、包装、标签或商品形态保真；
   下一次真实生成仍需独立单条积分授权。入口仍是 IP + 自签证书，不能宣称公网生产就绪。
 - 完整部署与证据边界见 `docs/status/sessions/2026-08-18-issue-193-internal-deployment.md`。
@@ -323,9 +339,9 @@
 
 1. Issue #193 migration、应用与无积分只读界面/历史快照验收已经完成；任何真实飞影效果验收仍须另起受控
    零-attempt 工单并获得单条积分授权，在付费生成前核对呈现档位，并单独验收外观保真。
-2. 严格串行处理两个部署后 P1：先修 #190，确保 Project 只接受真实 `product_image`；合并后再修 #191，恢复
-   Production 对 terminal Work 的稳定投影。#191 修复不得弱化激活前 fail-closed、唯一 eligible、零初始 attempt、
-   terminal 关 Worker、失败停批与不自动重试门禁。
+2. #190 已合并；当前严格串行完成 #191，恢复 Production 对 terminal Work 的稳定投影。#191 修复不得弱化
+   激活前 fail-closed、唯一 eligible、零初始 attempt、terminal 关 Worker、失败停批与不自动重试门禁。
+   两项合并后再进入统一部署与真实管理员复验。
 3. 继续 P0.5 release-readiness：V2 与依赖治理已部署到内部验收环境；下一步由部署负责人取得正式域名并按可信 TLS 清单完成 DNS、可信证书、严格 CA 和 HTTP→HTTPS 验收。
 4. 保持 Cloud Executor 默认 disabled/fail-closed、并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
