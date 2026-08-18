@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-18
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@5c6384d` 已部署到内部验收环境，运营工作台 V2 核心页面完成真实管理员只读验收并带 #190/#191 两个 P1 条件通过。可信 TLS 仍未完成，因此不等同于公网生产就绪、自动批量队列或长期稳定性证明。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；`main@db36cc53` 已部署到内部验收环境，Issue #193 migration 与三页真实管理员只读验收通过，#190/#191 两个既有 P1 仍未修复。可信 TLS 与 #193 的受控 Provider 效果验收均未完成，因此不等同于公网生产就绪、真实新尺寸出片、自动批量队列或长期稳定性证明。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -132,23 +132,25 @@
 - 只读静态证据已核实飞影六档映射：智能适配 `0`、超大 `50`、大 `40`、中 `30`、小 `20`、
   超小 `10`；选中态由对应图片的本地化 `alt` 与父容器 `actived` 类共同验证。执行器在付费生成前
   必须选择并验证期望档位；控件缺失、映射不支持或选中态不可验证时 fail closed。
-- 该仓库改动没有部署，没有启动 Worker，也没有点击飞影付费生成；因此不是真实 Provider 出片验收。
-  呈现大小不自动证明外观保真，瓶盖、包装、标签或商品形态仍必须在 Works 检查中单独验收。
+- Issue #193 已随精确 `main@db36cc53d63f1db85e810bd72b0a8b21d86aedfa` 部署到阿里云内部验收环境。
+  13 组 production migration 全部成功：`physical_dimensions` 为 nullable JSONB 且 object check 生效；
+  `presentation_size_code` 为 NOT NULL、默认 `smart_fit` 且六档 check 生效。既有 10 个 ProductRevision 保持
+  SQL `NULL`，既有 6 个 VideoPlan 安全回填 `smart_fit`，invalid=0。
 - PostgreSQL 16 回归已覆盖实物尺寸默认未知、对象往返和显式清空：未知或清空使用 SQL `NULL`，不写入
   JSONB `null`。CI 的 PostgreSQL job 严格串行执行 Identity、ProjectContent v2 与 VideoPlanning v2 集成测试；
   VideoPlanning 测试先应用其真实依赖的 Asset migrations，避免缺表被环境 skip 掩盖。
-- 真实管理员会话验证：登录后根路径进入 Projects；显式 `/index.html` 保留 legacy 与“进入项目”入口。
-  Projects、Project、Copy、Avatar、Plan、Production、Works、Assets、Members 九页均在
-  `1440x900 / 768x900 / 390x844` 下无页面级横向溢出，一级导航稳定为“项目 / 作品库 / 素材中心 / 成员管理”。
-- Project→Copy→Avatar→Plan 五阶段、Copy 的 QC 与人工审核分离、Plan 的 preflight 与人工批准分离、Works 已交付
-  唯一推荐“查看交付记录”、Assets 三种真实分类与 `work_video` 只读均通过。Copy/Plan Tab 的 ARIA 与 roving
-  tabindex 实跑通过，九页 console errors 为空。
-- 本次结论为“部署成功、核心 V2 可用、带两个 P1 条件通过”：#190 记录商品资料页把 `work_video` 混入商品图片
-  选择器；#191 记录 Worker 关闭后 Production 抹去 terminal Work 真值。二者均未在本 docs-only 收口中修复。
-- 仍使用 IP + 自签证书；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 尚未完成。本轮不是公网生产就绪、
-  客户采用、Provider 验收、自动批量或长期稳定性证明。
-- 完整执行与证据边界见
-  `docs/status/sessions/2026-08-18-operator-workbench-v2-internal-deployment.md`。
+- 候选 App image 在 `--network none` 下完成 Issue #193 相关隔离组 139/139；部署后的 Project、Plan、Production
+  六个 HTML/JS 文件与仓库目标提交逐字节一致。只 recreate App，App healthy 后 restart Proxy；PostgreSQL 未重启，
+  Cloud Executor 与 Local Agent 均保持关闭，最终 `eligible=0`、`active_attempts=0`、`waiting_orders=0`。
+- 真实管理员只读验收确认：防晒霜当前 ProductRevision 的实物尺寸保持未知且 UI 留空；当前 approved/frozen Plan
+  显示六档原生选择并以“智能适配”承接迁移默认；历史 ProductionOrder 的冻结 input snapshot 没有新字段，页面诚实
+  显示“实物尺寸：未知 / 商品呈现大小：未设置”，没有用当前 Plan 反向改写历史。三页 console errors=[]，本轮没有
+  保存 ProductRevision、derive/save/preflight/review Plan，也没有创建工单或新交接包。
+- #190 与 #191 仍为既有 P1：Project 仍会把 `work_video` 混入商品图片；Worker 关闭后 Production 顶层摘要仍会
+  抹去 terminal Work 真值。本轮只部署并验证 #193，没有把两项误写成已修复。
+- 未访问 Hifly、未启动 Worker、未生成视频、未消耗积分。呈现大小不自动证明瓶盖、包装、标签或商品形态保真；
+  下一次真实生成仍需独立单条积分授权。入口仍是 IP + 自签证书，不能宣称公网生产就绪。
+- 完整部署与证据边界见 `docs/status/sessions/2026-08-18-issue-193-internal-deployment.md`。
 
 ## P0.5 内部验收环境部署
 
@@ -306,8 +308,8 @@
 
 ## 下一步
 
-1. Issue #193 仓库合并后，先部署 migration 与应用并做无积分界面/快照/交接包验收；任何真实飞影出片
-   仍须另起受控工单，在付费生成前核对呈现档位，并单独验收外观保真。
+1. Issue #193 migration、应用与无积分只读界面/历史快照验收已经完成；任何真实飞影效果验收仍须另起受控
+   零-attempt 工单并获得单条积分授权，在付费生成前核对呈现档位，并单独验收外观保真。
 2. 严格串行处理两个部署后 P1：先修 #190，确保 Project 只接受真实 `product_image`；合并后再修 #191，恢复
    Production 对 terminal Work 的稳定投影。#191 修复不得弱化激活前 fail-closed、唯一 eligible、零初始 attempt、
    terminal 关 Worker、失败停批与不自动重试门禁。
