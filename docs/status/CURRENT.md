@@ -253,8 +253,10 @@
 
 - Product/API gate 确认现有 Production workspace、manual execution 与 Cloud Executor 状态投影已足够，不需要扩展
   API、数据库、领域状态或权限合同。
-- 对所选持久化 `failed` 工单，即使 Worker offline 且 `current_order=null`，首屏仍优先显示“生产失败，已停止”，
-  并从同一工单的 failed attempt/report 提供唯一“查看失败详情”动作；没有同工单报告时只允许返回视频方案检查输入。
+- 对所选持久化 `failed` 工单，即使 Worker offline、`current_order=null`，或 Cloud status 仍残留同一工单的
+  claimed/running/failed 与 pending execution 投影，首屏仍优先显示“生产失败，已停止”；只有 exact execution
+  workspace 中同一工单的 failed attempt 与 failed report 同时成立时才提供唯一“查看失败详情”动作，否则只允许
+  返回视频方案检查输入。
 - 失败摘要明确不会自动重试、重新领取或创建下一单。在线 current order 的失败/需处理语义、
   `waiting_for_executor + ready package` 激活前 fail-closed、requires_action、取消与 succeeded+A12+Work 状态矩阵保持不变。
 - 公开真实 Chrome seam 在未修复基线得到“生产门禁未通过”（RED），最小修复后锁定失败终态、唯一安全动作、

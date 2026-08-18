@@ -221,9 +221,9 @@ test("approved Plan with no order exposes one business-first Production recommen
     const response = await route.fetch();
     const body = await response.json();
     const persistedOrderId = new URL(route.request().url()).searchParams.get("orderId") || body.selected_order?.id || body.orders.at(-1)?.id;
-    const projectedOrder = cloudState.current_order || (persistedOrderStatus && persistedOrderId
+    const projectedOrder = persistedOrderStatus && persistedOrderId
       ? { id: persistedOrderId, status: persistedOrderStatus }
-      : null);
+      : cloudState.current_order;
     if (projectedOrder?.id) {
       body.orders = body.orders.map((order) => order.id === projectedOrder.id
         ? { ...order, status: projectedOrder.status }
@@ -573,6 +573,88 @@ test("approved Plan with no order exposes one business-first Production recommen
   assert.equal(await page.locator("#manualHistorySection").isVisible(), true);
   assert.equal(await page.locator("#reenterManualExecution").isHidden(), true);
   await assertCreateOrderBlocked();
+
+  await reloadCloudState({
+    worker: { connection: "online", last_heartbeat_at: "2026-08-18T12:37:29.951Z" },
+    readiness: { status: "busy" },
+    worker_state: "busy",
+    current_order: { id: selectedOrderId, status: "running" },
+    current_attempt: { id: "attempt-v2-production-stale-running", status: "running", progress_phase: "waiting_provider" },
+    progress: { phase: "waiting_provider", label: "等待生成", updated_at: "2026-08-18T12:37:29.951Z" },
+    execution: { status: "pending" },
+    verification: { status: "not_started" },
+    work: null,
+    delivery: { status: "not_available" },
+    failure: null
+  });
+  const staleRunningFailedSummary = await assertCloudTaskSummary({
+    status: "生产失败，已停止",
+    next: "查看失败详情",
+    recommended: "productionTaskAction"
+  });
+  assert.doesNotMatch(staleRunningFailedSummary, /正在生成|等待生产门禁核对|生产门禁未通过/);
+  await assertCreateOrderBlocked();
+
+  await reloadCloudState({
+    worker: { connection: "online", last_heartbeat_at: "2026-08-18T12:37:29.994Z" },
+    readiness: { status: "available" },
+    worker_state: "standby",
+    current_order: { id: selectedOrderId, status: "failed" },
+    current_attempt: { id: "attempt-v2-production-stale-failed", status: "failed", progress_phase: "failed" },
+    progress: { phase: "failed", label: "执行失败", updated_at: "2026-08-18T12:37:29.994Z" },
+    execution: { status: "pending" },
+    verification: { status: "not_started" },
+    work: null,
+    delivery: { status: "not_available" },
+    failure: null
+  });
+  const staleFailedPendingSummary = await assertCloudTaskSummary({
+    status: "生产失败，已停止",
+    next: "查看失败详情",
+    recommended: "productionTaskAction"
+  });
+  assert.doesNotMatch(staleFailedPendingSummary, /正在生成|等待生产门禁核对|生产门禁未通过/);
+  await assertCreateOrderBlocked();
+
+  persistedExecution = {
+    order: { id: "order-v2-production-other", status: "failed" },
+    current_attempt: { id: "attempt-v2-production-other", status: "failed" },
+    candidates: [],
+    reports: [{
+      id: "report-v2-production-other",
+      report_version: 1,
+      outcome: "failed",
+      submitted_at: "2026-08-18T12:37:30.000Z",
+      error_category: "cloud_executor",
+      failure_stage: "playwright_execution",
+      retryability: "not_retryable"
+    }]
+  };
+  await reloadCloudState(cloudState);
+  await assertCloudTaskSummary({
+    status: "生产失败，已停止",
+    next: "返回视频方案检查输入",
+    recommended: "productionTaskAction"
+  });
+  assert.match(await page.locator("#productionTaskAction").getAttribute("href"), /^\/plan\.html\?/);
+  assert.notEqual(await page.locator("#productionTaskAction").getAttribute("href"), "#manualHistorySection");
+  await assertCreateOrderBlocked();
+
+  persistedExecution = {
+    order: { id: selectedOrderId, status: "failed" },
+    current_attempt: { id: "attempt-v2-production-persisted-failed", status: "failed" },
+    candidates: [],
+    reports: [{
+      id: "report-v2-production-persisted-failed",
+      report_version: 1,
+      outcome: "failed",
+      submitted_at: "2026-08-18T12:37:29.994Z",
+      error_category: "cloud_executor",
+      failure_stage: "playwright_execution",
+      retryability: "not_retryable"
+    }]
+  };
+  await reloadCloudState(cloudState);
 
   const failedScreenshotRoot = path.join(os.tmpdir(), "hifly-issue202-failed-order-screenshots");
   await mkdir(failedScreenshotRoot, { recursive: true });
