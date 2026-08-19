@@ -105,10 +105,15 @@ Fidelity-A 的 acceptance artifact 为
 `main` 后才计为 `designed`，并采用生产前独立候选门禁：
 
 - `AppearanceCaptureRequest` 持有一次候选生成意图、管理员授权、单次上限与短生命周期异步状态；
-- `AppearanceCandidate` 只在真实候选 bytes 进入系统管理 AssetVersion 并完成服务端核验后创建；
-- `AppearanceCheckRun/Result` 分离技术运行与逐维业务结论；
+- 不可变 `AppearanceCandidate` 只在真实候选 bytes 进入系统管理 AssetVersion 并完成服务端核验后创建；1:1
+  `AppearanceCandidateState` 持有可变 current state 和 row version；
+- 私有 append-only `ProviderReferenceObservation` 以 exact ID、policy 与有效期证明引用当前可用；过期或无法安全再观察
+  一律 unknown 并阻断；
+- `AppearanceCheckRun/Result` 分离技术运行与逐维业务结论，精确 result 绑定 candidate state revision、输入 checksum 和
+  policy/model version；
 - `AppearanceReview` 保存独立人工批准、拒绝、撤销与历史；
-- Production snapshot / handoff 只冻结仍为 current、readable、approved 的 exact evidence chain，不复制临时 URL 或凭据。
+- Production snapshot / handoff 只冻结仍为 current、readable、approved 的 exact evidence chain 与 create/claim Observation
+  证据，不复制临时 URL 或凭据。
 
 该设计不授权实现这些对象。Fidelity-B～E 仍需严格串行的独立 Issue、TDD、Review 和费用/Provider gate。
 
@@ -160,7 +165,7 @@ Logo、标签文字被合理遮挡时可以是“无法判断”，不能推断�
 | 切片 | 目标 | 停止条件 |
 |---|---|---|
 | Fidelity-0 | Provider capability：证明候选 bytes/reference、生命周期、计费边界、安全暂停/恢复与精确源图上传对应关系 | 有界 Evidence 已建立；长期/跨设备与领域 AssetVersion 绑定留给后续设计，不自动进入实现 |
-| Fidelity-A | 领域/API：采用生产前独立候选门禁，定义 CaptureRequest/Candidate/Check/Review、组织隔离、审计和幂等 | 随独立审阅后的合同 PR 合并才计为 designed；不自动授权实现 |
+| Fidelity-A | 领域/API：采用生产前独立候选门禁，定义 CaptureRequest/Candidate/State/Provider Observation/Check/Review、组织隔离、审计和幂等 | 随独立审阅后的合同 PR 合并才计为 designed；不自动授权实现 |
 | Fidelity-B | Provider capture：按 Fidelity-0 已接受 seam 保存精确候选，DOM/API 漂移时失败关闭 | 实现与已接受 Provider 证据不一致时停止 |
 | Fidelity-C | 运营审核：预览证据、批准/拒绝、冲突与历史 | 不得伪造自动通过或最终 Works 通过 |
 | Fidelity-D | Production 集成：冻结引用、handoff、显式视频阶段和去重提交 | 无法证明一次批准只产生一次提交时停止 |

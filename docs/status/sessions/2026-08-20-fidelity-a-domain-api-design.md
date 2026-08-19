@@ -30,12 +30,30 @@ Fidelity-0 只证明同 Profile 即时恢复，不证明长期/跨设备 Provide
 ## 本次决定
 
 1. `AppearanceCaptureRequest` 管理候选意图、管理员单次授权与短生命周期异步状态；创建 request 本身不访问 Provider。
-2. `AppearanceCandidate` 只在候选 bytes 写入系统管理 AssetVersion 且服务端核验后创建，并绑定 exact 上游和
-   `source_asset_version_id`；不保存完整 Provider URL 或凭据。
-3. `AppearanceCheckRun/Result` 分离技术状态与逐维结论；`AppearanceReview` 与最终 `WorkInspection` 保持独立。
-4. ProductionOrder 创建与 claim 前均验证 exact current candidate、readable bytes、current upstream、无 unresolved check、
-   approved review 和 available Provider reference；任一未知零 attempt 阻断。
-5. 分阶段 Production 执行被否决，除非未来取得正式 Provider API 与长期/跨节点恢复 Evidence 并另过决策 gate。
+2. 不可变 `AppearanceCandidate` 只在候选 bytes 写入系统管理 AssetVersion 且服务端核验后创建，并绑定 exact 上游和
+   `source_asset_version_id`；1:1 可变 `AppearanceCandidateState` 持有 state、row version、受控 reason 和 supersede head，
+   每次转换追加审计事件。暂时读取失败或未知不改写 state。
+3. 私有 append-only `ProviderReferenceObservation` 绑定 candidate/reference fingerprint，记录受控 status、method/seam/policy、
+   observed/valid-until 和 reason。公共 API 只投影 exact observation ID、状态、时间和是否过期；不返回引用或凭据。
+4. `AppearanceCheckRun/Result` 分离技术状态与逐维结论，并新增 exact check 读取合同。Result 精确绑定 candidate state
+   revision、source/candidate checksum、policy/model version；`AppearanceReview` 批准事务验证同一 current result，且与最终
+   `WorkInspection` 保持独立。
+5. ProductionOrder 创建与 claim 前均验证 exact current candidate/state、readable bytes、current upstream、current exact
+   check result、approved review 和 exact available Provider Observation。创建 snapshot 与 claim audit/attempt precondition
+   分别绑定 observation ID；过期、读取失败或不能安全再观察均为 unknown，任一未知零 attempt 阻断。
+6. 分阶段 Production 执行被否决。Fidelity-B 必须证明 Observation 的产生、合理有效期与 claim-side 无副作用再观察；
+   无法证明时 Fidelity-D 明确停止，不能用 `gen_id` 或历史 observed_at 代替。
+
+## 独立复审纠偏
+
+初始 Draft fixed head `0d841800df9525e231c7e856fbe7e4f3c18b8cd2` 的三组 CI 成功，但独立复审发现三处合同冲突：
+
+1. Candidate 被声明不可变，却同时承担 durable state 转换和未定义的 revision；
+2. Provider reference 的历史 observation time 没有时效与 create/claim 精确绑定，不能证明“当前可用”；
+3. CheckRun/Result 虽概念分离，但缺 exact resource/response，人工批准无法核对 exact current result。
+
+本次修正增加 CandidateState current head、ProviderReferenceObservation append-only evidence 和 exact Check API，且保持
+ProductionOrder 前候选门禁、零 attempt fail-closed 与 7-doc docs-only 边界不变。这是设计合同纠偏，不是实现证据。
 
 ## 文件范围
 
