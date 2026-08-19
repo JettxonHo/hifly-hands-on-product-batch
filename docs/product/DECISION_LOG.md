@@ -858,3 +858,38 @@
 - **Evidence**：[HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md)
 - **决策来源**：Owner 于 2026-08-19 明确要求把单次瓶盖形态漂移提升为所有商品通用的外观保真门禁，并明确
   尺寸与外观保真独立、证据不足时不得伪造强保证。
+
+## D-036 外观保真采用 ProductionOrder 前独立候选门禁
+
+- **日期**：2026-08-20
+- **状态**：随本 Decision 进入 `main` 后 Confirmed；实现 pending
+- **背景（Context）**：D-035 要求在视频提交前分离自动外观检查、人工候选批准和最终 Works 内容验收。Fidelity-0
+  已证明候选 bytes/reference 可在同一受控 Profile 中即时恢复，并可在候选确认和外层视频提交前停止；但没有证明
+  Provider 引用长期或跨设备有效、正式下载 API、产品领域绑定或自动评分。现有 Production `ExecutionAttempt` 使用
+  lease/heartbeat 并要求 terminal 后停 Worker，不适合持有数小时或数天等待人工决定。
+- **决策**：采用 `ProductionOrder` 前独立候选门禁。一次 `AppearanceCaptureRequest` 显式冻结
+  `source_asset_version_id` 与当前 ProductRevision、approved CopyVersion/review、confirmed AvatarSelection、
+  frozen/approved VideoPlan/review 和 `presentation_size_code`；候选捕获必须先有管理员单次授权，成功后把候选 bytes
+  写入系统管理 AssetVersion 并结束短生命周期任务。不可变 `AppearanceCandidate` 只保存生成证据；1:1 可变
+  `AppearanceCandidateState` 以 row version 持有 current 可用性并追加状态事件。私有 append-only
+  `ProviderReferenceObservation` 以 exact observation ID、reference fingerprint、policy 和有效期证明引用是否当前可用，
+  过期或无法无副作用再观察一律 unknown。自动检查的技术运行/精确不可变结果、`AppearanceReview` 人工批准和最终
+  `WorkInspection` 分别持有真值。ProductionOrder 创建与 claim 前都必须验证 exact current candidate/state、可读 bytes、
+  同 state revision/current policy 的 exact check result、current approved review、当前上游与未过期 Provider Observation；
+  任一未知失败关闭且零 attempt。
+- **API 与安全边界**：后续只新增组织作用域资源，沿用 `Idempotency-Key`、`expected_revision`、404 不泄漏、409 冲突、
+  422 reasons、append-only audit 与现有 `member/admin` 角色。完整 Provider URL、Cookie、Token、Profile 路径和签名请求头
+  不进入公共 API 或持久业务字段。候选生成、自动检查和视频费用授权互不复用，不提供自动重生、自动重试、重新领取
+  或自动创建下一工单。
+- **被否决方案**：在一个 ProductionOrder/ExecutionAttempt 内生成候选后长期暂停等待人工，再恢复同一浏览器提交视频。
+  当前缺少 Provider 引用长期/跨设备证据，该方案会扩大 lease、retry、requires_action 和费用语义，并增加隐藏第二次
+  生成风险。只有正式 Provider API 与跨节点生命周期证据成立后，才可另开 Product/Provider/Execution 决策重新评估。
+- **影响（Consequences）**：Fidelity-B 只实现 Provider capture 与受控候选存储；Fidelity-C 实现自动检查与运营审核；
+  Fidelity-B 还必须证明 Provider Observation 的产生、合理有效期和 claim-side 无副作用再观察；否则 Fidelity-D 停止。
+  Fidelity-D 才把 exact approved evidence chain 与 create/claim Observation IDs 接入 Production snapshot/handoff/claim；
+  Fidelity-E 才进行一条另获积分授权的真实验收。历史 ProductionOrder/Work 不回填、不改写；现有
+  eligible/attempt/Worker 时序保持不变。
+- **Specification**：[PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md](PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md)
+- **Evidence**：[HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md)
+- **决策来源**：Owner 于 2026-08-20 明确授权 Fidelity-A 领域/API 设计 gate；本 Decision 由 Fidelity-0 Evidence、D-028
+  现有领域合同与当前 Provider 未知边界推导，随独立审阅后的 PR 合并才生效。

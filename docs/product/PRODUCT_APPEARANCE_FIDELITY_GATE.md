@@ -2,7 +2,7 @@
 
 > 生命周期：Owner 已批准产品方向；本合同随对应 PR 合并进入 `main` 后才计为 designed
 > 实现状态：Fidelity-0 有界 Provider Evidence 已建立；产品能力仍未实现
-> 设计跟踪：Issue #208（已完成）；Fidelity-0 Evidence 跟踪：Issue #210
+> 设计跟踪：Issue #208（已完成）；Fidelity-0 Evidence：Issue #210（已接受）；Fidelity-A：Issue #212
 
 ## 1. 目标
 
@@ -94,22 +94,28 @@ Candidate/Check/Decision、人工批准、自动检查或生产恢复。
 5. 记录候选生成的计费事实。优先使用不产生费用的静态、脱敏抓包或只读证据；如果必须执行真实 capability probe
    或候选生成，必须在当次获得明确的单条积分授权，首失败即停。
 
-Fidelity-0 的有界 Provider Evidence 已建立，但只有本证据随独立审阅后的 PR 合并进入 `main` 才计为 accepted。
-在进入 Fidelity-A 前仍不得实现推测性的 Candidate/Check/Decision、前端状态或暂停命令。门禁失败只能阻止继续实现
-或后续视频提交，不能宣称候选阶段零积分；候选生成本身可能已经收费。
+Fidelity-0 的有界 Provider Evidence 已随独立审阅后的 PR 进入 `main`，状态为 accepted。Fidelity-A 只负责领域/API
+设计；在其 acceptance artifact 进入 `main` 前仍不得实现 Candidate/Check/Review、前端状态或暂停命令。门禁失败只能
+阻止继续实现或后续视频提交，不能宣称候选阶段零积分；候选生成本身可能已经收费。
 
-## 6. 后续领域边界的待决内容
+## 6. Fidelity-A 领域边界
 
-只有 Fidelity-0 通过并确定状态所有权后，Fidelity-A 才能决定是否以及如何建立独立领域对象。以下名称只表达必须
-分离的责任，不是已接受的 schema、枚举或 API：
+Fidelity-A 的 acceptance artifact 为
+[PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md](PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md)。该文件随对应 PR 合并进入
+`main` 后才计为 `designed`，并采用生产前独立候选门禁：
 
-- `AppearanceCandidate`：不可变中间候选及其精确上游引用；
-- `AppearanceCheck`：不可变自动检查运行与结构化证据；
-- `AppearanceDecision`：人工批准或拒绝，可由新决定 supersede，但保留历史；
-- Production snapshot / handoff：只引用已批准候选和决定，不复制临时 URL 或 Provider 凭据。
+- `AppearanceCaptureRequest` 持有一次候选生成意图、管理员授权、单次上限与短生命周期异步状态；
+- 不可变 `AppearanceCandidate` 只在真实候选 bytes 进入系统管理 AssetVersion 并完成服务端核验后创建；1:1
+  `AppearanceCandidateState` 持有可变 current state 和 row version；
+- 私有 append-only `ProviderReferenceObservation` 以 exact ID、policy 与有效期证明引用当前可用；过期或无法安全再观察
+  一律 unknown 并阻断；
+- `AppearanceCheckRun/Result` 分离技术运行与逐维业务结论，精确 result 绑定 candidate state revision、输入 checksum 和
+  policy/model version；
+- `AppearanceReview` 保存独立人工批准、拒绝、撤销与历史；
+- Production snapshot / handoff 只冻结仍为 current、readable、approved 的 exact evidence chain 与 create/claim Observation
+  证据，不复制临时 URL 或凭据。
 
-对象名称、状态枚举、存储位置和 API 只能在 Fidelity-0 证据确定候选获取与恢复边界后，由 Fidelity-A 的独立
-Product/API gate 决定。当前合同不授权实现这些对象。
+该设计不授权实现这些对象。Fidelity-B～E 仍需严格串行的独立 Issue、TDD、Review 和费用/Provider gate。
 
 ## 7. 执行时序与失败关闭
 
@@ -129,11 +135,12 @@ Product/API gate 决定。当前合同不授权实现这些对象。
 → Works 内容验收
 ```
 
-当前 Cloud Executor attempt 不能在持有 lease 时无限等待人工。Fidelity-0 必须先用 Provider 证据判断以下方案是否
-真实可行；在此之前不得选择方案或实现领域模型：
+当前 Cloud Executor attempt 不能在持有 lease 时无限等待人工。Fidelity-A 选择**生产前独立候选门禁**：候选捕获、
+自动检查和人工审核在 ProductionOrder 创建前完成，候选捕获任务在保存受控 bytes 后结束，不持有 Production lease。
+已批准候选和最小受控 Provider 引用在创建工单时进入冻结输入，并在 claim 前再次验证。
 
-1. **优先方案：生产前候选门禁。** 在创建/激活视频生产工单前生成并批准候选，已批准 `gen_id` 或等价受控引用进入冻结输入。前提是证明引用有效期、跨会话复用与候选 bytes 获取合同。
-2. **备选方案：可恢复的分阶段执行。** 第一个受控阶段保存候选后安全结束，不提交视频；人工批准后通过独立幂等命令启动视频阶段。前提是新增明确的领域/API 状态与租约恢复合同，不能复用普通自动重试。
+可恢复的分阶段 Production 执行当前被否决：Fidelity-0 没有证明 Provider 引用长期/跨设备恢复，且该方案会扩张
+ExecutionAttempt、lease、retry 和费用语义。只有取得正式 Provider API 与跨节点生命周期证据后，才可另过独立决策 gate。
 
 明确拒绝：
 
@@ -158,7 +165,7 @@ Logo、标签文字被合理遮挡时可以是“无法判断”，不能推断�
 | 切片 | 目标 | 停止条件 |
 |---|---|---|
 | Fidelity-0 | Provider capability：证明候选 bytes/reference、生命周期、计费边界、安全暂停/恢复与精确源图上传对应关系 | 有界 Evidence 已建立；长期/跨设备与领域 AssetVersion 绑定留给后续设计，不自动进入实现 |
-| Fidelity-A | 领域/API：在 Fidelity-0 结论上决定状态所有权、对象、组织隔离、审计和幂等 | 无明确状态所有权或必须改变生产安全合同时停止 |
+| Fidelity-A | 领域/API：采用生产前独立候选门禁，定义 CaptureRequest/Candidate/State/Provider Observation/Check/Review、组织隔离、审计和幂等 | 随独立审阅后的合同 PR 合并才计为 designed；不自动授权实现 |
 | Fidelity-B | Provider capture：按 Fidelity-0 已接受 seam 保存精确候选，DOM/API 漂移时失败关闭 | 实现与已接受 Provider 证据不一致时停止 |
 | Fidelity-C | 运营审核：预览证据、批准/拒绝、冲突与历史 | 不得伪造自动通过或最终 Works 通过 |
 | Fidelity-D | Production 集成：冻结引用、handoff、显式视频阶段和去重提交 | 无法证明一次批准只产生一次提交时停止 |

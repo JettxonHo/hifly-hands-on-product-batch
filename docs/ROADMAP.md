@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-19
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Issue #208 的 DSE 合同已完成；Issue #210 以一次独立候选生成建立 Fidelity-0 有界 Provider Evidence，未确认候选或提交视频。下一步仅为 Fidelity-A 独立设计，不代表产品实现或部署。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 最后更新：2026-08-20
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Issue #210 已建立 Fidelity-0 有界 Provider Evidence；Fidelity-A 的 D-036/领域 API 合同只有随 acceptance PR 进入 `main` 才计为 designed，仍不代表实现或部署。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -42,7 +42,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
-P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence（当前待独立 acceptance）→ 合并后仅进入 Fidelity-A 独立设计；Fidelity-A 实现及 Fidelity-B～E 均未授权
+P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A 设计 acceptance（进入 main 才 designed；CandidateState/Provider Observation/exact Check 合同）→ Fidelity-B～E 仍未授权
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -109,11 +109,13 @@ Issue #208 把本次形态漂移提升为通用商品身份一致性门禁。D-0
 候选响应绑定 `gen_id` 与可读取 JPEG bytes、关闭上下文后可从同一受控 Profile 恢复候选，并可在候选确认和外层视频
 提交前安全停下。它没有证明长期/跨设备生命周期、正式下载 API、Provider 评分、领域 AssetVersion 绑定或外观保真。
 
-Fidelity-0 Evidence 随独立审阅后的文档 PR 合并进入 `main` 才计为 accepted；之后第一步固定为 Fidelity-A 领域/API
-设计，仍早于任何 Candidate/Check/Decision、API、数据库、UI 或执行器实现。Fidelity-A 必须决定并冻结
-`source_asset_version_id`（或经独立设计接受的等价字段），沿用 Fidelity-0 已证明的逐字节上传核对方式，不能依赖
-ProductRevision 多图数组顺序。候选生成本身可能收费；本次恰好执行一次显示“150积分”的候选动作，但精确余额变化
-未知。后续真实 capability probe、候选生成或 Fidelity-E 验收仍需当次明确单条授权。
+Fidelity-0 Evidence 已 accepted。Fidelity-A 的 `docs/product/PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md` 随对应 PR
+进入 `main` 后才计为 designed：采用 ProductionOrder 前独立候选门禁，冻结 `source_asset_version_id` 与完整上游，
+候选 bytes 进入系统管理 AssetVersion；不可变 Candidate、可变 CandidateState、有时效的 Provider Observation、exact
+Check result、人工 AppearanceReview 与最终 WorkInspection 分别持有真值。Production 创建与 claim 分别绑定 exact
+Observation，任一未知零 attempt 失败关闭；Fidelity-B 无法证明合理有效期或 claim-side 无副作用再观察时 Fidelity-D
+必须停止。候选生成本身可能收费；本次恰好执行一次显示“150积分”的候选动作，
+但精确余额变化未知。后续真实 capability probe、候选生成或 Fidelity-E 验收仍需当次明确单条授权。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
@@ -130,8 +132,8 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 
 - #190/#191 已完成代码、独立 Review、统一部署与真实管理员只读复验；后续不得为重复确认这两项而启动 Worker 或生成视频。
 - #200/#201/#202 已严格串行完成并部署；不得把本次技术成功、返工 Work 或已下载候选解释为再次生成授权。
-- #208 的 Fidelity-0 已建立有界 Provider Evidence；只有证据 PR 合并后才进入 Fidelity-A 独立设计。Fidelity-A～E
-  不得并行抢跑，也不得把 Provider 能力证据写成产品实现或外观保真通过。
+- #208/#210 已建立并接受 Fidelity-0 有界 Provider Evidence；#212 的 Fidelity-A 合同进入 `main` 后才计为 designed。
+  Fidelity-B～E 不得并行抢跑，也不得把设计或 Provider 能力证据写成产品实现、部署或外观保真通过。
 - 文案增强、人物推荐、背景/场景/姿势、动效精修、Capture HTTP、Local Agent 新功能、并行生产、复杂对象存储和高可用全部暂停。
 - Local Agent 保留已验证代码但默认关闭，并从生产主路径/操作说明中退出；纯云端稳定至少 10 条或 1～2 周后再决定是否删除。
 - 当前 2C4G/2C4G 级试运行服务器只证明内部功能闭环，不承诺正式生产 SLA。
