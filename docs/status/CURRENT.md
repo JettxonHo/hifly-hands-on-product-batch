@@ -1,6 +1,6 @@
 # 项目当前状态
 
-> 最后更新：2026-08-19
+> 最后更新：2026-08-20
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
 > 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。随后 Fidelity-0 以一次独立候选生成建立了精确上传 bytes、候选 bytes/reference、即时上下文恢复与视频前安全暂停证据；没有确认候选或提交外层视频。该证据只允许进入 Fidelity-A 独立设计，不表示外观保真、产品实现、部署、公网生产、自动批量或长期稳定性已完成；可信 TLS 仍是独立发布门禁。
 >
@@ -302,14 +302,15 @@
 - 候选在点击“确认”和外层视频提交前安全停下；关闭浏览器上下文后，同一受控 Profile 可恢复候选就绪。没有点击
   候选确认、外层视频生成，也没有创建或复用生产工单。长期/跨设备生命周期、正式下载 API、Provider 评分和产品
   领域 AssetVersion 绑定仍未证明。
-- 产品实现前必须先完成 Fidelity-A 领域/API 设计。每次生成还必须显式冻结 `source_asset_version_id`（或经独立
-  设计接受的等价字段），证明其 bytes/checksum 就是实际上传给 Provider 并用于比较的源图；不得依赖
-  ProductRevision 多图数组顺序或事后推断。
+- Fidelity-A 的 acceptance artifact 为 `docs/product/PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md`。该文档随对应 PR
+  合并进入 `main` 后才计为 `designed`：选择 ProductionOrder 前独立候选门禁，显式冻结
+  `source_asset_version_id`，把候选 bytes 写入系统管理 AssetVersion，并分离 CaptureRequest、自动 Check、人工
+  AppearanceReview 与最终 WorkInspection。Production 创建和 claim 前任一未知均失败关闭。
 - 候选生成本身可能收费。本次恰好执行一次显示“150积分”的候选生成动作，但余额未刷新，精确变化未知；门禁只能
   阻止后续视频提交，不能宣称候选阶段零积分。后续真实探测仍需当次独立授权。
-- D-035 与 `docs/product/PRODUCT_APPEARANCE_FIDELITY_GATE.md` 已定义产品边界；Fidelity-0 Evidence 只有随独立审阅
-  后的文档 PR 合并进入 `main` 才计为 accepted。下一步只能进入 Fidelity-A 领域/API 设计；当前没有实现
-  Candidate/Check/Decision、API、数据库、UI 或执行器改动。
+- D-035 与 `docs/product/PRODUCT_APPEARANCE_FIDELITY_GATE.md` 定义产品边界；D-036 固定生产前候选门禁。该设计进入
+  `main` 不等于实现、部署或 Provider 验收。当前仍没有 Candidate/Check/Review、API、数据库、UI 或执行器改动；
+  Fidelity-B～E 继续等待各自独立授权。
 
 ## P0.5 内部验收环境部署
 
@@ -470,9 +471,9 @@
 
 1. #200/#201/#202 已完成实现、独立 Review、合并、部署与单条真实复验；尺寸选档和技术闭环通过，但 Work 已因瓶盖造型
    失真登记返工。没有新的重试或再次生产授权，保持本单 `rework_required` 且不交付。
-2. Fidelity-0 已建立候选 bytes/reference、精确上传输入、即时上下文恢复和安全暂停的有界 Evidence；独立审阅并合并
-   后，下一步只能是 Fidelity-A 领域/API 设计。长期/跨设备生命周期、领域 AssetVersion 绑定和正式下载合同仍是设计
-   输入，不得直接实现领域/API/UI 或重新生成。
+2. Fidelity-0 已建立候选 bytes/reference、精确上传输入、即时上下文恢复和安全暂停的有界 Evidence。Fidelity-A
+   acceptance artifact 随对应 PR 进入 `main` 后才计为 designed；之后只能按 Fidelity-B Provider capture → Fidelity-C
+   检查/审核 → Fidelity-D Production 集成 → Fidelity-E 单条真实验收严格串行推进，不自动授权任何实现。
 3. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
 4. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
