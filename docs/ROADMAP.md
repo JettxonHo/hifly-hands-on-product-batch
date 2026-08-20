@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-20
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-0 Evidence 与 Fidelity-A 设计已进入 `main`；Issue #214 / 对应 Draft PR 是 Fidelity-B 默认关闭的 capture/storage/API 仓库实现 acceptance gate。该 gate 不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-0 Evidence、Fidelity-A 设计与 Fidelity-B 默认关闭的 capture/storage/API 已进入 `main@c4abb792`；Issue #216 先建立 Fidelity-C0 自动检查能力 Evidence gate。当前没有已接受模型、阈值、误判率或费用证据，不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -42,7 +42,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
-P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B capture/storage/API acceptance gate（默认 disabled、same-gate-only observation；进入 main 才 repository implemented）→ Fidelity-C～E 未开始
+P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 Product/Model/Evidence gate → Fidelity-C～E 未开始
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -117,13 +117,18 @@ Observation，任一未知零 attempt 失败关闭；Fidelity-B 无法证明合�
 必须停止。候选生成本身可能收费；本次恰好执行一次显示“150积分”的候选动作，
 但精确余额变化未知。后续真实 capability probe、候选生成或 Fidelity-E 验收仍需当次明确单条授权。
 
-Issue #214 / 对应 Draft PR 是 Fidelity-B 的 acceptance gate。合并后仅落地默认关闭的 capture request、内部候选
+Issue #214 / PR #215 已合并到 `main@c4abb792`，落地默认关闭的 capture request、内部候选
 AssetVersion、Candidate/State/Observation、组织作用域 API、短任务 Worker 与 fake/disabled Adapter seam；创建 request
 不调用 Provider，授权上限固定为一次，失败 terminal 且无 retry/resume。Observation 当前故意采用
 `valid_until=observed_at` 的 same-gate-only 策略，不能被 Production 当成正 TTL。真实 Hifly capture/observe、合理有效期、
 自动检查、人工审核、Production 门禁和真实验收继续分别属于 Fidelity-C～E，不由本切片提前实现。
-PR #215 的独立审阅纠偏必须同时通过默认 App/Asset 端口、服务端可信零时效、内部候选通用 API 隔离与 PostgreSQL
-冻结/terminal 不可变回归；这些修复只有合并后才改变 repository truth，不构成部署或 Provider 验收。
+PR #215 的独立审阅纠偏已覆盖默认 App/Asset 端口、服务端可信零时效、内部候选通用 API 隔离与 PostgreSQL
+冻结/terminal 不可变回归；合并只改变 repository truth，不构成部署或 Provider 验收。
+
+Issue #216 的 Fidelity-C0 gate 先验证可控检查能力，而不是先实现状态机：仓库目前没有 AppearanceCheckRun/Result、
+AppearanceReview、视觉检查 Adapter 或已接受模型/阈值/误判/费用 Evidence。后续必须先完成 capability shortlist、逐维受控
+benchmark、误放行/误阻断/unknown、费用与数据治理证据，并由 Owner 接受 policy/model version 和阈值；否则保持
+`BLOCKED_CHECK_CAPABILITY_UNSELECTED`，不得用 fake 结果进入 Fidelity-C 实现。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
@@ -140,8 +145,8 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 
 - #190/#191 已完成代码、独立 Review、统一部署与真实管理员只读复验；后续不得为重复确认这两项而启动 Worker 或生成视频。
 - #200/#201/#202 已严格串行完成并部署；不得把本次技术成功、返工 Work 或已下载候选解释为再次生成授权。
-- #208/#210 已建立并接受 Fidelity-0 有界 Provider Evidence；#212 Fidelity-A 合同已进入 `main`。#214 是
-  Fidelity-B 仓库实现 acceptance gate；Fidelity-C～E 不得并行抢跑，也不得把设计、fake Adapter 或 Provider Evidence
+- #208/#210 已建立并接受 Fidelity-0 有界 Provider Evidence；#212 Fidelity-A 合同与 #214 Fidelity-B repository 已进入
+  `main`。#216 是 Fidelity-C0 检查能力 acceptance gate；Fidelity-C～E 不得并行抢跑，也不得把设计、fake Adapter 或 Provider Evidence
   写成真实 Hifly 能力、部署或外观保真通过。
 - 文案增强、人物推荐、背景/场景/姿势、动效精修、Capture HTTP、Local Agent 新功能、并行生产、复杂对象存储和高可用全部暂停。
 - Local Agent 保留已验证代码但默认关闭，并从生产主路径/操作说明中退出；纯云端稳定至少 10 条或 1～2 周后再决定是否删除。
