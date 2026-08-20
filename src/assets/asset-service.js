@@ -141,7 +141,8 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
     }
   };
   const sourceProductImagePort = {
-    async readVerifiedProductImage({ organizationId, assetVersionId }) {
+    async readVerifiedProductImage({ organizationId, assetVersionId, sourceAssetVersionId }) {
+      assetVersionId = assetVersionId || sourceAssetVersionId;
       const version = await repository.getAssetVersion(organizationId, assetVersionId);
       if (!version || version.id !== assetVersionId || version.organization_id !== organizationId || !version.asset_id) {
         fail("ASSET_SOURCE_UNAVAILABLE");
@@ -301,18 +302,41 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
     registerVerifiedOutput: (input) => repository.registerVerifiedOutput(input)
   };
 
+  async function getPublicAsset(organizationId, assetId) {
+    const asset = await repository.getAsset(organizationId, assetId);
+    if (asset.kind === APPEARANCE_CANDIDATE_KIND) fail("ASSET_NOT_FOUND");
+    return asset;
+  }
+
+  async function getPublicAssetVersion(organizationId, assetVersionId) {
+    const version = await repository.getAssetVersion(organizationId, assetVersionId);
+    const asset = await repository.getAsset(organizationId, version.asset_id);
+    if (asset.kind === APPEARANCE_CANDIDATE_KIND) fail("ASSET_VERSION_NOT_FOUND");
+    return version;
+  }
+
   return {
     createUploadAuthorization, uploadObject, completeUpload, runNextVerificationJob, recoverVerificationJobs,
-    getAssetVersion: ({ organizationId, assetVersionId }) => repository.getAssetVersion(organizationId, assetVersionId),
-    getAsset: ({ organizationId, assetId }) => repository.getAsset(organizationId, assetId),
+    getAssetVersion: ({ organizationId, assetVersionId }) => getPublicAssetVersion(organizationId, assetVersionId),
+    getAsset: ({ organizationId, assetId }) => getPublicAsset(organizationId, assetId),
     listAssets: async ({ organizationId }) => (await repository.listAssets(organizationId)).filter((asset) => asset.kind !== APPEARANCE_CANDIDATE_KIND),
-    updateAssetMetadata: ({ organizationId, assetId, expectedRevision, displayName, actorMemberId = null }) => repository.updateAssetMetadata({ organizationId, assetId, expectedRevision, displayName: normalizeDisplayName(displayName), actorMemberId, now: timestamp() }),
-    disableAsset: ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "disabled", now: timestamp() }),
-    deleteAsset: ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "deleted", now: timestamp() }),
+    updateAssetMetadata: async ({ organizationId, assetId, expectedRevision, displayName, actorMemberId = null }) => {
+      await getPublicAsset(organizationId, assetId);
+      return repository.updateAssetMetadata({ organizationId, assetId, expectedRevision, displayName: normalizeDisplayName(displayName), actorMemberId, now: timestamp() });
+    },
+    disableAsset: async ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => {
+      await getPublicAsset(organizationId, assetId);
+      return repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "disabled", now: timestamp() });
+    },
+    deleteAsset: async ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => {
+      await getPublicAsset(organizationId, assetId);
+      return repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "deleted", now: timestamp() });
+    },
     createDownloadAuthorization: async ({ organizationId, assetVersionId }) => {
-      const version = await repository.getAssetVersion(organizationId, assetVersionId);
-      const asset = await repository.getAsset(organizationId, version.asset_id);
-      if (asset.kind === APPEARANCE_CANDIDATE_KIND) fail("ASSET_VERSION_NOT_AVAILABLE");
+      const version = await getPublicAssetVersion(organizationId, assetVersionId).catch((error) => {
+        if (error?.code === "ASSET_VERSION_NOT_FOUND") fail("ASSET_VERSION_NOT_AVAILABLE");
+        throw error;
+      });
       if (version.status !== "available") fail("ASSET_VERSION_NOT_AVAILABLE");
       const token = randomBytes(24).toString("base64url");
       const expiresAt = new Date(now() + downloadTtlMs).toISOString();

@@ -1,8 +1,26 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
-import { activateAdmin, identityApp, identityHeaders } from "./helpers/identity-world.js";
+import { createMemoryAppearanceFidelityRepository } from "../src/appearance-fidelity/memory-appearance-fidelity-repository.js";
+import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
+import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
+import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
+import { createControlledCopyProvider } from "../src/copy-generation/controlled-provider.js";
+import { createMemoryCopyGenerationRepository } from "../src/copy-generation/memory-copy-generation-repository.js";
+import { createMemoryCopyQualityRepository } from "../src/copy-quality/memory-copy-quality-repository.js";
+import { createMemoryCopyReviewRepository } from "../src/copy-review/memory-copy-review-repository.js";
+import { createFakeExecutor } from "../src/executors/fake-executor.js";
+import { createMemoryProjectContentRepository } from "../src/project-content/memory-project-content-repository.js";
+import { buildApp } from "../src/server/app.js";
 import { registerAppearanceFidelityRoutes } from "../src/server/routes/appearance-fidelity.js";
+import { createMemoryVideoPlanningRepository } from "../src/video-planning/memory-video-planning-repository.js";
+import { activateAdmin, identityApp, identityHeaders, seededRepository, IDENTITY_HOST, IDENTITY_ORIGIN } from "./helpers/identity-world.js";
+
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
 const REQUEST = {
   id: "capture-request-1",
@@ -219,4 +237,88 @@ test("Fidelity-B command, candidate, and download routes preserve role, CSRF, an
   assert.equal(calls[0][1].actorRole, "admin");
   assert.equal(calls[1][1].actorRole, "admin");
   assert.equal(calls.every(([, input]) => input.organizationId === "org_test"), true);
+});
+
+test("default buildApp wiring reads a verified product image without a Provider call", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-appearance-build-app-"));
+  const identityRepository = await seededRepository();
+  const assetRepository = createMemoryAssetRepository();
+  const objectStore = createMemoryObjectStore();
+  const providerCalls = { generate: 0, observe: 0 };
+  let sourceAssetVersionId;
+  const upstream = {
+    current_valid: true,
+    workspace_revision: 12,
+    product_id: "product-default-wiring",
+    product_revision_id: "revision-default-wiring",
+    source_asset_version_ids: [],
+    copy_version_id: "copy-default-wiring",
+    copy_review_id: "copy-review-default-wiring",
+    avatar_selection_id: "avatar-selection-default-wiring",
+    avatar_asset_version_id: "avatar-version-default-wiring",
+    video_plan_version_id: "plan-default-wiring",
+    plan_review_id: "plan-review-default-wiring",
+    preflight_result_id: "preflight-default-wiring",
+    presentation_size_code: "small",
+  };
+  const app = await buildApp({
+    root,
+    executor: createFakeExecutor(),
+    identity: { enabled: true, repository: identityRepository, trustedHosts: [IDENTITY_HOST], trustedOrigins: [IDENTITY_ORIGIN], cookieSecure: false, seed: { enabled: false } },
+    assets: { enabled: true, repository: assetRepository, objectStore, worker: { autoStart: false } },
+    projectContent: { enabled: true, repository: createMemoryProjectContentRepository() },
+    copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
+    copyQuality: { enabled: true, repository: createMemoryCopyQualityRepository(), worker: { autoStart: false } },
+    copyReview: { enabled: true, repository: createMemoryCopyReviewRepository() },
+    avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository() },
+    videoPlanning: { enabled: true, repository: createMemoryVideoPlanningRepository(), worker: { autoStart: false }, agentReadinessPort: { async isOnline() { return false; } } },
+    appearanceFidelity: {
+      enabled: true,
+      repository: createMemoryAppearanceFidelityRepository(),
+      upstreamPort: { async resolveCurrent() { return { ...upstream, source_asset_version_ids: [sourceAssetVersionId] }; } },
+      providerAdapter: {
+        async generateCandidate() { providerCalls.generate += 1; throw new Error("PROVIDER_MUST_NOT_RUN"); },
+        async observeReference() { providerCalls.observe += 1; throw new Error("PROVIDER_MUST_NOT_RUN"); },
+      },
+      worker: { autoStart: false },
+    },
+  });
+  t.after(() => app.close());
+  const auth = await activateAdmin(app);
+  const source = await app.assets.service.createUploadAuthorization({
+    organizationId: "org_test",
+    actorMemberId: auth.body.member.id,
+    idempotencyKey: "default-wiring-source",
+    filename: "source.png",
+    contentType: "image/png",
+    size: PNG.length,
+    checksumSha256: createHash("sha256").update(PNG).digest("hex"),
+  });
+  sourceAssetVersionId = source.asset_version.id;
+  await app.assets.service.uploadObject({ organizationId: "org_test", uploadToken: source.upload.token, body: PNG, contentType: "image/png" });
+  await app.assets.service.completeUpload({ organizationId: "org_test", actorMemberId: auth.body.member.id,
+    uploadSessionId: source.upload_session_id, idempotencyKey: "default-wiring-source-complete" });
+  await app.assets.service.runNextVerificationJob();
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/products/product-default-wiring/appearance-capture-requests",
+    headers: {
+      ...identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true }),
+      "idempotency-key": "default-wiring-capture",
+    },
+    payload: {
+      product_revision_id: upstream.product_revision_id,
+      source_asset_version_id: sourceAssetVersionId,
+      copy_version_id: upstream.copy_version_id,
+      avatar_selection_id: upstream.avatar_selection_id,
+      video_plan_version_id: upstream.video_plan_version_id,
+      expected_workspace_revision: upstream.workspace_revision,
+    },
+  });
+
+  assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.json().capture_request.status, "awaiting_authorization");
+  assert.equal(response.json().capture_request.source_asset_version_id, sourceAssetVersionId);
+  assert.deepEqual(providerCalls, { generate: 0, observe: 0 });
 });

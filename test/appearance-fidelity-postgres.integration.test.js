@@ -54,12 +54,12 @@ function createProvider() {
   };
 }
 
-async function seedSourceAsset(assetService, organizationId, actorMemberId) {
+async function seedSourceAsset(assetService, organizationId, actorMemberId, suffix = "primary") {
   const authorization = await assetService.createUploadAuthorization({
     organizationId,
     actorMemberId,
-    idempotencyKey: "appearance-source-upload",
-    filename: "source.png",
+    idempotencyKey: `appearance-source-upload-${suffix}`,
+    filename: `source-${suffix}.png`,
     contentType: "image/png",
     size: PNG.length,
     checksumSha256: CHECKSUM
@@ -73,7 +73,7 @@ async function seedSourceAsset(assetService, organizationId, actorMemberId) {
   await assetService.completeUpload({
     organizationId,
     uploadSessionId: authorization.upload_session_id,
-    idempotencyKey: "appearance-source-complete",
+    idempotencyKey: `appearance-source-complete-${suffix}`,
     actorMemberId
   });
   await assetService.runNextVerificationJob();
@@ -124,6 +124,7 @@ test("PostgreSQL Fidelity-B seam claims and atomically captures one candidate", 
   await sourceAssetRepository.initialize();
   const assetService = createAssetService({ repository: sourceAssetRepository, objectStore: createMemoryObjectStore(), now: () => Date.parse(AT) });
   const sourceAssetVersionId = await seedSourceAsset(assetService, organizationId, seeded.member.id);
+  const alternateSourceAssetVersionId = await seedSourceAsset(assetService, organizationId, seeded.member.id, "alternate");
 
   await runAppearanceFidelityMigrations(pool);
   await runAppearanceFidelityMigrations(pool);
@@ -181,6 +182,28 @@ test("PostgreSQL Fidelity-B seam claims and atomically captures one candidate", 
     { code: "IDEMPOTENCY_CONFLICT" }
   );
 
+  const activeMutationClient = await pool.connect();
+  let activeEvidenceMutationRejected = false;
+  try {
+    await activeMutationClient.query("BEGIN");
+    try {
+      await activeMutationClient.query(
+        `UPDATE appearance_capture_requests
+            SET source_asset_version_id=$2,
+                upstream_snapshot=jsonb_set(upstream_snapshot, '{workspace_revision}', '999'::jsonb),
+                row_version=row_version+1
+          WHERE id=$1`,
+        [created.id, alternateSourceAssetVersionId]
+      );
+    } catch (error) {
+      activeEvidenceMutationRejected = /immutable|frozen|transition/.test(String(error.message));
+    }
+  } finally {
+    await activeMutationClient.query("ROLLBACK");
+    activeMutationClient.release();
+  }
+  assert.equal(activeEvidenceMutationRejected, true, "active request source and upstream snapshot must be database-immutable");
+
   const authorized = (await service.authorizeCaptureRequest({
     organizationId,
     actorMemberId: seeded.member.id,
@@ -229,8 +252,31 @@ test("PostgreSQL Fidelity-B seam claims and atomically captures one candidate", 
   assert.equal(result.provider_reference_observation.status, "available");
   assert.equal(result.provider_reference_observation.valid_until, AT);
 
-  const candidateAsset = await assetService.getAsset({ organizationId, assetId: result.candidate.candidate_asset_id });
-  const candidateVersion = await assetService.getAssetVersion({ organizationId, assetVersionId: result.candidate.candidate_asset_version_id });
+  const terminalMutationClient = await pool.connect();
+  let terminalMutationRejected = false;
+  try {
+    await terminalMutationClient.query("BEGIN");
+    try {
+      await terminalMutationClient.query(
+        `UPDATE appearance_capture_requests
+            SET upstream_snapshot='{}'::jsonb,
+                appearance_candidate_id=NULL,
+                failure_code='tampered',
+                row_version=row_version+1
+          WHERE id=$1`,
+        [result.capture_request.id]
+      );
+    } catch (error) {
+      terminalMutationRejected = /immutable|terminal|transition/.test(String(error.message));
+    }
+  } finally {
+    await terminalMutationClient.query("ROLLBACK");
+    terminalMutationClient.release();
+  }
+  assert.equal(terminalMutationRejected, true, "terminal request evidence and outcome must be database-immutable");
+
+  const candidateAsset = await sourceAssetRepository.getAsset(organizationId, result.candidate.candidate_asset_id);
+  const candidateVersion = await sourceAssetRepository.getAssetVersion(organizationId, result.candidate.candidate_asset_version_id);
   assert.equal(candidateAsset.kind, "appearance_candidate_image");
   assert.equal(candidateVersion.status, "available");
   assert.equal(candidateVersion.object_key, `${organizationId}/appearance-candidates/${result.candidate.id}/candidate.png`);
@@ -262,7 +308,7 @@ test("PostgreSQL Fidelity-B seam claims and atomically captures one candidate", 
   );
   await assert.rejects(
     pool.query("UPDATE appearance_capture_requests SET status='queued' WHERE id=$1", [result.capture_request.id]),
-    /state cannot move backward|terminal request state is immutable|revision must increase/
+    /state cannot move backward|terminal (capture )?request (state )?is immutable|revision must increase/
   );
   await pool.query(
     "UPDATE appearance_candidate_states SET state='reference_unavailable', row_version=2, reason_code='provider_reference_unavailable' WHERE candidate_id=$1",
@@ -288,6 +334,29 @@ test("PostgreSQL Fidelity-B seam claims and atomically captures one candidate", 
     expectedRevision: competingWinner.row_version,
     idempotencyKey: "appearance-active-cancel-pg"
   });
+
+  const failedCreated = (await service.createCaptureRequest({ ...requestInput, idempotencyKey: "appearance-fail-pg" })).capture_request;
+  const failedAuthorized = (await service.authorizeCaptureRequest({
+    organizationId,
+    actorMemberId: seeded.member.id,
+    actorRole: "admin",
+    requestId: failedCreated.id,
+    expectedRevision: failedCreated.row_version,
+    maxCandidateGenerations: 1,
+    idempotencyKey: "appearance-fail-authorize-pg"
+  })).capture_request;
+  const failedRunning = await appearanceRepository.claimNextCapture({ systemActorId: "appearance-fidelity-system", now: AT });
+  assert.equal(failedRunning.id, failedAuthorized.id);
+  const failedTerminal = await appearanceRepository.failCapture({
+    organizationId,
+    requestId: failedRunning.id,
+    expectedRevision: failedRunning.row_version,
+    failureCode: "PROVIDER_CAPTURE_FAILED",
+    now: AT,
+    actorSystemId: "appearance-fidelity-system"
+  });
+  assert.equal(failedTerminal.status, "failed");
+  assert.equal(failedTerminal.failure_code, "PROVIDER_CAPTURE_FAILED");
 
   const runningInput = { ...requestInput, idempotencyKey: "appearance-rollback-pg" };
   const runningCreated = (await service.createCaptureRequest(runningInput)).capture_request;

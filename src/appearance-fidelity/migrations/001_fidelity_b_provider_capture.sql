@@ -166,20 +166,88 @@ CREATE INDEX appearance_capture_audit_request_idx ON appearance_capture_audit_ev
 
 CREATE FUNCTION appearance_capture_request_transition_guard() RETURNS trigger AS $$
 BEGIN
-  IF NEW.row_version <= OLD.row_version THEN
-    RAISE EXCEPTION 'capture request revision must increase';
+  IF OLD.status IN ('succeeded', 'failed', 'cancelled') THEN
+    RAISE EXCEPTION 'terminal capture request is immutable';
   END IF;
-  IF OLD.status = 'awaiting_authorization' AND NEW.status NOT IN ('awaiting_authorization', 'queued', 'cancelled') THEN
-    RAISE EXCEPTION 'capture request state cannot move backward';
+
+  IF ROW(
+    NEW.id, NEW.organization_id, NEW.requested_by_member_id, NEW.idempotency_key, NEW.idempotency_payload,
+    NEW.upstream_fingerprint, NEW.upstream_snapshot, NEW.workspace_revision, NEW.max_candidate_generations,
+    NEW.product_id, NEW.product_revision_id, NEW.source_asset_version_id, NEW.source_asset_kind,
+    NEW.source_asset_status, NEW.source_asset_version_status, NEW.source_asset_media_type, NEW.source_asset_size,
+    NEW.source_asset_checksum_sha256, NEW.copy_version_id, NEW.copy_review_id, NEW.avatar_selection_id,
+    NEW.avatar_asset_version_id, NEW.video_plan_version_id, NEW.plan_review_id, NEW.preflight_result_id,
+    NEW.presentation_size_code, NEW.created_at
+  ) IS DISTINCT FROM ROW(
+    OLD.id, OLD.organization_id, OLD.requested_by_member_id, OLD.idempotency_key, OLD.idempotency_payload,
+    OLD.upstream_fingerprint, OLD.upstream_snapshot, OLD.workspace_revision, OLD.max_candidate_generations,
+    OLD.product_id, OLD.product_revision_id, OLD.source_asset_version_id, OLD.source_asset_kind,
+    OLD.source_asset_status, OLD.source_asset_version_status, OLD.source_asset_media_type, OLD.source_asset_size,
+    OLD.source_asset_checksum_sha256, OLD.copy_version_id, OLD.copy_review_id, OLD.avatar_selection_id,
+    OLD.avatar_asset_version_id, OLD.video_plan_version_id, OLD.plan_review_id, OLD.preflight_result_id,
+    OLD.presentation_size_code, OLD.created_at
+  ) THEN
+    RAISE EXCEPTION 'capture request frozen evidence is immutable';
   END IF;
-  IF OLD.status = 'queued' AND NEW.status NOT IN ('queued', 'running', 'cancelled') THEN
-    RAISE EXCEPTION 'capture request state cannot move backward';
+
+  IF NEW.row_version <> OLD.row_version + 1 THEN
+    RAISE EXCEPTION 'capture request revision must increase exactly once';
   END IF;
-  IF OLD.status = 'running' AND NEW.status NOT IN ('running', 'succeeded', 'failed') THEN
-    RAISE EXCEPTION 'capture request state cannot move backward';
+  IF NEW.updated_at < OLD.updated_at OR NEW.status_history IS DISTINCT FROM (
+    OLD.status_history || jsonb_build_array(jsonb_build_object(
+      'status', NEW.status, 'row_version', NEW.row_version, 'at', NEW.updated_at
+    ))
+  ) THEN
+    RAISE EXCEPTION 'capture request transition history is invalid';
   END IF;
-  IF OLD.status IN ('succeeded', 'failed', 'cancelled') AND NEW.status IS DISTINCT FROM OLD.status THEN
-    RAISE EXCEPTION 'terminal request state is immutable';
+
+  IF OLD.status = 'awaiting_authorization' AND NEW.status = 'queued' THEN
+    IF NEW.authorized_by_member_id IS NULL OR NEW.authorized_at IS NULL OR
+       NEW.claimed_by_system_id IS DISTINCT FROM OLD.claimed_by_system_id OR
+       NEW.appearance_candidate_id IS DISTINCT FROM OLD.appearance_candidate_id OR
+       NEW.failure_code IS DISTINCT FROM OLD.failure_code THEN
+      RAISE EXCEPTION 'capture request authorize transition is invalid';
+    END IF;
+  ELSIF OLD.status = 'awaiting_authorization' AND NEW.status = 'cancelled' THEN
+    IF NEW.authorized_by_member_id IS DISTINCT FROM OLD.authorized_by_member_id OR
+       NEW.authorized_at IS DISTINCT FROM OLD.authorized_at OR
+       NEW.claimed_by_system_id IS DISTINCT FROM OLD.claimed_by_system_id OR
+       NEW.appearance_candidate_id IS DISTINCT FROM OLD.appearance_candidate_id OR
+       NEW.failure_code IS DISTINCT FROM OLD.failure_code THEN
+      RAISE EXCEPTION 'capture request cancel transition is invalid';
+    END IF;
+  ELSIF OLD.status = 'queued' AND NEW.status = 'running' THEN
+    IF NEW.authorized_by_member_id IS DISTINCT FROM OLD.authorized_by_member_id OR
+       NEW.authorized_at IS DISTINCT FROM OLD.authorized_at OR
+       NEW.claimed_by_system_id IS NULL OR NEW.claimed_by_system_id = '' OR
+       NEW.appearance_candidate_id IS DISTINCT FROM OLD.appearance_candidate_id OR
+       NEW.failure_code IS DISTINCT FROM OLD.failure_code THEN
+      RAISE EXCEPTION 'capture request claim transition is invalid';
+    END IF;
+  ELSIF OLD.status = 'queued' AND NEW.status = 'cancelled' THEN
+    IF NEW.authorized_by_member_id IS DISTINCT FROM OLD.authorized_by_member_id OR
+       NEW.authorized_at IS DISTINCT FROM OLD.authorized_at OR
+       NEW.claimed_by_system_id IS DISTINCT FROM OLD.claimed_by_system_id OR
+       NEW.appearance_candidate_id IS DISTINCT FROM OLD.appearance_candidate_id OR
+       NEW.failure_code IS DISTINCT FROM OLD.failure_code THEN
+      RAISE EXCEPTION 'capture request cancel transition is invalid';
+    END IF;
+  ELSIF OLD.status = 'running' AND NEW.status = 'succeeded' THEN
+    IF NEW.authorized_by_member_id IS DISTINCT FROM OLD.authorized_by_member_id OR
+       NEW.authorized_at IS DISTINCT FROM OLD.authorized_at OR
+       NEW.claimed_by_system_id IS DISTINCT FROM OLD.claimed_by_system_id OR
+       NEW.appearance_candidate_id IS NULL OR NEW.failure_code IS NOT NULL THEN
+      RAISE EXCEPTION 'capture request success transition is invalid';
+    END IF;
+  ELSIF OLD.status = 'running' AND NEW.status = 'failed' THEN
+    IF NEW.authorized_by_member_id IS DISTINCT FROM OLD.authorized_by_member_id OR
+       NEW.authorized_at IS DISTINCT FROM OLD.authorized_at OR
+       NEW.claimed_by_system_id IS DISTINCT FROM OLD.claimed_by_system_id OR
+       NEW.appearance_candidate_id IS NOT NULL OR NEW.failure_code IS NULL OR NEW.failure_code = '' THEN
+      RAISE EXCEPTION 'capture request failure transition is invalid';
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'capture request transition is invalid';
   END IF;
   RETURN NEW;
 END;

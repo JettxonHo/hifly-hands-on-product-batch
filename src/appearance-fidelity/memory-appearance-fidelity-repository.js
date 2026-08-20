@@ -87,12 +87,13 @@ export function createMemoryAppearanceFidelityRepository() {
     }
   }
 
-  function appendCaptureEvent({ eventType, organizationId, requestId, actorSystemId, now, metadata = {} }) {
+  function appendCaptureEvent({ eventType, organizationId, requestId, actorMemberId = null, actorSystemId = null, now, metadata = {} }) {
     events.push({
       id: `appearance-event-${nextEventId}`,
       organization_id: organizationId,
       capture_request_id: requestId,
-      actor_system_id: actorSystemId ?? null,
+      actor_member_id: actorMemberId,
+      actor_system_id: actorSystemId,
       event_type: eventType,
       metadata: copyRecord(metadata),
       created_at: now,
@@ -102,7 +103,8 @@ export function createMemoryAppearanceFidelityRepository() {
       id: `appearance-audit-${nextAuditEventId}`,
       organization_id: organizationId,
       capture_request_id: requestId,
-      actor_system_id: actorSystemId ?? null,
+      actor_member_id: actorMemberId,
+      actor_system_id: actorSystemId,
       event_type: eventType,
       metadata: copyRecord(metadata),
       created_at: now,
@@ -124,6 +126,9 @@ export function createMemoryAppearanceFidelityRepository() {
   }
 
   return {
+    async initialize() {},
+    async close() {},
+
     async findByIdempotencyKey({ organizationId, actorMemberId, idempotencyKey }) {
       const record = records.find(
         (candidate) => candidate.organization_id === organizationId &&
@@ -174,6 +179,13 @@ export function createMemoryAppearanceFidelityRepository() {
       });
       nextId += 1;
       records.push(stored);
+      appendCaptureEvent({
+        eventType: 'appearance.capture_requested',
+        organizationId: stored.organization_id,
+        requestId: stored.id,
+        actorMemberId: stored.requested_by_member_id,
+        now: stored.created_at,
+      });
       return copyRecord(stored);
     },
 
@@ -347,9 +359,9 @@ export function createMemoryAppearanceFidelityRepository() {
       const candidate = candidates.get(candidateId);
       if (!candidate || candidate.organization_id !== organizationId) return null;
       const candidateState = candidateStates.get(candidateId);
-      const providerReferenceObservation = providerReferenceObservations.find(
+      const providerReferenceObservation = providerReferenceObservations.filter(
         (observation) => observation.organization_id === organizationId && observation.candidate_id === candidateId,
-      );
+      ).at(-1);
       if (!candidateState || !providerReferenceObservation) return null;
       return {
         candidate: copyRecord(candidate),
@@ -434,6 +446,13 @@ export function createMemoryAppearanceFidelityRepository() {
         ],
       };
       records[index] = next;
+      appendCaptureEvent({
+        eventType: operation === 'authorize' ? 'appearance.capture_authorized' : 'appearance.capture_cancelled',
+        organizationId,
+        requestId,
+        actorMemberId,
+        now: at,
+      });
       commandReceipts.set(commandReceiptKey({ operation, organizationId, actorMemberId, idempotencyKey }), {
         fingerprint,
         record: copyRecord(next),

@@ -328,6 +328,10 @@
 - Provider Observation 采用 `valid_until=observed_at` 的 same-gate-only 策略，不凭 `gen_id`、历史成功或旧时间推断
   current availability。真实 Hifly observation seam、合理正 TTL、长期/跨设备恢复与 claim-side 无副作用再观察仍未证明，
   因此 Fidelity-D 继续是 stop condition。
+- PR #215 独立审阅后的纠偏进一步锁定：默认 App/Asset 端口可直接读取精确已验证源图且创建 request 不触发 Provider；
+  Provider 未来时间不能延长零时效；内部候选不能经通用 Assets 精确读取、改名、禁用、删除或下载；PostgreSQL
+  request 的冻结上游/源图/身份/授权上限及 terminal truth 由数据库 trigger 阻止同状态改写。以上仍须随 PR 合并才计入
+  repository truth。
 - Fidelity-B 只实现 capture/storage/API 基础，不实现 Fidelity-C 自动检查与人工审核 UI，不修改 Production
   create/eligible/claim/handoff，不部署，也没有访问 Hifly、生成候选/视频或消耗积分。
 

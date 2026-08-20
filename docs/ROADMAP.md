@@ -122,6 +122,8 @@ AssetVersion、Candidate/State/Observation、组织作用域 API、短任务 Wor
 不调用 Provider，授权上限固定为一次，失败 terminal 且无 retry/resume。Observation 当前故意采用
 `valid_until=observed_at` 的 same-gate-only 策略，不能被 Production 当成正 TTL。真实 Hifly capture/observe、合理有效期、
 自动检查、人工审核、Production 门禁和真实验收继续分别属于 Fidelity-C～E，不由本切片提前实现。
+PR #215 的独立审阅纠偏必须同时通过默认 App/Asset 端口、服务端可信零时效、内部候选通用 API 隔离与 PostgreSQL
+冻结/terminal 不可变回归；这些修复只有合并后才改变 repository truth，不构成部署或 Provider 验收。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、

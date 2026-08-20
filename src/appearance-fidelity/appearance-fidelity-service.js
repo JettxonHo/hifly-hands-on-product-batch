@@ -337,7 +337,7 @@ async function validateGeneratedCandidate(response, request) {
   };
 }
 
-function validateObservation(response, generated) {
+function validateObservation(response, generated, trustedObservedAt) {
   if (!response || typeof response !== 'object') {
     throw contractError('PROVIDER_REFERENCE_OBSERVATION_INVALID', 'provider reference observation is invalid');
   }
@@ -367,15 +367,19 @@ function validateObservation(response, generated) {
   if (response.status === 'unavailable') {
     throw contractError('PROVIDER_REFERENCE_UNAVAILABLE', 'provider reference is unavailable');
   }
-  if (response.status !== 'available' || !validTimestamp(response.observed_at)) {
+  const providerObservedAt = Date.parse(response.observed_at);
+  const providerValidUntil = Date.parse(response.valid_until);
+  const trustedAt = Date.parse(trustedObservedAt);
+  if (response.status !== 'available' || !validTimestamp(response.observed_at) ||
+      !validTimestamp(response.valid_until) || !Number.isFinite(trustedAt) ||
+      providerObservedAt > trustedAt || providerValidUntil !== providerObservedAt) {
     throw contractError('PROVIDER_REFERENCE_OBSERVATION_INVALID', 'provider reference observation is invalid');
   }
 
-  const observedAt = response.observed_at;
   return {
     status: 'available',
-    observedAt,
-    validUntil: observedAt,
+    observedAt: trustedObservedAt,
+    validUntil: trustedObservedAt,
     reasonCode: null,
     method: PROVIDER_REFERENCE_METHOD,
     seamVersion: PROVIDER_OBSERVATION_SEAM_VERSION,
@@ -809,7 +813,7 @@ export function createAppearanceFidelityService({
             'provider candidate observation failed',
           );
         }
-        const observation = validateObservation(observationResponse, generated);
+        const observation = validateObservation(observationResponse, generated, timestamp(now));
 
         const candidateId = randomUUID();
         try {

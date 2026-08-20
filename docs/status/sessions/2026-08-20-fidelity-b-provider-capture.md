@@ -110,6 +110,24 @@ GREEN：在一次性 PostgreSQL 16 容器中验证：
 - Candidate、Observation、events、audit、receipts append-only，terminal request 与 CandidateState 不可回退；
 - migration 没有 destructive backfill 或 down migration；生产回滚仍由部署前数据库备份与旧 App 镜像 gate 管理。
 
+### 6. 独立审阅后的必需纠偏
+
+PR #215 第一轮独立审阅在 fixed head `41dc4bd97a259342eb97eb3c2bee46dc8bea2d14` 发现四项 P1。修复保持
+Fidelity-B 边界，没有新增真实 Provider、Production 或 UI 能力：
+
+- 默认 `buildApp` 装配现在以 Asset service 的真实 `sourceProductImagePort` 直接接收 Fidelity service 的
+  `sourceAssetVersionId`；真实 memory Asset upload/verification + 默认 App 接线回归证明 request 进入
+  `awaiting_authorization`，Provider generation/observation 均为 0 次。PostgreSQL 测试不再依赖专用参数 remap。
+- Provider 回传的 `observed_at/valid_until` 仍按不可信输入校验；未来时间或非零窗口失败关闭。持久化 observation 绑定
+  服务端同一 gate 的可信时间，并继续令 `valid_until=observed_at`，没有产生正 TTL。
+- 内部 `appearance_candidate_image` 只能经 Fidelity 专用 Asset port 使用。通用 Assets 的列表、精确 AssetVersion 读取、
+  重命名、禁用、删除与下载授权均失败关闭；内部候选下载仍以 exact candidate + organization + AssetVersion 绑定。
+- memory repository 与 PostgreSQL 对齐：create/authorize/cancel 均追加 event/audit，Candidate exact read 取最新 append-only
+  observation；memory repository 也提供与 App 装配一致的 initialize/close 生命周期接口。
+- PostgreSQL capture request trigger 收紧冻结证据、请求/授权身份、一次生成上限和 terminal truth；direct SQL 回归覆盖
+  active request 改源图/上游快照，以及 succeeded 同状态改证据、失败码或候选绑定均被拒绝，同时正常
+  authorize/claim/complete/fail 路径保持可用。
+
 ## 配置与兼容边界
 
 - `APPEARANCE_FIDELITY_ENABLED` 默认 `false`。
@@ -122,12 +140,14 @@ GREEN：在一次性 PostgreSQL 16 容器中验证：
 
 开发中已完成：
 
-- service/API/assets 聚焦矩阵：43/43；
+- service/API/assets 与默认 App 装配聚焦矩阵：57/57；
 - production config/deployment 受影响矩阵：21/21；
 - PostgreSQL 16 integration：1/1，临时容器已删除；
 - `npm run check`：237 个 JavaScript 文件通过；
 - `git diff --check`：通过；
-- default `npm test`：1082 total / 1067 pass / 15 个既有环境门禁 skip / 0 fail；
+- default `npm test` 本地复跑已输出 613 个通过后停留在既有
+  `operator-workbench-v2-assets-browser.test.js` 子进程约 9 分钟且无新增 TAP 输出，因此人工终止，不能记为本地通过；
+  最终全量结论须以 fixed-head GitHub CI 为准。审阅前 fixed head 的 CI 曾完成默认全量，本次修复没有改动该浏览器 seam；
 - `npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high`：0 high / 0 critical / 2 moderate。
   两项 moderate 均来自 ExcelJS 间接依赖 uuid；npm 只建议 breaking 的 ExcelJS 3.4.0 回退，本轮没有执行
   `audit fix --force`，依赖也不在 Fidelity-B allowlist。

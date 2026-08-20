@@ -449,6 +449,32 @@ test("registering an appearance candidate creates an available internal asset hi
 
   assert.deepEqual(await w.service.listAssets({ organizationId: "org_a" }), []);
   await assert.rejects(
+    w.service.getAsset({ organizationId: "org_a", assetId: asset.id }),
+    { code: "ASSET_NOT_FOUND" }
+  );
+  await assert.rejects(
+    w.service.getAssetVersion({ organizationId: "org_a", assetVersionId: version.id }),
+    { code: "ASSET_VERSION_NOT_FOUND" }
+  );
+  await assert.rejects(
+    w.service.updateAssetMetadata({ organizationId: "org_a", assetId: asset.id, expectedRevision: 1, displayName: "改写候选" }),
+    { code: "ASSET_NOT_FOUND" }
+  );
+  await assert.rejects(
+    w.service.disableAsset({ organizationId: "org_a", assetId: asset.id, expectedRevision: 1 }),
+    { code: "ASSET_NOT_FOUND" }
+  );
+  await assert.rejects(
+    w.service.deleteAsset({ organizationId: "org_a", assetId: asset.id, expectedRevision: 1 }),
+    { code: "ASSET_NOT_FOUND" }
+  );
+  await assert.rejects(
+    w.service.createDownloadAuthorization({ organizationId: "org_a", assetVersionId: version.id }),
+    { code: "ASSET_VERSION_NOT_AVAILABLE" }
+  );
+  assert.equal((await w.repository.getAsset("org_a", asset.id)).status, "active");
+  assert.equal((await w.repository.getAssetVersion("org_a", version.id)).status, "available");
+  await assert.rejects(
     w.service.createUploadAuthorization({
       organizationId: "org_a",
       actorMemberId: "member_a",
@@ -474,8 +500,8 @@ test("appearance candidate registration rollback removes memory asset and versio
   });
 
   assert.ok(rollbacks.length > 0);
-  assert.equal((await w.service.getAsset({ organizationId: "org_a", assetId: registered.asset.id })).kind, "appearance_candidate_image");
-  assert.equal((await w.service.getAssetVersion({ organizationId: "org_a", assetVersionId: registered.asset_version.id })).status, "available");
+  assert.equal((await w.repository.getAsset("org_a", registered.asset.id)).kind, "appearance_candidate_image");
+  assert.equal((await w.repository.getAssetVersion("org_a", registered.asset_version.id)).status, "available");
 
   for (const rollback of rollbacks.reverse()) await rollback();
   await assert.rejects(w.service.getAsset({ organizationId: "org_a", assetId: registered.asset.id }), { code: "ASSET_NOT_FOUND" });

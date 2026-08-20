@@ -678,6 +678,14 @@ test('authorizes and cancels capture requests through role, revision, idempotenc
     { status: 'awaiting_authorization', row_version: 1, at: '2026-08-20T08:00:00.000Z' },
     { status: 'queued', row_version: 2, at: '2026-08-20T08:00:00.000Z' },
   ]);
+  assert.deepEqual((await world.repository.listEvents()).map(eventName), [
+    'appearance.capture_requested',
+    'appearance.capture_authorized',
+  ]);
+  assert.deepEqual((await world.repository.listAuditEvents()).map(eventName), [
+    'appearance.capture_requested',
+    'appearance.capture_authorized',
+  ]);
 
   const authorizationReplay = await world.service.authorizeCaptureRequest(authorization);
   assert.equal(authorizationReplay.replayed, true);
@@ -729,6 +737,8 @@ test('authorizes and cancels capture requests through role, revision, idempotenc
       row_version: request.row_version + 1,
       at: '2026-08-20T08:00:00.000Z',
     });
+    assert.equal((await cancellationWorld.repository.listEvents()).map(eventName).at(-1), 'appearance.capture_cancelled');
+    assert.equal((await cancellationWorld.repository.listAuditEvents()).map(eventName).at(-1), 'appearance.capture_cancelled');
 
     const cancellationReplay = await cancellationWorld.service.cancelCaptureRequest(command);
     assert.equal(cancellationReplay.replayed, true);
@@ -981,6 +991,30 @@ test('Fidelity-B rejects Provider references containing URLs, credentials, or Pr
       'failed',
     );
   }
+});
+
+test('Fidelity-B rejects a future Provider observation instead of extending the zero-duration gate', async () => {
+  const world = createWorld({
+    providerAdapter: createDeterministicProviderAdapter({
+      observeOverrides: {
+        observed_at: '2036-08-20T08:00:00.000Z',
+        valid_until: '2036-08-20T08:00:00.000Z',
+      },
+    }),
+    candidateAssetPort: createDeterministicCandidateAssetPort(),
+  });
+  await createAuthorizedCapture(world, {
+    idempotencyKey: 'appearance-future-observation',
+  }, {
+    idempotencyKey: 'appearance-future-observation-authorize',
+  });
+
+  const result = await world.service.runNextCapture({ systemActorId: 'appearance-fidelity-system' });
+
+  assert.equal(result.capture_request.status, 'failed');
+  assert.equal(result.capture_request.failure_code, 'PROVIDER_REFERENCE_OBSERVATION_INVALID');
+  assert.equal((await world.repository.listCandidates()).length, 0);
+  assert.equal((await world.repository.listProviderReferenceObservations()).length, 0);
 });
 
 test('Fidelity-B candidate reads are organization scoped with unified not-found behavior', async () => {
