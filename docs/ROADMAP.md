@@ -42,7 +42,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
-P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 Product/Model/Evidence gate → Fidelity-C～E 未开始
+P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218 官方来源 shortlist acceptance → 受控 benchmark（待单独授权）→ Fidelity-C～E 未开始
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -130,6 +130,11 @@ AppearanceReview、视觉检查 Adapter 或已接受模型/阈值/误判/费用 
 benchmark、误放行/误阻断/unknown、费用与数据治理证据，并由 Owner 接受 policy/model version 和阈值；否则保持
 `BLOCKED_CHECK_CAPABILITY_UNSELECTED`，不得用 fake 结果进入 Fidelity-C 实现。
 
+Issue #218 是只读官方来源 shortlist 的 acceptance gate。其文档进入 `main` 后，当前仅本地 PaddleOCR/OpenCV 基线具备
+进入独立受控 benchmark 的资格；OpenAI 固定 snapshot 与 Google Vertex AI 保持 reserve，混合方案保持 deferred。下一步
+至多是仍需单独授权的本地 baseline benchmark；任何外部 API、图片上传或费用动作都继续要求 Owner 当次明确授权。在逐维
+误放行、误阻断、unknown、延迟、费用与数据治理未实测并获接受前，Fidelity-C 实现继续关闭。
+
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
 部署或生产采用。Issue #176 / PR #177 已完成第一片 shared IA/content/control foundation，Issue #178 / PR #179
@@ -146,8 +151,9 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 - #190/#191 已完成代码、独立 Review、统一部署与真实管理员只读复验；后续不得为重复确认这两项而启动 Worker 或生成视频。
 - #200/#201/#202 已严格串行完成并部署；不得把本次技术成功、返工 Work 或已下载候选解释为再次生成授权。
 - #208/#210 已建立并接受 Fidelity-0 有界 Provider Evidence；#212 Fidelity-A 合同与 #214 Fidelity-B repository 已进入
-  `main`。#216 是 Fidelity-C0 检查能力 acceptance gate；Fidelity-C～E 不得并行抢跑，也不得把设计、fake Adapter 或 Provider Evidence
-  写成真实 Hifly 能力、部署或外观保真通过。
+  `main`。#216 是 Fidelity-C0 检查能力 gate，#218 只负责官方来源 shortlist；后续 benchmark 仍需独立授权与 acceptance。
+  Fidelity-C～E 不得并行抢跑，也不得把设计、研究、fake Adapter 或 Provider Evidence 写成真实 Hifly 能力、部署或
+  外观保真通过。
 - 文案增强、人物推荐、背景/场景/姿势、动效精修、Capture HTTP、Local Agent 新功能、并行生产、复杂对象存储和高可用全部暂停。
 - Local Agent 保留已验证代码但默认关闭，并从生产主路径/操作说明中退出；纯云端稳定至少 10 条或 1～2 周后再决定是否删除。
 - 当前 2C4G/2C4G 级试运行服务器只证明内部功能闭环，不承诺正式生产 SLA。

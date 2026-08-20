@@ -138,7 +138,7 @@ gate 中批准。阈值未批准时，能力状态保持 blocked。
 
 ```text
 Issue #216 gate 进入 main
-→ 独立 capability shortlist 与官方费用/隐私/版本证据
+→ Issue #218 capability shortlist 与官方费用/隐私/版本证据进入 main
 → 经单独授权的受控 benchmark（如涉及外部 API 或费用）
 → Owner 接受 capability + policy/model version + 阈值
 → 新 Fidelity-C 实现 Issue：Run/Result → Review → workspace
@@ -148,6 +148,13 @@ Issue #216 gate 进入 main
 
 原 Fidelity-C 的公共状态、API 与人工审核合同继续由 D-036 持有；本文件只补上进入代码实现前缺失的能力证据门禁。没有通过
 本门禁时，不得开始 Fidelity-D/E，也不得把人工 Works 检查倒推成自动检查已可用。
+
+Issue #218 的研究结果由
+[`PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md`](PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md) 持有。该文件只把官方能力
+压缩为当前唯一可执行候选：本地 PaddleOCR/OpenCV 基线。OpenAI 固定 snapshot 因官方 Logo 输入要求保持 reserve/blocked，
+Google Vertex AI 因版本锁定与迁移语义待复核保持 reserve，混合方案在合规多模态组件获接受前保持 deferred。它没有运行模型、
+测量准确率、设置阈值或替 Owner 选择最终 capability。其 PR 合并只表示 shortlist 研究完成；下一门至多是仍需独立授权的本地
+受控 benchmark，任何外部图片/API/费用动作继续单独过 gate。
 
 ## 8. 本轮边界
 
