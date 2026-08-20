@@ -158,6 +158,9 @@ ExecutionAttempt、lease、retry 和费用语义。只有取得正式 Provider A
 
 自动检查至少要对通用身份维度分别给出“支持 / 不支持 / 无法判断”及可定位证据；不得把多个维度压成一个无法解释的总分。当前不预设模型、阈值或供应商，因为仓库尚无可验证能力合同。
 
+Fidelity-C 实现前的能力选型、基准集、误放行/误阻断/unknown、费用、隐私和版本 Evidence 门禁见
+`PRODUCT_APPEARANCE_CHECK_CAPABILITY_GATE.md`。该门禁未通过时，不得用 fake Adapter 或固定结果提前实现检查与审核。
+
 Logo、标签文字被合理遮挡时可以是“无法判断”，不能推断为通过。若纯生成模式持续不能满足身份一致性，受控抠图合成或 Provider 产品锁定能力必须作为新的独立 Product/Provider/架构 gate 评估，不在 Issue #208 内扩展。
 
 ## 9. 严格串行实施切片
@@ -167,6 +170,7 @@ Logo、标签文字被合理遮挡时可以是“无法判断”，不能推断�
 | Fidelity-0 | Provider capability：证明候选 bytes/reference、生命周期、计费边界、安全暂停/恢复与精确源图上传对应关系 | 有界 Evidence 已建立；长期/跨设备与领域 AssetVersion 绑定留给后续设计，不自动进入实现 |
 | Fidelity-A | 领域/API：采用生产前独立候选门禁，定义 CaptureRequest/Candidate/State/Provider Observation/Check/Review、组织隔离、审计和幂等 | 随独立审阅后的合同 PR 合并才计为 designed；不自动授权实现 |
 | Fidelity-B | Provider capture：按 Fidelity-0 已接受 seam 保存精确候选，DOM/API 漂移时失败关闭 | 实现与已接受 Provider 证据不一致时停止 |
+| Fidelity-C0 | 检查能力门禁：选择并实证逐维模型/规则、阈值、误判、unknown、费用与数据治理 | 未接受 capability/policy/model version 与阈值时停止，不写假检查器 |
 | Fidelity-C | 运营审核：预览证据、批准/拒绝、冲突与历史 | 不得伪造自动通过或最终 Works 通过 |
 | Fidelity-D | Production 集成：冻结引用、handoff、显式视频阶段和去重提交 | 无法证明一次批准只产生一次提交时停止 |
 | Fidelity-E | 单条受控真实验收 | 必须在当次另获单条积分授权；首失败即停 |
