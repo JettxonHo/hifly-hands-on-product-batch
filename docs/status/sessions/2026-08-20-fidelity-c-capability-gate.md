@@ -38,8 +38,9 @@
 - D-036 唯一性：1；未创建 speculative D-037：0；
 - active CURRENT/ROADMAP 已把 #214/#215 更新为 merged repository truth，并把 #216 标为实现前 capability gate；
 - strict allowlist：六份文档；
-- fixed head `6d447446a3633f77db613748e0f32c54e691c778` 的 GitHub CI run `32348275656` 三组均为 SUCCESS：
+- 首轮审阅 head `6d447446a3633f77db613748e0f32c54e691c778` 的 GitHub CI run `32348275656` 三组均为 SUCCESS：
   identity-postgres 45s、Ubuntu 59s、Windows 1m36s。
+- 后续证据修正提交及其 CI 以 PR #217 元数据和结果评论为准；session 不在提交正文中自引用最终 head。
 
 ## 明确未执行
 
