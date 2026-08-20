@@ -338,6 +338,10 @@
   已接受的视觉/OCR模型；D-036 明确保留的模型、阈值、误判率、费用和数据治理 Evidence 均未建立。因此 Fidelity-C 代码
   失败关闭，先由 `docs/product/PRODUCT_APPEARANCE_CHECK_CAPABILITY_GATE.md` 定义 capability shortlist、受控 benchmark、
   逐维证据与 Owner acceptance。fake Adapter、固定 passed、单张截图或总分不能越过该门禁。
+- Issue #218 是 Fidelity-C1 shortlist 的 acceptance gate；其文档随 PR 合并进入 `main` 后，只表示官方来源研究完成。
+  研究把本地 PaddleOCR/OpenCV、OpenAI 固定 snapshot Adapter 与混合方案列为最多三个受控 benchmark 候选顺序，
+  Google Vertex AI 仅保留为版本治理尚待收敛的对照。没有调用模型或上传图片，逐维覆盖、严重误放行、误阻断、
+  unknown、延迟和真实费用仍全部未验证，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 
 ## P0.5 内部验收环境部署
 
@@ -499,9 +503,10 @@
 1. #200/#201/#202 已完成实现、独立 Review、合并、部署与单条真实复验；尺寸选档和技术闭环通过，但 Work 已因瓶盖造型
    失真登记返工。没有新的重试或再次生产授权，保持本单 `rework_required` 且不交付。
 2. Fidelity-0 Evidence、Fidelity-A 设计与 Fidelity-B repository implementation 已进入 `main`，但仍只完成默认关闭的
-   capture/storage/API 基础。Issue #216 先建立 Fidelity-C0 能力 Evidence gate；只有 capability、policy/model version、
-   阈值、误判、unknown、费用与数据治理经 Owner 接受后，才能另开 Fidelity-C 检查/审核实现。真实 Provider Observation
-   的合理有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
+   capture/storage/API 基础。Issue #216 已建立 Fidelity-C0 能力 Evidence gate；Issue #218 只读研究的 shortlist 只有随
+   PR 合并进入 `main` 才计为完成，且下一步仍须单独授权受控 benchmark。只有 capability、policy/model version、阈值、
+   误判、unknown、费用与数据治理经 Owner 接受后，才能另开 Fidelity-C 检查/审核实现。真实 Provider Observation 的
+   合理有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
 3. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
 4. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
