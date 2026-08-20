@@ -151,9 +151,10 @@ Issue #216 gate 进入 main
 
 Issue #218 的研究结果由
 [`PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md`](PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md) 持有。该文件只把官方能力
-压缩为本地 PaddleOCR/OpenCV 基线、固定 snapshot 多模态 Adapter 与混合方案三个 benchmark 候选顺序，并保留 Google
-Vertex AI 作为对照；它没有运行模型、测量准确率、设置阈值或替 Owner 选择最终 capability。其 PR 合并只表示 shortlist
-研究完成，下一门仍是需要独立费用/数据授权的受控 benchmark。
+压缩为当前唯一可执行候选：本地 PaddleOCR/OpenCV 基线。OpenAI 固定 snapshot 因官方 Logo 输入要求保持 reserve/blocked，
+Google Vertex AI 因版本锁定与迁移语义待复核保持 reserve，混合方案在合规多模态组件获接受前保持 deferred。它没有运行模型、
+测量准确率、设置阈值或替 Owner 选择最终 capability。其 PR 合并只表示 shortlist 研究完成；下一门至多是仍需独立授权的本地
+受控 benchmark，任何外部图片/API/费用动作继续单独过 gate。
 
 ## 8. 本轮边界
 

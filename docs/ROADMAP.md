@@ -130,10 +130,10 @@ AppearanceReview、视觉检查 Adapter 或已接受模型/阈值/误判/费用 
 benchmark、误放行/误阻断/unknown、费用与数据治理证据，并由 Owner 接受 policy/model version 和阈值；否则保持
 `BLOCKED_CHECK_CAPABILITY_UNSELECTED`，不得用 fake 结果进入 Fidelity-C 实现。
 
-Issue #218 是只读官方来源 shortlist 的 acceptance gate。其文档进入 `main` 后只把本地 PaddleOCR/OpenCV、固定 snapshot
-多模态 Adapter 与混合方案排入最多三个 benchmark 候选，不选择最终 capability，也不证明七维准确率。下一步受控
-benchmark 涉及任何外部 API、图片上传或费用时仍需 Owner 当次明确授权；在逐维误放行、误阻断、unknown、延迟、费用与
-数据治理未实测并获接受前，Fidelity-C 实现继续关闭。
+Issue #218 是只读官方来源 shortlist 的 acceptance gate。其文档进入 `main` 后，当前仅本地 PaddleOCR/OpenCV 基线具备
+进入独立受控 benchmark 的资格；OpenAI 固定 snapshot 与 Google Vertex AI 保持 reserve，混合方案保持 deferred。下一步
+至多是仍需单独授权的本地 baseline benchmark；任何外部 API、图片上传或费用动作都继续要求 Owner 当次明确授权。在逐维
+误放行、误阻断、unknown、延迟、费用与数据治理未实测并获接受前，Fidelity-C 实现继续关闭。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、

@@ -339,9 +339,10 @@
   失败关闭，先由 `docs/product/PRODUCT_APPEARANCE_CHECK_CAPABILITY_GATE.md` 定义 capability shortlist、受控 benchmark、
   逐维证据与 Owner acceptance。fake Adapter、固定 passed、单张截图或总分不能越过该门禁。
 - Issue #218 是 Fidelity-C1 shortlist 的 acceptance gate；其文档随 PR 合并进入 `main` 后，只表示官方来源研究完成。
-  研究把本地 PaddleOCR/OpenCV、OpenAI 固定 snapshot Adapter 与混合方案列为最多三个受控 benchmark 候选顺序，
-  Google Vertex AI 仅保留为版本治理尚待收敛的对照。没有调用模型或上传图片，逐维覆盖、严重误放行、误阻断、
-  unknown、延迟和真实费用仍全部未验证，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
+  当前只有本地 PaddleOCR/OpenCV 基线具备进入独立受控 benchmark 的资格。OpenAI 固定 snapshot 因官方输入要求禁止 Logo
+  图片而保持 reserve/blocked；Google Vertex AI 因旧 lifecycle URL 重定向、当前版本锁定与迁移语义待复核而保持 reserve；
+  混合方案在合规多模态组件获接受前保持 deferred。没有调用模型或上传图片，逐维覆盖、严重误放行、误阻断、unknown、
+  延迟和真实费用仍全部未验证，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 
 ## P0.5 内部验收环境部署
 

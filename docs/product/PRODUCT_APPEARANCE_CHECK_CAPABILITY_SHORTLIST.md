@@ -8,18 +8,19 @@
 ## 1. 结论先行
 
 本轮没有选择最终模型、规则、policy version 或阈值，也没有证明任何候选能够可靠判断商品身份一致性。
-官方资料只足以形成三个可进入独立受控 benchmark 的候选顺序：
+官方资料目前只足以形成一个可进入独立受控 benchmark 的候选：
 
 1. **本地 PaddleOCR 3.7.0 / PP-OCRv6 + OpenCV 4.13.0 基线**：先建立可复现的 OCR、颜色、轮廓、
    比例和局部特征证据；数据无需离开受控环境，但遮挡、视角变化和语义部件关系能力必须实测。
-2. **OpenAI GPT-5.4 固定 snapshot Adapter**：以 `gpt-5.4-2026-03-05`、严格 JSON schema 和受控图像输入
-   作为多模态候选；官方能力不等于七维准确率，且产品包装 Logo 输入适用性、数据治理资格与费用必须先确认。
-3. **混合方案**：本地规则先生成可复核事实，多模态模型只处理规则无法覆盖的维度或歧义；任一组件失败均
-   输出 `unknown`/`failed`，不能以另一个组件的总分补偿。
+OpenAI GPT-5.4 固定 snapshot 保留为 **reserve / blocked**：官方 Images and Vision 输入要求明确包含
+“No watermarks or logos”，而 D-036 必须检查真实商品包装上的 Logo。除非取得官方书面澄清，或找到官方支持且明确允许
+Logo 商品图的输入路线，否则不得把真实商品图上传到该路线，也不得将它作为可执行 benchmark 候选。固定 snapshot、
+Structured Outputs、价格和数据治理资料仍是有效能力事实，但不能越过输入合规门禁。
 
-Google Vertex AI Gemini 作为对照候选保留，但本轮不进入前三顺序。官方资料证明图像理解、受控 JSON、数据治理
-和明确错误码存在；当前文档中的自动更新别名与模型生命周期仍要求 benchmark 前锁定精确版本并制定迁移复验，
-否则不能满足 D-036 的 model version 审计要求。
+Google Vertex AI Gemini 同样仅作为 reserve。官方 `GenerateContentResponse` 能返回实际 `modelVersion`，但旧 Vertex
+model lifecycle URL 在本次核对时已重定向到 Gemini Enterprise Agent Platform；当前可锁定模型与迁移语义必须重新验证，
+不得据此提升为可执行候选。混合方案只是 **deferred composition**：在一个合规且被接受的多模态组件进入 benchmark 前，
+它不是独立可执行能力。
 
 本结论只回答“哪些能力值得进入 benchmark”，不回答“哪个能力可以上线”。`BLOCKED_CHECK_CAPABILITY_UNSELECTED`
 保持不变。
@@ -58,12 +59,12 @@ Google Vertex AI Gemini 作为对照候选保留，但本轮不进入前三顺�
 | 失败语义 | 本系统可观察进程退出、解析失败、空 OCR、特征不足 | 每类失败映射 `failed` 还是逐维 `unknown` 仍需 policy 决定 |
 | 生命周期 | 可固定软件与权重版本，升级由本项目控制 | 上游 CVE、模型权重发布与兼容复验成本未知 |
 
-### 3.2 OpenAI 固定 snapshot 多模态 Adapter
+### 3.2 OpenAI 固定 snapshot 多模态 Adapter（reserve / blocked）
 
 | 维度 | 官方资料能证明什么 | 仍为 UNKNOWN 的 Hifly 事实 |
 |---|---|---|
 | 版本 | GPT-5.4 页面列出 snapshot `gpt-5.4-2026-03-05`，可避免只使用浮动 alias | snapshot 可用生命周期与迁移窗口仍须每次 benchmark 前复核 |
-| 图像/OCR | Vision guide 支持 PNG/JPEG/WEBP/非动画 GIF 与多图输入；GPT-5.4 支持 image input | 中文包装七维识别效果未测；guide 的输入要求含“不含 watermark/logo”措辞，与商品 Logo 场景的适用性必须先澄清 |
+| 图像/OCR | Vision guide 支持 PNG/JPEG/WEBP/非动画 GIF 与多图输入；GPT-5.4 支持 image input | 同一 guide 还明确要求输入图片不得含 watermark 或 logo；本项目真实包装 Logo 与该要求冲突，因此该路线不得进入当前 benchmark，除非取得官方书面澄清或另一条官方支持的合规路线 |
 | 结构化输出 | Structured Outputs 支持 JSON Schema adherence、明确 refusal 和 incomplete 边界 | 支持的是 JSON Schema 子集；七维 schema、拒绝和截断映射尚未实测 |
 | 输入限制 | Vision guide 列出单请求总 payload 和图片数量上限，并提供 detail 档位 | 商品图片最佳分辨率、detail、token 消耗与裁切策略未测 |
 | 数据治理 | 官方说明 API 数据默认不用于训练；默认 abuse logs 最多 30 天；ZDR/MAM 与区域处理受资格和配置约束 | 本项目账号是否获批 ZDR、所需区域是否可用、删除/审计配置均未核验 |
@@ -71,20 +72,20 @@ Google Vertex AI Gemini 作为对照候选保留，但本轮不进入前三顺�
 | 配额/失败 | 官方列出 tier rate limits，以及 429/500/503/API connection/refusal/incomplete 等可观察边界 | 本项目 tier、并发、P50/P95、超时和限流恢复未测；失败不得自动通过 |
 | 生命周期 | snapshot 比 alias 更适合审计；输出可记录 model identifier | 供应商退役、schema 行为变化与复验频率仍是版本风险 |
 
-### 3.3 Google Vertex AI Gemini 对照候选
+### 3.3 Google Vertex AI Gemini reserve
 
 | 维度 | 官方资料能证明什么 | 本轮处理 |
 |---|---|---|
 | 图像与 JSON | 官方 quickstart 展示 image input；GenerationConfig 支持 `responseSchema`/JSON | 能力存在，不等于七维准确率 |
-| 版本 | 官方生命周期文档说明稳定版、弃用和自动更新 alias；响应包含实际 `modelVersion` | 自动 alias 会漂移；benchmark 前必须证明可调用、可审计的精确版本，否则拒绝进入执行 |
+| 版本 | `GenerateContentResponse` 官方字段说明实际响应包含 `modelVersion` | 旧 Vertex model lifecycle URL 在 2026-08-20 核对时重定向至 Gemini Enterprise Agent Platform；当前精确锁定与迁移语义必须重新验证，不能凭旧页面表述进入 benchmark |
 | 数据 | 官方承诺未经许可不训练；ZDR 文档列出 abuse logging、in-memory cache 与功能例外 | 账号资格、区域、缓存关闭和删除边界未核验 |
 | 费用 | 官方 pricing 按 model/token 或 modality 列费率，并说明非 200 请求的计费边界 | 具体 benchmark 模型和图像 token 尚未选，不能算实际单价 |
 | 失败/配额 | 官方错误页给出 400/401/403/404/429/5xx；按需模式存在 Dynamic Shared Quota | 可观察失败明确，但延迟、容量和重试策略未测；Hifly 默认仍 fail closed |
 | 生命周期风险 | 官方 release notes 与 lifecycle 提供变化记录 | 当前产品命名与文档迁移变化本身要求更严格的版本复验 |
 
-### 3.4 混合方案
+### 3.4 混合方案（deferred composition）
 
-混合方案不是第三个“神奇模型”，而是责任清晰的编排：
+混合方案不是独立可执行候选，而是待一个合规、已接受的多模态组件进入 benchmark 后才可评估的责任编排：
 
 - 本地组件只输出可复核的 OCR box/text、颜色分布、轮廓、比例和局部匹配事实；
 - 多模态 Adapter 只处理规则覆盖不足的语义部件、包装结构或遮挡歧义，并返回固定七维 schema；
@@ -96,7 +97,7 @@ Google Vertex AI Gemini 作为对照候选保留，但本轮不进入前三顺�
 
 此表只评估“能否形成可复核 Evidence”，不是准确率结论。
 
-| D-036 维度 | 本地 OCR/CV | 固定 snapshot 多模态 | 混合方案 | benchmark 必须测量 |
+| D-036 维度 | 本地 OCR/CV（当前候选） | 固定 snapshot 多模态（reserve） | 混合方案（deferred） | benchmark 必须测量 |
 |---|---|---|---|---|
 | 轮廓/几何 | 轮廓、关键点、homography 可提供数值证据 | 可给结构化语义判断 | 规则证据优先，模型解释歧义 | 视角、遮挡下误放行/误阻断/unknown |
 | 部件数量/连接 | 局部特征可辅助，语义连接较弱 | 可描述部件关系 | 本地定位 + 模型关系判断 | 泵头/瓶盖/把手等变形样本 |
@@ -116,21 +117,21 @@ Google Vertex AI Gemini 作为对照候选保留，但本轮不进入前三顺�
 **Adopt for benchmark baseline**。理由是版本、输入和中间证据最容易固定，且没有图片外发；它适合先证明七维中哪些可由
 确定性证据覆盖。它不能因“本地”而自动通过：若只产生相似度总分、不能区分遮挡与变形，仍不满足 D-036。
 
-### 5.2 候选 2：OpenAI 固定 snapshot Adapter
+### 5.2 Reserve：OpenAI 固定 snapshot Adapter
 
-**Adapt for bounded benchmark**。只允许固定 snapshot、固定 schema、固定 detail、`store=false` 与经确认的数据治理配置；
-拒绝/截断/schema invalid/网络错误都落为 `failed` 或 `unknown`。在商品 Logo 输入适用性和账号数据配置未澄清前，
-不得上传真实商品图片。
+**Blocked pending official clarification**。固定 snapshot、固定 schema、`store=false`、拒绝/截断/schema invalid 等能力事实
+仍成立，但官方输入要求与 Logo 商品图直接冲突。只有官方书面澄清或另一条官方支持且明确允许 Logo 商品图的路线，才能
+重新申请 benchmark gate；不得通过真实上传或 API probe 自行试探。
 
-### 5.3 候选 3：混合方案
+### 5.3 Deferred：混合方案
 
-**Adapt after the two component baselines**。只有本地和多模态候选分别完成逐维测量后，才能判断混合是否降低严重误放行，
-而不是只增加成本与复杂度。混合 benchmark 必须复用同一数据集和人工真值。
+**Deferred composition**。只有一个合规、已接纳的多模态组件先通过独立 benchmark gate，并与本地基线分别完成逐维测量后，
+才能判断混合是否降低严重误放行，而不是只增加成本与复杂度。当前不得为混合方案运行独立 benchmark。
 
 ### 5.4 暂不进入执行的选项
 
-- **Google Vertex AI Gemini**：保留为官方证据充分的替代供应商，但当前版本锁定与迁移复验合同尚未收敛；先不扩大
-  首轮 benchmark。若后续能固定实际 model version、区域和 ZDR 配置，可作为独立替代候选重新过 gate。
+- **Google Vertex AI Gemini**：保留为 reserve；响应 `modelVersion` 字段是有效官方事实，但旧 lifecycle URL 已重定向，
+  当前模型锁定、迁移、区域和 ZDR 合同都须重新验证。满足这些条件后仍需独立 gate，不能自动进入 benchmark。
 - **纯像素差/感知哈希/单一相似度总分**：明确拒绝。它们无法区分允许的视角、姿势、光照与不允许的包装结构变化。
 - **纯 OCR**：明确拒绝为完整检查器；它只能为 Logo/标签与部分可见区域提供 Evidence。
 - **浮动模型 alias 或自然语言输出**：明确拒绝；无法形成可复验 policy/model version 与固定 Result schema。
@@ -163,9 +164,9 @@ Google Vertex AI Gemini 作为对照候选保留，但本轮不进入前三顺�
 | 方案 | 预算公式 | 本轮数值状态 |
 |---|---|---|
 | 本地 | `样本数 × 每样本运行时 × 实例小时单价 + 工程/标注工时` | 实例、运行时和工时均 UNVERIFIED |
-| OpenAI | `总 input tokens × input 单价 + 总 output tokens × output 单价 + 区域附加费 + 失败/复验预算` | token 和账号区域均 UNVERIFIED |
-| Google 对照 | `总 image/input units × 官方单价 + output tokens × 单价 + 复验预算` | 具体 model 与计费单位未选 |
-| 混合 | `本地成本 + 进入模型的 unknown 子集成本 + 编排/复验工时` | unknown 比例未测 |
+| OpenAI reserve | `总 input tokens × input 单价 + 总 output tokens × output 单价 + 区域附加费 + 失败/复验预算` | 仅保留未来预算方法；Logo 输入门禁未解除，不得运行 |
+| Google reserve | `总 image/input units × 官方单价 + output tokens × 单价 + 复验预算` | 具体 model、锁定合同与计费单位未选，不得运行 |
+| 混合 deferred | `本地成本 + 进入模型的 unknown 子集成本 + 编排/复验工时` | 尚无合规多模态组件，不是当前 benchmark 项 |
 
 真实 benchmark、外部 API 或费用动作必须获得 Owner 当次明确授权；不得复用候选生成或视频积分授权。
 
@@ -187,8 +188,8 @@ Google Vertex AI Gemini 作为对照候选保留，但本轮不进入前三顺�
 - 哪个候选的严重误放行、误阻断与 unknown 最低：UNVERIFIED；
 - 七维中哪些可由纯本地证据可靠覆盖：UNVERIFIED；
 - 中文包装、Logo、标签在多视角/遮挡下的实际识别效果：UNVERIFIED；
-- OpenAI 商品 Logo 输入适用性与本项目账号 ZDR/区域资格：UNKNOWN；
-- Google 可用于审计的精确模型版本、区域与 ZDR 配置：UNKNOWN；
+- OpenAI 商品 Logo 输入当前受官方要求阻断；官方书面澄清、合规路线与本项目账号 ZDR/区域资格：UNKNOWN；
+- Google 可用于审计的精确模型锁定与迁移语义、区域与 ZDR 配置：UNKNOWN；
 - 各候选 P50/P95、并发、失败率和每样本成本：UNVERIFIED；
 - 最终 capability、policy/model version、逐维阈值和是否采用混合方案：Owner 未决定。
 
@@ -221,6 +222,7 @@ Google Vertex AI Gemini 作为对照候选保留，但本轮不进入前三顺�
 
 - [Gemini image understanding quickstart](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/quickstart)
 - [Controlled JSON output with response schema](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/samples/generativeaionvertexai-gemini-controlled-generation-response-schema-2)
+- [GenerateContentResponse modelVersion field](https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1/GenerateContentResponse)
 - [Model versions and lifecycle](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions)
 - [Vertex AI generative pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)
 - [Zero data retention controls](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/vertex-ai-zero-data-retention)

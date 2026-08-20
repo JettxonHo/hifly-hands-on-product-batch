@@ -85,7 +85,7 @@
 | [PRODUCT_APPEARANCE_FIDELITY_GATE.md](PRODUCT_APPEARANCE_FIDELITY_GATE.md) | D-035 的通用商品身份一致性 Specification：Provider evidence-first、精确源图绑定、自动检查/人工候选批准/最终 Works 验收分离、费用与失败关闭边界；不代表能力已实现 |
 | [PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md](PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md) | D-036 / Fidelity-A 的领域与 additive API Specification：生产前独立候选门禁、不可变候选与可变状态头、有时效的 Provider Observation、精确检查结果/人工审核、Production 硬门禁、恢复/费用/兼容与 TDD 切片；不代表实现或部署 |
 | [PRODUCT_APPEARANCE_CHECK_CAPABILITY_GATE.md](PRODUCT_APPEARANCE_CHECK_CAPABILITY_GATE.md) | Issue #216 / Fidelity-C0 的 Product/Model/Evidence gate：定义模型或规则能力在实现前必须提交的逐维基准、误放行/误阻断/unknown、费用、隐私和版本证据；不选择模型，也不代表自动检查已实现 |
-| [PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md](PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md) | Issue #218 / Fidelity-C1 的官方来源研究：比较本地 OCR/CV、固定 snapshot 多模态与混合方案，给出最多三个受控 benchmark 候选和预算公式；不选择模型、不运行 benchmark，也不代表准确率或产品能力已验证 |
+| [PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md](PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md) | Issue #218 / Fidelity-C1 的官方来源研究：当前仅本地 OCR/CV 基线具备可执行 benchmark 资格；OpenAI/Google 保持 reserve、混合方案 deferred，并保留未来预算公式；不选择模型、不运行 benchmark，也不代表准确率或产品能力已验证 |
 | [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：D-036 外观保真采用 ProductionOrder 前独立候选门禁 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决，Q-018 已由 D-032 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
