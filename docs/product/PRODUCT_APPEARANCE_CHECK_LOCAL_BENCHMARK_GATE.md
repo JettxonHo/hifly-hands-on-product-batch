@@ -1,7 +1,7 @@
 # 商品外观检查本地 Benchmark 数据门禁
 
-> 状态：Fidelity-C2 gate proposal；随本文件所在 PR 合并进入 `main` 后，仅表示 readiness 审计被接受
-> 关联：D-035、D-036、Issue #216、Issue #218、Issue #220
+> 状态：Fidelity-C2 readiness 审计已随 Issue #220 / PR #221 进入 `main@b46ec21f15e9cbdf784ec554d065c4b21ae54771`
+> 关联：D-035、D-036、Issue #216、Issue #218、Issue #220、Issue #222
 > 结论：`DATASET_BLOCKER` + `ANNOTATION_BLOCKER`
 > 能力状态：`BLOCKED_CHECK_CAPABILITY_UNSELECTED`
 
@@ -17,7 +17,7 @@ AppearanceCheckRun/Result、AppearanceReview 或 UI。
 
 | 来源 | 可观察事实 | 本轮准入结论 |
 |---|---|---|
-| Git 跟踪树 | 图片与视频样本为 0；无 benchmark dataset 或七维 annotation manifest | 不具备输入 |
+| Git 跟踪树 | `products/images/` 有 4 张 PNG 源图、4 个唯一 SHA-256；无 candidate 配对、benchmark use basis 或七维 annotation manifest | 只能证明 source bytes 存在，不构成可准入输入 |
 | Fidelity-0 Evidence | 有一组防晒霜源图与候选 checksum 记录；源图为 419685 bytes、PNG 656x952、SHA-256 `e57cf213cbbf8f6acafed0a1bf4a47db33e7a1668237181dc77499eb9cf387c5`；候选记录为 275745 bytes、JPEG、SHA-256 `1778a04198280c4cf2d08f78ba544085da44611d76f69b0653004bffe483244b` | 当前只找到源图 exact bytes，未找到受控候选 bytes；单一 SKU 也不满足覆盖合同 |
 | 本地忽略的历史批次上传 | 2026-08-20 对旧本地 checkout 的一次性只读观察：21 个图片文件、3 个唯一 SHA-256、格式为 PNG/JPEG；无 annotation sidecar | 缺少 benchmark 使用授权/来源说明、source↔candidate 绑定与七维真值，不准入；不是随 Git 持久的可复现数据资产 |
 | 页面截图与历史视频 | 可用于证明 UI/流程或最终内容事实 | 不是 exact 候选图片 bytes，不能替代 source/candidate 配对或七维标注 |
@@ -35,7 +35,7 @@ AppearanceCheckRun/Result、AppearanceReview 或 UI。
 
 ### 3.1 `DATASET_BLOCKER`
 
-当前没有一组同时满足以下条件的数据：
+当前没有一组同时满足以下条件的数据。Git 跟踪的 4 张源图不改变此结论，因为它们没有候选 exact bytes、不可变配对、用途依据与人工真值：
 
 - exact source/candidate bytes 均可读，媒体类型、大小与 SHA-256 可复核；
 - 每对样本有稳定 sample ID 与不可变 source↔candidate 关系；
@@ -82,8 +82,9 @@ manifest 最少记录：
 ## 5. 后续顺序
 
 ```text
-Issue #220 数据/标注 blocker 进入 main
-→ Owner 提供或批准仓库外受控数据与使用依据
+Issue #220 数据/标注 blocker 已进入 main
+→ Issue #222 固化受控数据与独立人工真值准入合同
+→ Owner 提供或批准仓库外受控数据、使用依据、脱敏 manifest 与独立人工角色
 → 独立数据/标注 acceptance gate
 → 锁定本地运行环境与 benchmark harness
 → 运行真实本地 benchmark 并原样报告逐样本/逐维结果
@@ -93,6 +94,10 @@ Issue #220 数据/标注 blocker 进入 main
 ```
 
 任一阶段都不能用总相似度、fixture 绿测、单张截图或单一 SKU 代替七维 Evidence。
+
+Issue #222 的准入合同由
+[`PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md`](PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md)
+持有。该合同合并只表示 blocker 和解阻输入可复审，不表示现有 4 张 Git source 已获 benchmark 准入。
 
 ## 6. 本轮边界
 
