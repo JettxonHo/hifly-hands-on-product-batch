@@ -151,9 +151,13 @@ Fidelity-B 边界，没有新增真实 Provider、Production 或 UI 能力：
 - `npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high`：0 high / 0 critical / 2 moderate。
   两项 moderate 均来自 ExcelJS 间接依赖 uuid；npm 只建议 breaking 的 ExcelJS 3.4.0 回退，本轮没有执行
   `audit fix --force`，依赖也不在 Fidelity-B allowlist。
+- strict allowlist 最终为 24 个文件；独立审阅纠偏只新增 `test/assets-api.test.js`，用于证明内部候选在公共
+  Assets HTTP API 的读取、改名、停用、删除与下载授权边界均失败关闭。
+- GitHub CI run `32335264379` 在代码 head `c1be30c25750d0aa48ede591b4a95946292f421e` 上：Windows 与
+  identity-postgres 首次通过；Ubuntu 首次唯一失败是既有 Cloud Executor deployment test 偶发多记录一次
+  `xdpyinfo` 探测，其余 1069 项没有失败。未改代码、同 head 重跑 Ubuntu 后通过，run 最终三组均为 SUCCESS。
 
-提交前仍需记录 strict allowlist 与 fixed-head GitHub CI。CI 结果必须绑定最终 fixed head；绿色 CI 只是仓库证据，
-不是主控批准、部署或 Provider 验收。
+最终 doc-only evidence head 仍须通过 GitHub CI。绿色 CI 只是仓库证据，不是主控批准、部署或 Provider 验收。
 
 ## 后续停止条件
 
