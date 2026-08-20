@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-20
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、Issue #218 shortlist 与 Issue #220 readiness blocker 审计已进入 `main@b46ec21f15e9cbdf784ec554d065c4b21ae54771`。Issue #222 正在定义仓库外受控 exact-byte 数据和独立七维人工真值准入；只读审计确认 Git 有 4 张 source PNG，但没有合格 candidate 配对、用途依据或独立标注，因此仍为 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`。在数据/标注另行 accepted 前不锁环境、不写 harness、不运行 benchmark；仓库仍没有已接受的自动视觉检查模型、阈值、误判率或费用 Evidence，可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、Issue #218 shortlist 与 Issue #220 readiness blocker 审计已进入 `main@b46ec21f15e9cbdf784ec554d065c4b21ae54771`。Owner 已授权 Fidelity-C3 准入方向，PR #223 是合同 acceptance gate；只有该 PR 合并进入 `main` 后才计为合同 accepted。只读审计确认 Git 有 4 张 source PNG，但没有合格 candidate 配对、用途依据或独立标注，因此数据集与标注仍未准入，`DATASET_BLOCKER`、`ANNOTATION_BLOCKER` 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。在数据/标注另行 accepted 前不锁环境、不写 harness、不运行 benchmark；可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。

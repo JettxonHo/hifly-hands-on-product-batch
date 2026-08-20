@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-20
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-0 Evidence、Fidelity-A、Fidelity-B、Issue #216 能力门禁、Issue #218 shortlist 与 Issue #220 blocker 审计已进入 `main@b46ec21f`。Issue #222 正在固化仓库外 exact-byte 数据、用途依据、脱敏 manifest 与独立七维人工真值准入合同；Git 的 4 张 source PNG 缺 candidate 配对和标注，仍为 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`。当前没有已接受模型、阈值、误判率或费用证据，不代表数据已准入、benchmark 已开始或失败，也不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-0 Evidence、Fidelity-A、Fidelity-B、Issue #216 能力门禁、Issue #218 shortlist 与 Issue #220 blocker 审计已进入 `main@b46ec21f`。Owner 已授权 Fidelity-C3 准入方向，PR #223 是合同 acceptance gate，只有合并进入 `main` 后才计为合同 accepted；Git 的 4 张 source PNG 缺 candidate 配对、用途依据和独立标注，因此数据集与标注仍未准入，`DATASET_BLOCKER`、`ANNOTATION_BLOCKER` 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。当前没有已接受模型、阈值、误判率或费用证据，不代表 benchmark 已开始或失败，也不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 

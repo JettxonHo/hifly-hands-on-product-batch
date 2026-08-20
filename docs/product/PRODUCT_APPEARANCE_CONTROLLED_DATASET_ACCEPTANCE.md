@@ -1,6 +1,6 @@
 # 商品外观受控数据与人工真值准入合同
 
-> 状态：Fidelity-C3 proposal；随本文件所在 PR 合并进入 `main` 后，仅表示准入合同与当前 blocker 审计被接受
+> 生命周期：Owner 已授权 Fidelity-C3 准入方向；PR #223 是合同 acceptance gate，只有合并进入 `main` 后才计为合同 accepted
 > 关联：D-035、D-036、Issue #216、Issue #218、Issue #220、Issue #222
 > 当前结论：`DATASET_BLOCKER` + `ANNOTATION_BLOCKER`
 > 能力状态：`BLOCKED_CHECK_CAPABILITY_UNSELECTED`
