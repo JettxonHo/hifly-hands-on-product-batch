@@ -75,6 +75,11 @@ import { registerWorkDeliveryRoutes } from "./routes/work-delivery.js";
 import { registerHiflyProviderRoutes } from "./routes/hifly-provider.js";
 import { createCloudExecutorControlPlane } from "../cloud-executor/control-plane.js";
 import { createCloudExecutorBearerGuard, registerCloudExecutorRoutes } from "./routes/cloud-executor.js";
+import { createAppearanceFidelityService } from "../appearance-fidelity/appearance-fidelity-service.js";
+import { createPostgresAppearanceFidelityRepository } from "../appearance-fidelity/postgres-appearance-fidelity-repository.js";
+import { createAppearanceCaptureWorker } from "../appearance-fidelity/capture-worker.js";
+import { createDisabledProviderAdapter } from "../appearance-fidelity/disabled-provider-adapter.js";
+import { registerAppearanceFidelityRoutes } from "./routes/appearance-fidelity.js";
 
 const CLIENT_ERROR_CODES = new Set([
   "ARTIFACT_NOT_FOUND",
@@ -170,6 +175,23 @@ function apiError(error, request = null) {
   if (error?.code === "VIDEO_PLAN_FORBIDDEN") return { statusCode: 403, code: error.code };
   if (["VIDEO_PLAN_UPSTREAM_BLOCKED", "VIDEO_PLAN_PREFLIGHT_BLOCKED", "VIDEO_PLAN_REVIEW_GATE_BLOCKED"].includes(error?.code)) {
     return { statusCode: 422, code: error.code, reasons: error.details || [] };
+  }
+  if (["APPEARANCE_CAPTURE_REQUEST_NOT_FOUND", "APPEARANCE_CANDIDATE_NOT_FOUND"].includes(error?.code)) {
+    return { statusCode: 404, code: error.code };
+  }
+  if (error?.code === "APPEARANCE_FIDELITY_FORBIDDEN") return { statusCode: 403, code: error.code };
+  if (["APPEARANCE_CAPTURE_CONFLICT", "APPEARANCE_CANDIDATE_CONFLICT", "APPEARANCE_CANDIDATE_ASSET_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) {
+    return { statusCode: 409, code: error.code };
+  }
+  if (["APPEARANCE_CAPTURE_CONTEXT_REQUIRED", "APPEARANCE_PAGINATION_INVALID", "INVALID_APPEARANCE_CANDIDATE"].includes(error?.code)) {
+    return { statusCode: 400, code: error.code };
+  }
+  if (error?.code === "APPEARANCE_CAPTURE_GATE_BLOCKED") {
+    return { statusCode: 422, code: error.code, reasons: error.details || [] };
+  }
+  if (["APPEARANCE_CANDIDATE_SIZE_NOT_ALLOWED"].includes(error?.code)) return { statusCode: 413, code: error.code };
+  if (["APPEARANCE_CAPTURE_UNAVAILABLE", "PROVIDER_ADAPTER_DISABLED", "PROVIDER_ADAPTER_UNAVAILABLE"].includes(error?.code)) {
+    return { statusCode: 503, code: "APPEARANCE_CAPTURE_UNAVAILABLE" };
   }
   if (["PRODUCTION_ORDER_NOT_FOUND", "PRODUCTION_ORDER_PLAN_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
   if (["PRODUCTION_ORDER_CONFLICT", "PRODUCTION_ORDER_TRANSITION_INVALID"].includes(error?.code)) return { statusCode: 409, code: error.code };
@@ -314,6 +336,7 @@ export async function buildApp({
   copyReview: copyReviewOptions = null,
   avatarSelection: avatarSelectionOptions = null,
   videoPlanning: videoPlanningOptions = null,
+  appearanceFidelity: appearanceFidelityOptions = null,
   productionOrders: productionOrdersOptions = null,
   manualHandoff: manualHandoffOptions = null,
   manualExecution: manualExecutionOptions = null,
@@ -339,6 +362,7 @@ export async function buildApp({
   const copyReviewEnabled = copyReviewOptions?.enabled === true;
   const avatarSelectionEnabled = avatarSelectionOptions?.enabled === true;
   const videoPlanningEnabled = videoPlanningOptions?.enabled === true;
+  const appearanceFidelityEnabled = appearanceFidelityOptions?.enabled === true;
   const productionOrdersEnabled = productionOrdersOptions?.enabled === true;
   const manualHandoffEnabled = manualHandoffOptions?.enabled === true;
   const manualExecutionEnabled = manualExecutionOptions?.enabled === true;
@@ -362,6 +386,11 @@ export async function buildApp({
   if (avatarSelectionEnabled && !identityEnabled) throw Object.assign(new Error("AVATAR_SELECTION_REQUIRES_IDENTITY"), { code: "AVATAR_SELECTION_REQUIRES_IDENTITY" });
   if (avatarSelectionEnabled && !avatarSelectionOptions.copyApprovalPort && !copyReviewEnabled) throw Object.assign(new Error("AVATAR_SELECTION_REQUIRES_COPY_REVIEW"), { code: "AVATAR_SELECTION_REQUIRES_COPY_REVIEW" });
   if (videoPlanningEnabled && !avatarSelectionEnabled && !videoPlanningOptions.upstreamPort) throw Object.assign(new Error("VIDEO_PLANNING_REQUIRES_AVATAR_SELECTION"), { code: "VIDEO_PLANNING_REQUIRES_AVATAR_SELECTION" });
+  if (appearanceFidelityEnabled && !identityEnabled) throw Object.assign(new Error("APPEARANCE_FIDELITY_REQUIRES_IDENTITY"), { code: "APPEARANCE_FIDELITY_REQUIRES_IDENTITY" });
+  if (appearanceFidelityEnabled && !appearanceFidelityOptions.service &&
+      (!assetsEnabled || !projectContentEnabled || !copyReviewEnabled || !avatarSelectionEnabled || !videoPlanningEnabled)) {
+    throw Object.assign(new Error("APPEARANCE_FIDELITY_REQUIRES_APPROVED_UPSTREAM"), { code: "APPEARANCE_FIDELITY_REQUIRES_APPROVED_UPSTREAM" });
+  }
   if (productionOrdersEnabled && !identityEnabled) throw Object.assign(new Error("PRODUCTION_ORDERS_REQUIRE_IDENTITY"), { code: "PRODUCTION_ORDERS_REQUIRE_IDENTITY" });
   if (productionOrdersEnabled && !videoPlanningEnabled) throw Object.assign(new Error("PRODUCTION_ORDERS_REQUIRE_VIDEO_PLANNING"), { code: "PRODUCTION_ORDERS_REQUIRE_VIDEO_PLANNING" });
   if (manualHandoffEnabled && !identityEnabled) throw Object.assign(new Error("MANUAL_HANDOFF_REQUIRE_IDENTITY"), { code: "MANUAL_HANDOFF_REQUIRE_IDENTITY" });
@@ -477,6 +506,7 @@ export async function buildApp({
       copyReviewEnabled,
       avatarSelectionEnabled,
       videoPlanningEnabled,
+      appearanceFidelityEnabled,
       productionOrdersEnabled,
       manualHandoffEnabled,
       manualExecutionEnabled,
@@ -644,6 +674,78 @@ export async function buildApp({
     app.addHook("onClose", async () => { worker.stop(); await repository.close?.(); });
     await registerVideoPlanningRoutes(app, { service });
     if (videoPlanningOptions.worker?.autoStart !== false) worker.start();
+  }
+  if (appearanceFidelityEnabled) {
+    let repository = appearanceFidelityOptions.repository || null;
+    let service = appearanceFidelityOptions.service || null;
+    let worker = appearanceFidelityOptions.workerInstance || null;
+    if (!service) {
+      repository = repository || (sharedPool ? createPostgresAppearanceFidelityRepository({ pool: sharedPool }) : null);
+      if (!repository) throw Object.assign(new Error("APPEARANCE_FIDELITY_REPOSITORY_REQUIRED"), { code: "APPEARANCE_FIDELITY_REPOSITORY_REQUIRED" });
+      await repository.initialize();
+      const upstreamPort = appearanceFidelityOptions.upstreamPort || {
+        async resolveCurrent(input) {
+          const approvedPlan = await app.videoPlanning.service.resolveCurrentApprovedPlan({
+            organizationId: input.organizationId,
+            actorMemberId: input.actorMemberId,
+            actorRole: input.actorRole || "member",
+            productId: input.productId,
+            videoPlanVersionId: input.videoPlanVersionId,
+          });
+          const revision = await app.projectContent.productRevisionPort.getCurrentReadySnapshot({
+            organizationId: input.organizationId,
+            productRevisionId: input.productRevisionId,
+          });
+          const copyGate = await app.copyReview.service.getCurrentApprovedGate({
+            organizationId: input.organizationId,
+            actorMemberId: input.actorMemberId,
+            productId: input.productId,
+            copyVersionId: input.copyVersionId,
+          });
+          const avatar = await app.avatarSelection.service.getPlanningInput({
+            organizationId: input.organizationId,
+            actorMemberId: input.actorMemberId,
+            productId: input.productId,
+            copyVersionId: input.copyVersionId,
+          });
+          const plan = approvedPlan?.plan || null;
+          return {
+            current_valid: approvedPlan?.current_valid === true && copyGate?.approved === true && avatar?.current_valid === true,
+            workspace_revision: plan?.row_version ?? 0,
+            product_id: input.productId,
+            product_revision_id: revision.id,
+            source_asset_version_ids: Array.isArray(revision.asset_version_ids) ? [...revision.asset_version_ids] : [],
+            copy_version_id: avatar?.copy_version_id || input.copyVersionId,
+            copy_review_id: copyGate?.review_id || null,
+            avatar_selection_id: avatar?.avatar_selection_id || null,
+            avatar_asset_version_id: avatar?.avatar_asset_version_id || null,
+            video_plan_version_id: plan?.id || null,
+            plan_review_id: approvedPlan?.plan_review?.id || null,
+            preflight_result_id: approvedPlan?.preflight_result?.id || null,
+            presentation_size_code: plan?.presentation_size_code || null,
+          };
+        },
+      };
+      service = createAppearanceFidelityService({
+        repository,
+        upstreamPort,
+        sourceAssetPort: appearanceFidelityOptions.sourceAssetPort || app.assets.service.sourceProductImagePort,
+        providerAdapter: appearanceFidelityOptions.providerAdapter || createDisabledProviderAdapter(),
+        candidateAssetPort: appearanceFidelityOptions.candidateAssetPort || app.assets.service.appearanceCandidateAssetPort,
+        now,
+      });
+    }
+    worker = worker || createAppearanceCaptureWorker({
+      service,
+      systemActorId: appearanceFidelityOptions.worker?.systemActorId,
+      pollIntervalMs: appearanceFidelityOptions.worker?.pollIntervalMs,
+      autoStart: false,
+      onError: appearanceFidelityOptions.worker?.onError,
+    });
+    app.decorate("appearanceFidelity", { repository, service, worker });
+    app.addHook("onClose", async () => { worker.stop(); await repository?.close?.(); });
+    await registerAppearanceFidelityRoutes(app, { service, worker });
+    if (appearanceFidelityOptions.worker?.autoStart === true) worker.start();
   }
   if (productionOrdersEnabled) {
     const repository = productionOrdersOptions.repository || (sharedPool ? createPostgresProductionOrderRepository({ pool: sharedPool }) : null);

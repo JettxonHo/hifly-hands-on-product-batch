@@ -3,9 +3,16 @@ import { fileTypeFromBuffer } from "file-type";
 
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ALLOWED_KINDS = new Set(["product_image", "avatar_image"]);
+const APPEARANCE_CANDIDATE_KIND = "appearance_candidate_image";
+const APPEARANCE_CANDIDATE_EXTENSIONS = new Map([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"]
+]);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fail = (code) => { throw Object.assign(new Error(code), { code }); };
+const validCandidatePart = (value) => typeof value === "string" && /^[A-Za-z0-9._-]{1,120}$/.test(value);
 
 function validateCreate(input) {
   if (typeof input.filename !== "string" || !input.filename.trim() || input.filename.length > 255) fail("INVALID_ASSET_PAYLOAD");
@@ -40,6 +47,7 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
   if (!repository || !objectStore) throw new TypeError("repository and objectStore are required");
   const timestamp = () => new Date(now()).toISOString();
   const downloads = new Map();
+  const appearanceCandidateDownloads = new Map();
 
   async function createUploadAuthorization(input) {
     const assetKind = validateCreate(input);
@@ -132,20 +140,203 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
       };
     }
   };
+  const sourceProductImagePort = {
+    async readVerifiedProductImage({ organizationId, assetVersionId, sourceAssetVersionId }) {
+      assetVersionId = assetVersionId || sourceAssetVersionId;
+      const version = await repository.getAssetVersion(organizationId, assetVersionId);
+      if (!version || version.id !== assetVersionId || version.organization_id !== organizationId || !version.asset_id) {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+
+      let asset;
+      try {
+        asset = await repository.getAsset(organizationId, version.asset_id);
+      } catch (error) {
+        if (error?.code === "ASSET_NOT_FOUND" || error?.code === "ASSET_VERSION_NOT_FOUND") fail("ASSET_SOURCE_UNAVAILABLE");
+        throw error;
+      }
+      if (!asset || asset.id !== version.asset_id || asset.organization_id !== organizationId ||
+          version.organization_id !== asset.organization_id || asset.status !== "active" ||
+          asset.kind !== "product_image" || version.status !== "available") {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+
+      const contentType = version.verified_content_type;
+      const size = version.verified_size;
+      const checksumSha256 = version.verified_checksum_sha256;
+      if (!ALLOWED_TYPES.has(contentType) || !Number.isInteger(size) || size < 1 ||
+          !/^[a-f0-9]{64}$/.test(checksumSha256 || "") || typeof version.object_key !== "string" || !version.object_key) {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+
+      let head;
+      try {
+        head = await objectStore.head(version.object_key);
+      } catch {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+      if (!head || head.metadata?.organizationId !== organizationId || head.size !== size) {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+
+      let bytes;
+      try {
+        bytes = await objectStore.get(version.object_key);
+      } catch {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+      if (!Buffer.isBuffer(bytes) || bytes.length !== size) fail("ASSET_SOURCE_UNAVAILABLE");
+
+      let detected;
+      try {
+        detected = await fileTypeFromBuffer(bytes);
+      } catch {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+      if (!detected || detected.mime !== contentType ||
+          createHash("sha256").update(bytes).digest("hex") !== checksumSha256) {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+
+      return {
+        asset_id: asset.id,
+        asset_version_id: version.id,
+        kind: asset.kind,
+        asset_status: asset.status,
+        version_status: version.status,
+        bytes,
+        media_type: contentType,
+        size,
+        checksum_sha256: checksumSha256
+      };
+    }
+  };
+  const appearanceCandidateAssetPort = {
+    async stageVerifiedCandidate({ organizationId, candidateId, captureRequestId, body, mediaType }) {
+      if (!validCandidatePart(organizationId) || !validCandidatePart(candidateId) || !validCandidatePart(captureRequestId)) {
+        fail("INVALID_APPEARANCE_CANDIDATE");
+      }
+      if (!Buffer.isBuffer(body) || body.length < 1 || body.length > MAX_IMAGE_BYTES) {
+        fail("APPEARANCE_CANDIDATE_SIZE_NOT_ALLOWED");
+      }
+
+      let detected;
+      try {
+        detected = await fileTypeFromBuffer(body);
+      } catch {
+        fail("APPEARANCE_CANDIDATE_TYPE_NOT_ALLOWED");
+      }
+      if (!detected || !ALLOWED_TYPES.has(detected.mime) || detected.mime !== mediaType) {
+        fail("APPEARANCE_CANDIDATE_TYPE_NOT_ALLOWED");
+      }
+
+      const safeFilename = `candidate.${APPEARANCE_CANDIDATE_EXTENSIONS.get(detected.mime)}`;
+      const objectKey = `${organizationId}/appearance-candidates/${candidateId}/${safeFilename}`;
+      const checksumSha256 = createHash("sha256").update(body).digest("hex");
+      await objectStore.put({
+        key: objectKey,
+        body,
+        contentType: detected.mime,
+        metadata: { organizationId, candidateId, captureRequestId }
+      });
+      return {
+        candidate_id: candidateId,
+        capture_request_id: captureRequestId,
+        original_filename: safeFilename,
+        object_key: objectKey,
+        media_type: detected.mime,
+        size: body.length,
+        checksum_sha256: checksumSha256
+      };
+    },
+    async registerStagedCandidate({ organizationId, actorSystemId = null, staged, transactionClient = null }) {
+      if (!staged || staged.object_key !== `${organizationId}/appearance-candidates/${staged.candidate_id}/${staged.original_filename}` ||
+          !validCandidatePart(staged.candidate_id) || !validCandidatePart(staged.capture_request_id) ||
+          !APPEARANCE_CANDIDATE_EXTENSIONS.has(staged.media_type) ||
+          staged.original_filename !== `candidate.${APPEARANCE_CANDIDATE_EXTENSIONS.get(staged.media_type)}` ||
+          !Number.isInteger(staged.size) || staged.size < 1 || staged.size > MAX_IMAGE_BYTES ||
+          !/^[a-f0-9]{64}$/.test(staged.checksum_sha256 || "")) {
+        fail("INVALID_APPEARANCE_CANDIDATE");
+      }
+      return repository.registerAppearanceCandidate({ organizationId, actorSystemId, staged, now: timestamp(), transactionClient });
+    },
+    async createDownloadAuthorization({ organizationId, assetVersionId }) {
+      const version = await repository.getAssetVersion(organizationId, assetVersionId);
+      const asset = await repository.getAsset(organizationId, version.asset_id);
+      if (asset.kind !== APPEARANCE_CANDIDATE_KIND || asset.status !== "active" || version.status !== "available") {
+        fail("ASSET_VERSION_NOT_AVAILABLE");
+      }
+      const token = randomBytes(24).toString("base64url");
+      const expiresAt = new Date(now() + downloadTtlMs).toISOString();
+      const metadata = {
+        filename: version.original_filename,
+        media_type: version.verified_content_type,
+        size: version.verified_size,
+        checksum_sha256: version.verified_checksum_sha256
+      };
+      appearanceCandidateDownloads.set(token, { organizationId, assetVersionId: version.id, objectKey: version.object_key, expiresAt, ...metadata });
+      return { token, expires_at: expiresAt, asset_version_id: version.id, ...metadata };
+    },
+    async downloadObject({ organizationId, assetVersionId, token }) {
+      const grant = appearanceCandidateDownloads.get(token);
+      if (!grant || grant.organizationId !== organizationId || grant.assetVersionId !== assetVersionId || Date.parse(grant.expiresAt) <= now()) {
+        fail("DOWNLOAD_AUTHORIZATION_NOT_FOUND");
+      }
+      const body = await objectStore.get(grant.objectKey);
+      if (!Buffer.isBuffer(body) || body.length !== grant.size || createHash("sha256").update(body).digest("hex") !== grant.checksum_sha256) {
+        fail(body ? "ASSET_CONTENT_INVALID" : "OBJECT_MISSING");
+      }
+      return { body, asset_version_id: grant.assetVersionId, filename: grant.filename, media_type: grant.media_type, size: grant.size, checksum_sha256: grant.checksum_sha256 };
+    },
+    async discardStagedCandidate({ organizationId, staged }) {
+      if (!staged || !validCandidatePart(staged.candidate_id) || !APPEARANCE_CANDIDATE_EXTENSIONS.has(staged.media_type) ||
+          staged.original_filename !== `candidate.${APPEARANCE_CANDIDATE_EXTENSIONS.get(staged.media_type)}` ||
+          staged.object_key !== `${organizationId}/appearance-candidates/${staged.candidate_id}/${staged.original_filename}`) {
+        fail("INVALID_APPEARANCE_CANDIDATE");
+      }
+      await objectStore.remove(staged.object_key);
+      return { status: "discarded", object_key: staged.object_key };
+    }
+  };
   const verifiedOutputAssetPort = {
     registerVerifiedOutput: (input) => repository.registerVerifiedOutput(input)
   };
 
+  async function getPublicAsset(organizationId, assetId) {
+    const asset = await repository.getAsset(organizationId, assetId);
+    if (asset.kind === APPEARANCE_CANDIDATE_KIND) fail("ASSET_NOT_FOUND");
+    return asset;
+  }
+
+  async function getPublicAssetVersion(organizationId, assetVersionId) {
+    const version = await repository.getAssetVersion(organizationId, assetVersionId);
+    const asset = await repository.getAsset(organizationId, version.asset_id);
+    if (asset.kind === APPEARANCE_CANDIDATE_KIND) fail("ASSET_VERSION_NOT_FOUND");
+    return version;
+  }
+
   return {
     createUploadAuthorization, uploadObject, completeUpload, runNextVerificationJob, recoverVerificationJobs,
-    getAssetVersion: ({ organizationId, assetVersionId }) => repository.getAssetVersion(organizationId, assetVersionId),
-    getAsset: ({ organizationId, assetId }) => repository.getAsset(organizationId, assetId),
-    listAssets: ({ organizationId }) => repository.listAssets(organizationId),
-    updateAssetMetadata: ({ organizationId, assetId, expectedRevision, displayName, actorMemberId = null }) => repository.updateAssetMetadata({ organizationId, assetId, expectedRevision, displayName: normalizeDisplayName(displayName), actorMemberId, now: timestamp() }),
-    disableAsset: ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "disabled", now: timestamp() }),
-    deleteAsset: ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "deleted", now: timestamp() }),
+    getAssetVersion: ({ organizationId, assetVersionId }) => getPublicAssetVersion(organizationId, assetVersionId),
+    getAsset: ({ organizationId, assetId }) => getPublicAsset(organizationId, assetId),
+    listAssets: async ({ organizationId }) => (await repository.listAssets(organizationId)).filter((asset) => asset.kind !== APPEARANCE_CANDIDATE_KIND),
+    updateAssetMetadata: async ({ organizationId, assetId, expectedRevision, displayName, actorMemberId = null }) => {
+      await getPublicAsset(organizationId, assetId);
+      return repository.updateAssetMetadata({ organizationId, assetId, expectedRevision, displayName: normalizeDisplayName(displayName), actorMemberId, now: timestamp() });
+    },
+    disableAsset: async ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => {
+      await getPublicAsset(organizationId, assetId);
+      return repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "disabled", now: timestamp() });
+    },
+    deleteAsset: async ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => {
+      await getPublicAsset(organizationId, assetId);
+      return repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "deleted", now: timestamp() });
+    },
     createDownloadAuthorization: async ({ organizationId, assetVersionId }) => {
-      const version = await repository.getAssetVersion(organizationId, assetVersionId);
+      const version = await getPublicAssetVersion(organizationId, assetVersionId).catch((error) => {
+        if (error?.code === "ASSET_VERSION_NOT_FOUND") fail("ASSET_VERSION_NOT_AVAILABLE");
+        throw error;
+      });
       if (version.status !== "available") fail("ASSET_VERSION_NOT_AVAILABLE");
       const token = randomBytes(24).toString("base64url");
       const expiresAt = new Date(now() + downloadTtlMs).toISOString();
@@ -172,6 +363,6 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
         verified_checksum_sha256: grant.verified_checksum_sha256
       };
     },
-    assetReferencePort, verifiedOutputAssetPort
+    assetReferencePort, sourceProductImagePort, appearanceCandidateAssetPort, verifiedOutputAssetPort
   };
 }

@@ -231,3 +231,48 @@ test("asset mutation exposes optimistic conflict and download authorization neve
   assert.equal(conflict.statusCode, 409);
   assert.equal(conflict.json().error, "ASSET_VERSION_CONFLICT");
 });
+
+test("generic Asset APIs cannot read or mutate internal appearance candidates", async (t) => {
+  const { app } = await assetWorld(t);
+  const auth = await activateAdmin(app);
+  const candidateId = randomUUID();
+  const captureRequestId = randomUUID();
+  const staged = await app.assets.service.appearanceCandidateAssetPort.stageVerifiedCandidate({
+    organizationId: "org_test",
+    candidateId,
+    captureRequestId,
+    body: PNG,
+    mediaType: "image/png",
+  });
+  const registered = await app.assets.service.appearanceCandidateAssetPort.registerStagedCandidate({
+    organizationId: "org_test",
+    actorSystemId: "appearance-fidelity-system",
+    staged,
+  });
+  const assetId = registered.asset.id;
+  const assetVersionId = registered.asset_version.id;
+  const readHeaders = authHeaders(auth);
+  const mutationHeaders = authHeaders(auth, true);
+
+  assert.deepEqual((await app.inject({ method: "GET", url: "/api/assets", headers: readHeaders })).json().assets, []);
+  assert.equal((await app.inject({ method: "GET", url: `/api/asset-versions/${assetVersionId}`, headers: readHeaders })).statusCode, 404);
+  assert.equal((await app.inject({ method: "PATCH", url: `/api/assets/${assetId}`, headers: mutationHeaders,
+    payload: { expected_revision: 1, display_name: "不可改写" } })).statusCode, 404);
+  assert.equal((await app.inject({ method: "POST", url: `/api/assets/${assetId}/disable`, headers: mutationHeaders,
+    payload: { expected_revision: 1 } })).statusCode, 404);
+  assert.equal((await app.inject({ method: "DELETE", url: `/api/assets/${assetId}`, headers: mutationHeaders,
+    payload: { expected_revision: 1 } })).statusCode, 404);
+  assert.equal((await app.inject({ method: "POST", url: `/api/asset-versions/${assetVersionId}/download-authorizations`, headers: mutationHeaders,
+    payload: {} })).statusCode, 422);
+
+  const internalGrant = await app.assets.service.appearanceCandidateAssetPort.createDownloadAuthorization({
+    organizationId: "org_test",
+    assetVersionId,
+  });
+  const internalDownload = await app.assets.service.appearanceCandidateAssetPort.downloadObject({
+    organizationId: "org_test",
+    assetVersionId,
+    token: internalGrant.token,
+  });
+  assert.deepEqual(internalDownload.body, PNG);
+});
