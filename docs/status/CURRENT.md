@@ -343,6 +343,10 @@
   图片而保持 reserve/blocked；Google Vertex AI 因旧 lifecycle URL 重定向、当前版本锁定与迁移语义待复核而保持 reserve；
   混合方案在合规多模态组件获接受前保持 deferred。没有调用模型或上传图片，逐维覆盖、严重误放行、误阻断、unknown、
   延迟和真实费用仍全部未验证，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
+- Issue #220 是 Fidelity-C2 本地 benchmark readiness acceptance gate。只读盘点发现 Git 中没有媒体数据集或七维标注；
+  Fidelity-0 只有单一防晒霜 checksum 对且当前缺少受控候选 bytes；本地历史批次图片没有用途依据、精确配对或人工真值。
+  因此状态为 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`，没有安装 PaddleOCR/OpenCV、编写 harness 或运行 benchmark。
+  本文件随对应 PR 合并只表示 blocker 审计进入 `main`，不表示 benchmark、能力选择、实现、部署或 Provider 验收完成。
 
 ## P0.5 内部验收环境部署
 

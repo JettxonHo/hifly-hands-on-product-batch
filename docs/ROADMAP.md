@@ -135,6 +135,11 @@ Issue #218 是只读官方来源 shortlist 的 acceptance gate。其文档进入
 至多是仍需单独授权的本地 baseline benchmark；任何外部 API、图片上传或费用动作都继续要求 Owner 当次明确授权。在逐维
 误放行、误阻断、unknown、延迟、费用与数据治理未实测并获接受前，Fidelity-C 实现继续关闭。
 
+Issue #220 承担 Fidelity-C2 的 Product/Data/Benchmark readiness gate。当前没有合格的多商品 source/candidate exact bytes、
+用途依据和独立七维人工真值，状态为 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`；因此不安装模型依赖、不写 harness、
+不运行 benchmark，也不产生能力结论。下一步只能先提交仓库外受控数据和可审阅的脱敏 manifest/annotation，经过独立数据
+acceptance 后再锁定本地环境。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
+
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
 部署或生产采用。Issue #176 / PR #177 已完成第一片 shared IA/content/control foundation，Issue #178 / PR #179
