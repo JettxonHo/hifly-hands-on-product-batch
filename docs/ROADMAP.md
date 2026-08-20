@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-20
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-0 Evidence、Fidelity-A 设计与 Fidelity-B 默认关闭的 capture/storage/API 已进入 `main@c4abb792`；Issue #216 先建立 Fidelity-C0 自动检查能力 Evidence gate。当前没有已接受模型、阈值、误判率或费用证据，不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Issue #216 能力门禁与 Issue #218 / PR #219 shortlist 已进入 `main@8c9930f4`。Issue #220 当前得出 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`；下一门是仓库外受控数据、用途依据、脱敏 manifest 与独立七维真值的数据 acceptance，之后才可锁环境和写 harness。当前没有已接受模型、阈值、误判率或费用证据，不代表 benchmark 已开始或失败，也不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -42,7 +42,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
-P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218 官方来源 shortlist acceptance → 受控 benchmark（待单独授权）→ Fidelity-C～E 未开始
+P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 官方来源 shortlist accepted → #220 readiness blocker audit（DATASET + ANNOTATION）→ 仓库外受控数据/独立七维标注 acceptance → 锁环境与 harness → 受控 benchmark → Fidelity-C～E 未开始
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -130,15 +130,16 @@ AppearanceReview、视觉检查 Adapter 或已接受模型/阈值/误判/费用 
 benchmark、误放行/误阻断/unknown、费用与数据治理证据，并由 Owner 接受 policy/model version 和阈值；否则保持
 `BLOCKED_CHECK_CAPABILITY_UNSELECTED`，不得用 fake 结果进入 Fidelity-C 实现。
 
-Issue #218 是只读官方来源 shortlist 的 acceptance gate。其文档进入 `main` 后，当前仅本地 PaddleOCR/OpenCV 基线具备
-进入独立受控 benchmark 的资格；OpenAI 固定 snapshot 与 Google Vertex AI 保持 reserve，混合方案保持 deferred。下一步
-至多是仍需单独授权的本地 baseline benchmark；任何外部 API、图片上传或费用动作都继续要求 Owner 当次明确授权。在逐维
+Issue #218 / PR #219 的只读官方来源 shortlist 已进入 `main@8c9930f4`，当前仅本地 PaddleOCR/OpenCV 基线具备
+进入独立受控 benchmark 的资格；OpenAI 固定 snapshot 与 Google Vertex AI 保持 reserve，混合方案保持 deferred。该资格不表示
+benchmark 已开始。任何外部 API、图片上传或费用动作都继续要求 Owner 当次明确授权。在逐维
 误放行、误阻断、unknown、延迟、费用与数据治理未实测并获接受前，Fidelity-C 实现继续关闭。
 
 Issue #220 承担 Fidelity-C2 的 Product/Data/Benchmark readiness gate。当前没有合格的多商品 source/candidate exact bytes、
 用途依据和独立七维人工真值，状态为 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`；因此不安装模型依赖、不写 harness、
-不运行 benchmark，也不产生能力结论。下一步只能先提交仓库外受控数据和可审阅的脱敏 manifest/annotation，经过独立数据
-acceptance 后再锁定本地环境。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
+不运行 benchmark，也不产生能力结论。该 Issue 对应 PR 合并只表示 readiness blocker 审计被接受。下一步只能先形成仓库外
+受控数据、用途依据、可审阅的脱敏 manifest/annotation 与独立七维真值，经过数据/标注 acceptance 后再锁定本地环境并编写
+harness。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
@@ -155,8 +156,9 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 
 - #190/#191 已完成代码、独立 Review、统一部署与真实管理员只读复验；后续不得为重复确认这两项而启动 Worker 或生成视频。
 - #200/#201/#202 已严格串行完成并部署；不得把本次技术成功、返工 Work 或已下载候选解释为再次生成授权。
-- #208/#210 已建立并接受 Fidelity-0 有界 Provider Evidence；#212 Fidelity-A 合同与 #214 Fidelity-B repository 已进入
-  `main`。#216 是 Fidelity-C0 检查能力 gate，#218 只负责官方来源 shortlist；后续 benchmark 仍需独立授权与 acceptance。
+- #208/#210 已建立并接受 Fidelity-0 有界 Provider Evidence；#212 Fidelity-A 合同、#214 Fidelity-B repository、#216
+  Fidelity-C0 检查能力 gate 与 #218/#219 官方来源 shortlist 已进入 `main`。#220 只负责 readiness blocker 审计；必须先完成
+  仓库外受控数据和独立七维标注 acceptance，之后才可锁环境、写 harness 并另行运行受控 benchmark。
   Fidelity-C～E 不得并行抢跑，也不得把设计、研究、fake Adapter 或 Provider Evidence 写成真实 Hifly 能力、部署或
   外观保真通过。
 - 文案增强、人物推荐、背景/场景/姿势、动效精修、Capture HTTP、Local Agent 新功能、并行生产、复杂对象存储和高可用全部暂停。

@@ -14,7 +14,9 @@
 2. 仓库没有 benchmark dataset、annotation manifest 或逐样本七维人工真值。
 3. Fidelity-0 文档记录一组防晒霜 source/candidate checksum；本轮只读复核源图 exact bytes 与记录一致，但受控候选 bytes
    当前不存在。该单一 SKU 即使恢复候选 bytes，也不能覆盖多个商品、四类样本与 D-036 七维。
-4. 本地忽略的历史批次中发现 21 个上传图片文件、3 个唯一 SHA-256、0 个 annotation sidecar。没有持久使用依据、
+4. 2026-08-20 对旧本地 checkout 的 repo-relative ignored `batches/**` 范围做了一次性只读观察：按大小写不敏感的
+   `.png`、`.jpg`、`.jpeg` 扩展名枚举普通文件并对 bytes 计算 SHA-256，得到 21 个图片文件、3 个唯一 SHA-256、
+   0 个 annotation sidecar。ignored 二进制不随 Git 持久，未来不能仅凭本分支复现该数字；它也没有持久使用依据、
    source↔candidate 绑定或七维标签，因此没有纳入数据集，也没有复制或提交。
 5. 现有 Fidelity-B test 使用 1×1 PNG/GIF fixture，只证明软件合同。
 6. 当前 `/usr/bin/python3` 无 `cv2`、`paddleocr` 或 `paddle`；仓库 package/lock 也未锁定这些能力。数据 gate 已先阻断，

@@ -19,13 +19,17 @@ AppearanceCheckRun/Result、AppearanceReview 或 UI。
 |---|---|---|
 | Git 跟踪树 | 图片与视频样本为 0；无 benchmark dataset 或七维 annotation manifest | 不具备输入 |
 | Fidelity-0 Evidence | 有一组防晒霜源图与候选 checksum 记录；源图为 419685 bytes、PNG 656x952、SHA-256 `e57cf213cbbf8f6acafed0a1bf4a47db33e7a1668237181dc77499eb9cf387c5`；候选记录为 275745 bytes、JPEG、SHA-256 `1778a04198280c4cf2d08f78ba544085da44611d76f69b0653004bffe483244b` | 当前只找到源图 exact bytes，未找到受控候选 bytes；单一 SKU 也不满足覆盖合同 |
-| 本地忽略的历史批次上传 | 21 个图片文件、3 个唯一 SHA-256、格式为 PNG/JPEG；无 annotation sidecar | 缺少 benchmark 使用授权/来源说明、source↔candidate 绑定与七维真值，不准入 |
+| 本地忽略的历史批次上传 | 2026-08-20 对旧本地 checkout 的一次性只读观察：21 个图片文件、3 个唯一 SHA-256、格式为 PNG/JPEG；无 annotation sidecar | 缺少 benchmark 使用授权/来源说明、source↔candidate 绑定与七维真值，不准入；不是随 Git 持久的可复现数据资产 |
 | 页面截图与历史视频 | 可用于证明 UI/流程或最终内容事实 | 不是 exact 候选图片 bytes，不能替代 source/candidate 配对或七维标注 |
 | 现有 Fidelity-B 测试 | 使用 1×1 PNG/GIF fixture 验证 bytes、checksum、事务、组织隔离和 API 合同 | 只能证明软件合同，不能证明视觉能力 |
 | 当前本地 Python 环境 | `cv2`、`paddleocr`、`paddle` 均未安装；仓库 package/lock 也未锁定这些依赖 | 环境尚未冻结，但数据门禁未通过前不安装、不实现 harness |
 
 本表不把本地存在等同于合法 benchmark 使用。没有持久的来源、用途许可或 Owner 指定用途时，历史业务素材只记录为
 “发现但未准入”，不得复制、提交或运行。
+
+上述 `21/3` 仅来自 2026-08-20 对旧本地 checkout 中 repo-relative ignored `batches/**` 范围的一次性审计：按大小写不敏感的
+`.png`、`.jpg`、`.jpeg` 扩展名枚举普通文件，统计文件数并对文件 bytes 计算 SHA-256 后去重。ignored 二进制没有随分支或 Git
+持久，未来仅凭本仓库不能重放该观察；该数字不能作为 benchmark 输入的可复现性、用途许可或数据资产证明。
 
 ## 3. 阻断结论
 
