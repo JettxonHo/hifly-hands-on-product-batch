@@ -194,6 +194,86 @@ export function createPostgresAssetRepository({ pool, ownsPool = false } = {}) {
       if (transactionClient) return work(transactionClient);
       return withTransaction(pool, work);
     },
+    async registerAppearanceCandidate({ organizationId, actorSystemId = null, staged, now, transactionClient = null }) {
+      const work = async (client) => {
+        const existing = one(await client.query(
+          `SELECT av.*, aa.organization_id AS asset_organization_id, aa.kind, aa.display_name,
+                  aa.status AS asset_status, aa.row_version, aa.created_by_member_id,
+                  aa.created_at AS asset_created_at, aa.updated_at AS asset_updated_at
+             FROM asset_versions av
+             JOIN asset_assets aa ON aa.id = av.asset_id
+            WHERE av.object_key = $1
+            FOR UPDATE`,
+          [staged.object_key]
+        ));
+        if (existing) {
+          if (existing.asset_organization_id !== organizationId ||
+              existing.kind !== "appearance_candidate_image" ||
+              existing.asset_status !== "active" ||
+              existing.status !== "available" ||
+              existing.expected_content_type !== staged.media_type ||
+              Number(existing.expected_size) !== Number(staged.size) ||
+              existing.expected_checksum_sha256 !== staged.checksum_sha256 ||
+              existing.verified_content_type !== staged.media_type ||
+              Number(existing.verified_size) !== Number(staged.size) ||
+              existing.verified_checksum_sha256 !== staged.checksum_sha256) {
+            throw failure("APPEARANCE_CANDIDATE_ASSET_CONFLICT");
+          }
+          return {
+            asset: assetProjection({
+              id: existing.asset_id,
+              organization_id: existing.asset_organization_id,
+              kind: existing.kind,
+              display_name: existing.display_name,
+              status: existing.asset_status,
+              row_version: existing.row_version,
+              created_by_member_id: existing.created_by_member_id,
+              created_at: existing.asset_created_at,
+              updated_at: existing.asset_updated_at
+            }),
+            asset_version: versionProjection(existing)
+          };
+        }
+
+        const assetId = randomUUID();
+        const versionId = randomUUID();
+        const asset = assetProjection(one(await client.query(
+          `INSERT INTO asset_assets(id, organization_id, kind, display_name, status, row_version, created_by_member_id, created_at, updated_at)
+           VALUES ($1, $2, 'appearance_candidate_image', $3, 'active', 1, NULL, $4, $4)
+           RETURNING *`,
+          [assetId, organizationId, staged.original_filename, now]
+        )));
+        const version = versionProjection(one(await client.query(
+          `INSERT INTO asset_versions(
+             id, asset_id, organization_id, version_number, status, object_key, original_filename,
+             expected_content_type, expected_size, expected_checksum_sha256,
+             verified_content_type, verified_size, verified_checksum_sha256, verified_at, created_at, updated_at
+           ) VALUES ($1, $2, $3, 1, 'available', $4, $5, $6, $7, $8, $6, $7, $8, $9, $9, $9)
+           RETURNING *`,
+          [versionId, assetId, organizationId, staged.object_key, staged.original_filename, staged.media_type, staged.size, staged.checksum_sha256, now]
+        )));
+        await appendAudit(client, {
+          id: randomUUID(),
+          organization_id: organizationId,
+          actor_member_id: null,
+          event_type: "asset.appearance_candidate_available",
+          asset_id: asset.id,
+          asset_version_id: version.id,
+          metadata: {
+            candidate_id: staged.candidate_id,
+            capture_request_id: staged.capture_request_id,
+            actor_system_id: actorSystemId
+          },
+          created_at: now
+        });
+        return { asset, asset_version: version };
+      };
+      if (transactionClient) {
+        if (typeof transactionClient.query !== "function") throw new TypeError("transactionClient must be a PostgreSQL client");
+        return work(transactionClient);
+      }
+      return withTransaction(pool, work);
+    },
     async listPendingVerificationJobs() {
       return (await pool.query("SELECT * FROM asset_async_jobs WHERE status IN ('queued','running') ORDER BY created_at")).rows.map(jobProjection);
     },

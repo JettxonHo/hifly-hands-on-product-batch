@@ -266,6 +266,11 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
     copyReview: { enabled: true },
     avatarSelection: { enabled: true },
     videoPlanning: { enabled: true, worker },
+    appearanceFidelity: {
+      enabled: boolean(env.APPEARANCE_FIDELITY_ENABLED, "APPEARANCE_FIDELITY_ENABLED", false),
+      provider: "disabled",
+      worker: { ...worker, autoStart: false }
+    },
     productionOrders: { enabled: true },
     manualHandoff: { enabled: true, localRoot: path.join(dataDir, "manual-handoff-packages"), worker },
     manualExecution: { enabled: true, maxCandidateBytes: 256 * 1024 * 1024, localRoot: path.join(dataDir, "manual-execution-candidates"), worker },

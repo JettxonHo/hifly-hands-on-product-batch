@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-20
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。随后 Fidelity-0 以一次独立候选生成建立了精确上传 bytes、候选 bytes/reference、即时上下文恢复与视频前安全暂停证据；没有确认候选或提交外层视频。该证据只允许进入 Fidelity-A 独立设计，不表示外观保真、产品实现、部署、公网生产、自动批量或长期稳定性已完成；可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 已建立有界 Provider Evidence，Fidelity-A 领域/API 合同已进入 `main`；Issue #214 / 对应 Draft PR 是 Fidelity-B 仓库实现的 acceptance gate。该实现只有随 PR 合并进入 `main` 才计为 repository implemented，且不表示真实 Hifly Adapter、自动检查/审核、Production 接入、部署、公网生产或外观保真验收已完成；可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -310,9 +310,26 @@
   失败关闭。
 - 候选生成本身可能收费。本次恰好执行一次显示“150积分”的候选生成动作，但余额未刷新，精确变化未知；门禁只能
   阻止后续视频提交，不能宣称候选阶段零积分。后续真实探测仍需当次独立授权。
-- D-035 与 `docs/product/PRODUCT_APPEARANCE_FIDELITY_GATE.md` 定义产品边界；D-036 固定生产前候选门禁。该设计进入
-  `main` 不等于实现、部署或 Provider 验收。当前仍没有 Candidate/Check/Review、API、数据库、UI 或执行器改动；
-  Fidelity-B～E 继续等待各自独立授权。
+- D-035 与 `docs/product/PRODUCT_APPEARANCE_FIDELITY_GATE.md` 定义产品边界；D-036 固定生产前候选门禁。
+  Fidelity-A 已进入 `main`，只表示设计完成，不等于实现、部署或 Provider 验收。
+
+## Issue #214 Fidelity-B Provider capture
+
+- Issue #214 / 对应 Draft PR 是 Fidelity-B 的 acceptance gate。该变更进入 `main` 后，仓库才具有默认关闭的
+  `AppearanceCaptureRequest`、不可变 `AppearanceCandidate`、1:1 `AppearanceCandidateState`、append-only
+  `ProviderReferenceObservation`、内部 `appearance_candidate_image` AssetVersion、组织作用域 REST 与短任务 Worker。
+- 创建 request 只冻结当前 ProductRevision、精确 `source_asset_version_id`、approved Copy、confirmed Avatar、
+  frozen/approved VideoPlan 与呈现大小，不调用 Provider。管理员授权固定 `max_candidate_generations=1`；request
+  失败或取消后 terminal，不提供 retry/resume。source bytes/media/size/SHA-256 在创建与 claim 前均从受控存储复核。
+- Provider Adapter 是注入 seam，生产配置默认 `APPEARANCE_FIDELITY_ENABLED=false`，默认 Adapter 为 disabled，
+  Worker 默认不启动。脱敏 fake Adapter 的候选输出按不可信输入验证 media/magic/size/checksum、request/source/reference
+  绑定与安全对象键；Candidate、State、Observation、内部 AssetVersion 和 request succeeded 在同一事务完成，失败回滚并
+  删除暂存对象。
+- Provider Observation 采用 `valid_until=observed_at` 的 same-gate-only 策略，不凭 `gen_id`、历史成功或旧时间推断
+  current availability。真实 Hifly observation seam、合理正 TTL、长期/跨设备恢复与 claim-side 无副作用再观察仍未证明，
+  因此 Fidelity-D 继续是 stop condition。
+- Fidelity-B 只实现 capture/storage/API 基础，不实现 Fidelity-C 自动检查与人工审核 UI，不修改 Production
+  create/eligible/claim/handoff，不部署，也没有访问 Hifly、生成候选/视频或消耗积分。
 
 ## P0.5 内部验收环境部署
 
@@ -473,11 +490,10 @@
 
 1. #200/#201/#202 已完成实现、独立 Review、合并、部署与单条真实复验；尺寸选档和技术闭环通过，但 Work 已因瓶盖造型
    失真登记返工。没有新的重试或再次生产授权，保持本单 `rework_required` 且不交付。
-2. Fidelity-0 已建立候选 bytes/reference、精确上传输入、即时上下文恢复和安全暂停的有界 Evidence。Fidelity-A
-   acceptance artifact 随对应 PR 进入 `main` 后才计为 designed；合同要求 Candidate/State 分离、append-only Provider
-   Observation 与 exact Check result。Fidelity-B 还须证明 Observation 的合理有效期及 claim-side 无副作用再观察；之后
-   只能按 Fidelity-B Provider capture → Fidelity-C 检查/审核 → Fidelity-D Production 集成 → Fidelity-E 单条真实验收
-   严格串行推进，不自动授权任何实现。
+2. Fidelity-0 Evidence 与 Fidelity-A 设计已进入 `main`。Issue #214 / 对应 Draft PR 是 Fidelity-B repository
+   implementation 的 acceptance gate；合并后仍只完成默认关闭的 capture/storage/API 基础。真实 Provider Observation
+   的合理有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 因此保持 stop condition。后续只能按 Fidelity-C
+   检查/审核 → Fidelity-D Production 集成 → Fidelity-E 单条真实验收严格串行推进，不自动授权任何实现。
 3. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
 4. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。

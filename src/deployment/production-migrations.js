@@ -27,6 +27,7 @@ export async function loadProductionMigrationSteps() {
     { runProductionOrderMigrations },
     { runProjectContentMigrations },
     { runVideoPlanningMigrations },
+    { runAppearanceFidelityMigrations },
     { runWorkDeliveryMigrations },
     { runWorkVerificationMigrations }
   ] = await Promise.all([
@@ -41,6 +42,7 @@ export async function loadProductionMigrationSteps() {
     import("../production-orders/postgres.js"),
     import("../project-content/postgres.js"),
     import("../video-planning/postgres.js"),
+    import("../appearance-fidelity/postgres.js"),
     import("../work-delivery/postgres.js"),
     import("../work-verification/postgres.js")
   ]);
@@ -58,6 +60,7 @@ export async function loadProductionMigrationSteps() {
     { name: "manualHandoff", run: runManualHandoffMigrations },
     { name: "manualExecution", run: runManualExecutionMigrations },
     { name: "artifactVerification", run: runWorkVerificationMigrations },
+    { name: "appearanceFidelity", run: runAppearanceFidelityMigrations },
     { name: "workDelivery", run: runWorkDeliveryMigrations }
   ];
 }

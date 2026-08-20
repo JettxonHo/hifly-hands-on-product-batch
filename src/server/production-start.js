@@ -107,6 +107,7 @@ function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFet
     avatarSelection: { ...config.avatarSelection,
       publicAvatarCatalog: hiflyClient ? createHiflyPublicAvatarCatalog({ client: hiflyClient }) : null },
     videoPlanning: { ...config.videoPlanning, evaluator: createControlledPreflightEvaluator() },
+    appearanceFidelity: config.appearanceFidelity,
     productionOrders: config.productionOrders,
     manualHandoff: config.manualHandoff,
     manualExecution: config.manualExecution,

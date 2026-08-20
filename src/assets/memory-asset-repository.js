@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const failure = (code) => Object.assign(new Error(code), { code });
+const APPEARANCE_CANDIDATE_KIND = "appearance_candidate_image";
 
 export function createMemoryAssetRepository() {
   const assets = new Map();
@@ -87,7 +88,7 @@ export function createMemoryAssetRepository() {
     async getAssetVersion(organizationId, id) { return clone(owned(versions, id, organizationId, "ASSET_VERSION_NOT_FOUND")); },
     async getAsset(organizationId, id) { return clone(owned(assets, id, organizationId, "ASSET_NOT_FOUND")); },
     async listAssets(organizationId) {
-      return [...assets.values()].filter((asset) => asset.organization_id === organizationId && asset.status !== "deleted")
+      return [...assets.values()].filter((asset) => asset.organization_id === organizationId && asset.status !== "deleted" && asset.kind !== APPEARANCE_CANDIDATE_KIND)
         .map((asset) => ({
           ...clone(asset),
           versions: [...versions.values()]
@@ -95,6 +96,48 @@ export function createMemoryAssetRepository() {
             .sort((left, right) => right.version_number - left.version_number)
             .map(clone)
         }));
+    },
+    async registerAppearanceCandidate({ organizationId, actorSystemId = null, staged, now, transactionClient = null }) {
+      const existing = [...versions.values()].find((version) => version.organization_id === organizationId && version.object_key === staged.object_key);
+      if (existing) {
+        const existingAsset = assets.get(existing.asset_id);
+        if (!existingAsset || existingAsset.kind !== APPEARANCE_CANDIDATE_KIND || existing.status !== "available" ||
+            existing.expected_content_type !== staged.media_type || existing.expected_size !== staged.size ||
+            existing.expected_checksum_sha256 !== staged.checksum_sha256) {
+          throw failure("APPEARANCE_CANDIDATE_ASSET_CONFLICT");
+        }
+        return { asset: clone(existingAsset), asset_version: clone(existing) };
+      }
+
+      const asset = {
+        id: randomUUID(), organization_id: organizationId, kind: APPEARANCE_CANDIDATE_KIND,
+        display_name: staged.original_filename, status: "active", revision_number: 1,
+        created_by_member_id: null, created_at: now, updated_at: now
+      };
+      const version = {
+        id: randomUUID(), asset_id: asset.id, organization_id: organizationId, version_number: 1, status: "available",
+        object_key: staged.object_key, original_filename: staged.original_filename,
+        expected_content_type: staged.media_type, expected_size: staged.size, expected_checksum_sha256: staged.checksum_sha256,
+        verified_content_type: staged.media_type, verified_size: staged.size, verified_checksum_sha256: staged.checksum_sha256,
+        verified_at: now, failure_code: null, created_at: now, updated_at: now
+      };
+      assets.set(asset.id, clone(asset));
+      versions.set(version.id, clone(version));
+      if (transactionClient?.onRollback) {
+        transactionClient.onRollback(() => assets.delete(asset.id));
+        transactionClient.onRollback(() => versions.delete(version.id));
+      }
+      const audit = {
+        id: randomUUID(), organization_id: organizationId, actor_member_id: null,
+        event_type: "asset.appearance_candidate_available", asset_id: asset.id, asset_version_id: version.id,
+        metadata: { actor_system_id: actorSystemId, candidate_id: staged.candidate_id, capture_request_id: staged.capture_request_id }, created_at: now
+      };
+      audits.push(audit);
+      if (transactionClient?.onRollback) transactionClient.onRollback(() => {
+        const index = audits.findIndex((event) => event.id === audit.id);
+        if (index >= 0) audits.splice(index, 1);
+      });
+      return { asset: clone(asset), asset_version: clone(version) };
     },
     async registerVerifiedOutput({ organizationId, actorMemberId = null, candidate, now, transactionClient = null }) {
       const existing = [...versions.values()].find((version) => version.organization_id === organizationId && version.object_key === candidate.object_key);

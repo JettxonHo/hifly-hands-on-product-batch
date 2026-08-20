@@ -12,12 +12,24 @@ import { createLocalObjectStore } from "../src/assets/local-object-store.js";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 const SHA256 = createHash("sha256").update(PNG).digest("hex");
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00]);
+const WEBP = Buffer.from("RIFF\x00\x00\x00\x00WEBPVP8 \x00\x00\x00\x00", "binary");
+const GIF = Buffer.from("GIF89a\x01\x00\x01\x00\x00\x00\x00", "ascii");
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-function world({ now = () => Date.parse("2026-08-06T08:00:00Z") } = {}) {
+function world({ now = () => Date.parse("2026-08-06T08:00:00Z"), trackPuts = false } = {}) {
   const repository = createMemoryAssetRepository();
   const objectStore = createMemoryObjectStore();
+  const putCalls = [];
+  if (trackPuts) {
+    const put = objectStore.put.bind(objectStore);
+    objectStore.put = async (input) => {
+      putCalls.push({ ...input });
+      return put(input);
+    };
+  }
   const service = createAssetService({ repository, objectStore, now });
-  return { repository, objectStore, service };
+  return { repository, objectStore, service, putCalls };
 }
 
 async function uploaded(world, overrides = {}) {
@@ -37,6 +49,17 @@ async function uploaded(world, overrides = {}) {
     body: PNG,
     contentType: "image/png"
   });
+  return created;
+}
+
+async function verified(world, overrides = {}) {
+  const created = await uploaded(world, overrides);
+  await world.service.completeUpload({
+    organizationId: "org_a",
+    uploadSessionId: created.upload_session_id,
+    idempotencyKey: `verify-${randomUUID()}`
+  });
+  await world.service.runNextVerificationJob();
   return created;
 }
 
@@ -294,4 +317,215 @@ test("local development object metadata survives an adapter restart for verifica
   const restarted = createAssetService({ repository, objectStore: createLocalObjectStore({ root }) });
   assert.equal(await restarted.recoverVerificationJobs(), 1);
   assert.equal((await restarted.getAssetVersion({ organizationId: "org_a", assetVersionId: created.asset_version.id })).status, "available");
+});
+
+test("source product image port returns exact verified bytes and enforces availability and organization isolation", async () => {
+  const w = world();
+  const created = await verified(w);
+  const input = { organizationId: "org_a", assetVersionId: created.asset_version.id };
+  const source = await w.service.sourceProductImagePort.readVerifiedProductImage(input);
+
+  assert.deepEqual(source, {
+    asset_id: created.asset.id,
+    asset_version_id: created.asset_version.id,
+    kind: "product_image",
+    asset_status: "active",
+    version_status: "available",
+    bytes: PNG,
+    media_type: "image/png",
+    size: PNG.length,
+    checksum_sha256: SHA256
+  });
+  await assert.rejects(
+    w.service.sourceProductImagePort.readVerifiedProductImage({ ...input, organizationId: "org_b" }),
+    { code: "ASSET_VERSION_NOT_FOUND" }
+  );
+
+  await w.service.disableAsset({ organizationId: "org_a", assetId: created.asset.id, expectedRevision: 1 });
+  await assert.rejects(w.service.sourceProductImagePort.readVerifiedProductImage(input), { code: "ASSET_SOURCE_UNAVAILABLE" });
+});
+
+function candidateStageInput(overrides = {}) {
+  return {
+    organizationId: "org_a",
+    candidateId: "candidate_a",
+    captureRequestId: "capture_a",
+    body: PNG,
+    mediaType: "image/png",
+    originalFilename: "../../provider-output\nContent-Disposition: attachment; filename=unsafe.png",
+    ...overrides
+  };
+}
+
+async function stageCandidate(w, overrides = {}) {
+  return w.service.appearanceCandidateAssetPort.stageVerifiedCandidate(candidateStageInput(overrides));
+}
+
+test("appearance candidate staging verifies bytes and ignores untrusted filenames", async () => {
+  const w = world({ trackPuts: true });
+  const staged = await stageCandidate(w);
+  const safeFilename = staged.original_filename;
+
+  assert.match(safeFilename, /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/);
+  assert.doesNotMatch(safeFilename, /[\\/\u0000-\u001f\u007f]/);
+  assert.equal(staged.candidate_id, "candidate_a");
+  assert.equal(staged.capture_request_id, "capture_a");
+  assert.equal(staged.object_key, `org_a/appearance-candidates/candidate_a/${safeFilename}`);
+  assert.equal(staged.media_type, "image/png");
+  assert.equal(staged.size, PNG.length);
+  assert.equal(staged.checksum_sha256, SHA256);
+  assert.equal(w.putCalls.length, 1);
+  assert.equal(w.putCalls[0].key, staged.object_key);
+  assert.deepEqual(w.putCalls[0].body, PNG);
+  assert.equal(w.putCalls[0].contentType, "image/png");
+  assert.equal(w.putCalls[0].metadata.organizationId, "org_a");
+  assert.equal(w.putCalls[0].metadata.candidateId, "candidate_a");
+  assert.equal(w.putCalls[0].metadata.captureRequestId, "capture_a");
+  assert.deepEqual(await w.objectStore.get(staged.object_key), PNG);
+
+  const renamed = await stageCandidate(w, {
+    candidateId: "candidate_b",
+    captureRequestId: "capture_b",
+    originalFilename: "ordinary-name.png"
+  });
+  assert.equal(renamed.original_filename, safeFilename);
+  assert.equal(renamed.object_key, `org_a/appearance-candidates/candidate_b/${safeFilename}`);
+  assert.equal(w.putCalls.length, 2);
+  assert.equal(w.putCalls[1].key, renamed.object_key);
+});
+
+test("appearance candidate staging rejects untrusted or inconsistent image input before persistence", async () => {
+  const cases = [
+    { body: "https://provider.invalid/candidate.png", mediaType: "image/png" },
+    { body: new Uint8Array(PNG), mediaType: "image/png" },
+    { body: GIF, mediaType: "image/png" },
+    { body: GIF, mediaType: "image/gif" },
+    { body: Buffer.alloc(MAX_IMAGE_BYTES + 1), mediaType: "image/png" },
+    { body: PNG, mediaType: "image/jpeg" }
+  ];
+
+  for (const [index, input] of cases.entries()) {
+    const w = world({ trackPuts: true });
+    await assert.rejects(
+      w.service.appearanceCandidateAssetPort.stageVerifiedCandidate(candidateStageInput({
+        ...input,
+        candidateId: `candidate-invalid-${index}`,
+        captureRequestId: `capture-invalid-${index}`
+      }))
+    );
+    assert.equal(w.putCalls.length, 0);
+    assert.deepEqual(await w.service.listAssets({ organizationId: "org_a" }), []);
+  }
+});
+
+test("registering an appearance candidate creates an available internal asset hidden from generic asset APIs", async () => {
+  const w = world();
+  const staged = await stageCandidate(w);
+  const registered = await w.service.appearanceCandidateAssetPort.registerStagedCandidate({
+    organizationId: "org_a",
+    actorSystemId: "cloud_executor",
+    staged
+  });
+  const { asset, asset_version: version } = registered;
+
+  assert.equal(asset.organization_id, "org_a");
+  assert.equal(asset.kind, "appearance_candidate_image");
+  assert.equal(asset.status, "active");
+  assert.equal(asset.revision_number, 1);
+  assert.equal(asset.display_name, staged.original_filename);
+  assert.equal(version.organization_id, "org_a");
+  assert.equal(version.asset_id, asset.id);
+  assert.equal(version.version_number, 1);
+  assert.equal(version.status, "available");
+  assert.equal(version.object_key, staged.object_key);
+  assert.equal(version.original_filename, staged.original_filename);
+  assert.equal(version.expected_content_type, staged.media_type);
+  assert.equal(version.expected_size, staged.size);
+  assert.equal(version.expected_checksum_sha256, staged.checksum_sha256);
+  assert.equal(version.verified_content_type, staged.media_type);
+  assert.equal(version.verified_size, staged.size);
+  assert.equal(version.verified_checksum_sha256, staged.checksum_sha256);
+  assert.equal(version.failure_code, null);
+
+  assert.deepEqual(await w.service.listAssets({ organizationId: "org_a" }), []);
+  await assert.rejects(
+    w.service.createUploadAuthorization({
+      organizationId: "org_a",
+      actorMemberId: "member_a",
+      idempotencyKey: "generic-appearance-candidate-upload",
+      filename: "candidate.png",
+      contentType: "image/png",
+      size: PNG.length,
+      checksumSha256: SHA256,
+      assetKind: "appearance_candidate_image"
+    })
+  );
+});
+
+test("appearance candidate registration rollback removes memory asset and version rows", async () => {
+  const w = world();
+  const staged = await stageCandidate(w);
+  const rollbacks = [];
+  const registered = await w.service.appearanceCandidateAssetPort.registerStagedCandidate({
+    organizationId: "org_a",
+    actorSystemId: "cloud_executor",
+    staged,
+    transactionClient: { onRollback(callback) { rollbacks.push(callback); } }
+  });
+
+  assert.ok(rollbacks.length > 0);
+  assert.equal((await w.service.getAsset({ organizationId: "org_a", assetId: registered.asset.id })).kind, "appearance_candidate_image");
+  assert.equal((await w.service.getAssetVersion({ organizationId: "org_a", assetVersionId: registered.asset_version.id })).status, "available");
+
+  for (const rollback of rollbacks.reverse()) await rollback();
+  await assert.rejects(w.service.getAsset({ organizationId: "org_a", assetId: registered.asset.id }), { code: "ASSET_NOT_FOUND" });
+  await assert.rejects(w.service.getAssetVersion({ organizationId: "org_a", assetVersionId: registered.asset_version.id }), { code: "ASSET_VERSION_NOT_FOUND" });
+  assert.deepEqual(await w.service.listAssets({ organizationId: "org_a" }), []);
+});
+
+test("appearance candidate download authorization returns safe metadata and exact bytes while generic download stays closed", async () => {
+  const w = world();
+  const staged = await stageCandidate(w);
+  const registered = await w.service.appearanceCandidateAssetPort.registerStagedCandidate({
+    organizationId: "org_a",
+    actorSystemId: "cloud_executor",
+    staged
+  });
+  const assetVersionId = registered.asset_version.id;
+  const grant = await w.service.appearanceCandidateAssetPort.createDownloadAuthorization({
+    organizationId: "org_a",
+    assetVersionId
+  });
+
+  assert.equal(grant.asset_version_id, assetVersionId);
+  assert.equal(grant.filename, staged.original_filename);
+  assert.equal(grant.media_type, staged.media_type);
+  assert.equal(grant.size, staged.size);
+  assert.equal(grant.checksum_sha256, staged.checksum_sha256);
+  assert.ok(grant.token);
+
+  const downloaded = await w.service.appearanceCandidateAssetPort.downloadObject({ organizationId: "org_a", assetVersionId, token: grant.token });
+  assert.deepEqual(downloaded.body, PNG);
+  assert.equal(downloaded.filename, staged.original_filename);
+  assert.equal(downloaded.media_type, staged.media_type);
+  assert.equal(downloaded.size, staged.size);
+  assert.equal(downloaded.checksum_sha256, staged.checksum_sha256);
+  assert.equal(createHash("sha256").update(downloaded.body).digest("hex"), SHA256);
+
+  await assert.rejects(w.service.appearanceCandidateAssetPort.downloadObject({
+    organizationId: "org_a", assetVersionId: randomUUID(), token: grant.token
+  }), { code: "DOWNLOAD_AUTHORIZATION_NOT_FOUND" });
+
+  await assert.rejects(w.service.createDownloadAuthorization({ organizationId: "org_a", assetVersionId }));
+});
+
+test("discarding a staged appearance candidate removes its object", async () => {
+  const w = world();
+  const staged = await stageCandidate(w);
+  assert.deepEqual(await w.objectStore.get(staged.object_key), PNG);
+
+  await w.service.appearanceCandidateAssetPort.discardStagedCandidate({ organizationId: "org_a", staged });
+
+  assert.equal(await w.objectStore.head(staged.object_key), null);
+  assert.equal(await w.objectStore.get(staged.object_key), null);
 });
