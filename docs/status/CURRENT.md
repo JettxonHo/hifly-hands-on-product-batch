@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-20
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计与 Fidelity-B 默认关闭的 capture/storage/API 已进入 `main`；仓库仍没有已接受的自动视觉检查模型、阈值、误判率或费用 Evidence。Issue #216 定义 Fidelity-C0 Product/Model/Evidence acceptance gate；该 gate 进入 `main` 也只表示能力验收方法已设计，不表示模型已选择、Fidelity-C 已实现、部署或 Provider 验收完成。可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁与 Issue #218 / PR #219 的官方来源 shortlist 已进入 `main@8c9930f430738c381a6ed6cc67fd06a02c4f8391`；当前只有本地 PaddleOCR/OpenCV 基线具备后续受控 benchmark 资格，但 Issue #220 已确认缺少可准入的多商品数据与独立七维标注，状态为 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`。下一门是先形成仓库外受控数据、用途依据、脱敏 manifest 与独立七维真值并通过数据 acceptance；在此之前不锁环境、不写 harness、不运行 benchmark。仓库仍没有已接受的自动视觉检查模型、阈值、误判率或费用 Evidence，可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -338,11 +338,17 @@
   已接受的视觉/OCR模型；D-036 明确保留的模型、阈值、误判率、费用和数据治理 Evidence 均未建立。因此 Fidelity-C 代码
   失败关闭，先由 `docs/product/PRODUCT_APPEARANCE_CHECK_CAPABILITY_GATE.md` 定义 capability shortlist、受控 benchmark、
   逐维证据与 Owner acceptance。fake Adapter、固定 passed、单张截图或总分不能越过该门禁。
-- Issue #218 是 Fidelity-C1 shortlist 的 acceptance gate；其文档随 PR 合并进入 `main` 后，只表示官方来源研究完成。
+- Issue #218 / PR #219 的 Fidelity-C1 shortlist 已合并进入 `main@8c9930f430738c381a6ed6cc67fd06a02c4f8391`，只表示官方来源研究完成。
   当前只有本地 PaddleOCR/OpenCV 基线具备进入独立受控 benchmark 的资格。OpenAI 固定 snapshot 因官方输入要求禁止 Logo
   图片而保持 reserve/blocked；Google Vertex AI 因旧 lifecycle URL 重定向、当前版本锁定与迁移语义待复核而保持 reserve；
   混合方案在合规多模态组件获接受前保持 deferred。没有调用模型或上传图片，逐维覆盖、严重误放行、误阻断、unknown、
   延迟和真实费用仍全部未验证，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
+- Issue #220 是 Fidelity-C2 本地 benchmark readiness acceptance gate。只读盘点发现 Git 中没有媒体数据集或七维标注；
+  Fidelity-0 只有单一防晒霜 checksum 对且当前缺少受控候选 bytes；2026-08-20 对旧本地 checkout 的 repo-relative ignored
+  `batches/**` 范围所做的一次性只读观察也只发现重复度很高、没有用途依据、精确配对或人工真值的历史图片，该观察不是
+  随 Git 持久的可复现 benchmark 数据资产。
+  因此状态为 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`，没有安装 PaddleOCR/OpenCV、编写 harness 或运行 benchmark。
+  本文件随对应 PR 合并只表示 blocker 审计进入 `main`，不表示 benchmark、能力选择、实现、部署或 Provider 验收完成。
 
 ## P0.5 内部验收环境部署
 
@@ -503,11 +509,13 @@
 
 1. #200/#201/#202 已完成实现、独立 Review、合并、部署与单条真实复验；尺寸选档和技术闭环通过，但 Work 已因瓶盖造型
    失真登记返工。没有新的重试或再次生产授权，保持本单 `rework_required` 且不交付。
-2. Fidelity-0 Evidence、Fidelity-A 设计与 Fidelity-B repository implementation 已进入 `main`，但仍只完成默认关闭的
-   capture/storage/API 基础。Issue #216 已建立 Fidelity-C0 能力 Evidence gate；Issue #218 只读研究的 shortlist 只有随
-   PR 合并进入 `main` 才计为完成，且下一步仍须单独授权受控 benchmark。只有 capability、policy/model version、阈值、
-   误判、unknown、费用与数据治理经 Owner 接受后，才能另开 Fidelity-C 检查/审核实现。真实 Provider Observation 的
-   合理有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
+2. Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B repository implementation、Issue #216 能力 Evidence gate 与 Issue #218 /
+   PR #219 官方来源 shortlist 均已进入 `main`；本地 PaddleOCR/OpenCV 只是唯一具备后续受控 benchmark 资格的候选，不代表
+   benchmark 已开始。Issue #220 已得出 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`；对应 PR 合并只表示 readiness blocker
+   审计被接受。下一步必须先形成仓库外受控 exact bytes、用途依据、脱敏 manifest 和独立七维人工真值，并通过数据/标注
+   acceptance，之后才可锁定本地环境并编写 harness。只有 capability、policy/model version、阈值、误判、unknown、费用与
+   数据治理经 Owner 接受后，才能另开 Fidelity-C 检查/审核实现。真实 Provider Observation 的合理有效期与 claim-side
+   无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
 3. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
 4. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
