@@ -41,7 +41,7 @@ test("validator accepts an exact synthetic dataset through the controlled storag
   assert.deepEqual(JSON.parse(result.stdout), {
     status: "environment_validated",
     storage_alias: "HIFLY_APPEARANCE_BENCHMARK_V1",
-    lane: "macos-arm64-smoke",
+    lane,
     samples: 1
   });
 });

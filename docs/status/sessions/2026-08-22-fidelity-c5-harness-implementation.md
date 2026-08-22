@@ -52,10 +52,15 @@
 - Focused public CLI tests：`node --test test/appearance-benchmark-environment.test.js test/appearance-benchmark-harness.test.js`
   在 macOS/arm64 smoke lane 通过；覆盖 alias/identity/tree/symlink/hash、blocked repository lock、blind isolation、不可变输出、
   annotation visibility、未登记 operation、重复 run、sealed partial output 与一对多 mapping fail-closed。
-- fresh worktree 先执行 `npm ci` 恢复仓库锁定依赖；default `npm test` 为 1094 total / 1079 pass / 15 skip / 0 fail。
-  15 个 skip 是 14 个需显式 PostgreSQL 测试数据库环境变量的 integration tests，以及需 `IDENTITY_BROWSER_SMOKE=1`
-  的 identity browser smoke；本轮新增 CLI tests 在受支持的 macOS/arm64 lane 未 skip。
+- fresh worktree 先执行 `npm ci` 恢复仓库锁定依赖；首个 implementation head 的 default `npm test` 为 1094 total /
+  1079 pass / 15 skip / 0 fail。15 个 skip 是 14 个需显式 PostgreSQL 测试数据库环境变量的 integration tests，以及需
+  `IDENTITY_BROWSER_SMOKE=1` 的 identity browser smoke；本轮新增 CLI tests 在受支持的 macOS/arm64 lane 未 skip。
+- 修正跨 lane 测试期望后，本地 focused 仍为 9/9；第二次 default suite 在无失败输出下停在既有 browser test 622，超过
+  4 分钟后手动停止。该次不计 pass，也不覆盖首轮完整结果；最终固定头的全量证据以 GitHub CI 为准。
 - `npm run check`：241 JavaScript files；`git diff --check` 与 strict 15-file allowlist 通过。
 - `npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high`：0 critical / 0 high / 2 moderate；
   没有执行 `audit fix` 或 `--force`。
+- 首个 Draft PR head `dafa4162afed6493ddb2b89f5876530a62dd0515` 的 Ubuntu CI 在环境验证测试中失败：实现正确返回
+  `linux-amd64-canonical`，测试期望却硬编码为 `macos-arm64-smoke`。后续修复改为断言当前 accepted lane；该失败不作为
+  environment 或 benchmark 成功 Evidence，也不被后续绿色覆盖。
 - fixed-head CI：以 Draft PR 元数据与结果评论为准，session 不自引用最终 commit。
