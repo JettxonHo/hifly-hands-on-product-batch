@@ -352,7 +352,9 @@
 - Issue #224 / PR #225 已将仓库侧 Fidelity-C4 acceptance 合并进入 `main@fb04b4870b721be00f4b6f093654526e230a921c`。
   Issue #226 / 对应 PR 是 Fidelity-C5 环境与 harness 合同 acceptance gate：proposal 锁定 exact dataset 输入、可证明的
   Python/PaddleOCR/PaddleX/PaddlePaddle/OpenCV/OCI 发行制品 hash、canonical Linux/amd64 lane、离线缓存、盲评和逐维
-  raw Evidence 合同；PP-OCRv6 权重 checksum 与完整传递依赖 lock 仍是 implementation stop condition。尚未安装依赖、
+  raw Evidence 合同；C3 annotation axes 与 D-036 runtime dimensions 保持显式双层映射，一对多不得复制真值，明显伪影不新增
+  第八维。OpenCV 只允许 versioned policy 明列的静态图像处理/测量，继续禁止视频/codec/FFmpeg。PP-OCRv6 权重 checksum
+  与完整传递依赖 lock 仍是 implementation stop condition。尚未安装依赖、
   下载权重、实现或运行 benchmark，也没有 capability、policy/rule version、阈值、准确率、费用或产品实现结论。
   `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 

@@ -140,7 +140,8 @@ Issue #220 / PR #221 的 Fidelity-C2 readiness blocker 审计与 Issue #222 / PR
 source/candidate 配对覆盖 4 类/4 商品族，4 samples x 7 axes 人工真值由不同角色盲审并 accepted，Owner 也已批准用途依据和
 12 个月保留/复审/删除边界。Issue #224 / PR #225 已将仓库侧 acceptance 合并进入 `main@fb04b487`。
 Issue #226 / 对应 PR 只设计并锁定可证明的环境与 harness 合同；PP-OCRv6 权重 checksum、完整传递依赖 lock、安装、harness
-实现与 benchmark 都是后续独立 gate。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
+实现与 benchmark 都是后续独立 gate。合同保持 annotation axis/runtime dimension 双层映射和静态图像处理边界，不允许
+一对多真值复制、伪造第八维或扩成视频能力。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、

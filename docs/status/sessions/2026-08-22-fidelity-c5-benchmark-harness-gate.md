@@ -34,14 +34,26 @@
 - 结果 manifest 必须持有精确输入、环境、依赖/权重、原始逐维 Evidence、资源、错误与 reviewer hash；CI 绿不替代
   canonical benchmark run 或 Owner acceptance。
 
+## 首轮独立复审纠偏
+
+主控在首轮审阅 head `6d1de8c7a120ddf5295aa4c4cdf32aa03418ffd9` 独立核对了 dataset manifest、四组关键
+wheel 文件名/bytes/SHA-256、Python OCI index/amd64/arm64 digest、PaddleOCR/OpenCV tag commit 和 3.7 compatibility
+区间；这些 Evidence 成立。审阅同时要求并已在后续提交纠偏：
+
+- 冻结 C3 七个 annotation axes 到 D-036 runtime dimensions 的双层映射。评分同时保留 axis、dimension 和映射依据；
+  一对多不复制结论，`obvious_artifacts` 不形成第八维，无法归属时为 unknown。
+- OpenCV 边界改为静态图像解码和 versioned policy 明列的受控处理/测量，继续禁止 video capture、codec 和 FFmpeg。
+- 用于 fixed compatibility/license 的 GitHub 链接固定到 tag；Docker mutable tag metadata 只记录 2026-08-22 observed evidence，
+  实际运行身份仍只能使用 architecture-specific digest。
+
 本轮没有更新 Decision Log：Fidelity-C5 是仍带模型 artifact blocker 的可逆设计 gate，没有新增已实现公共接口或替代 D-036。
 
 ## 验证记录
 
-- `npm run check`：237 个 JavaScript 文件通过。
-- `git diff --check`：通过；提交后继续用 `origin/main...HEAD` 复核固定范围。
-- 7 文档 relative links：通过；21 个官方来源于 2026-08-22 均返回 HTTP 200。
-- stale wording、绝对路径/敏感值和 strict allowlist：通过。
+- 纠偏后 `npm run check`：237 个 JavaScript 文件通过。
+- 纠偏后 working-tree `git diff --check`：通过；提交后继续用 `origin/main...HEAD` 复核固定范围。
+- 纠偏后 7 文档 relative links 与 21 个官方来源：通过；21 个来源于 2026-08-22 均返回 HTTP 200。
+- mutable GitHub branch source、stale wording、绝对路径/敏感值和 strict allowlist：通过；fixed lock/license 证据均为 tag 路径。
 - fixed-head GitHub CI：以对应 PR 元数据和结果评论为准；session 不在提交正文中自引用最终 head。
 
 ## 下一步

@@ -48,7 +48,7 @@ annotation/review 精确绑定且 review accepted。任一漂移立即停止整�
 | PaddleOCR | 3.7.0 / tag commit `b03f46425e8ff4442b268ce449e3eef758146cd4` | wheel 146750 bytes，SHA-256 `c0f0a81ad4112727f30c6fcf986ac0ef6a120d31ee0991a01fae0357ee32d338` | 官方兼容表只给 PaddlePaddle `>=3.0.0`，不证明本合同 exact stack 已运行 |
 | PaddleX | 3.7.0 | wheel 2220975 bytes，SHA-256 `70c5762d6bae7efe3a7db0e3264eb88e9ce1c3bf88d8e30cd32759924357acdc` | PaddleOCR 3.7.x 要求 PaddleX `>=3.7,<3.8` |
 | PaddlePaddle | 3.1.1 | Linux cp311 wheel 187453011 bytes，SHA-256 `36c6a768d31486c100e1be14404f8fc57565283f0df90b7142d2560100fe86ef`；macOS arm64 cp311 wheel 97973526 bytes，SHA-256 `0f58c9dbd3a8e3a50495715925706311e587b018ad3061e49608a017e82b0dce` | 满足官方 `>=3.0.0` 范围且有两平台 exact wheel；CPU exact-stack 兼容仍须 implementation gate 验证 |
-| OpenCV Python | `opencv-python-headless==4.13.0.92`；OpenCV tag commit `fe38fc608f6acb8b68953438a62305d8318f4fcd` | Linux x86_64 wheel 56016764 bytes，SHA-256 `0525a3d2c0b46c611e2130b5fdebc94cf404845d8fa64d2f3a3b679572a5bd22`；macOS arm64 wheel 46247192 bytes，SHA-256 `1a7d040ac656c11b8c38677cc8cccdc149f98535089dbe5b081e80a4e5903209` | 只允许 image I/O；记录 `cv2.getBuildInformation()`，不使用视频/FFmpeg 路径 |
+| OpenCV Python | `opencv-python-headless==4.13.0.92`；OpenCV tag commit `fe38fc608f6acb8b68953438a62305d8318f4fcd` | Linux x86_64 wheel 56016764 bytes，SHA-256 `0525a3d2c0b46c611e2130b5fdebc94cf404845d8fa64d2f3a3b679572a5bd22`；macOS arm64 wheel 46247192 bytes，SHA-256 `1a7d040ac656c11b8c38677cc8cccdc149f98535089dbe5b081e80a4e5903209` | 只允许静态图像读取/解码及合同明确的受控处理/测量；禁止 video capture、codec 和 FFmpeg 路径 |
 
 精确 wheel 文件名分别为：`paddleocr-3.7.0-py3-none-any.whl`、`paddlex-3.7.0-py3-none-any.whl`、
 `paddlepaddle-3.1.1-cp311-cp311-manylinux1_x86_64.whl`、`paddlepaddle-3.1.1-cp311-cp311-macosx_11_0_arm64.whl`、
@@ -60,6 +60,10 @@ PaddlePaddle 官方 macOS 安装边界当前是 ARM64、CPU-only，不支持 mac
 
 正式 implementation gate 必须生成完整、architecture-specific 的 requirements lock，并以 `pip --require-hashes` 覆盖全部
 传递依赖。上表只锁定顶层和已核实的关键 wheel，不能冒充完整 lock。
+
+OpenCV 允许的静态图像操作仅限 versioned policy 明列的解码、方向/尺寸读取、色彩空间转换、resize/crop/padding/normalize、
+轮廓/几何、颜色统计、局部结构与 OCR 预处理。每项必须固定参数、顺序和错误语义，并把中间测量写入 raw Evidence；未列操作
+默认禁止。不得打开摄像头、视频文件、codec 或 FFmpeg，也不得把静态图像边界扩成视频能力。
 
 ### 3.2 PP-OCRv6 权重
 
@@ -95,6 +99,30 @@ Git 不提交 wheel、权重、缓存、dataset bytes、annotation/review JSON �
 每个 sample 必须保留 source/candidate 的原始 OCR token、box、confidence、几何/颜色/结构测量、中间失败和耗时；不得只保留
 一个相似度总分。七维仍为：轮廓/几何、部件、颜色、比例、包装、Logo、标签文字。
 
+Accepted annotation pack 的 axis 与 D-036 runtime dimension 不是一一对应。Harness 必须原样冻结 C3 映射：
+
+| Annotation axis | 人工语义 | D-036 runtime dimension / 规则 |
+|---|---|---|
+| `form_silhouette` | 瓶型/轮廓 | 轮廓与几何结构 |
+| `cap_pump_key_parts` | 盖体/泵头 | 部件数量与连接关系；包装形态和开启结构 |
+| `label_logo_text` | 标签、Logo 与文字 | Logo；标签文字 |
+| `color_material` | 颜色与材质 | 主体与关键部件颜色；材质只作解释 Evidence，不新增 runtime dimension |
+| `local_structure_decoration` | 局部结构与装饰 | 仅映射到 Evidence 实际支持的轮廓/几何、部件或包装维度 |
+| `internal_proportion_size_impression` | 比例与尺寸感 | 长宽、部件与包装的相对比例；画面相对大小仍是允许变化 |
+| `obvious_artifacts` | 明显伪影 | 跨维风险 axis；只映射到 Evidence 可归属的现有维度，无法归属时为 `unknown` |
+
+评分输出必须同时保留 `annotation_axis`、`runtime_dimension`、`mapping_policy_version`、原始人工 status/reason/evidence、
+派生 runtime truth、模型 raw Evidence 引用和 comparison outcome。`obvious_artifacts` 不得成为第八个 runtime dimension。
+
+Inference raw output 仍按 sample、受控 operation 与候选 runtime dimension 编址，不得读取 annotation。Scoring phase 才按固定
+映射生成两组独立统计：`by_annotation_axis` 保留原 7 axes，`by_runtime_dimension` 保留 D-036 的 7 个运行维度；每个统计单元
+都必须能回链到同一 atomic mapping record 与 raw Evidence。不得用一个总分、合并后的“七维”名称或丢失 axis 的 runtime
+汇总替代这两组结果。
+
+一对多映射不得把一个人工结论静默复制为多个独立真值。例如 `cap_pump_key_parts` 或 `label_logo_text` 只有在 annotation 的
+reason/evidence 分别足以支持目标维度时，才能为每个目标建立独立映射记录；证据不足的目标必须是 `unknown`。跨维 axis 也
+必须逐目标保存映射依据。实现者不得按字段名、数组顺序或自身判断另造映射。
+
 `supported | unsupported | unknown` 只能由获 Owner 接受的 versioned policy/rule 产生。当前没有 accepted 阈值，故任何
 真实 run 在 policy acceptance 前最多产出 raw Evidence；若接口需要 provisional verdict，各维必须为 `unknown`，聚合只能是
 `needs_review`，不得得到 `passed`。聚合固定为：任一 `unsupported` -> `blocked`；否则任一 `unknown` -> `needs_review`；
@@ -106,8 +134,8 @@ run 记为 failed 或对应维度 `unknown`，绝不能折算为 `supported`。
 ### 4.3 Negative controls
 
 每次 acceptance run 至少验证：dataset/hash 篡改、annotation 在 inference phase 可见、模型权重 hash 漂移、缺依赖、超时、
-不支持媒体、结果 schema 漂移、partial output 和重复 run ID。negative control 必须证明停止或 unknown，不得触发网络下载或
-覆写受控输入。
+不支持媒体、结果 schema 漂移、partial output、重复 run ID、未登记图像操作、一对多结论复制和伪造第八个 runtime dimension。
+negative control 必须证明停止或 unknown，不得触发网络下载或覆写受控输入。
 
 ### 4.4 结果 manifest
 
@@ -142,28 +170,29 @@ macOS/arm64 smoke 与 canonical Linux/amd64 run 必须分开命名和统计。CI
 
 - [PaddleOCR v3.7.0 release](https://github.com/PaddlePaddle/PaddleOCR/releases/tag/v3.7.0)
 - [PaddleOCR v3.7.0 package metadata](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.7.0/pyproject.toml)
-- [PaddleOCR / PaddleX compatibility](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/paddleocr_and_paddlex.md)
+- [PaddleOCR / PaddleX compatibility at v3.7.0](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.7.0/docs/version3.x/paddleocr_and_paddlex.md)
 - [PP-OCRv6 model list](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.7.0/docs/version3.x/model_list.md)
 - [PP-OCRv6 description](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.7.0/docs/version3.x/algorithm/PP-OCRv6/PP-OCRv6.en.md)
 - [PaddleOCR 3.7.0 PyPI artifacts](https://pypi.org/project/paddleocr/3.7.0/)
 - [PaddleX 3.7.0 PyPI artifacts](https://pypi.org/project/paddlex/3.7.0/)
 - [PaddlePaddle 3.1.1 PyPI artifacts](https://pypi.org/project/paddlepaddle/3.1.1/)
 - [PaddleOCR Apache-2.0 license](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.7.0/LICENSE)
-- [PaddleX Apache-2.0 license](https://github.com/PaddlePaddle/PaddleX/blob/release/3.7/LICENSE)
+- [PaddleX Apache-2.0 license at v3.7.0](https://github.com/PaddlePaddle/PaddleX/blob/v3.7.0/LICENSE)
 - [PaddlePaddle Apache-2.0 license](https://github.com/PaddlePaddle/Paddle/blob/v3.1.1/LICENSE)
 - [PaddlePaddle macOS installation boundary](https://www.paddlepaddle.org.cn/documentation/docs/en/install/pip/macos-pip_en.html)
 - [OpenCV 4.13.0 release](https://github.com/opencv/opencv/releases/tag/4.13.0)
 - [OpenCV Apache-2.0 license](https://github.com/opencv/opencv/blob/4.13.0/LICENSE)
 - [opencv-python release 92](https://github.com/opencv/opencv-python/releases/tag/92)
-- [opencv-python packaging and license notes](https://github.com/opencv/opencv-python/blob/4.x/README.md)
+- [opencv-python packaging and license notes at tag 92](https://github.com/opencv/opencv-python/blob/92/README.md)
 - [opencv-python-headless 4.13.0.92 artifacts](https://pypi.org/project/opencv-python-headless/4.13.0.92/)
 - [Python 3.11.16 release](https://www.python.org/downloads/release/python-31116/)
 - [CPython 3.11.16 license](https://github.com/python/cpython/blob/v3.11.16/LICENSE)
 - [Docker Official Image: Python](https://hub.docker.com/_/python)
 - [Docker Official Image tag metadata](https://hub.docker.com/v2/repositories/library/python/tags/3.11.16-slim-bookworm)
 
-PyPI/file hashes 和 OCI manifests 是官方分发元数据；本轮未下载这些 bytes。源码 tag、wheel 和模型权重是不同制品，任一 tag
-commit 都不能替代 wheel/weight SHA-256。
+PyPI/file hashes 和 OCI manifests 是官方分发元数据；本轮未下载这些 bytes。用于 fixed lock/license 的 GitHub 证据均固定到
+tag。Docker tag metadata 是 2026-08-22 的取证入口且仍可漂移，实际运行身份只能使用上表已记录的 architecture-specific digest。
+源码 tag、wheel 和模型权重是不同制品，任一 tag commit 都不能替代 wheel/weight SHA-256。
 
 ## 7. Acceptance 与停止条件
 
