@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "mapping_policy_version": "d036-c3-v1",
+  "mappings": {
+    "form_silhouette": [
+      "form_geometry"
+    ],
+    "cap_pump_key_parts": [
+      "parts_connections",
+      "packaging"
+    ],
+    "label_logo_text": [
+      "logo",
+      "label_text"
+    ],
+    "color_material": [
+      "color"
+    ],
+    "local_structure_decoration": [
+      "form_geometry",
+      "parts_connections",
+      "packaging"
+    ],
+    "internal_proportion_size_impression": [
+      "proportion"
+    ],
+    "obvious_artifacts": []
+  }
+}

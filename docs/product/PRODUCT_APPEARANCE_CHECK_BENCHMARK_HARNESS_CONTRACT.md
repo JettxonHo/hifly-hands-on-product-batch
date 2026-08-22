@@ -1,20 +1,23 @@
 # 商品外观检查 Benchmark 环境与 Harness 合同
 
 > 关联决策：D-035、D-036
-> 关联 Issue：#226
-> 生命周期：Owner 已授权 Fidelity-C5 方向；Issue #226 / 对应 PR 是合同 acceptance gate，只有合并进入 `main` 后才计为 designed/locked
+> 关联 Issue：#226、#228
+> 生命周期：Issue #226 / PR #227 已进入 `main@a65a74ef0f94c131df0712e9943b68a0c835220e`，合同为 designed/locked；Issue #228 / 对应 PR 是 environment/harness implementation acceptance gate
 > 当前能力状态：`BLOCKED_CHECK_CAPABILITY_UNSELECTED`
-> 非目标：本合同不安装依赖、不下载权重、不实现或运行 harness、不运行 benchmark、不选择能力或阈值
+> 当前环境状态：`BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`
+> 非目标：environment implementation 不等于运行 accepted benchmark、选择能力/阈值或实现 Fidelity-C 产品状态
 
 ## 1. 结论
 
-Fidelity-C4 已接受仓库外受控 exact-byte 数据和独立七维人工真值，允许进入环境与 harness 设计。本合同只锁定
+Fidelity-C4 已接受仓库外受控 exact-byte 数据和独立七维人工真值；Fidelity-C5 合同已进入 `main`。合同锁定
 可由官方来源和当前受控 Evidence 证明的部分：输入身份、候选软件版本、可取得的发行制品 SHA-256、基准运行架构、
 离线缓存边界、原始输出和 fail-closed 结果合同。
 
-当前不能进入 harness 实现或 benchmark：PP-OCRv6 官方模型列表提供模型名称与下载入口，但没有提供可直接核对的
-权重 SHA-256；完整传递依赖 lock、权重许可证归档和 OpenCV wheel 的安全复核也尚未形成 accepted Evidence。不得用
-可变 URL、模型名或本机缓存存在代替精确制品身份。
+Issue #228 的获授权 artifact audit 已取得两份 PP-OCRv6 medium 权重的 exact bytes/SHA-256 和安全 archive containment，
+并再次核对六个顶层 wheel。该证据没有解除 environment gate：权重 tar 不含 LICENSE/NOTICE，官方模型资料也未给出
+可核对的权重许可；两种 lane 的候选依赖解析又都引入合同外 `opencv-contrib-python==4.10.0.84`，与锁定的
+`opencv-python-headless==4.13.0.92` 和 image-only 边界冲突。完整传递 artifact cache 与离线 `--require-hashes`
+安装未验证，故不得安装、运行模型或 benchmark，也不得用候选 lock 冒充 accepted environment。
 
 ## 2. 只读输入绑定
 
@@ -38,7 +41,7 @@ annotation/review 精确绑定且 review accepted。任一漂移立即停止整�
 
 ### 3.1 兼容矩阵
 
-以下是 Fidelity-C5 proposal 能由官方来源证明的候选锁，不表示已经安装或运行：
+以下是 Fidelity-C5 能由官方来源证明的候选锁，不表示已经安装或运行：
 
 | 层 | 候选锁 | 可证明的发行 Evidence | 本合同边界 |
 |---|---|---|---|
@@ -67,13 +70,16 @@ OpenCV 允许的静态图像操作仅限 versioned policy 明列的解码、方�
 
 ### 3.2 PP-OCRv6 权重
 
-候选模型固定为官方 PP-OCRv6 medium detection/recognition：`PP-OCRv6_medium_det` 与
-`PP-OCRv6_medium_rec`。官方文档说明 medium 是默认配置并覆盖多语言，但当前官方 model list 只给下载入口，未给
-权重 bytes/SHA-256。
+候选模型固定为官方 PP-OCRv6 medium detection/recognition。Issue #228 从 v3.7.0 model list 的下载入口取得：
 
-因此保持 `DESIGN_BLOCKER_MODEL_ARTIFACT_UNHASHED`。后续独立 implementation gate 只有在获准下载后，才可把官方 URL、
-下载时间、最终 URL、bytes、服务端计算 SHA-256、模型内部标识、许可证与来源快照写入仓库外 cache manifest。没有这份
-Evidence，不得实现或运行 benchmark；不得从 PaddleOCR 自动下载缓存反向推断权重身份。
+| 模型 | Artifact | Bytes | SHA-256 | Archive |
+|---|---|---:|---|---|
+| `PP-OCRv6_medium_det` | `PP-OCRv6_medium_det_infer.tar` | 62279680 | `144d0621e059566e5086e228829171591c144c2deb07b2dad4962214fbabfcf7` | 仅模型目录与 `inference.pdiparams` / `inference.yml` / `inference.json`；无路径穿越、symlink 或非普通文件 |
+| `PP-OCRv6_medium_rec` | `PP-OCRv6_medium_rec_infer.tar` | 76851200 | `4eecc1c6a4623765042e6fc15446da0da110b7d875b6b72b2d351d2b2dbd4da6` | 同上 |
+
+权重身份和 containment 已从 `DESIGN_BLOCKER_MODEL_ARTIFACT_UNHASHED` 前进，但许可仍是硬阻断：两个 tar 都没有
+LICENSE/NOTICE，官方 model list 与 PP-OCRv6 文档没有给出可核对的权重许可证或再分发边界。源码仓库 Apache-2.0
+不能自动外推到独立权重 artifact；没有官方书面 Evidence 前保持 `PP_OCRV6_WEIGHT_LICENSE_UNVERIFIED`。
 
 ### 3.3 离线缓存与网络
 
@@ -190,13 +196,14 @@ macOS/arm64 smoke 与 canonical Linux/amd64 run 必须分开命名和统计。CI
 - [Docker Official Image: Python](https://hub.docker.com/_/python)
 - [Docker Official Image tag metadata](https://hub.docker.com/v2/repositories/library/python/tags/3.11.16-slim-bookworm)
 
-PyPI/file hashes 和 OCI manifests 是官方分发元数据；本轮未下载这些 bytes。用于 fixed lock/license 的 GitHub 证据均固定到
+PyPI/file hashes 和 OCI manifests 是官方分发元数据；Issue #228 已在仓库外取证目录下载并复核六个顶层 wheel 与两份
+权重，Git 不接收这些二进制。用于 fixed lock/license 的 GitHub 证据均固定到
 tag。Docker tag metadata 是 2026-08-22 的取证入口且仍可漂移，实际运行身份只能使用上表已记录的 architecture-specific digest。
 源码 tag、wheel 和模型权重是不同制品，任一 tag commit 都不能替代 wheel/weight SHA-256。
 
 ## 7. Acceptance 与停止条件
 
-Fidelity-C5 合并只表示本合同 designed/locked，不表示 environment ready。进入下一 implementation gate 前必须全部满足：
+Fidelity-C5 合并只表示本合同 designed/locked，不表示 environment ready。environment implementation acceptance 前必须全部满足：
 
 1. PP-OCRv6 exact weights 已获授权下载并记录官方来源、bytes、SHA-256、模型身份和许可证；
 2. 两种 architecture 的完整 transitive lock 均通过 `--require-hashes`，canonical Linux/amd64 lane 可离线构建；
@@ -204,12 +211,16 @@ Fidelity-C5 合并只表示本合同 designed/locked，不表示 environment rea
 4. external cache manifest、dataset identity、blind inference/scoring 和 negative controls 有 TDD 合同；
 5. Owner 尚未接受阈值时，harness 不得产生 `passed`。
 
-任一条件不足即保持设计阻断，不安装、不运行、不下载补洞。下一步只能是单独授权的 environment/harness implementation gate；
-implementation 独立 Review 后，才可另行授权本地 benchmark。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 持续到 benchmark Evidence、
+Issue #228 已实现 synthetic-only 的 alias/input validator、blind raw Evidence、双层 axis/dimension scoring 与 negative controls；
+这些代码只有随对应 PR 合并进入 `main` 后才计为 repository implemented，不解除上述 artifact gate。当前权重许可和
+OpenCV 依赖冲突未满足，故环境配置明确保持 blocked，不提交候选 requirements lock、不安装或运行模型。解除阻断、形成
+完整 cache 与离线安装 Evidence 后还需独立 Review，之后才可另行授权本地 accepted benchmark。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 持续到 benchmark Evidence、
 Reviewer 复核和 Owner capability/policy/阈值 acceptance 全部完成。
 
 ## 8. 本轮边界
 
-本轮没有安装 PaddleOCR/OpenCV/PaddlePaddle，没有下载模型权重，没有编写或运行 harness/benchmark，没有调用模型/API，
-没有访问 Hifly/Provider、启动 Worker/Local Agent、SSH/部署、修改生产数据、创建候选/工单/视频或消耗积分。Git 未接收
-dataset bytes、图片、annotation/review JSON、权重、缓存、本机绝对路径或真人身份。
+Issue #228 的仓库外 audit 下载了六个官方 wheel 和两份权重，仅用于 exact identity、archive、license 与依赖解析；没有
+安装 PaddleOCR/OpenCV/PaddlePaddle、没有运行模型或 accepted benchmark。仓库实现只运行 synthetic fixture smoke，不能
+读取 accepted annotation/review，也不能输出 `passed`。没有调用外部模型/API、访问 Hifly/Provider、启动 Worker/Local Agent、
+SSH/部署、修改生产数据、创建候选/工单/视频或消耗积分。Git 未接收 dataset bytes、图片、annotation/review JSON、权重、
+wheel、缓存、候选 lock、本机绝对路径或真人身份。
