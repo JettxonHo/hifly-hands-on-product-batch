@@ -137,7 +137,18 @@ export async function createSyntheticHumanTruth(root) {
     review_status: "accepted",
     annotator_id: annotation.annotator_id,
     reviewer_id: "RV-SYNTHETIC",
-    model_output_was_hidden: true
+    model_output_was_hidden: true,
+    sample_reviews: annotation.samples.map((sample) => ({
+      sample_id: sample.sample_id,
+      axes: sample.axes.map((entry) => ({
+        axis: entry.axis,
+        annotator_status: entry.status,
+        reviewer_status: entry.status,
+        status_match: true,
+        decision: "accepted",
+        reason: "synthetic independent review agrees"
+      }))
+    }))
   };
   const reviewPath = path.join(root, "review.json");
   await writeFile(reviewPath, `${JSON.stringify(review, null, 2)}\n`);

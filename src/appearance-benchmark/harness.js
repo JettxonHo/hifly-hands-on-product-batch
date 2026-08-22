@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile, writeFile } from "node:fs/promises";
+import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -41,7 +41,7 @@ export async function runBlindInference({
     env
   });
   const datasetRoot = env[`${storageAlias}_ROOT`];
-  assertOutputOutsideControlledRoot(datasetRoot, outputPath);
+  await assertOutputOutsideControlledRoot({ storageAlias, outputPath, env });
   const manifestBytes = await readRegularFile(
     path.resolve(datasetRoot, manifestPath),
     "BENCHMARK_MANIFEST_INVALID"
@@ -103,20 +103,13 @@ export async function runBlindInference({
   };
 }
 
-function assertOutputOutsideControlledRoot(root, outputPath) {
-  const controlledRoot = path.resolve(root);
-  const output = path.resolve(outputPath);
-  if (output === controlledRoot || output.startsWith(`${controlledRoot}${path.sep}`)) {
-    fail("BENCHMARK_OUTPUT_PATH_INVALID", "Benchmark Evidence cannot be written into the controlled dataset");
-  }
-}
-
 export async function scoreSealedEvidence({
   rawEvidencePath,
   annotationPath,
   reviewPath,
   axisMappingPath,
   outputPath,
+  env = process.env,
   now = () => new Date()
 }) {
   const raw = await readJson(rawEvidencePath, "BENCHMARK_RAW_EVIDENCE_INVALID");
@@ -125,6 +118,11 @@ export async function scoreSealedEvidence({
     fail("BENCHMARK_RAW_EVIDENCE_INVALID", "The benchmark raw Evidence seal is invalid");
   }
   validateRawEvidence(raw.payload);
+  await assertOutputOutsideControlledRoot({
+    storageAlias: raw.payload.dataset.storage_alias,
+    outputPath,
+    env
+  });
   const annotationBytes = await readRegularFile(annotationPath, "BENCHMARK_ANNOTATION_INVALID");
   const annotation = parseJson(annotationBytes, "BENCHMARK_ANNOTATION_INVALID");
   const review = await readJson(reviewPath, "BENCHMARK_REVIEW_INVALID");
@@ -307,6 +305,33 @@ function validateTruth(annotation, review, annotationBytes, rawDataset, rawSampl
       review.model_output_was_hidden !== true) {
     fail("BENCHMARK_REVIEW_INVALID", "The benchmark review binding is invalid");
   }
+  validateReviewDecisions(review.sample_reviews, samples);
+}
+
+function validateReviewDecisions(sampleReviews, annotationSamples) {
+  const statuses = new Set(["supported", "unsupported", "unknown"]);
+  if (!Array.isArray(sampleReviews) || sampleReviews.length !== annotationSamples.length) {
+    fail("BENCHMARK_REVIEW_INVALID", "The benchmark review decisions are incomplete");
+  }
+  for (const [sampleIndex, annotationSample] of annotationSamples.entries()) {
+    const sampleReview = sampleReviews[sampleIndex];
+    if (sampleReview?.sample_id !== annotationSample.sample_id || !Array.isArray(sampleReview.axes) ||
+        sampleReview.axes.length !== ANNOTATION_AXES.length) {
+      fail("BENCHMARK_REVIEW_INVALID", "The benchmark review sample binding is invalid");
+    }
+    for (const [axisIndex, annotationAxis] of annotationSample.axes.entries()) {
+      const axisReview = sampleReview.axes[axisIndex];
+      const statusMatch = axisReview?.annotator_status === axisReview?.reviewer_status;
+      const matchingAccepted = statusMatch && axisReview?.decision === "accepted";
+      const disagreementAccepted = !statusMatch && axisReview?.decision === "accept_annotation" &&
+        typeof axisReview.reason === "string" && axisReview.reason.trim();
+      if (axisReview?.axis !== annotationAxis.axis || axisReview?.annotator_status !== annotationAxis.status ||
+          !statuses.has(axisReview?.reviewer_status) || axisReview?.status_match !== statusMatch ||
+          (!matchingAccepted && !disagreementAccepted)) {
+        fail("BENCHMARK_REVIEW_INVALID", "The benchmark review axis decision is unresolved or invalid");
+      }
+    }
+  }
 }
 
 function validateAxisMapping(mapping) {
@@ -351,6 +376,28 @@ function validRawRuntimeDimensions(dimensions) {
   return Array.isArray(dimensions) && dimensions.length === RUNTIME_DIMENSIONS.length &&
     dimensions.every((entry, index) => entry?.dimension === RUNTIME_DIMENSIONS[index] &&
       entry.verdict === "unknown" && typeof entry.evidence_ref === "string" && entry.evidence_ref);
+}
+
+async function assertOutputOutsideControlledRoot({ storageAlias, outputPath, env }) {
+  const root = env[`${storageAlias}_ROOT`];
+  if (!root || typeof outputPath !== "string" || !outputPath) {
+    fail("BENCHMARK_OUTPUT_PATH_INVALID", "Benchmark Evidence requires a controlled output path");
+  }
+  try {
+    const [controlledRoot, outputParent] = await Promise.all([
+      realpath(root),
+      realpath(path.dirname(path.resolve(outputPath)))
+    ]);
+    const relativeParent = path.relative(controlledRoot, outputParent);
+    const parentInsideRoot = relativeParent === "" ||
+      (!path.isAbsolute(relativeParent) && relativeParent !== ".." && !relativeParent.startsWith(`..${path.sep}`));
+    if (path.resolve(outputPath) === path.resolve(root) || parentInsideRoot) {
+      fail("BENCHMARK_OUTPUT_PATH_INVALID", "Benchmark Evidence cannot be written into the controlled dataset");
+    }
+  } catch (error) {
+    if (error instanceof AppearanceBenchmarkError) throw error;
+    fail("BENCHMARK_OUTPUT_PATH_INVALID", "Benchmark Evidence output parent is unavailable or unsafe");
+  }
 }
 
 async function readJson(filename, code) {

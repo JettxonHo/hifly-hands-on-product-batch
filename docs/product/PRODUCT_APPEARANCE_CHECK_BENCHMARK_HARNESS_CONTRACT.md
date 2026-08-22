@@ -39,8 +39,10 @@ annotation/review 精确绑定且 review accepted。任一漂移立即停止整�
 
 仓库 synthetic fixture 必须与 C4 公共 schema 同构：图片引用使用 `relative_path`；annotation 使用 `status=completed`、
 `annotator_id` 与盲评标记；review 使用 `status=completed`、`review_status=accepted`、`annotation_pack_sha256`、
-`annotator_id` 与不同的 `reviewer_id`。fixture 只使用合成 bytes，不读取上述 accepted 四对数据。测试专用字段名不得成为另一套
-产品合同。
+`annotator_id` 与不同的 `reviewer_id`，并包含与 annotation 精确同 sample、同 7 axes 的 `sample_reviews`。每项必须核对
+`annotator_status`、合法 `reviewer_status` 和二者对应的 `status_match`：一致时只接受 `accepted`；不一致时只接受带非空理由的
+`accept_annotation`。任何 `changes_requested`、空决定、缺项、重复、错 sample 或错 axis 均 fail closed，不能被顶层
+`review_status=accepted` 掩盖。fixture 只使用合成 bytes，不读取上述 accepted 四对数据。测试专用字段名不得成为另一套产品合同。
 
 ## 3. 候选环境锁
 
@@ -105,6 +107,8 @@ Git 不提交 wheel、权重、缓存、dataset bytes、annotation/review JSON �
   source/candidate `relative_path`、bytes/media/dimensions/SHA-256。
 - **Scoring phase**：在 inference 完成并封存后才读取 accepted annotation/review，以 exact run manifest 计算逐样本/逐维统计。
   annotation/review 的 dataset ID/version 必须与 raw Evidence 一致；sample ID 相同但数据集不同也必须 fail closed。
+- 两个阶段的输出都必须写到受控 dataset root 之外的已存在父目录。校验必须比较 storage root 与输出父目录的真实路径，拒绝
+  直接写回以及父级 symlink/junction 指回受控包；输出继续使用不可覆盖创建，不能原地修改任何 dataset 或 truth artifact。
 - 固定 4 个样本全部是 evaluation set，不设训练集，也不得在看到人工真值或结果后调阈值再重跑并覆盖原结果。
 - 任何新规则、预处理、模型或阈值都必须形成新的 `policy_version` 和新 run，历史 run 不可改写。
 
@@ -152,6 +156,7 @@ run 记为 failed 或对应维度 `unknown`，绝不能折算为 `supported`。
 
 每次 acceptance run 至少验证：dataset/hash 篡改、annotation 在 inference phase 可见、模型权重 hash 漂移、缺依赖、超时、
 不支持媒体、结果 schema 漂移、partial output、重复 run ID、未登记图像操作、一对多结论复制和伪造第八个 runtime dimension。
+还必须覆盖逐样本/逐轴 review 缺项、重复、错绑定、未解决决定，以及 inference/scoring 直接或经 symlink 写回受控包。
 negative control 必须证明停止或 unknown，不得触发网络下载或覆写受控输入。
 
 ### 4.4 结果 manifest

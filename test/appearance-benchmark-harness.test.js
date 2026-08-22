@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -215,6 +215,81 @@ test("scoring rejects human truth from a different dataset even when sample ids 
   assert.equal(JSON.parse(result.stderr).error.code, "BENCHMARK_DATASET_BINDING_MISMATCH");
 });
 
+test("scoring validates every independent per-axis review decision", async (t) => {
+  if (!lane) return t.skip("This runtime is not an accepted benchmark lane");
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-appearance-review-conflict-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const fixture = await createSyntheticBenchmarkFixture(temporaryRoot);
+  const truth = await createSyntheticHumanTruth(temporaryRoot);
+  const rawEvidence = path.join(temporaryRoot, "raw-evidence.json");
+  const env = { ...process.env, HIFLY_APPEARANCE_BENCHMARK_V1_ROOT: fixture.datasetRoot };
+  const inference = spawnSync(process.execPath, [
+    cli, "infer",
+    "--storage-alias=HIFLY_APPEARANCE_BENCHMARK_V1",
+    "--manifest=dataset-manifest.json",
+    `--environment-lock=${fixture.lockPath}`,
+    `--operations-policy=${fixture.operationsPolicyPath}`,
+    `--lane=${lane}`,
+    "--adapter=synthetic-contract-smoke",
+    "--run-id=synthetic-review-conflict-run",
+    `--output=${rawEvidence}`
+  ], { cwd: root, encoding: "utf8", env });
+  assert.equal(inference.status, 0, inference.stderr);
+
+  const originalReview = JSON.parse(await readFile(truth.reviewPath, "utf8"));
+  const invalidReviews = [
+    (review) => { review.sample_reviews = []; },
+    (review) => { review.sample_reviews[0].sample_id = "wrong-sample"; },
+    (review) => { review.sample_reviews[0].axes.pop(); },
+    (review) => { review.sample_reviews[0].axes[1].axis = review.sample_reviews[0].axes[0].axis; },
+    (review) => { review.sample_reviews[0].axes[0] = null; },
+    (review) => {
+      review.sample_reviews[0].axes[0] = {
+        ...review.sample_reviews[0].axes[0],
+        reviewer_status: "unsupported",
+        status_match: false,
+        decision: "changes_requested",
+        reason: "synthetic disagreement remains unresolved"
+      };
+    },
+    (review) => { review.sample_reviews[0].axes[0].status_match = false; }
+  ];
+  for (const [index, mutate] of invalidReviews.entries()) {
+    const review = structuredClone(originalReview);
+    mutate(review);
+    await writeFile(truth.reviewPath, `${JSON.stringify(review, null, 2)}\n`);
+    const result = spawnSync(process.execPath, [
+      cli, "score",
+      `--raw-evidence=${rawEvidence}`,
+      `--annotation=${truth.annotationPath}`,
+      `--review=${truth.reviewPath}`,
+      `--axis-mapping=${fixture.axisMappingPath}`,
+      `--output=${path.join(temporaryRoot, `invalid-review-${index}.json`)}`
+    ], { cwd: root, encoding: "utf8", env });
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stderr).error.code, "BENCHMARK_REVIEW_INVALID");
+  }
+
+  const acceptedDisagreement = structuredClone(originalReview);
+  acceptedDisagreement.sample_reviews[0].axes[0] = {
+    ...acceptedDisagreement.sample_reviews[0].axes[0],
+    reviewer_status: "unsupported",
+    status_match: false,
+    decision: "accept_annotation",
+    reason: "independent reviewer accepts the documented annotation rationale"
+  };
+  await writeFile(truth.reviewPath, `${JSON.stringify(acceptedDisagreement, null, 2)}\n`);
+  const accepted = spawnSync(process.execPath, [
+    cli, "score",
+    `--raw-evidence=${rawEvidence}`,
+    `--annotation=${truth.annotationPath}`,
+    `--review=${truth.reviewPath}`,
+    `--axis-mapping=${fixture.axisMappingPath}`,
+    `--output=${path.join(temporaryRoot, "accepted-disagreement.json")}`
+  ], { cwd: root, encoding: "utf8", env });
+  assert.equal(accepted.status, 0, accepted.stderr);
+});
+
 test("blind inference cannot write its sealed output inside the controlled dataset", async (t) => {
   if (!lane) return t.skip("This runtime is not an accepted benchmark lane");
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-appearance-readonly-"));
@@ -240,6 +315,82 @@ test("blind inference cannot write its sealed output inside the controlled datas
 
   assert.equal(result.status, 1);
   assert.equal(JSON.parse(result.stderr).error.code, "BENCHMARK_OUTPUT_PATH_INVALID");
+});
+
+test("blind inference rejects a parent symlink that resolves back into the controlled dataset", async (t) => {
+  if (!lane) return t.skip("This runtime is not an accepted benchmark lane");
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-appearance-symlink-output-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const fixture = await createSyntheticBenchmarkFixture(temporaryRoot);
+  const linkedParent = path.join(temporaryRoot, "linked-output");
+  await symlink(fixture.datasetRoot, linkedParent, "dir");
+  const output = path.join(linkedParent, "forbidden-via-symlink.json");
+
+  const result = spawnSync(process.execPath, [
+    cli, "infer",
+    "--storage-alias=HIFLY_APPEARANCE_BENCHMARK_V1",
+    "--manifest=dataset-manifest.json",
+    `--environment-lock=${fixture.lockPath}`,
+    `--operations-policy=${fixture.operationsPolicyPath}`,
+    `--lane=${lane}`,
+    "--adapter=synthetic-contract-smoke",
+    "--run-id=synthetic-symlink-output-run",
+    `--output=${output}`
+  ], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, HIFLY_APPEARANCE_BENCHMARK_V1_ROOT: fixture.datasetRoot }
+  });
+
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stderr).error.code, "BENCHMARK_OUTPUT_PATH_INVALID");
+});
+
+test("scoring cannot write sealed output inside the controlled dataset", async (t) => {
+  if (!lane) return t.skip("This runtime is not an accepted benchmark lane");
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-appearance-score-writeback-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const fixture = await createSyntheticBenchmarkFixture(temporaryRoot);
+  const truth = await createSyntheticHumanTruth(temporaryRoot);
+  const rawEvidence = path.join(temporaryRoot, "raw-evidence.json");
+  const env = { ...process.env, HIFLY_APPEARANCE_BENCHMARK_V1_ROOT: fixture.datasetRoot };
+  const inference = spawnSync(process.execPath, [
+    cli, "infer",
+    "--storage-alias=HIFLY_APPEARANCE_BENCHMARK_V1",
+    "--manifest=dataset-manifest.json",
+    `--environment-lock=${fixture.lockPath}`,
+    `--operations-policy=${fixture.operationsPolicyPath}`,
+    `--lane=${lane}`,
+    "--adapter=synthetic-contract-smoke",
+    "--run-id=synthetic-score-writeback-run",
+    `--output=${rawEvidence}`
+  ], { cwd: root, encoding: "utf8", env });
+  assert.equal(inference.status, 0, inference.stderr);
+
+  const result = spawnSync(process.execPath, [
+    cli, "score",
+    `--raw-evidence=${rawEvidence}`,
+    `--annotation=${truth.annotationPath}`,
+    `--review=${truth.reviewPath}`,
+    `--axis-mapping=${fixture.axisMappingPath}`,
+    `--output=${path.join(fixture.datasetRoot, "forbidden-scored-output.json")}`
+  ], { cwd: root, encoding: "utf8", env });
+
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stderr).error.code, "BENCHMARK_OUTPUT_PATH_INVALID");
+
+  const linkedParent = path.join(temporaryRoot, "linked-score-output");
+  await symlink(fixture.datasetRoot, linkedParent, "dir");
+  const symlinkResult = spawnSync(process.execPath, [
+    cli, "score",
+    `--raw-evidence=${rawEvidence}`,
+    `--annotation=${truth.annotationPath}`,
+    `--review=${truth.reviewPath}`,
+    `--axis-mapping=${fixture.axisMappingPath}`,
+    `--output=${path.join(linkedParent, "forbidden-via-symlink.json")}`
+  ], { cwd: root, encoding: "utf8", env });
+  assert.equal(symlinkResult.status, 1);
+  assert.equal(JSON.parse(symlinkResult.stderr).error.code, "BENCHMARK_OUTPUT_PATH_INVALID");
 });
 
 test("blind inference rejects annotation visibility, unregistered operations, and duplicate runs", async (t) => {

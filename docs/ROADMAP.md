@@ -144,6 +144,8 @@ SHA-256 和安全 archive containment，但未找到权重许可；PaddleX OCR �
 故完整传递 lock、离线安装与模型 smoke 继续 blocked。合同保持 annotation axis/runtime dimension 双层映射和静态图像处理边界，不允许
 一对多真值复制、伪造第八维或扩成视频能力。Issue #228 的 synthetic seam 使用 C4 同构字段，raw Evidence 固定 manifest/dataset/
 source/candidate identity，scoring 拒绝跨数据集 truth，并以 exact version+content hash 锁定 mapping；假 lock 不得冒充真实环境。
+逐样本/逐轴独立 review 必须完整且无未解决决定，顶层 accepted 不能覆盖 changes requested；infer/score 均按真实路径阻止直接或
+经 symlink 写回受控数据包。
 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的

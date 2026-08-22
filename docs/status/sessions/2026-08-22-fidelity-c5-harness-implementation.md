@@ -30,6 +30,11 @@
    的一对多映射保持 `unknown`，`obvious_artifacts` 不生成第八维。
 8. 首轮 fake lock 能得到 `environment_validated`。GREEN 后测试 lock 必须显式为 `synthetic_contract_only`，唯一成功状态为
    `synthetic_contract_validated`；任意格式正确但未经完整 lock/cache/runtime Evidence 验证的外部 JSON 均 fail closed。
+9. 第二轮独立审阅证明顶层 `review_status=accepted` 会掩盖逐轴 `changes_requested`。GREEN 后 synthetic review 与 C4
+   `sample_reviews` 同构，并逐 sample/7 axes 校验 annotator/reviewer status、match 与决定；缺项、重复、错绑定、空决定和未解决
+   分歧均 fail closed，只有带理由的 `accept_annotation` 可接受人工分歧。测试仍不读取 accepted truth。
+10. 第二轮输出边界 RED 证明 inference 可经父级 symlink 写回 dataset，scoring 也可直接写回。GREEN 后两个阶段共用
+    storage alias root 与输出父目录的真实路径 containment；直接写回、symlink/junction 写回均被拒绝，既有不可覆盖输出保持。
 
 ## 官方 Artifact 取证与停止条件
 
@@ -69,9 +74,13 @@
   `IDENTITY_BROWSER_SMOKE=1` 的 identity browser smoke；本轮新增 CLI tests 在受支持的 macOS/arm64 lane 未 skip。
 - 修正跨 lane 测试期望后，本地 focused 仍为 9/9；第二次 default suite 在无失败输出下停在既有 browser test 622，超过
   4 分钟后手动停止。该次不计 pass，也不覆盖首轮完整结果；最终固定头的全量证据以 GitHub CI 为准。
-- 本轮 required fixes 后，focused public CLI 为 12/12；default `npm test` 自然完成为 1097 total / 1082 pass /
+- 首轮 required fixes 后，focused public CLI 为 12/12；default `npm test` 自然完成为 1097 total / 1082 pass /
   15 skip / 0 fail。15 个 skip 仍是 14 个需显式 PostgreSQL 测试数据库环境变量的 integration tests 与 1 个
   `IDENTITY_BROWSER_SMOKE=1` browser smoke；没有用 `--test-concurrency=1` 或其他串行替代。
+- 第二轮 required fixes 的 focused public CLI 为 15/15；新增覆盖逐项独立 review、inference symlink writeback，以及 scoring
+  直接/symlink writeback。随后 default `npm test` 的前 48 项（含新增 C5 seam）通过，但宿主在既有
+  `assets-browser.test.js` / `operator-workbench-v2-assets-browser.test.js` 进程无失败输出地停留超过 6 分钟，本次由开发者终止且
+  不计 pass；fixed-head 完整回归必须由 PR 三组 required CI 自然完成为 SUCCESS，不能用该本地长等待冒充绿色。
 - `npm run check`：241 JavaScript files；`git diff --check` 与 strict 15-file allowlist 通过。
 - `npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high`：0 critical / 0 high / 2 moderate；
   没有执行 `audit fix` 或 `--force`。
