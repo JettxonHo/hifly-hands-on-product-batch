@@ -276,7 +276,7 @@ test("scoring validates every independent per-axis review decision", async (t) =
     reviewer_status: "unsupported",
     status_match: false,
     decision: "accept_annotation",
-    reason: "independent reviewer accepts the documented annotation rationale"
+    decision_note: "independent reviewer accepts the documented annotation rationale"
   };
   await writeFile(truth.reviewPath, `${JSON.stringify(acceptedDisagreement, null, 2)}\n`);
   const accepted = spawnSync(process.execPath, [
@@ -288,6 +288,96 @@ test("scoring validates every independent per-axis review decision", async (t) =
     `--output=${path.join(temporaryRoot, "accepted-disagreement.json")}`
   ], { cwd: root, encoding: "utf8", env });
   assert.equal(accepted.status, 0, accepted.stderr);
+});
+
+test("scoring requires the accepted C4 annotation and review audit fields", async (t) => {
+  if (!lane) return t.skip("This runtime is not an accepted benchmark lane");
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-appearance-c4-truth-schema-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const fixture = await createSyntheticBenchmarkFixture(temporaryRoot);
+  const truth = await createSyntheticHumanTruth(temporaryRoot);
+  const rawEvidence = path.join(temporaryRoot, "raw-evidence.json");
+  const env = { ...process.env, HIFLY_APPEARANCE_BENCHMARK_V1_ROOT: fixture.datasetRoot };
+  const inference = spawnSync(process.execPath, [
+    cli, "infer",
+    "--storage-alias=HIFLY_APPEARANCE_BENCHMARK_V1",
+    "--manifest=dataset-manifest.json",
+    `--environment-lock=${fixture.lockPath}`,
+    `--operations-policy=${fixture.operationsPolicyPath}`,
+    `--lane=${lane}`,
+    "--adapter=synthetic-contract-smoke",
+    "--run-id=synthetic-c4-truth-schema-run",
+    `--output=${rawEvidence}`
+  ], { cwd: root, encoding: "utf8", env });
+  assert.equal(inference.status, 0, inference.stderr);
+
+  const annotation = JSON.parse(await readFile(truth.annotationPath, "utf8"));
+  annotation.pack_type = "appearance_ground_truth";
+  annotation.samples[0].annotation_version = 1;
+  annotation.samples[0].annotated_at = "2026-08-22T00:00:00.000Z";
+  const review = JSON.parse(await readFile(truth.reviewPath, "utf8"));
+  review.pack_type = "appearance_ground_truth_review";
+  review.reviewed_at = "2026-08-22T00:01:00.000Z";
+  for (const axis of review.sample_reviews[0].axes) {
+    axis.reason_code = `review_${axis.axis}`;
+    axis.reason = "synthetic independent review evidence";
+    axis.evidence_ref = `synthetic-review-evidence://${axis.axis}`;
+    axis.visibility_context = "fully_visible";
+    axis.decision_note = "synthetic reviewer accepts this axis decision";
+  }
+
+  const invalidTruths = [
+    { code: "BENCHMARK_ANNOTATION_INVALID", mutate: ({ annotation: value }) => { delete value.pack_type; } },
+    { code: "BENCHMARK_ANNOTATION_INVALID", mutate: ({ annotation: value }) => { value.pack_type = "appearance_ground_truth_review"; } },
+    { code: "BENCHMARK_ANNOTATION_INVALID", mutate: ({ annotation: value }) => { delete value.samples[0].annotation_version; } },
+    { code: "BENCHMARK_ANNOTATION_INVALID", mutate: ({ annotation: value }) => { value.samples[0].annotation_version = 2; } },
+    { code: "BENCHMARK_ANNOTATION_INVALID", mutate: ({ annotation: value }) => { delete value.samples[0].annotated_at; } },
+    { code: "BENCHMARK_REVIEW_INVALID", mutate: ({ review: value }) => { delete value.pack_type; } },
+    { code: "BENCHMARK_REVIEW_INVALID", mutate: ({ review: value }) => { value.pack_type = "appearance_ground_truth"; } },
+    { code: "BENCHMARK_REVIEW_INVALID", mutate: ({ review: value }) => { delete value.reviewed_at; } },
+    { code: "BENCHMARK_REVIEW_INVALID", mutate: ({ review: value }) => { delete value.sample_reviews[0].axes[0].reason_code; } },
+    { code: "BENCHMARK_REVIEW_INVALID", mutate: ({ review: value }) => { delete value.sample_reviews[0].axes[0].reason; } },
+    { code: "BENCHMARK_REVIEW_INVALID", mutate: ({ review: value }) => { delete value.sample_reviews[0].axes[0].evidence_ref; } },
+    { code: "BENCHMARK_REVIEW_INVALID", mutate: ({ review: value }) => { delete value.sample_reviews[0].axes[0].visibility_context; } },
+    {
+      code: "BENCHMARK_REVIEW_INVALID",
+      mutate: ({ review: value }) => {
+        value.sample_reviews[0].axes[0].reviewer_status = "unsupported";
+        value.sample_reviews[0].axes[0].status_match = false;
+        value.sample_reviews[0].axes[0].decision = "accept_annotation";
+        delete value.sample_reviews[0].axes[0].decision_note;
+      }
+    },
+    {
+      code: "BENCHMARK_REVIEW_INVALID",
+      mutate: ({ review: value }) => {
+        value.sample_reviews[0].axes[0].reviewer_status = "unsupported";
+        value.sample_reviews[0].axes[0].status_match = false;
+        value.sample_reviews[0].axes[0].decision = "accept_annotation";
+        value.sample_reviews[0].axes[0].decision_note = "bad";
+      }
+    }
+  ];
+
+  for (const [index, invalid] of invalidTruths.entries()) {
+    const candidateAnnotation = structuredClone(annotation);
+    const candidateReview = structuredClone(review);
+    invalid.mutate({ annotation: candidateAnnotation, review: candidateReview });
+    const annotationBytes = Buffer.from(`${JSON.stringify(candidateAnnotation, null, 2)}\n`);
+    candidateReview.annotation_pack_sha256 = createHash("sha256").update(annotationBytes).digest("hex");
+    await writeFile(truth.annotationPath, annotationBytes);
+    await writeFile(truth.reviewPath, `${JSON.stringify(candidateReview, null, 2)}\n`);
+    const result = spawnSync(process.execPath, [
+      cli, "score",
+      `--raw-evidence=${rawEvidence}`,
+      `--annotation=${truth.annotationPath}`,
+      `--review=${truth.reviewPath}`,
+      `--axis-mapping=${fixture.axisMappingPath}`,
+      `--output=${path.join(temporaryRoot, `invalid-c4-truth-${index}.json`)}`
+    ], { cwd: root, encoding: "utf8", env });
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stderr).error.code, invalid.code);
+  }
 });
 
 test("blind inference cannot write its sealed output inside the controlled dataset", async (t) => {

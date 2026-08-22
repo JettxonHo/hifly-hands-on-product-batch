@@ -37,12 +37,15 @@ Manifest 的固定身份还包括：`dataset_id=hifly-appearance-controlled`、`
 输入校验必须先于任何推理：普通文件且非 symlink、相对路径受控、bytes/media/dimensions/SHA-256 与 manifest 一致、
 annotation/review 精确绑定且 review accepted。任一漂移立即停止整次 run，不生成部分通过结论。
 
-仓库 synthetic fixture 必须与 C4 公共 schema 同构：图片引用使用 `relative_path`；annotation 使用 `status=completed`、
-`annotator_id` 与盲评标记；review 使用 `status=completed`、`review_status=accepted`、`annotation_pack_sha256`、
-`annotator_id` 与不同的 `reviewer_id`，并包含与 annotation 精确同 sample、同 7 axes 的 `sample_reviews`。每项必须核对
-`annotator_status`、合法 `reviewer_status` 和二者对应的 `status_match`：一致时只接受 `accepted`；不一致时只接受带非空理由的
-`accept_annotation`。任何 `changes_requested`、空决定、缺项、重复、错 sample 或错 axis 均 fail closed，不能被顶层
-`review_status=accepted` 掩盖。fixture 只使用合成 bytes，不读取上述 accepted 四对数据。测试专用字段名不得成为另一套产品合同。
+仓库 synthetic fixture 必须与 C4 公共 schema 同构：图片引用使用 `relative_path`；annotation 使用
+`pack_type=appearance_ground_truth`、`status=completed`、`annotator_id` 与盲评标记，每个 sample 必须有
+`annotation_version=1`、非空 `annotated_at`；review 使用 `pack_type=appearance_ground_truth_review`、`status=completed`、
+`review_status=accepted`、`annotation_pack_sha256`、`annotator_id`、不同的 `reviewer_id` 与非空 `reviewed_at`，并包含与
+annotation 精确同 sample、同 7 axes 的 `sample_reviews`。每项必须核对 `annotator_status`、合法 `reviewer_status`、二者对应的
+`status_match`，以及非空 `reason_code`、`reason`、`evidence_ref`、`visibility_context`：一致时只接受 `accepted`；不一致时只接受
+`accept_annotation` 且 `decision_note` 至少 4 字符，普通 `reason` 不得替代决定说明。任何 `changes_requested`、空决定、缺项、
+重复、错 sample 或错 axis 均 fail closed，不能被顶层 `review_status=accepted` 掩盖。fixture 只使用合成 bytes，不读取上述
+accepted 四对数据。测试专用字段名不得成为另一套产品合同。
 
 ## 3. 候选环境锁
 

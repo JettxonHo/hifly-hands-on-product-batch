@@ -35,6 +35,10 @@
    分歧均 fail closed，只有带理由的 `accept_annotation` 可接受人工分歧。测试仍不读取 accepted truth。
 10. 第二轮输出边界 RED 证明 inference 可经父级 symlink 写回 dataset，scoring 也可直接写回。GREEN 后两个阶段共用
     storage alias root 与输出父目录的真实路径 containment；直接写回、symlink/junction 写回均被拒绝，既有不可覆盖输出保持。
+11. 第三轮独立审阅证明 synthetic truth 仍缺 C4 `pack_type`、sample version/time、review time 与逐轴审计字段，且
+    `accept_annotation` 可用普通 `reason` 代替 `decision_note`。GREEN 后 fixture 与仓库外 C4 validator 的公共 schema 同构；
+    缺失或篡改上述字段均 fail closed，分歧决定必须有至少 4 字符的独立 `decision_note`。本轮只读核对 validator 脚本，未读取
+    accepted 四对图片、annotation 或 review 内容。
 
 ## 官方 Artifact 取证与停止条件
 
@@ -81,6 +85,7 @@
   直接/symlink writeback。随后 default `npm test` 的前 48 项（含新增 C5 seam）通过，但宿主在既有
   `assets-browser.test.js` / `operator-workbench-v2-assets-browser.test.js` 进程无失败输出地停留超过 6 分钟，本次由开发者终止且
   不计 pass；fixed-head 完整回归必须由 PR 三组 required CI 自然完成为 SUCCESS，不能用该本地长等待冒充绿色。
+- 第三轮 required fix 后 focused public CLI 为 16/16；新增 exact C4 truth schema 缺失/篡改与独立 `decision_note` 回归。
 - `npm run check`：241 JavaScript files；`git diff --check` 与 strict 15-file allowlist 通过。
 - `npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high`：0 critical / 0 high / 2 moderate；
   没有执行 `audit fix` 或 `--force`。

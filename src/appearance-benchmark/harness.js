@@ -282,27 +282,28 @@ function validateTruth(annotation, review, annotationBytes, rawDataset, rawSampl
   if (annotation?.dataset_id !== rawDataset.dataset_id || annotation?.dataset_version !== rawDataset.dataset_version) {
     fail("BENCHMARK_DATASET_BINDING_MISMATCH", "Human truth does not match the raw Evidence dataset");
   }
-  if (annotation?.schema_version !== 1 || annotation?.status !== "completed" || !Array.isArray(samples) ||
+  if (annotation?.pack_type !== "appearance_ground_truth" || annotation?.schema_version !== 1 ||
+      annotation?.status !== "completed" || !Array.isArray(samples) ||
       samples.length !== rawSampleIds.length || samples.some((sample) =>
-        typeof sample?.sample_id !== "string" || !Array.isArray(sample.axes) || sample.axes.length !== expectedAxes.length ||
+        typeof sample?.sample_id !== "string" || sample.annotation_version !== 1 ||
+        !nonEmptyString(sample.annotated_at) || !Array.isArray(sample.axes) || sample.axes.length !== expectedAxes.length ||
         sample.axes.some((entry, index) => entry?.axis !== expectedAxes[index] ||
           !["supported", "unsupported", "unknown"].includes(entry.status) ||
-          typeof entry.reason_code !== "string" || !entry.reason_code || typeof entry.reason !== "string" || !entry.reason ||
-          typeof entry.evidence_ref !== "string" || !entry.evidence_ref ||
-          !(typeof entry.visibility_context === "string" ||
-            (entry.visibility_context && typeof entry.visibility_context === "object"))))) {
+          !nonEmptyString(entry.reason_code) || !nonEmptyString(entry.reason) || !nonEmptyString(entry.evidence_ref) ||
+          !nonEmptyString(entry.visibility_context)))) {
     fail("BENCHMARK_ANNOTATION_INVALID", "The benchmark annotation pack is invalid");
   }
   const annotationIds = samples.map((sample) => sample.sample_id);
   if (annotationIds.some((sampleId, index) => sampleId !== rawSampleIds[index])) {
     fail("BENCHMARK_ANNOTATION_INVALID", "The benchmark annotation samples do not match the raw Evidence");
   }
-  if (review?.schema_version !== 1 || review?.status !== "completed" || review?.review_status !== "accepted" ||
+  if (review?.pack_type !== "appearance_ground_truth_review" || review?.schema_version !== 1 ||
+      review?.status !== "completed" || review?.review_status !== "accepted" ||
       review.annotation_pack_sha256 !== sha256(annotationBytes) ||
       review.dataset_id !== annotation.dataset_id || review.dataset_version !== annotation.dataset_version ||
       review.annotator_id !== annotation.annotator_id || !review.reviewer_id ||
       review.annotator_id === review.reviewer_id || annotation.model_output_was_hidden !== true ||
-      review.model_output_was_hidden !== true) {
+      review.model_output_was_hidden !== true || !nonEmptyString(review.reviewed_at)) {
     fail("BENCHMARK_REVIEW_INVALID", "The benchmark review binding is invalid");
   }
   validateReviewDecisions(review.sample_reviews, samples);
@@ -324,14 +325,20 @@ function validateReviewDecisions(sampleReviews, annotationSamples) {
       const statusMatch = axisReview?.annotator_status === axisReview?.reviewer_status;
       const matchingAccepted = statusMatch && axisReview?.decision === "accepted";
       const disagreementAccepted = !statusMatch && axisReview?.decision === "accept_annotation" &&
-        typeof axisReview.reason === "string" && axisReview.reason.trim();
+        nonEmptyString(axisReview.decision_note) && axisReview.decision_note.length >= 4;
       if (axisReview?.axis !== annotationAxis.axis || axisReview?.annotator_status !== annotationAxis.status ||
           !statuses.has(axisReview?.reviewer_status) || axisReview?.status_match !== statusMatch ||
+          !nonEmptyString(axisReview?.reason_code) || !nonEmptyString(axisReview?.reason) ||
+          !nonEmptyString(axisReview?.evidence_ref) || !nonEmptyString(axisReview?.visibility_context) ||
           (!matchingAccepted && !disagreementAccepted)) {
         fail("BENCHMARK_REVIEW_INVALID", "The benchmark review axis decision is unresolved or invalid");
       }
     }
   }
+}
+
+function nonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
 }
 
 function validateAxisMapping(mapping) {

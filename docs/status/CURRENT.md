@@ -360,7 +360,8 @@
   synthetic validator/harness 只有随 PR 合并才计 repository implemented。该 seam 使用 C4 同构字段；raw Evidence 固定 exact
   manifest/dataset/pair，scoring 拒绝跨数据集 truth，并以 version+content hash 锁定 mapping 和原子回链；测试 lock 只能得到
   `synthetic_contract_validated`。C4 review 的逐样本/逐轴决定必须全部解决，顶层 accepted 不得掩盖 changes requested；infer 与
-  score 均按真实路径阻止直接或经 symlink 写回受控数据包。它不表示 runnable environment、accepted benchmark 或能力结论。
+  score 均按真实路径阻止直接或经 symlink 写回受控数据包。Synthetic truth 同时锁定 C4 pack 类型、sample 版本/时间、review
+  时间与逐轴审计字段，`accept_annotation` 必须有独立 `decision_note`。它不表示 runnable environment、accepted benchmark 或能力结论。
   `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 
 ## P0.5 内部验收环境部署

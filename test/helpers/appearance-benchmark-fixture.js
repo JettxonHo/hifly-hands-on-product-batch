@@ -103,6 +103,7 @@ export async function createSyntheticHumanTruth(root) {
     "obvious_artifacts"
   ];
   const annotation = {
+    pack_type: "appearance_ground_truth",
     schema_version: 1,
     dataset_id: "synthetic-appearance-contract",
     dataset_version: "v1",
@@ -112,6 +113,8 @@ export async function createSyntheticHumanTruth(root) {
     model_output_was_hidden: true,
     samples: [{
       sample_id: "sample-1",
+      annotation_version: 1,
+      annotated_at: "2026-08-22T00:00:00.000Z",
       axes: axes.map((axis) => ({
         axis,
         status: axis === "cap_pump_key_parts" ? "unsupported" : "supported",
@@ -129,6 +132,7 @@ export async function createSyntheticHumanTruth(root) {
   const annotationPath = path.join(root, "annotation.json");
   await writeFile(annotationPath, annotationBytes);
   const review = {
+    pack_type: "appearance_ground_truth_review",
     schema_version: 1,
     dataset_id: annotation.dataset_id,
     dataset_version: annotation.dataset_version,
@@ -138,6 +142,7 @@ export async function createSyntheticHumanTruth(root) {
     annotator_id: annotation.annotator_id,
     reviewer_id: "RV-SYNTHETIC",
     model_output_was_hidden: true,
+    reviewed_at: "2026-08-22T00:01:00.000Z",
     sample_reviews: annotation.samples.map((sample) => ({
       sample_id: sample.sample_id,
       axes: sample.axes.map((entry) => ({
@@ -146,7 +151,10 @@ export async function createSyntheticHumanTruth(root) {
         reviewer_status: entry.status,
         status_match: true,
         decision: "accepted",
-        reason: "synthetic independent review agrees"
+        reason_code: `review_${entry.axis}`,
+        reason: "synthetic independent review agrees",
+        evidence_ref: `synthetic-review-evidence://${entry.axis}`,
+        visibility_context: "fully_visible"
       }))
     }))
   };
