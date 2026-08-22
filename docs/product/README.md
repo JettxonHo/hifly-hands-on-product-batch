@@ -90,8 +90,8 @@
 | [PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md](PRODUCT_APPEARANCE_FIDELITY_DOMAIN_API.md) | D-036 / Fidelity-A 的领域与 additive API Specification：生产前独立候选门禁、不可变候选与可变状态头、有时效的 Provider Observation、精确检查结果/人工审核、Production 硬门禁、恢复/费用/兼容与 TDD 切片；不代表实现或部署 |
 | [PRODUCT_APPEARANCE_CHECK_CAPABILITY_GATE.md](PRODUCT_APPEARANCE_CHECK_CAPABILITY_GATE.md) | Issue #216 / Fidelity-C0 的 Product/Model/Evidence gate：定义模型或规则能力在实现前必须提交的逐维基准、误放行/误阻断/unknown、费用、隐私和版本证据；不选择模型，也不代表自动检查已实现 |
 | [PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md](PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md) | Issue #218 / Fidelity-C1 的官方来源研究：当前仅本地 OCR/CV 基线具备可执行 benchmark 资格；OpenAI/Google 保持 reserve、混合方案 deferred，并保留未来预算公式；不选择模型、不运行 benchmark，也不代表准确率或产品能力已验证 |
-| [PRODUCT_APPEARANCE_CHECK_LOCAL_BENCHMARK_GATE.md](PRODUCT_APPEARANCE_CHECK_LOCAL_BENCHMARK_GATE.md) | Issue #220 / Fidelity-C2 的本地数据与标注 readiness gate：当前因无合格多商品 source/candidate 数据集和独立七维人工真值而阻断；未实现或运行 benchmark |
-| [PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md](PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md) | Issue #222 / Fidelity-C3 的仓库外 exact-byte 数据与独立七维人工真值准入合同：定义脱敏 manifest、用途依据、标注/复核分离与 Owner 输入；当前 blocker 未解除 |
+| [PRODUCT_APPEARANCE_CHECK_LOCAL_BENCHMARK_GATE.md](PRODUCT_APPEARANCE_CHECK_LOCAL_BENCHMARK_GATE.md) | Issue #220 / Fidelity-C2 的历史本地数据与标注 readiness gate：当时的 dataset/annotation blocker 已由后续 Fidelity-C4 acceptance 解除；环境、harness 与 benchmark 仍未开始 |
+| [PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md](PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md) | Issue #222 / Fidelity-C3 合同与 Issue #224 / Fidelity-C4 acceptance：记录仓库外 exact-byte 数据、用途依据、脱敏 artifact hash、独立七维标注/复核和保留边界；只允许进入后续环境/harness gate，不代表能力已选择 |
 | [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：D-036 外观保真采用 ProductionOrder 前独立候选门禁 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决，Q-018 已由 D-032 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
