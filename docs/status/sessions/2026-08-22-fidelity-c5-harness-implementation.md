@@ -90,4 +90,8 @@
 - 独立审阅 head `3e7e5119f514587ee37a93ff62aa9fc54c1abdd7` 的 Ubuntu/Windows 为 SUCCESS，identity-postgres 为
   CANCELLED，`mergeStateStatus=UNSTABLE`；该 head 不计 required checks 全绿。后续修复 head 必须三组 required CI 全部自然结束为
   SUCCESS，不能用取消或反复重跑覆盖本事实。
+- 第二轮修复 head `08234458ade0c65758378763a92321e8b6ba45aa` 的 run `32577105302` 未通过且不计 fixed-head
+  绿色：Windows SUCCESS；Ubuntu 的 15 个 C5 tests 全绿，但既有 `cloud-executor-deployment` 用例因额外一次 `xdpyinfo` 调用失败；
+  identity-postgres 在既有 VideoPlanning integration 中期望 `VIDEO_PLAN_REVIEW_ACTIVE_EXISTS`、实际收到 PostgreSQL `23505`。
+  两项失败均需保留为该 head 的真实历史，后续证据提交触发的新 head CI 必须自然三绿，不能重跑本 run 掩盖。
 - fixed-head CI：以 Draft PR 元数据与结果评论为准，session 不自引用最终 commit。
