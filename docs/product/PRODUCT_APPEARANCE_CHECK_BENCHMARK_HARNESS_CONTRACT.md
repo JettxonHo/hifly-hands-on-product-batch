@@ -1,0 +1,186 @@
+# 商品外观检查 Benchmark 环境与 Harness 合同
+
+> 关联决策：D-035、D-036
+> 关联 Issue：#226
+> 生命周期：Owner 已授权 Fidelity-C5 方向；Issue #226 / 对应 PR 是合同 acceptance gate，只有合并进入 `main` 后才计为 designed/locked
+> 当前能力状态：`BLOCKED_CHECK_CAPABILITY_UNSELECTED`
+> 非目标：本合同不安装依赖、不下载权重、不实现或运行 harness、不运行 benchmark、不选择能力或阈值
+
+## 1. 结论
+
+Fidelity-C4 已接受仓库外受控 exact-byte 数据和独立七维人工真值，允许进入环境与 harness 设计。本合同只锁定
+可由官方来源和当前受控 Evidence 证明的部分：输入身份、候选软件版本、可取得的发行制品 SHA-256、基准运行架构、
+离线缓存边界、原始输出和 fail-closed 结果合同。
+
+当前不能进入 harness 实现或 benchmark：PP-OCRv6 官方模型列表提供模型名称与下载入口，但没有提供可直接核对的
+权重 SHA-256；完整传递依赖 lock、权重许可证归档和 OpenCV wheel 的安全复核也尚未形成 accepted Evidence。不得用
+可变 URL、模型名或本机缓存存在代替精确制品身份。
+
+## 2. 只读输入绑定
+
+Harness 只能读取 storage alias `HIFLY_APPEARANCE_BENCHMARK_V1`，不得接收本机绝对路径作为持久输入，也不得原地修改
+受控包。运行前必须同时核对：
+
+| Artifact | 相对路径 | Bytes | SHA-256 / 固定真值 |
+|---|---|---:|---|
+| dataset manifest | `manifests/dataset-manifest.v1.json` | 6083 | `306db2ba5a0a5c467318ca449e35149962d936ef7bd8488961e3691a7f318df2` |
+| annotation | `annotations/ground-truth.v1.ANT-01.json` | 9355 | `bb7672120ada5a8204527950ad9bd3e9098461826959af87e193a5fe8635f4c5` |
+| review | `reviews/ground-truth-review.v1.RV-01.json` | 13231 | `d3a315519a921f266ef84dcba85547c97deb18be883912aeebe8203affe1ea4d` |
+
+Manifest 的固定身份还包括：`dataset_id=hifly-appearance-controlled`、`dataset_version=v1-pre-annotation`、
+`status=human_ground_truth_accepted_benchmark_not_run`、4 个 exact source/candidate 配对、4 类样本和 4 个商品族。
+版本名中的 `pre-annotation` 是 artifact 创建时名称，不得据此覆盖 manifest hash、status 和 Fidelity-C4 acceptance 真值。
+
+输入校验必须先于任何推理：普通文件且非 symlink、相对路径受控、bytes/media/dimensions/SHA-256 与 manifest 一致、
+annotation/review 精确绑定且 review accepted。任一漂移立即停止整次 run，不生成部分通过结论。
+
+## 3. 候选环境锁
+
+### 3.1 兼容矩阵
+
+以下是 Fidelity-C5 proposal 能由官方来源证明的候选锁，不表示已经安装或运行：
+
+| 层 | 候选锁 | 可证明的发行 Evidence | 本合同边界 |
+|---|---|---|---|
+| Python | 3.11.16 | Python 官方 release；canonical OCI 使用 `python:3.11.16-slim-bookworm` | 只允许 CPython 3.11；mutable tag 不能单独作为运行身份 |
+| Canonical OS/arch | Linux/amd64 | OCI index `sha256:2e32f7d302adc1c37428355c1e646897c0c53f4fd60b6a551245fb90ee129f91`；amd64 manifest `sha256:bb3a5d38989ec658710f06b08bc23cb78d079eb852405e42b124fdf430281454` | 正式资源/延迟数据只在该 architecture-specific digest 上比较 |
+| Local smoke | macOS/arm64 | Python 3.11 与对应 arm64 wheels；OCI arm64 manifest `sha256:100d50c3729317111e10b6c29c3e84cd4ddfa724f6d7e44148c81604ae65960b` 仅供容器兼容复核 | 只证明开发机 smoke；不得与 Linux/amd64 性能混报 |
+| PaddleOCR | 3.7.0 / tag commit `b03f46425e8ff4442b268ce449e3eef758146cd4` | wheel 146750 bytes，SHA-256 `c0f0a81ad4112727f30c6fcf986ac0ef6a120d31ee0991a01fae0357ee32d338` | 官方兼容表只给 PaddlePaddle `>=3.0.0`，不证明本合同 exact stack 已运行 |
+| PaddleX | 3.7.0 | wheel 2220975 bytes，SHA-256 `70c5762d6bae7efe3a7db0e3264eb88e9ce1c3bf88d8e30cd32759924357acdc` | PaddleOCR 3.7.x 要求 PaddleX `>=3.7,<3.8` |
+| PaddlePaddle | 3.1.1 | Linux cp311 wheel 187453011 bytes，SHA-256 `36c6a768d31486c100e1be14404f8fc57565283f0df90b7142d2560100fe86ef`；macOS arm64 cp311 wheel 97973526 bytes，SHA-256 `0f58c9dbd3a8e3a50495715925706311e587b018ad3061e49608a017e82b0dce` | 满足官方 `>=3.0.0` 范围且有两平台 exact wheel；CPU exact-stack 兼容仍须 implementation gate 验证 |
+| OpenCV Python | `opencv-python-headless==4.13.0.92`；OpenCV tag commit `fe38fc608f6acb8b68953438a62305d8318f4fcd` | Linux x86_64 wheel 56016764 bytes，SHA-256 `0525a3d2c0b46c611e2130b5fdebc94cf404845d8fa64d2f3a3b679572a5bd22`；macOS arm64 wheel 46247192 bytes，SHA-256 `1a7d040ac656c11b8c38677cc8cccdc149f98535089dbe5b081e80a4e5903209` | 只允许 image I/O；记录 `cv2.getBuildInformation()`，不使用视频/FFmpeg 路径 |
+
+精确 wheel 文件名分别为：`paddleocr-3.7.0-py3-none-any.whl`、`paddlex-3.7.0-py3-none-any.whl`、
+`paddlepaddle-3.1.1-cp311-cp311-manylinux1_x86_64.whl`、`paddlepaddle-3.1.1-cp311-cp311-macosx_11_0_arm64.whl`、
+`opencv_python_headless-4.13.0.92-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl` 与
+`opencv_python_headless-4.13.0.92-cp37-abi3-macosx_13_0_arm64.whl`。
+
+PaddlePaddle 官方 macOS 安装边界当前是 ARM64、CPU-only，不支持 macOS x86_64；本合同也没有证明 Linux/arm64 exact stack。
+因此 Intel Mac、Linux/arm64、GPU 或其他 Python ABI 都不是可替换 lane，出现时必须停止并另过环境选择 gate。
+
+正式 implementation gate 必须生成完整、architecture-specific 的 requirements lock，并以 `pip --require-hashes` 覆盖全部
+传递依赖。上表只锁定顶层和已核实的关键 wheel，不能冒充完整 lock。
+
+### 3.2 PP-OCRv6 权重
+
+候选模型固定为官方 PP-OCRv6 medium detection/recognition：`PP-OCRv6_medium_det` 与
+`PP-OCRv6_medium_rec`。官方文档说明 medium 是默认配置并覆盖多语言，但当前官方 model list 只给下载入口，未给
+权重 bytes/SHA-256。
+
+因此保持 `DESIGN_BLOCKER_MODEL_ARTIFACT_UNHASHED`。后续独立 implementation gate 只有在获准下载后，才可把官方 URL、
+下载时间、最终 URL、bytes、服务端计算 SHA-256、模型内部标识、许可证与来源快照写入仓库外 cache manifest。没有这份
+Evidence，不得实现或运行 benchmark；不得从 PaddleOCR 自动下载缓存反向推断权重身份。
+
+### 3.3 离线缓存与网络
+
+后续获授权的环境准备必须分两步：
+
+1. 有网络的 fetch phase 仅下载 allowlist 中的 wheels/weights，逐个核对来源、bytes 和 SHA-256，写仓库外只读 cache manifest；
+2. install/run phase 使用 `--no-index --find-links ... --require-hashes` 与容器 `--network none`，只消费已核验 cache。
+
+Git 不提交 wheel、权重、缓存、dataset bytes、annotation/review JSON 或本机绝对路径。cache 缺失、额外文件、hash drift、
+包解析需要联网或容器 digest 不匹配时必须停止。
+
+## 4. Harness 合同
+
+### 4.1 两阶段隔离
+
+- **Inference phase**：只能读取 manifest 指定的 source/candidate bytes，不得读取 annotation/review；输出不可变 raw Evidence。
+- **Scoring phase**：在 inference 完成并封存后才读取 accepted annotation/review，以 exact run manifest 计算逐样本/逐维统计。
+- 固定 4 个样本全部是 evaluation set，不设训练集，也不得在看到人工真值或结果后调阈值再重跑并覆盖原结果。
+- 任何新规则、预处理、模型或阈值都必须形成新的 `policy_version` 和新 run，历史 run 不可改写。
+
+### 4.2 原始输出与七维映射
+
+每个 sample 必须保留 source/candidate 的原始 OCR token、box、confidence、几何/颜色/结构测量、中间失败和耗时；不得只保留
+一个相似度总分。七维仍为：轮廓/几何、部件、颜色、比例、包装、Logo、标签文字。
+
+`supported | unsupported | unknown` 只能由获 Owner 接受的 versioned policy/rule 产生。当前没有 accepted 阈值，故任何
+真实 run 在 policy acceptance 前最多产出 raw Evidence；若接口需要 provisional verdict，各维必须为 `unknown`，聚合只能是
+`needs_review`，不得得到 `passed`。聚合固定为：任一 `unsupported` -> `blocked`；否则任一 `unknown` -> `needs_review`；
+全部 `supported` -> `passed`。
+
+缺依赖、权重不可读、格式不支持、超时、OOM、OCR/CV 异常、输出 schema 不合格或部分维度没有 Evidence，均 fail closed：
+run 记为 failed 或对应维度 `unknown`，绝不能折算为 `supported`。
+
+### 4.3 Negative controls
+
+每次 acceptance run 至少验证：dataset/hash 篡改、annotation 在 inference phase 可见、模型权重 hash 漂移、缺依赖、超时、
+不支持媒体、结果 schema 漂移、partial output 和重复 run ID。negative control 必须证明停止或 unknown，不得触发网络下载或
+覆写受控输入。
+
+### 4.4 结果 manifest
+
+每次 run 的不可变 manifest 至少记录：
+
+- run ID、UTC 时间、仓库 commit、harness/policy/rule version；
+- dataset、annotation、review 的相对 artifact、bytes、SHA-256；
+- OCI index/architecture manifest digest、Python/OS/CPU architecture、CPU/内存/线程配置；
+- 完整 dependency lock hash、每个 wheel/weight 的来源、bytes、SHA-256 和许可证记录引用；
+- source/candidate exact SHA-256、逐样本/逐维 raw output 与错误；
+- inference/scoring 命令、网络关闭证据、P50/P95、峰值 CPU/内存与本地成本计算；
+- 严重误放行、合法变化误阻断、unknown、运行失败和逐维覆盖的原始计数；
+- Reviewer 身份只用受控角色引用、复核决定、Evidence hash 与时间。
+
+macOS/arm64 smoke 与 canonical Linux/amd64 run 必须分开命名和统计。CI 绿只证明仓库合同/代码可执行；受控 benchmark Evidence
+必须来自 exact canonical lane，不能用 `ubuntu-latest` 或开发机性能替代。
+
+## 5. 费用、隐私、许可证与安全
+
+- 当前 baseline 只使用本地 CPU，不授权外部 API、图片上传或付费动作；本地成本按 wall time、CPU/内存和设备小时公式记录，
+  不在本合同发明金额。
+- dataset/人工真值继续遵守 Owner 已接受的用途、12 个月保留、复审和删除边界；harness 只读，不创建未治理副本。
+- PaddleOCR、PaddleX、PaddlePaddle 代码仓库使用 Apache-2.0；OpenCV core 使用 Apache-2.0，opencv-python packaging
+  使用 MIT 并携带 OpenCV/第三方许可，CPython 使用 PSF License。implementation gate 必须归档 exact wheel/weight 中的
+  LICENSE/NOTICE；这些代码许可证不能替代尚未证明的 PP-OCRv6 权重许可与再分发边界。
+- 所有第三方 wheel/weight 都是不可信输入：hash、magic/archive containment、路径和反序列化边界必须在实现 gate 单独审阅。
+- OpenCV headless wheel 的构建信息和随附组件必须进入安全复核；本 baseline 禁用 video/FFmpeg 路径，不能据此宣称依赖零风险。
+
+## 6. 官方来源
+
+以下均于 2026-08-22 核对：
+
+- [PaddleOCR v3.7.0 release](https://github.com/PaddlePaddle/PaddleOCR/releases/tag/v3.7.0)
+- [PaddleOCR v3.7.0 package metadata](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.7.0/pyproject.toml)
+- [PaddleOCR / PaddleX compatibility](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/paddleocr_and_paddlex.md)
+- [PP-OCRv6 model list](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.7.0/docs/version3.x/model_list.md)
+- [PP-OCRv6 description](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.7.0/docs/version3.x/algorithm/PP-OCRv6/PP-OCRv6.en.md)
+- [PaddleOCR 3.7.0 PyPI artifacts](https://pypi.org/project/paddleocr/3.7.0/)
+- [PaddleX 3.7.0 PyPI artifacts](https://pypi.org/project/paddlex/3.7.0/)
+- [PaddlePaddle 3.1.1 PyPI artifacts](https://pypi.org/project/paddlepaddle/3.1.1/)
+- [PaddleOCR Apache-2.0 license](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.7.0/LICENSE)
+- [PaddleX Apache-2.0 license](https://github.com/PaddlePaddle/PaddleX/blob/release/3.7/LICENSE)
+- [PaddlePaddle Apache-2.0 license](https://github.com/PaddlePaddle/Paddle/blob/v3.1.1/LICENSE)
+- [PaddlePaddle macOS installation boundary](https://www.paddlepaddle.org.cn/documentation/docs/en/install/pip/macos-pip_en.html)
+- [OpenCV 4.13.0 release](https://github.com/opencv/opencv/releases/tag/4.13.0)
+- [OpenCV Apache-2.0 license](https://github.com/opencv/opencv/blob/4.13.0/LICENSE)
+- [opencv-python release 92](https://github.com/opencv/opencv-python/releases/tag/92)
+- [opencv-python packaging and license notes](https://github.com/opencv/opencv-python/blob/4.x/README.md)
+- [opencv-python-headless 4.13.0.92 artifacts](https://pypi.org/project/opencv-python-headless/4.13.0.92/)
+- [Python 3.11.16 release](https://www.python.org/downloads/release/python-31116/)
+- [CPython 3.11.16 license](https://github.com/python/cpython/blob/v3.11.16/LICENSE)
+- [Docker Official Image: Python](https://hub.docker.com/_/python)
+- [Docker Official Image tag metadata](https://hub.docker.com/v2/repositories/library/python/tags/3.11.16-slim-bookworm)
+
+PyPI/file hashes 和 OCI manifests 是官方分发元数据；本轮未下载这些 bytes。源码 tag、wheel 和模型权重是不同制品，任一 tag
+commit 都不能替代 wheel/weight SHA-256。
+
+## 7. Acceptance 与停止条件
+
+Fidelity-C5 合并只表示本合同 designed/locked，不表示 environment ready。进入下一 implementation gate 前必须全部满足：
+
+1. PP-OCRv6 exact weights 已获授权下载并记录官方来源、bytes、SHA-256、模型身份和许可证；
+2. 两种 architecture 的完整 transitive lock 均通过 `--require-hashes`，canonical Linux/amd64 lane 可离线构建；
+3. OpenCV wheel 随附组件完成安全/许可证复核，image-only 限制可测试；
+4. external cache manifest、dataset identity、blind inference/scoring 和 negative controls 有 TDD 合同；
+5. Owner 尚未接受阈值时，harness 不得产生 `passed`。
+
+任一条件不足即保持设计阻断，不安装、不运行、不下载补洞。下一步只能是单独授权的 environment/harness implementation gate；
+implementation 独立 Review 后，才可另行授权本地 benchmark。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 持续到 benchmark Evidence、
+Reviewer 复核和 Owner capability/policy/阈值 acceptance 全部完成。
+
+## 8. 本轮边界
+
+本轮没有安装 PaddleOCR/OpenCV/PaddlePaddle，没有下载模型权重，没有编写或运行 harness/benchmark，没有调用模型/API，
+没有访问 Hifly/Provider、启动 Worker/Local Agent、SSH/部署、修改生产数据、创建候选/工单/视频或消耗积分。Git 未接收
+dataset bytes、图片、annotation/review JSON、权重、缓存、本机绝对路径或真人身份。

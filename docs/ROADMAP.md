@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-22
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-0 Evidence、Fidelity-A、Fidelity-B、Issue #216 能力门禁、Issue #218 shortlist、Issue #220 blocker 审计与 Issue #222 / PR #223 准入合同已进入 `main@f8d63e7c`。Owner 已接受仓库外 Fidelity-C4 受控数据与独立七维人工真值；Issue #224 / 对应 PR 是仓库侧 acceptance gate，合并后只允许进入环境与 harness gate。当前没有已接受模型、阈值、误判率或费用证据，benchmark 尚未开始，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持；不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-0 Evidence、Fidelity-A、Fidelity-B、Issue #216 能力门禁、Issue #218 shortlist、Issue #220 blocker 审计、Issue #222 / PR #223 准入合同与 Fidelity-C4 acceptance 已进入 `main@fb04b487`。Issue #226 / 对应 PR 是 Fidelity-C5 环境与可复现 harness 合同 acceptance gate；只有合并后才计 designed/locked。当前没有已安装/accepted 环境、已核验 PP-OCRv6 权重、已运行 benchmark、已接受模型/阈值/误判率或费用证据，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持；不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -42,7 +42,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
-P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224 Fidelity-C4 数据/人工真值 acceptance → 环境与 harness gate → 受控 benchmark → Fidelity-C～E 未开始
+P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226 Fidelity-C5 环境/harness 合同 acceptance → environment/harness implementation → 受控 benchmark → Fidelity-C～E 未开始
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -138,8 +138,9 @@ benchmark 已开始。任何外部 API、图片上传或费用动作都继续要
 Issue #220 / PR #221 的 Fidelity-C2 readiness blocker 审计与 Issue #222 / PR #223 的 Fidelity-C3 准入合同已进入
 `main@f8d63e7c`。C2 当时的 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER` 已由 Fidelity-C4 仓库外受控包解除：4 个 exact
 source/candidate 配对覆盖 4 类/4 商品族，4 samples x 7 axes 人工真值由不同角色盲审并 accepted，Owner 也已批准用途依据和
-12 个月保留/复审/删除边界。Issue #224 / 对应 PR 是仓库侧 acceptance gate；合并不表示 benchmark 已运行或能力已选择。
-下一步先独立锁环境与 harness；`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
+12 个月保留/复审/删除边界。Issue #224 / PR #225 已将仓库侧 acceptance 合并进入 `main@fb04b487`。
+Issue #226 / 对应 PR 只设计并锁定可证明的环境与 harness 合同；PP-OCRv6 权重 checksum、完整传递依赖 lock、安装、harness
+实现与 benchmark 都是后续独立 gate。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、
@@ -158,8 +159,8 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 - #200/#201/#202 已严格串行完成并部署；不得把本次技术成功、返工 Work 或已下载候选解释为再次生成授权。
 - #208/#210 已建立并接受 Fidelity-0 有界 Provider Evidence；#212 Fidelity-A 合同、#214 Fidelity-B repository、#216
   Fidelity-C0 检查能力 gate、#218/#219 shortlist、#220 blocker 审计与 #222/#223 准入合同已进入 `main`。Owner 已接受
-  Fidelity-C4 仓库外 exact bytes、用途依据、脱敏 manifest 与分离角色完成的七维人工真值；#224 / 对应 PR 只负责把该
-  acceptance 固化进仓库。之后仍须独立锁环境和 harness，才可另行运行受控 benchmark。
+  Fidelity-C4 仓库外 exact bytes、用途依据、脱敏 manifest 与分离角色完成的七维人工真值；#224 / PR #225 已把该
+  acceptance 固化进仓库。#226 只负责环境与 harness 设计合同；之后仍须独立实现并复核环境/harness，才可另行运行受控 benchmark。
   Fidelity-C～E 不得并行抢跑，也不得把设计、研究、fake Adapter 或 Provider Evidence 写成真实 Hifly 能力、部署或
   外观保真通过。
 - 文案增强、人物推荐、背景/场景/姿势、动效精修、Capture HTTP、Local Agent 新功能、并行生产、复杂对象存储和高可用全部暂停。
