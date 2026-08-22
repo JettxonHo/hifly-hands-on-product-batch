@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-22
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance 与 Fidelity-C5 环境/harness 合同已进入精确 `main@a65a74ef0f94c131df0712e9943b68a0c835220e`。Issue #228 / 对应 PR 是 environment/harness implementation acceptance gate；当前 synthetic CLI 消费 C4 同构 schema、绑定 exact dataset/manifest/pair 并锁定 D-036/C3 mapping hash，但只能返回 synthetic contract 状态。权重许可未知，且 PaddleX OCR 传递依赖引入合同外 OpenCV contrib 4.10，环境保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`。没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持，可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness 已进入精确 `main@4e352334374fee6a077fb95a599944239b12f5c1`。Issue #230 / 对应 PR 是 C5a Evidence acceptance gate：exact PP-OCRv6 参数已绑定第一方 Apache-2.0 模型卡，但 BOS tar 再分发仍无 archive-specific 官方 Evidence；两架构只有 PaddleX 精确要求的 OpenCV contrib 4.10 metadata graph 可解，headless 4.13 不能作为受支持替代，contrib wheel 的 FFmpeg/Qt 许可与安全接受尚未完成。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`；没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持，可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -353,15 +353,19 @@
   Issue #226 / PR #227 已将 Fidelity-C5 环境与 harness 合同合并进入 `main@a65a74ef0f94c131df0712e9943b68a0c835220e`：合同锁定 exact dataset 输入、可证明的
   Python/PaddleOCR/PaddleX/PaddlePaddle/OpenCV/OCI 发行制品 hash、canonical Linux/amd64 lane、离线缓存、盲评和逐维
   raw Evidence 合同；C3 annotation axes 与 D-036 runtime dimensions 保持显式双层映射，一对多不得复制真值，明显伪影不新增
-  第八维。OpenCV 只允许 versioned policy 明列的静态图像处理/测量，继续禁止视频/codec/FFmpeg。Issue #228 的仓库外
-  artifact audit 已取得 det/rec 权重 exact bytes/SHA-256 和安全 archive containment，并复核六个顶层 wheel；但权重 tar
-  无 LICENSE/NOTICE，官方资料没有权重许可，两个 lane 的候选依赖解析又都引入合同外 `opencv-contrib-python==4.10.0.84`。
-  完整传递 cache 与离线 `--require-hashes` 安装未验证，故不提交候选 lock、不安装或运行模型。Issue #228 / 对应 PR 的
-  synthetic validator/harness 只有随 PR 合并才计 repository implemented。该 seam 使用 C4 同构字段；raw Evidence 固定 exact
+  第八维。OpenCV 只允许 versioned policy 明列的静态图像处理/测量，继续禁止视频/codec/FFmpeg。Issue #228 / PR #229 已进入
+  `main@4e352334374fee6a077fb95a599944239b12f5c1`：仓库外 artifact audit 取得 det/rec 权重 exact bytes/SHA-256 和安全 archive
+  containment，仓库 synthetic validator/harness 使用 C4 同构字段；raw Evidence 固定 exact
   manifest/dataset/pair，scoring 拒绝跨数据集 truth，并以 version+content hash 锁定 mapping 和原子回链；测试 lock 只能得到
   `synthetic_contract_validated`。C4 review 的逐样本/逐轴决定必须全部解决，顶层 accepted 不得掩盖 changes requested；infer 与
   score 均按真实路径阻止直接或经 symlink 写回受控数据包。Synthetic truth 同时锁定 C4 pack 类型、sample 版本/时间、review
   时间与逐轴审计字段，`accept_annotation` 必须有独立 `decision_note`。它不表示 runnable environment、accepted benchmark 或能力结论。
+  Issue #230 的 C5a 只读 Evidence 把 tar 内 det/rec `inference.pdiparams` SHA-256 精确绑定到 PaddlePaddle 官方模型仓库固定
+  commit 的 LFS OID；两个模型卡均声明 Apache-2.0。这证明 exact 参数 bytes 的第一方许可，不证明无 LICENSE/NOTICE 的 BOS tar
+  可复制或再分发，故保持 `PP_OCRV6_BOS_ARCHIVE_REDISTRIBUTION_UNVERIFIED`。Linux/amd64 与 macOS/arm64 no-install resolver
+  report 都只解析出 PaddleX `ocr-core` 精确要求的 `opencv-contrib-python==4.10.0.84`；headless 4.13 是不同 distribution，
+  不得用 `--no-deps` 或 metadata override 替代。contrib wheel 打包 FFmpeg，Linux wheel 另有 Qt5，4.10 的图像安全修复回移
+  也无官方 Evidence，故不提交 accepted lock、不安装或运行模型。
   `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 
 ## P0.5 内部验收环境部署
@@ -526,10 +530,12 @@
 2. Fidelity-0 Evidence、Fidelity-A、Fidelity-B、Issue #216 能力门禁、Issue #218 shortlist、Issue #220 blocker 审计与
    Issue #222 / PR #223 准入合同均已进入 `main`；本地 PaddleOCR/OpenCV 只是唯一具备后续受控 benchmark 资格的候选。
    Fidelity-C4 的仓库外 exact bytes、用途依据、4 类/4 商品族脱敏 manifest，以及不同角色完成的七维人工真值已随
-   Issue #224 / PR #225 进入 `main`，Issue #226 / PR #227 已完成 Fidelity-C5 合同 acceptance。Issue #228 是
-   environment/harness implementation acceptance gate；当前必须先取得 PP-OCRv6 权重许可的官方 Evidence，并解决
-   PaddleX OCR 对 `opencv-contrib-python==4.10.0.84` 的传递依赖与已接受 headless 4.13/image-only 边界冲突，再形成完整
-   cache 和离线 `--require-hashes` 安装 Evidence。实现独立 Review 前不得运行 accepted benchmark。capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
+   Issue #224 / PR #225 进入 `main`，Issue #226 / PR #227 已完成 Fidelity-C5 合同 acceptance，Issue #228 / PR #229 已把
+   synthetic environment/harness seam 合并进入 `main@4e352334`。Issue #230 / 对应 PR 是 C5a Evidence acceptance gate；其
+   合并只接受“参数许可已绑定、BOS tar 再分发与 OpenCV contrib 4.10 许可/安全 lane 仍 blocked”的结论。下一步必须先取得
+   archive-specific 官方再分发 Evidence，并对唯一官方 contrib 4.10 graph 的 FFmpeg/Qt obligations、图像解码安全与严格
+   image-only 边界作独立接受，之后才可授权 C5b 离线环境 materialization + synthetic smoke。不得以 headless 4.13、
+   `--no-deps`、metadata override 或 resolver report 绕过；C5b Review 前不得运行 accepted benchmark。capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
    有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
 3. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
