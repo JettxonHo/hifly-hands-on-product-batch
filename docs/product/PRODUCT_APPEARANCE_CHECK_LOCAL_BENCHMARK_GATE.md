@@ -1,8 +1,8 @@
 # 商品外观检查本地 Benchmark 数据门禁
 
 > 状态：Fidelity-C2 readiness 审计已随 Issue #220 / PR #221 进入 `main@b46ec21f15e9cbdf784ec554d065c4b21ae54771`
-> 关联：D-035、D-036、Issue #216、Issue #218、Issue #220、Issue #222、Issue #224
-> 当前结论：Issue #220 的历史 blocker 已由 Fidelity-C4 受控数据与独立人工真值 acceptance 解除；下一步仅可进入环境与 harness gate
+> 关联：D-035、D-036、Issue #216、Issue #218、Issue #220、Issue #222、Issue #224、Issue #226
+> 当前结论：Issue #220 的历史 blocker 已由 Fidelity-C4 受控数据与独立人工真值 acceptance 解除；Issue #226 / 对应 PR 是环境与 harness 合同 acceptance gate
 > 能力状态：`BLOCKED_CHECK_CAPABILITY_UNSELECTED`
 
 ## 1. 本轮问题
@@ -22,7 +22,7 @@ AppearanceCheckRun/Result、AppearanceReview 或 UI。
 | 本地忽略的历史批次上传 | 2026-08-20 对旧本地 checkout 的一次性只读观察：21 个图片文件、3 个唯一 SHA-256、格式为 PNG/JPEG；无 annotation sidecar | 缺少 benchmark 使用授权/来源说明、source↔candidate 绑定与七维真值，不准入；不是随 Git 持久的可复现数据资产 |
 | 页面截图与历史视频 | 可用于证明 UI/流程或最终内容事实 | 不是 exact 候选图片 bytes，不能替代 source/candidate 配对或七维标注 |
 | 现有 Fidelity-B 测试 | 使用 1×1 PNG/GIF fixture 验证 bytes、checksum、事务、组织隔离和 API 合同 | 只能证明软件合同，不能证明视觉能力 |
-| 当前本地 Python 环境 | `cv2`、`paddleocr`、`paddle` 均未安装；仓库 package/lock 也未锁定这些依赖 | 环境尚未冻结，但数据门禁未通过前不安装、不实现 harness |
+| C2 审计时的本地 Python 环境 | `cv2`、`paddleocr`、`paddle` 均未安装；仓库 package/lock 也未锁定这些依赖 | 当时环境未冻结；后续 C4 只解除数据/标注 blocker，仍没有安装或实现 harness |
 
 本表不把本地存在等同于合法 benchmark 使用。没有持久的来源、用途许可或 Owner 指定用途时，历史业务素材只记录为
 “发现但未准入”，不得复制、提交或运行。
@@ -60,14 +60,16 @@ C2 审计当时没有独立于 benchmark 实现的人工真值：
 
 ### 3.3 次级环境前置条件
 
-PaddleOCR/OpenCV 尚未安装或锁定。数据与标注包已通过独立 acceptance，但环境尚未锁定；下一项独立 gate 才可定义并复核：
+PaddleOCR/OpenCV 尚未安装。数据与标注包已通过独立 acceptance；Issue #226 的 Fidelity-C5 proposal 只锁定可由官方来源
+证明的候选版本、关键发行制品 hash、canonical architecture、离线缓存与 harness Evidence 合同，并继续把 PP-OCRv6 权重
+checksum 和完整传递依赖 lock 作为后续 implementation stop condition：
 
 - PaddleOCR、PaddlePaddle、PP-OCRv6 权重与 checksum；
 - OpenCV 版本与构建信息；
 - Python、操作系统、CPU/内存与线程配置；
 - policy/rule version、预处理参数、随机种子与离线缓存边界。
 
-## 4. 最小解阻包
+## 4. C2 历史最小解阻包（已由 C4 满足）
 
 下一次 gate 至少需要一个仓库外受控数据目录和一个可提交的脱敏 manifest/annotation 文档。二进制仍不得进入 Git。
 
@@ -88,7 +90,8 @@ manifest 最少记录：
 Issue #220 数据/标注 blocker 已进入 main
 → Issue #222 / PR #223 固化受控数据与独立人工真值准入合同
 → Issue #224 Fidelity-C4 数据/标注 acceptance gate
-→ 独立环境与 benchmark harness 设计/锁定 gate
+→ Issue #226 Fidelity-C5 环境与 benchmark harness 设计/锁定 gate
+→ 独立 environment/harness implementation gate
 → 运行真实本地 benchmark 并原样报告逐样本/逐维结果
 → Reviewer 复核 Evidence
 → Owner 决定 capability、policy/rule version 与阈值
@@ -100,6 +103,9 @@ Issue #220 数据/标注 blocker 已进入 main
 Issue #222 的准入合同与 Fidelity-C4 acceptance 由
 [`PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md`](PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md)
 持有。已准入的是仓库外受控 alias 的 exact version，不是仓库现有 4 张 Git source，也不表示 benchmark 已运行或能力已选择。
+Fidelity-C5 设计由
+[`PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md`](PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md)
+持有；合同合并仍不授权依赖安装、权重下载、harness 实现或 benchmark。
 
 ## 6. 本轮边界
 
