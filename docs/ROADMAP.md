@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-22
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5 环境/harness 合同已进入 `main@a65a74ef`。Issue #228 / 对应 PR 是 environment/harness implementation acceptance gate；synthetic CLI 已收敛到 C4 同构 schema、exact dataset binding、固定 mapping hash 与 synthetic-only 状态。权重 exact identity/containment 已取证，但权重许可未知，且 PaddleX OCR 传递依赖引入合同外 OpenCV contrib 4.10，因此环境保持 blocked，没有安装或运行模型/accepted benchmark。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持；不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5 合同与 synthetic harness 已进入 `main@4e352334`。Issue #230 / 对应 PR 是 C5a Evidence acceptance gate：exact PP-OCRv6 参数已绑定第一方 Apache-2.0 模型卡，但 BOS tar 再分发缺 archive-specific 官方 Evidence；PaddleX OCR 只有 OpenCV contrib 4.10 官方 metadata graph，headless 4.13 不是受支持替代，contrib 的 FFmpeg/Qt 许可和安全接受仍未完成。因此环境保持 blocked，没有安装或运行模型/accepted benchmark。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持；不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -42,7 +42,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
-P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228 environment/harness implementation（artifact license + OpenCV dependency conflict blocked）→ 受控 benchmark未授权 → Fidelity-C～E 未开始
+P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228/#229 synthetic harness implemented → #230 C5a Evidence gate（BOS tar 再分发 + OpenCV contrib 4.10 lane blocked）→ C5b 未授权 → 受控 benchmark 未授权 → Fidelity-C～E 未开始
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -139,14 +139,18 @@ Issue #220 / PR #221 的 Fidelity-C2 readiness blocker 审计与 Issue #222 / PR
 `main@f8d63e7c`。C2 当时的 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER` 已由 Fidelity-C4 仓库外受控包解除：4 个 exact
 source/candidate 配对覆盖 4 类/4 商品族，4 samples x 7 axes 人工真值由不同角色盲审并 accepted，Owner 也已批准用途依据和
 12 个月保留/复审/删除边界。Issue #224 / PR #225 已将仓库侧 acceptance 合并进入 `main@fb04b487`。
-Issue #226 / PR #227 已设计并锁定可证明的环境与 harness 合同。Issue #228 的取证已确定 PP-OCRv6 det/rec 权重 bytes、
-SHA-256 和安全 archive containment，但未找到权重许可；PaddleX OCR 解析又要求合同外 `opencv-contrib-python==4.10.0.84`，
-故完整传递 lock、离线安装与模型 smoke 继续 blocked。合同保持 annotation axis/runtime dimension 双层映射和静态图像处理边界，不允许
-一对多真值复制、伪造第八维或扩成视频能力。Issue #228 的 synthetic seam 使用 C4 同构字段，raw Evidence 固定 manifest/dataset/
+Issue #226 / PR #227 已设计并锁定可证明的环境与 harness 合同，Issue #228 / PR #229 已把 synthetic-only seam 合并进入
+`main@4e352334`。合同保持 annotation axis/runtime dimension 双层映射和静态图像处理边界，不允许一对多真值复制、伪造
+第八维或扩成视频能力。Issue #228 的 synthetic seam 使用 C4 同构字段，raw Evidence 固定 manifest/dataset/
 source/candidate identity，scoring 拒绝跨数据集 truth，并以 exact version+content hash 锁定 mapping；假 lock 不得冒充真实环境。
 逐样本/逐轴独立 review 必须完整且无未解决决定，顶层 accepted 不能覆盖 changes requested；infer/score 均按真实路径阻止直接或
 经 symlink 写回受控数据包。Synthetic truth 必须使用 C4 exact pack/sample/review 审计字段；人工分歧的普通理由不能替代
 `decision_note`。
+Issue #230 的 C5a 只读 Evidence 将 det/rec exact 参数 bytes 绑定到 PaddlePaddle 官方 Apache-2.0 模型卡与固定 LFS OID，
+但 BOS tar 的 archive-specific 复制/再分发边界仍未证明。两架构 no-install resolver 都只支持 PaddleX 精确要求的
+`opencv-contrib-python==4.10.0.84`；headless 4.13 不能替代，contrib wheel 的 FFmpeg/Qt obligations、4.10 图像安全和严格
+image-only 边界尚未获接受。故完整 lock/cache、离线安装与 synthetic model smoke 继续 blocked；C5b 只有这些 Evidence 和
+决策解除后才能另行授权。
 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
@@ -167,8 +171,9 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 - #208/#210 已建立并接受 Fidelity-0 有界 Provider Evidence；#212 Fidelity-A 合同、#214 Fidelity-B repository、#216
   Fidelity-C0 检查能力 gate、#218/#219 shortlist、#220 blocker 审计与 #222/#223 准入合同已进入 `main`。Owner 已接受
   Fidelity-C4 仓库外 exact bytes、用途依据、脱敏 manifest 与分离角色完成的七维人工真值；#224 / PR #225 已把该
-  acceptance 固化进仓库。#226/#227 已完成环境与 harness 设计合同；#228 只在 artifact/license/dependency gate 下实现
-  synthetic validator/harness，独立 Review 与 blocker 解除后才可另行授权受控 benchmark。
+  acceptance 固化进仓库。#226/#227 已完成环境与 harness 设计合同，#228/#229 已实现 synthetic validator/harness；#230
+  只做 C5a 官方 artifact/license/dependency Evidence。BOS tar 再分发与 OpenCV contrib lane 未解除前不得授权 C5b，C5b
+  独立 Review 前也不得授权受控 benchmark。
   Fidelity-C～E 不得并行抢跑，也不得把设计、研究、fake Adapter 或 Provider Evidence 写成真实 Hifly 能力、部署或
   外观保真通过。
 - 文案增强、人物推荐、背景/场景/姿势、动效精修、Capture HTTP、Local Agent 新功能、并行生产、复杂对象存储和高可用全部暂停。
