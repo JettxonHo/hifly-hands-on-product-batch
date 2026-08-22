@@ -21,7 +21,7 @@ archive 的 SHA-256、内容清单或 archive-specific 再分发声明。因此�
 
 两架构 no-install resolver report 同时证明：PaddleOCR 3.7.0 / PaddleX 3.7.0 的 `ocr-core` 唯一官方 metadata lane 精确要求
 `opencv-contrib-python==4.10.0.84`；`opencv-python-headless==4.13.0.92` 是不同 distribution，不能用 `--no-deps`、metadata
-override 或“模块等价”替换。该 contrib wheel 同时打包 FFmpeg，Linux 非 headless wheel 还打包 Qt5；官方资料没有证明
+override 或“模块等价”替换。该 contrib wheel 同时打包 FFmpeg，Linux 与 macOS 非 headless wheels 均打包 Qt5；官方资料没有证明
 4.13 的图像内存安全修复已回移至 4.10。故 C5a 未形成 accepted lane，环境继续 blocked，完整 cache 与离线
 `--require-hashes` 安装也未验证。不得安装、运行模型或 benchmark，也不得用 resolver report 冒充 accepted environment。
 
@@ -202,8 +202,8 @@ macOS/arm64 smoke 与 canonical Linux/amd64 run 必须分开命名和统计。CI
 - dataset/人工真值继续遵守 Owner 已接受的用途、12 个月保留、复审和删除边界；harness 只读，不创建未治理副本。
 - PaddleOCR、PaddleX、PaddlePaddle 代码仓库使用 Apache-2.0；PP-OCRv6 两个官方模型卡也声明 Apache-2.0，且 exact
   参数 bytes 已由 LFS OID 绑定。BOS tar 的 archive-specific 再分发边界仍未证明，不能只凭模型卡把 tar 打包或镜像。
-  OpenCV core 使用 Apache-2.0，opencv-python packaging 使用 MIT；contrib wheel 还携带 FFmpeg LGPLv2.1，Linux
-  non-headless wheel 携带 Qt5 LGPLv3。implementation gate 必须逐 artifact 归档 LICENSE/NOTICE/第三方许可并形成可复核
+  OpenCV core 使用 Apache-2.0，opencv-python packaging 使用 MIT；contrib wheel 还携带 FFmpeg LGPLv2.1，Linux 与 macOS
+  non-headless wheels 均携带 Qt5 LGPLv3。implementation gate 必须逐 artifact 归档 LICENSE/NOTICE/第三方许可并形成可复核
   obligations plan；PyPI 顶层 license 字段不能替代 wheel 内第三方许可。CPython 使用 PSF License。
 - 所有第三方 wheel/weight 都是不可信输入：hash、magic/archive containment、路径和反序列化边界必须在实现 gate 单独审阅。
 - OpenCV 4.10 contrib wheel 的构建信息和随附组件必须进入安全复核；本 baseline 即使禁用 video/GUI/codec/FFmpeg 路径，

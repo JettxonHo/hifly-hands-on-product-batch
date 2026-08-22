@@ -364,7 +364,7 @@
   commit 的 LFS OID；两个模型卡均声明 Apache-2.0。这证明 exact 参数 bytes 的第一方许可，不证明无 LICENSE/NOTICE 的 BOS tar
   可复制或再分发，故保持 `PP_OCRV6_BOS_ARCHIVE_REDISTRIBUTION_UNVERIFIED`。Linux/amd64 与 macOS/arm64 no-install resolver
   report 都只解析出 PaddleX `ocr-core` 精确要求的 `opencv-contrib-python==4.10.0.84`；headless 4.13 是不同 distribution，
-  不得用 `--no-deps` 或 metadata override 替代。contrib wheel 打包 FFmpeg，Linux wheel 另有 Qt5，4.10 的图像安全修复回移
+  不得用 `--no-deps` 或 metadata override 替代。contrib wheel 打包 FFmpeg，Linux 与 macOS non-headless wheels 均另有 Qt5，4.10 的图像安全修复回移
   也无官方 Evidence，故不提交 accepted lock、不安装或运行模型。
   `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 

@@ -64,7 +64,7 @@ PaddlePaddle 官方 Hugging Face 模型仓库。只读展开后的精确参数�
 | macOS arm64 | 63667391 | `ee4b0919026d8c533aeb69b16c6ec4a891a2f6844efaa14121bf68838753209c` |
 
 官方 opencv-python 资料要求同一环境只安装一个 `cv2` wheel。OpenCV core 为 Apache-2.0，packaging scripts 为 MIT；
-所有 wheels 打包 FFmpeg LGPLv2.1，Linux non-headless wheel 另打包 Qt5 LGPLv3。运行合同仍只允许本地静态栅格图像
+所有 wheels 打包 FFmpeg LGPLv2.1，Linux 与 macOS non-headless wheels 均另打包 Qt5 LGPLv3。运行合同仍只允许本地静态栅格图像
 decode/preprocess/measure，禁止 URL、PDF、目录、video capture、codec、FFmpeg、GUI 和 camera；但操作禁令不能抹去
 二进制中实际打包的组件与许可义务。
 
