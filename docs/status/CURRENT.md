@@ -1,8 +1,8 @@
 # 项目当前状态
 
-> 最后更新：2026-08-20
+> 最后更新：2026-08-22
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、Issue #218 shortlist 与 Issue #220 readiness blocker 审计已进入 `main@b46ec21f15e9cbdf784ec554d065c4b21ae54771`。Owner 已授权 Fidelity-C3 准入方向，PR #223 是合同 acceptance gate；只有该 PR 合并进入 `main` 后才计为合同 accepted。只读审计确认 Git 有 4 张 source PNG，但没有合格 candidate 配对、用途依据或独立标注，因此数据集与标注仍未准入，`DATASET_BLOCKER`、`ANNOTATION_BLOCKER` 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。在数据/标注另行 accepted 前不锁环境、不写 harness、不运行 benchmark；可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、Issue #218 shortlist、Issue #220 readiness 审计与 Issue #222 / PR #223 准入合同已进入 `main@f8d63e7c387a02c2b41f0695f71cb2e305529828`。Owner 已接受仓库外 Fidelity-C4 受控 exact-byte 数据与独立七维人工真值；Issue #224 / 对应 PR 是仓库侧 acceptance gate，合并进入 `main` 后只表示数据/人工真值准入，可继续环境与 harness gate。没有安装依赖、编写或运行 benchmark；`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持，可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -343,12 +343,15 @@
   图片而保持 reserve/blocked；Google Vertex AI 因旧 lifecycle URL 重定向、当前版本锁定与迁移语义待复核而保持 reserve；
   混合方案在合规多模态组件获接受前保持 deferred。没有调用模型或上传图片，逐维覆盖、严重误放行、误阻断、unknown、
   延迟和真实费用仍全部未验证，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
-- Issue #220 / PR #221 的 Fidelity-C2 readiness blocker 审计已进入 `main@b46ec21f15e9cbdf784ec554d065c4b21ae54771`。
-  Fidelity-C3 只读纠偏确认 Git 实际跟踪 `products/images/` 下 4 张 source PNG、4 个唯一 SHA-256；但没有 candidate exact
-  bytes、不可变配对、benchmark use basis 或人工真值，因此这些源图不构成可准入数据集。Fidelity-0 本轮仍只找到源图
-  exact bytes；旧 ignored `batches/**` 的 21 个图片文件/3 个唯一 hash 只是对旧本地 checkout 的一次性观察，不随 Git 持久。
-  Issue #222 只固化准入合同与 Owner 输入；状态仍为 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER`，没有安装依赖、写 harness
-  或运行 benchmark。对应 PR 合并也不表示数据已准入、能力已选择、实现、部署或 Provider 验收完成。
+- Issue #220 / PR #221 的 Fidelity-C2 readiness blocker 审计与 Issue #222 / PR #223 的 Fidelity-C3 准入合同已进入
+  `main@f8d63e7c387a02c2b41f0695f71cb2e305529828`。C2 当时的 `DATASET_BLOCKER` + `ANNOTATION_BLOCKER` 已由 Fidelity-C4
+  仓库外受控包解除：alias `HIFLY_APPEARANCE_BENCHMARK_V1` 包含 4 个 exact source/candidate 配对、4 类/4 商品族；
+  `ANT-01` 完成 4 samples x 7 axes，独立盲审角色 `RV-01` 精确绑定 annotation SHA-256 并 accepted，0 changes requested、
+  0 unresolved。Owner 已批准 12 个月保留至 2027-08-21、2027-07-22 前复审且不自动续期。图片和 annotation/review JSON
+  正文仍在 Git 外；仓库只记录 alias、相对 artifact、bytes/SHA-256 与 acceptance 结论。
+- Issue #224 / 对应 PR 是仓库侧 Fidelity-C4 acceptance gate。合并只允许进入独立环境与 harness 设计/锁定 gate；尚未安装
+  PaddleOCR/OpenCV、编写或运行 benchmark，也没有能力、policy/rule version、阈值、准确率、费用或产品实现结论。
+  `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 
 ## P0.5 内部验收环境部署
 
@@ -509,11 +512,11 @@
 
 1. #200/#201/#202 已完成实现、独立 Review、合并、部署与单条真实复验；尺寸选档和技术闭环通过，但 Work 已因瓶盖造型
    失真登记返工。没有新的重试或再次生产授权，保持本单 `rework_required` 且不交付。
-2. Fidelity-0 Evidence、Fidelity-A、Fidelity-B、Issue #216 能力门禁、Issue #218 shortlist 与 Issue #220 blocker 审计均已进入
-   `main`；本地 PaddleOCR/OpenCV 只是唯一具备后续受控 benchmark 资格的候选。Issue #222 当前只定义准入合同与 Owner 输入：
-   仓库外 exact bytes、用途依据、脱敏 manifest、多个商品/四类样本，以及标注者与独立复核者完成的七维人工真值。该 PR 合并
-   也不表示数据已 accepted；只有独立数据/标注 acceptance 通过后，才可锁本地环境、写 harness 与另行运行 benchmark。
-   capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
+2. Fidelity-0 Evidence、Fidelity-A、Fidelity-B、Issue #216 能力门禁、Issue #218 shortlist、Issue #220 blocker 审计与
+   Issue #222 / PR #223 准入合同均已进入 `main`；本地 PaddleOCR/OpenCV 只是唯一具备后续受控 benchmark 资格的候选。
+   Owner 已接受 Fidelity-C4 的仓库外 exact bytes、用途依据、4 类/4 商品族脱敏 manifest，以及不同角色完成的七维人工真值；
+   Issue #224 / 对应 PR 合并后只计为仓库侧数据/人工真值 accepted。下一步必须先独立锁定本地环境与可复现 harness，之后才可
+   另行运行 benchmark。capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
    有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
 3. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。

@@ -1,8 +1,8 @@
 # 商品外观检查本地 Benchmark 数据门禁
 
 > 状态：Fidelity-C2 readiness 审计已随 Issue #220 / PR #221 进入 `main@b46ec21f15e9cbdf784ec554d065c4b21ae54771`
-> 关联：D-035、D-036、Issue #216、Issue #218、Issue #220、Issue #222
-> 结论：`DATASET_BLOCKER` + `ANNOTATION_BLOCKER`
+> 关联：D-035、D-036、Issue #216、Issue #218、Issue #220、Issue #222、Issue #224
+> 当前结论：Issue #220 的历史 blocker 已由 Fidelity-C4 受控数据与独立人工真值 acceptance 解除；下一步仅可进入环境与 harness gate
 > 能力状态：`BLOCKED_CHECK_CAPABILITY_UNSELECTED`
 
 ## 1. 本轮问题
@@ -31,11 +31,11 @@ AppearanceCheckRun/Result、AppearanceReview 或 UI。
 `.png`、`.jpg`、`.jpeg` 扩展名枚举普通文件，统计文件数并对文件 bytes 计算 SHA-256 后去重。ignored 二进制没有随分支或 Git
 持久，未来仅凭本仓库不能重放该观察；该数字不能作为 benchmark 输入的可复现性、用途许可或数据资产证明。
 
-## 3. 阻断结论
+## 3. C2 历史阻断与 C4 解阻
 
-### 3.1 `DATASET_BLOCKER`
+### 3.1 C2 `DATASET_BLOCKER`（历史）
 
-当前没有一组同时满足以下条件的数据。Git 跟踪的 4 张源图不改变此结论，因为它们没有候选 exact bytes、不可变配对、用途依据与人工真值：
+C2 审计当时没有一组同时满足以下条件的数据。Git 跟踪的 4 张源图不改变该历史结论，因为它们没有候选 exact bytes、不可变配对、用途依据与人工真值：
 
 - exact source/candidate bytes 均可读，媒体类型、大小与 SHA-256 可复核；
 - 每对样本有稳定 sample ID 与不可变 source↔candidate 关系；
@@ -44,20 +44,23 @@ AppearanceCheckRun/Result、AppearanceReview 或 UI。
 - 覆盖允许变化、单维身份变化、歧义和组合变化；
 - 七个 D-036 维度均有可判定与不可判定场景。
 
-### 3.2 `ANNOTATION_BLOCKER`
+### 3.2 C2 `ANNOTATION_BLOCKER`（历史）
 
-当前没有独立于 benchmark 实现的人工真值：
+C2 审计当时没有独立于 benchmark 实现的人工真值：
 
 - 每个样本、每个维度的 `supported | unsupported | unknown`；
 - 对应理由和可复核 evidence reference；
 - 允许变化与身份变化的判定依据；
 - 标注版本、标注者角色、复核状态与争议处理记录。
 
-没有这些真值，无法计算逐维严重误放行、合法变化误阻断或 unknown，也无法证明聚合规则是否正确。
+没有这些真值，无法计算逐维严重误放行、合法变化误阻断或 unknown，也无法证明聚合规则是否正确。Fidelity-C4 后续通过
+仓库外受控 alias `HIFLY_APPEARANCE_BENCHMARK_V1` 提供 4 个 exact 配对、4 类/4 商品族、4 samples x 7 axes 人工真值与
+不同角色盲审 acceptance，从而解除这两项 readiness blocker；具体 Evidence 由
+[`PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md`](PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md) 持有。
 
 ### 3.3 次级环境前置条件
 
-PaddleOCR/OpenCV 尚未安装或锁定，但这不是先写 harness 的理由。只有数据与标注包通过独立审阅后，才可单独锁定：
+PaddleOCR/OpenCV 尚未安装或锁定。数据与标注包已通过独立 acceptance，但环境尚未锁定；下一项独立 gate 才可定义并复核：
 
 - PaddleOCR、PaddlePaddle、PP-OCRv6 权重与 checksum；
 - OpenCV 版本与构建信息；
@@ -83,10 +86,9 @@ manifest 最少记录：
 
 ```text
 Issue #220 数据/标注 blocker 已进入 main
-→ Issue #222 固化受控数据与独立人工真值准入合同
-→ Owner 提供或批准仓库外受控数据、使用依据、脱敏 manifest 与独立人工角色
-→ 独立数据/标注 acceptance gate
-→ 锁定本地运行环境与 benchmark harness
+→ Issue #222 / PR #223 固化受控数据与独立人工真值准入合同
+→ Issue #224 Fidelity-C4 数据/标注 acceptance gate
+→ 独立环境与 benchmark harness 设计/锁定 gate
 → 运行真实本地 benchmark 并原样报告逐样本/逐维结果
 → Reviewer 复核 Evidence
 → Owner 决定 capability、policy/rule version 与阈值
@@ -95,12 +97,12 @@ Issue #220 数据/标注 blocker 已进入 main
 
 任一阶段都不能用总相似度、fixture 绿测、单张截图或单一 SKU 代替七维 Evidence。
 
-Issue #222 的准入合同由
+Issue #222 的准入合同与 Fidelity-C4 acceptance 由
 [`PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md`](PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md)
-持有。该合同合并只表示 blocker 和解阻输入可复审，不表示现有 4 张 Git source 已获 benchmark 准入。
+持有。已准入的是仓库外受控 alias 的 exact version，不是仓库现有 4 张 Git source，也不表示 benchmark 已运行或能力已选择。
 
 ## 6. 本轮边界
 
-本轮没有安装 PaddleOCR/OpenCV、没有编写或运行 benchmark harness、没有计算准确率/延迟/成本、没有选择阈值或能力。
+Fidelity-C4 没有安装 PaddleOCR/OpenCV、没有编写或运行 benchmark harness、没有计算准确率/延迟/成本、没有选择阈值或能力。
 没有访问 Hifly、生产系统或外部模型/API，没有上传图片、启动 Worker/Local Agent、创建工单/候选/视频、修改生产数据、
 SSH、部署或产生费用。真实二进制、凭据、缓存、绝对路径和敏感结果均未提交 Git。

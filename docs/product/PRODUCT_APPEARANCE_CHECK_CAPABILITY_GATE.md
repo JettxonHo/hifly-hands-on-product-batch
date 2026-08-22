@@ -140,8 +140,9 @@ gate 中批准。阈值未批准时，能力状态保持 blocked。
 Issue #216 gate 进入 main
 → Issue #218 capability shortlist 与官方费用/隐私/版本证据进入 main
 → Issue #220 readiness blocker 审计进入 main
-→ Issue #222 受控 exact-byte 数据与独立七维人工真值准入
-→ 锁定本地环境与可复现 harness
+→ Issue #222 / PR #223 受控 exact-byte 数据与独立七维人工真值准入合同进入 main
+→ Issue #224 Fidelity-C4 数据与人工真值 acceptance
+→ 独立环境与可复现 harness 设计/锁定 gate
 → 经独立 acceptance 的受控 benchmark
 → Owner 接受 capability + policy/model version + 阈值
 → 新 Fidelity-C 实现 Issue：Run/Result → Review → workspace
@@ -156,9 +157,10 @@ Issue #218 的研究结果由
 [`PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md`](PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md) 持有。该文件只把官方能力
 压缩为当前唯一可执行候选：本地 PaddleOCR/OpenCV 基线。OpenAI 固定 snapshot 因官方 Logo 输入要求保持 reserve/blocked，
 Google Vertex AI 因版本锁定与迁移语义待复核保持 reserve，混合方案在合规多模态组件获接受前保持 deferred。它没有运行模型、
-测量准确率、设置阈值或替 Owner 选择最终 capability。Issue #220 已证明当前缺少可准入的数据和独立人工真值；Issue #222
-继续持有仓库外 exact bytes、用途依据、脱敏 manifest 与独立复核的准入合同。只有数据/标注另行 accepted 后才能锁环境和
-编写 harness；任何外部图片/API/费用动作继续单独过 gate。
+测量准确率、设置阈值或替 Owner 选择最终 capability。Issue #220 记录了当时缺少可准入数据和独立人工真值的 blocker，Issue #222
+持有仓库外 exact bytes、用途依据、脱敏 manifest 与独立复核的准入合同；Fidelity-C4 已按该合同完成数据与人工真值 acceptance。
+下一步仍须独立锁定环境和 harness，且任何外部图片/API/费用动作继续单独过 gate。数据 acceptance 不改变
+`BLOCKED_CHECK_CAPABILITY_UNSELECTED`。
 
 ## 8. 本轮边界
 
