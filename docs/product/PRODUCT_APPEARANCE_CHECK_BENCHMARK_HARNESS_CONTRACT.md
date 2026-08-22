@@ -37,6 +37,11 @@ Manifest 的固定身份还包括：`dataset_id=hifly-appearance-controlled`、`
 输入校验必须先于任何推理：普通文件且非 symlink、相对路径受控、bytes/media/dimensions/SHA-256 与 manifest 一致、
 annotation/review 精确绑定且 review accepted。任一漂移立即停止整次 run，不生成部分通过结论。
 
+仓库 synthetic fixture 必须与 C4 公共 schema 同构：图片引用使用 `relative_path`；annotation 使用 `status=completed`、
+`annotator_id` 与盲评标记；review 使用 `status=completed`、`review_status=accepted`、`annotation_pack_sha256`、
+`annotator_id` 与不同的 `reviewer_id`。fixture 只使用合成 bytes，不读取上述 accepted 四对数据。测试专用字段名不得成为另一套
+产品合同。
+
 ## 3. 候选环境锁
 
 ### 3.1 兼容矩阵
@@ -96,7 +101,10 @@ Git 不提交 wheel、权重、缓存、dataset bytes、annotation/review JSON �
 ### 4.1 两阶段隔离
 
 - **Inference phase**：只能读取 manifest 指定的 source/candidate bytes，不得读取 annotation/review；输出不可变 raw Evidence。
+  raw Evidence 必须绑定 storage alias、manifest 相对引用/bytes/SHA-256、dataset ID/version/status，以及每个 sample 的
+  source/candidate `relative_path`、bytes/media/dimensions/SHA-256。
 - **Scoring phase**：在 inference 完成并封存后才读取 accepted annotation/review，以 exact run manifest 计算逐样本/逐维统计。
+  annotation/review 的 dataset ID/version 必须与 raw Evidence 一致；sample ID 相同但数据集不同也必须 fail closed。
 - 固定 4 个样本全部是 evaluation set，不设训练集，也不得在看到人工真值或结果后调阈值再重跑并覆盖原结果。
 - 任何新规则、预处理、模型或阈值都必须形成新的 `policy_version` 和新 run，历史 run 不可改写。
 
@@ -117,8 +125,11 @@ Accepted annotation pack 的 axis 与 D-036 runtime dimension 不是一一对应
 | `internal_proportion_size_impression` | 比例与尺寸感 | 长宽、部件与包装的相对比例；画面相对大小仍是允许变化 |
 | `obvious_artifacts` | 明显伪影 | 跨维风险 axis；只映射到 Evidence 可归属的现有维度，无法归属时为 `unknown` |
 
-评分输出必须同时保留 `annotation_axis`、`runtime_dimension`、`mapping_policy_version`、原始人工 status/reason/evidence、
-派生 runtime truth、模型 raw Evidence 引用和 comparison outcome。`obvious_artifacts` 不得成为第八个 runtime dimension。
+评分映射固定为 `mapping_policy_version=d036-c3-v1`，并以 exact content SHA-256
+`1e5fc0362d70d9d3b9bd63ed858889de7a7cd3b5a922e013ae354d1224bf9470` 锁定上表内容；有效维度内的任意重映射、重复目标、
+空目标漂移或第八维都必须停止。评分输出必须同时保留 `annotation_axis`、`runtime_dimension`、`mapping_policy_version`、
+mapping content hash、原始人工 status/reason code/reason/evidence/visibility context、派生 runtime truth、模型 raw Evidence 引用和
+comparison outcome。`obvious_artifacts` 不得成为第八个 runtime dimension。
 
 Inference raw output 仍按 sample、受控 operation 与候选 runtime dimension 编址，不得读取 annotation。Scoring phase 才按固定
 映射生成两组独立统计：`by_annotation_axis` 保留原 7 axes，`by_runtime_dimension` 保留 D-036 的 7 个运行维度；每个统计单元
@@ -211,8 +222,11 @@ Fidelity-C5 合并只表示本合同 designed/locked，不表示 environment rea
 4. external cache manifest、dataset identity、blind inference/scoring 和 negative controls 有 TDD 合同；
 5. Owner 尚未接受阈值时，harness 不得产生 `passed`。
 
-Issue #228 已实现 synthetic-only 的 alias/input validator、blind raw Evidence、双层 axis/dimension scoring 与 negative controls；
-这些代码只有随对应 PR 合并进入 `main` 后才计为 repository implemented，不解除上述 artifact gate。当前权重许可和
+Issue #228 已实现 synthetic-only 的 alias/input validator、blind raw Evidence、双层 axis/dimension scoring 与 negative controls。
+测试 lock 必须显式声明 `synthetic_contract_only`，validator 只能返回 `synthetic_contract_validated`；任意只有格式正确的外部
+lock、假 dependency hash 或 OCI digest 都不能得到 `environment_validated`。真实 environment 状态必须等待完整 lock/cache/runtime
+Evidence 和本节阻断解除后另行开放。上述代码只有随对应 PR 合并进入 `main` 后才计为 repository implemented；它们不解除
+上述 artifact gate。当前权重许可和
 OpenCV 依赖冲突未满足，故环境配置明确保持 blocked，不提交候选 requirements lock、不安装或运行模型。解除阻断、形成
 完整 cache 与离线安装 Evidence 后还需独立 Review，之后才可另行授权本地 accepted benchmark。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 持续到 benchmark Evidence、
 Reviewer 复核和 Owner capability/policy/阈值 acceptance 全部完成。

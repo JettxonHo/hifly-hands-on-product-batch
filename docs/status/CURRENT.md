@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-22
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance 与 Fidelity-C5 环境/harness 合同已进入精确 `main@a65a74ef0f94c131df0712e9943b68a0c835220e`。Issue #228 / 对应 PR 是 environment/harness implementation acceptance gate；权重 exact identity 已取得，但权重许可未知，且 PaddleX OCR 传递依赖引入合同外 OpenCV contrib 4.10，环境保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`。没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持，可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance 与 Fidelity-C5 环境/harness 合同已进入精确 `main@a65a74ef0f94c131df0712e9943b68a0c835220e`。Issue #228 / 对应 PR 是 environment/harness implementation acceptance gate；当前 synthetic CLI 消费 C4 同构 schema、绑定 exact dataset/manifest/pair 并锁定 D-036/C3 mapping hash，但只能返回 synthetic contract 状态。权重许可未知，且 PaddleX OCR 传递依赖引入合同外 OpenCV contrib 4.10，环境保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`。没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持，可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -357,7 +357,9 @@
   artifact audit 已取得 det/rec 权重 exact bytes/SHA-256 和安全 archive containment，并复核六个顶层 wheel；但权重 tar
   无 LICENSE/NOTICE，官方资料没有权重许可，两个 lane 的候选依赖解析又都引入合同外 `opencv-contrib-python==4.10.0.84`。
   完整传递 cache 与离线 `--require-hashes` 安装未验证，故不提交候选 lock、不安装或运行模型。Issue #228 / 对应 PR 的
-  synthetic validator/harness 只有随 PR 合并才计 repository implemented，且不表示 accepted benchmark 或能力结论。
+  synthetic validator/harness 只有随 PR 合并才计 repository implemented。该 seam 使用 C4 同构字段；raw Evidence 固定 exact
+  manifest/dataset/pair，scoring 拒绝跨数据集 truth，并以 version+content hash 锁定 mapping 和原子回链；测试 lock 只能得到
+  `synthetic_contract_validated`。它不表示 runnable environment、accepted benchmark 或能力结论。
   `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 
 ## P0.5 内部验收环境部署

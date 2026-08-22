@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "mapping_policy_version": "d036-c3-v1",
+  "mapping_content_sha256": "1e5fc0362d70d9d3b9bd63ed858889de7a7cd3b5a922e013ae354d1224bf9470",
   "mappings": {
     "form_silhouette": [
       "form_geometry"

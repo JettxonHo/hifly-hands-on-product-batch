@@ -39,7 +39,8 @@ export async function validateBenchmarkEnvironment({
 
   await validateDatasetTree(root, new Set([
     normalizeRelativePath(manifestPath),
-    ...manifest.samples.flatMap((sample) => [sample.source.path, sample.candidate.path].map(normalizeRelativePath))
+    ...manifest.samples.flatMap((sample) => [sample.source.relative_path, sample.candidate.relative_path]
+      .map(normalizeRelativePath))
   ]));
 
   const lock = await readJsonFile(environmentLockPath, "BENCHMARK_ENVIRONMENT_LOCK_INVALID");
@@ -51,7 +52,7 @@ export async function validateBenchmarkEnvironment({
   }
 
   return {
-    status: "environment_validated",
+    status: "synthetic_contract_validated",
     storage_alias: storageAlias,
     lane,
     samples: manifest.samples.length
@@ -103,7 +104,7 @@ function validateManifestShape(manifest) {
 }
 
 function validateImageDescriptor(value) {
-  if (!value || typeof value.path !== "string" || !Number.isSafeInteger(value.bytes) || value.bytes < 1 ||
+  if (!value || typeof value.relative_path !== "string" || !Number.isSafeInteger(value.bytes) || value.bytes < 1 ||
       !SHA256.test(value.sha256) || !["image/png", "image/jpeg"].includes(value.media_type) ||
       !Number.isSafeInteger(value.encoded_width) || value.encoded_width < 1 ||
       !Number.isSafeInteger(value.encoded_height) || value.encoded_height < 1) {
@@ -113,7 +114,8 @@ function validateImageDescriptor(value) {
 
 function validateEnvironmentLock(lock, { storageAlias, lane, expectedLane }) {
   const selected = lock?.lanes?.[lane];
-  if (lock?.schema_version !== 1 || lock?.storage_alias !== storageAlias || !selected ||
+  if (lock?.schema_version !== 1 || lock?.validation_mode !== "synthetic_contract_only" ||
+      lock?.storage_alias !== storageAlias || !selected ||
       selected.os !== expectedLane.os || selected.architecture !== expectedLane.architecture ||
       selected.python !== "3.11.16" || !SHA256.test(selected.dependency_lock_sha256)) {
     fail("BENCHMARK_ENVIRONMENT_LOCK_INVALID", "The benchmark environment lock is invalid");
@@ -124,7 +126,7 @@ function validateEnvironmentLock(lock, { storageAlias, lane, expectedLane }) {
 }
 
 async function validateImage(root, descriptor) {
-  const filename = resolveControlledPath(root, descriptor.path, "BENCHMARK_IMAGE_PATH_INVALID");
+  const filename = resolveControlledPath(root, descriptor.relative_path, "BENCHMARK_IMAGE_PATH_INVALID");
   const stat = await safeLstat(filename, "BENCHMARK_IMAGE_UNAVAILABLE");
   if (!stat.isFile() || stat.isSymbolicLink()) {
     fail("BENCHMARK_IMAGE_UNAVAILABLE", "A benchmark image is not a regular file");

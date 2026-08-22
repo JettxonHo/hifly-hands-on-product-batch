@@ -3,7 +3,11 @@ import { lstat, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  ANNOTATION_AXES,
+  AXIS_MAPPING_CONTENT_SHA256,
+  AXIS_MAPPING_POLICY_VERSION,
   AppearanceBenchmarkError,
+  FROZEN_AXIS_MAPPINGS,
   RUNTIME_DIMENSIONS
 } from "./contracts.js";
 import { validateBenchmarkEnvironment } from "./environment-validator.js";
@@ -38,7 +42,11 @@ export async function runBlindInference({
   });
   const datasetRoot = env[`${storageAlias}_ROOT`];
   assertOutputOutsideControlledRoot(datasetRoot, outputPath);
-  const manifest = await readJson(path.resolve(datasetRoot, manifestPath), "BENCHMARK_MANIFEST_INVALID");
+  const manifestBytes = await readRegularFile(
+    path.resolve(datasetRoot, manifestPath),
+    "BENCHMARK_MANIFEST_INVALID"
+  );
+  const manifest = parseJson(manifestBytes, "BENCHMARK_MANIFEST_INVALID");
   if (manifest.status !== "synthetic_fixture_only") {
     fail("BENCHMARK_REAL_DATA_NOT_AUTHORIZED", "This gate only permits synthetic fixture inference");
   }
@@ -49,7 +57,12 @@ export async function runBlindInference({
     sample_id: sample.sample_id,
     source: projectImageIdentity(sample.source),
     candidate: projectImageIdentity(sample.candidate),
-    operations: policy.allowed_operations.map((operation) => ({ operation, status: "recorded" }))
+    operations: policy.allowed_operations.map((operation) => ({ operation, status: "recorded" })),
+    runtime_dimensions: RUNTIME_DIMENSIONS.map((dimension) => ({
+      dimension,
+      verdict: "unknown",
+      evidence_ref: `raw-evidence://${runId}/${sample.sample_id}/${dimension}`
+    }))
   }));
   const payload = {
     schema_version: 1,
@@ -59,6 +72,15 @@ export async function runBlindInference({
     lane,
     adapter,
     policy_version: policy.policy_version,
+    dataset: {
+      storage_alias: storageAlias,
+      manifest_relative_path: manifestPath.split("\\").join("/"),
+      manifest_bytes: manifestBytes.length,
+      manifest_sha256: sha256(manifestBytes),
+      dataset_id: manifest.dataset_id,
+      dataset_version: manifest.dataset_version,
+      dataset_status: manifest.status
+    },
     accepted_thresholds: false,
     aggregate: "needs_review",
     runtime_dimensions: RUNTIME_DIMENSIONS.map((dimension) => ({ dimension, verdict: "unknown" })),
@@ -107,15 +129,31 @@ export async function scoreSealedEvidence({
   const annotation = parseJson(annotationBytes, "BENCHMARK_ANNOTATION_INVALID");
   const review = await readJson(reviewPath, "BENCHMARK_REVIEW_INVALID");
   const mapping = await readJson(axisMappingPath, "BENCHMARK_AXIS_MAPPING_INVALID");
-  validateTruth(annotation, review, annotationBytes, raw.payload.samples.map((sample) => sample.sample_id));
-  validateAxisMapping(mapping);
+  validateTruth(
+    annotation,
+    review,
+    annotationBytes,
+    raw.payload.dataset,
+    raw.payload.samples.map((sample) => sample.sample_id)
+  );
+  const mappingPolicySha256 = validateAxisMapping(mapping);
 
-  const samples = annotation.samples.map((sample) => scoreSample(sample, mapping));
+  const rawSamples = new Map(raw.payload.samples.map((sample) => [sample.sample_id, sample]));
+  const samples = annotation.samples.map((sample) => scoreSample({
+    annotationSample: sample,
+    rawSample: rawSamples.get(sample.sample_id),
+    rawRunId: raw.payload.run_id,
+    mapping,
+    mappingPolicySha256
+  }));
   const payload = {
     schema_version: 1,
     run_id: raw.payload.run_id,
     scored_at: now().toISOString(),
+    dataset: raw.payload.dataset,
+    raw_evidence_payload_sha256: raw.payload_sha256,
     mapping_policy_version: mapping.mapping_policy_version,
+    mapping_policy_sha256: mappingPolicySha256,
     aggregate: "needs_review",
     samples
   };
@@ -133,23 +171,57 @@ export async function scoreSealedEvidence({
   };
 }
 
-function scoreSample(sample, mapping) {
+function scoreSample({ annotationSample: sample, rawSample, rawRunId, mapping, mappingPolicySha256 }) {
+  const atomicMappings = sample.axes.flatMap((entry) => {
+    const targets = mapping.mappings[entry.axis];
+    const effectiveTargets = targets.length === 0 ? [null] : targets;
+    return effectiveTargets.map((runtimeDimension) => {
+      const mappingEvidenceRef = runtimeDimension && targets.length === 1
+        ? entry.evidence_ref
+        : runtimeDimension
+          ? entry.evidence_by_runtime_dimension?.[runtimeDimension] || null
+          : null;
+      const groundTruth = runtimeDimension === null || (targets.length > 1 && !mappingEvidenceRef)
+        ? "unknown"
+        : entry.status;
+      const rawEvidenceRef = runtimeDimension
+        ? rawSample.runtime_dimensions.find((item) => item.dimension === runtimeDimension)?.evidence_ref || null
+        : null;
+      return {
+        mapping_record_id: `${sample.sample_id}:${entry.axis}:${runtimeDimension || "unmapped"}`,
+        mapping_policy_version: mapping.mapping_policy_version,
+        mapping_policy_sha256: mappingPolicySha256,
+        annotation_axis: entry.axis,
+        runtime_dimension: runtimeDimension,
+        annotation_status: entry.status,
+        annotation_reason_code: entry.reason_code,
+        annotation_reason: entry.reason,
+        annotation_evidence_ref: entry.evidence_ref,
+        visibility_context: entry.visibility_context,
+        mapping_evidence_ref: mappingEvidenceRef,
+        ground_truth: groundTruth,
+        raw_evidence_ref: rawEvidenceRef,
+        raw_run_id: rawRunId,
+        model_verdict: "unknown",
+        comparison_outcome: "unknown"
+      };
+    });
+  });
   const byAnnotationAxis = sample.axes.map((entry) => ({
     annotation_axis: entry.axis,
     ground_truth: entry.status,
+    annotation_reason_code: entry.reason_code,
+    annotation_reason: entry.reason,
+    annotation_evidence_ref: entry.evidence_ref,
+    visibility_context: entry.visibility_context,
+    mapping_record_ids: atomicMappings
+      .filter((record) => record.annotation_axis === entry.axis)
+      .map((record) => record.mapping_record_id),
     model_verdict: "unknown",
     comparison_outcome: "unknown"
   }));
   const byRuntimeDimension = RUNTIME_DIMENSIONS.map((runtimeDimension) => {
-    const records = [];
-    for (const axis of sample.axes) {
-      const targets = mapping.mappings[axis.axis];
-      if (!targets.includes(runtimeDimension)) continue;
-      const groundTruth = targets.length === 1
-        ? axis.status
-        : (axis.evidence_by_runtime_dimension?.[runtimeDimension] ? axis.status : "unknown");
-      records.push({ annotation_axis: axis.axis, ground_truth: groundTruth });
-    }
+    const records = atomicMappings.filter((record) => record.runtime_dimension === runtimeDimension);
     const groundTruth = records.some((entry) => entry.ground_truth === "unsupported")
       ? "unsupported"
       : records.some((entry) => entry.ground_truth === "unknown") || records.length === 0
@@ -160,11 +232,13 @@ function scoreSample(sample, mapping) {
       ground_truth: groundTruth,
       model_verdict: "unknown",
       comparison_outcome: "unknown",
-      mappings: records
+      mapping_record_ids: records.map((record) => record.mapping_record_id),
+      raw_evidence_refs: [...new Set(records.map((record) => record.raw_evidence_ref).filter(Boolean))]
     };
   });
   return {
     sample_id: sample.sample_id,
+    atomic_mappings: atomicMappings,
     by_annotation_axis: byAnnotationAxis,
     by_runtime_dimension: byRuntimeDimension
   };
@@ -182,11 +256,21 @@ function validateOperationsPolicy(policy) {
 function validateRawEvidence(payload) {
   const dimensions = payload?.runtime_dimensions;
   const samples = payload?.samples;
+  const dataset = payload?.dataset;
   if (payload?.schema_version !== 1 || payload?.accepted_thresholds !== false || payload?.aggregate !== "needs_review" ||
+      dataset?.storage_alias !== "HIFLY_APPEARANCE_BENCHMARK_V1" ||
+      typeof dataset?.manifest_relative_path !== "string" || !dataset.manifest_relative_path ||
+      !Number.isSafeInteger(dataset?.manifest_bytes) || dataset.manifest_bytes < 1 ||
+      !/^[a-f0-9]{64}$/.test(dataset?.manifest_sha256 || "") ||
+      typeof dataset?.dataset_id !== "string" || !dataset.dataset_id ||
+      typeof dataset?.dataset_version !== "string" || !dataset.dataset_version ||
+      typeof dataset?.dataset_status !== "string" || !dataset.dataset_status ||
       !Array.isArray(dimensions) || dimensions.length !== RUNTIME_DIMENSIONS.length ||
       dimensions.some((entry, index) => entry?.dimension !== RUNTIME_DIMENSIONS[index] || entry.verdict !== "unknown") ||
       !Array.isArray(samples) || samples.length === 0 ||
-      samples.some((sample) => typeof sample?.sample_id !== "string" || !sample.sample_id)) {
+      samples.some((sample) => typeof sample?.sample_id !== "string" || !sample.sample_id ||
+        !validProjectedImageIdentity(sample.source) || !validProjectedImageIdentity(sample.candidate) ||
+        !validRawRuntimeDimensions(sample.runtime_dimensions))) {
     fail("BENCHMARK_RAW_EVIDENCE_INVALID", "The benchmark raw Evidence payload is incomplete");
   }
   if (new Set(samples.map((sample) => sample.sample_id)).size !== samples.length) {
@@ -194,63 +278,79 @@ function validateRawEvidence(payload) {
   }
 }
 
-function validateTruth(annotation, review, annotationBytes, rawSampleIds) {
-  const expectedAxes = [
-    "form_silhouette",
-    "cap_pump_key_parts",
-    "label_logo_text",
-    "color_material",
-    "local_structure_decoration",
-    "internal_proportion_size_impression",
-    "obvious_artifacts"
-  ];
+function validateTruth(annotation, review, annotationBytes, rawDataset, rawSampleIds) {
+  const expectedAxes = ANNOTATION_AXES;
   const samples = annotation?.samples;
+  if (annotation?.dataset_id !== rawDataset.dataset_id || annotation?.dataset_version !== rawDataset.dataset_version) {
+    fail("BENCHMARK_DATASET_BINDING_MISMATCH", "Human truth does not match the raw Evidence dataset");
+  }
   if (annotation?.schema_version !== 1 || annotation?.status !== "completed" || !Array.isArray(samples) ||
       samples.length !== rawSampleIds.length || samples.some((sample) =>
         typeof sample?.sample_id !== "string" || !Array.isArray(sample.axes) || sample.axes.length !== expectedAxes.length ||
         sample.axes.some((entry, index) => entry?.axis !== expectedAxes[index] ||
-          !["supported", "unsupported", "unknown"].includes(entry.status)))) {
+          !["supported", "unsupported", "unknown"].includes(entry.status) ||
+          typeof entry.reason_code !== "string" || !entry.reason_code || typeof entry.reason !== "string" || !entry.reason ||
+          typeof entry.evidence_ref !== "string" || !entry.evidence_ref ||
+          !(typeof entry.visibility_context === "string" ||
+            (entry.visibility_context && typeof entry.visibility_context === "object"))))) {
     fail("BENCHMARK_ANNOTATION_INVALID", "The benchmark annotation pack is invalid");
   }
   const annotationIds = samples.map((sample) => sample.sample_id);
   if (annotationIds.some((sampleId, index) => sampleId !== rawSampleIds[index])) {
     fail("BENCHMARK_ANNOTATION_INVALID", "The benchmark annotation samples do not match the raw Evidence");
   }
-  if (review?.schema_version !== 1 || review?.status !== "accepted" ||
-      review.annotation_sha256 !== sha256(annotationBytes) ||
+  if (review?.schema_version !== 1 || review?.status !== "completed" || review?.review_status !== "accepted" ||
+      review.annotation_pack_sha256 !== sha256(annotationBytes) ||
       review.dataset_id !== annotation.dataset_id || review.dataset_version !== annotation.dataset_version ||
-      !review.annotator_role || !review.reviewer_role || review.annotator_role === review.reviewer_role) {
+      review.annotator_id !== annotation.annotator_id || !review.reviewer_id ||
+      review.annotator_id === review.reviewer_id || annotation.model_output_was_hidden !== true ||
+      review.model_output_was_hidden !== true) {
     fail("BENCHMARK_REVIEW_INVALID", "The benchmark review binding is invalid");
   }
 }
 
 function validateAxisMapping(mapping) {
-  const expectedAxes = new Set([
-    "form_silhouette",
-    "cap_pump_key_parts",
-    "label_logo_text",
-    "color_material",
-    "local_structure_decoration",
-    "internal_proportion_size_impression",
-    "obvious_artifacts"
-  ]);
-  if (mapping?.schema_version !== 1 || typeof mapping.mapping_policy_version !== "string" ||
-      !mapping.mappings || Object.keys(mapping.mappings).length !== expectedAxes.size ||
-      Object.keys(mapping.mappings).some((axis) => !expectedAxes.has(axis)) ||
-      Object.values(mapping.mappings).some((targets) => !Array.isArray(targets) || targets.some((target) => !RUNTIME_DIMENSIONS.includes(target))) ||
-      mapping.mappings.obvious_artifacts.length !== 0) {
+  const mappingIdentity = {
+    mapping_policy_version: mapping?.mapping_policy_version,
+    mappings: mapping?.mappings
+  };
+  const contentSha256 = sha256(Buffer.from(JSON.stringify(mappingIdentity)));
+  const exactMappings = ANNOTATION_AXES.every((axis) =>
+    Array.isArray(mapping?.mappings?.[axis]) &&
+    JSON.stringify(mapping.mappings[axis]) === JSON.stringify(FROZEN_AXIS_MAPPINGS[axis]));
+  if (mapping?.schema_version !== 1 || mapping?.mapping_policy_version !== AXIS_MAPPING_POLICY_VERSION ||
+      mapping?.mapping_content_sha256 !== AXIS_MAPPING_CONTENT_SHA256 ||
+      contentSha256 !== AXIS_MAPPING_CONTENT_SHA256 ||
+      Object.keys(mapping?.mappings || {}).length !== ANNOTATION_AXES.length || !exactMappings) {
     fail("BENCHMARK_AXIS_MAPPING_INVALID", "The benchmark axis mapping is invalid");
   }
+  return contentSha256;
 }
 
 function projectImageIdentity(image) {
   return {
+    relative_path: image.relative_path,
     bytes: image.bytes,
     sha256: image.sha256,
     media_type: image.media_type,
     encoded_width: image.encoded_width,
     encoded_height: image.encoded_height
   };
+}
+
+function validProjectedImageIdentity(image) {
+  return typeof image?.relative_path === "string" && image.relative_path &&
+    Number.isSafeInteger(image.bytes) && image.bytes > 0 &&
+    /^[a-f0-9]{64}$/.test(image.sha256 || "") &&
+    ["image/png", "image/jpeg"].includes(image.media_type) &&
+    Number.isSafeInteger(image.encoded_width) && image.encoded_width > 0 &&
+    Number.isSafeInteger(image.encoded_height) && image.encoded_height > 0;
+}
+
+function validRawRuntimeDimensions(dimensions) {
+  return Array.isArray(dimensions) && dimensions.length === RUNTIME_DIMENSIONS.length &&
+    dimensions.every((entry, index) => entry?.dimension === RUNTIME_DIMENSIONS[index] &&
+      entry.verdict === "unknown" && typeof entry.evidence_ref === "string" && entry.evidence_ref);
 }
 
 async function readJson(filename, code) {

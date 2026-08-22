@@ -19,6 +19,17 @@
 4. `score` 初始返回 `BENCHMARK_COMMAND_INVALID`；GREEN 后验证 raw Evidence seal 与 annotation/review exact SHA binding，同时保留
    七个 annotation axes 和七个 D-036 runtime dimensions。一个 axis 映射多个 dimension 时，缺少目标专属 Evidence 的目标保持
    `unknown`；`obvious_artifacts` 不形成第八维。
+5. 独立审阅在首轮 head 复现 C4 schema RED：fixture 的 `path` 和旧 review 字段使 accepted schema 无法通过。GREEN 后 synthetic
+   fixture 改用 `relative_path`、`status=completed`、`review_status=accepted`、`annotation_pack_sha256`、分离的
+   `annotator_id/reviewer_id` 与 blind 标记；测试不读取 accepted 四对数据。
+6. 跨数据集 RED 将相同 sample ID 的 annotation/review 一并改为另一 dataset/version，旧 scoring 仍封存结果。GREEN 后 raw
+   Evidence 固定 manifest 相对引用/bytes/SHA-256、dataset ID/version/status 与 source/candidate exact identity，scoring mismatch
+   以 `BENCHMARK_DATASET_BINDING_MISMATCH` fail closed。
+7. mapping RED 证明有效七维内的任意重映射和重复 target 可通过旧 validator。GREEN 后 `d036-c3-v1` mapping 以 exact content
+   SHA-256 锁定；输出保留人工 reason code/reason/evidence/visibility、atomic mapping record 与 raw Evidence 回链；缺目标 Evidence
+   的一对多映射保持 `unknown`，`obvious_artifacts` 不生成第八维。
+8. 首轮 fake lock 能得到 `environment_validated`。GREEN 后测试 lock 必须显式为 `synthetic_contract_only`，唯一成功状态为
+   `synthetic_contract_validated`；任意格式正确但未经完整 lock/cache/runtime Evidence 验证的外部 JSON 均 fail closed。
 
 ## 官方 Artifact 取证与停止条件
 
@@ -50,17 +61,24 @@
 ## 验证记录
 
 - Focused public CLI tests：`node --test test/appearance-benchmark-environment.test.js test/appearance-benchmark-harness.test.js`
-  在 macOS/arm64 smoke lane 通过；覆盖 alias/identity/tree/symlink/hash、blocked repository lock、blind isolation、不可变输出、
-  annotation visibility、未登记 operation、重复 run、sealed partial output 与一对多 mapping fail-closed。
+  在 macOS/arm64 smoke lane 通过；覆盖 C4 schema-compatible synthetic inputs、alias/identity/tree/symlink/hash、synthetic-only/
+  blocked repository lock、blind isolation、exact dataset binding、不可变输出、annotation visibility、未登记 operation、重复 run、
+  sealed partial output、mapping drift/第八维与一对多 mapping fail-closed。
 - fresh worktree 先执行 `npm ci` 恢复仓库锁定依赖；首个 implementation head 的 default `npm test` 为 1094 total /
   1079 pass / 15 skip / 0 fail。15 个 skip 是 14 个需显式 PostgreSQL 测试数据库环境变量的 integration tests，以及需
   `IDENTITY_BROWSER_SMOKE=1` 的 identity browser smoke；本轮新增 CLI tests 在受支持的 macOS/arm64 lane 未 skip。
 - 修正跨 lane 测试期望后，本地 focused 仍为 9/9；第二次 default suite 在无失败输出下停在既有 browser test 622，超过
   4 分钟后手动停止。该次不计 pass，也不覆盖首轮完整结果；最终固定头的全量证据以 GitHub CI 为准。
+- 本轮 required fixes 后，focused public CLI 为 12/12；default `npm test` 自然完成为 1097 total / 1082 pass /
+  15 skip / 0 fail。15 个 skip 仍是 14 个需显式 PostgreSQL 测试数据库环境变量的 integration tests 与 1 个
+  `IDENTITY_BROWSER_SMOKE=1` browser smoke；没有用 `--test-concurrency=1` 或其他串行替代。
 - `npm run check`：241 JavaScript files；`git diff --check` 与 strict 15-file allowlist 通过。
 - `npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=high`：0 critical / 0 high / 2 moderate；
   没有执行 `audit fix` 或 `--force`。
 - 首个 Draft PR head `dafa4162afed6493ddb2b89f5876530a62dd0515` 的 Ubuntu CI 在环境验证测试中失败：实现正确返回
   `linux-amd64-canonical`，测试期望却硬编码为 `macos-arm64-smoke`。后续修复改为断言当前 accepted lane；该失败不作为
   environment 或 benchmark 成功 Evidence，也不被后续绿色覆盖。
+- 独立审阅 head `3e7e5119f514587ee37a93ff62aa9fc54c1abdd7` 的 Ubuntu/Windows 为 SUCCESS，identity-postgres 为
+  CANCELLED，`mergeStateStatus=UNSTABLE`；该 head 不计 required checks 全绿。后续修复 head 必须三组 required CI 全部自然结束为
+  SUCCESS，不能用取消或反复重跑覆盖本事实。
 - fixed-head CI：以 Draft PR 元数据与结果评论为准，session 不自引用最终 commit。

@@ -33,8 +33,8 @@ export async function createSyntheticBenchmarkFixture(root) {
     samples: [{
       sample_id: "sample-1",
       category: "allowed_variation",
-      source: { path: sourcePath, ...image },
-      candidate: { path: candidatePath, ...image }
+      source: { relative_path: sourcePath, ...image },
+      candidate: { relative_path: candidatePath, ...image }
     }]
   };
   await writeFile(
@@ -44,6 +44,7 @@ export async function createSyntheticBenchmarkFixture(root) {
 
   const lock = {
     schema_version: 1,
+    validation_mode: "synthetic_contract_only",
     storage_alias: "HIFLY_APPEARANCE_BENCHMARK_V1",
     lanes: {
       "macos-arm64-smoke": {
@@ -76,6 +77,7 @@ export async function createSyntheticBenchmarkFixture(root) {
   await writeFile(axisMappingPath, `${JSON.stringify({
     schema_version: 1,
     mapping_policy_version: "d036-c3-v1",
+    mapping_content_sha256: "1e5fc0362d70d9d3b9bd63ed858889de7a7cd3b5a922e013ae354d1224bf9470",
     mappings: {
       form_silhouette: ["form_geometry"],
       cap_pump_key_parts: ["parts_connections", "packaging"],
@@ -106,12 +108,17 @@ export async function createSyntheticHumanTruth(root) {
     dataset_version: "v1",
     pack_id: "synthetic-annotation-v1",
     status: "completed",
+    annotator_id: "ANT-SYNTHETIC",
+    model_output_was_hidden: true,
     samples: [{
       sample_id: "sample-1",
       axes: axes.map((axis) => ({
         axis,
         status: axis === "cap_pump_key_parts" ? "unsupported" : "supported",
+        reason_code: `synthetic_${axis}`,
         reason: "synthetic contract fixture",
+        evidence_ref: `synthetic-evidence://${axis}`,
+        visibility_context: "fully_visible",
         evidence_by_runtime_dimension: axis === "cap_pump_key_parts"
           ? { parts_connections: "synthetic evidence for parts only" }
           : {}
@@ -125,10 +132,12 @@ export async function createSyntheticHumanTruth(root) {
     schema_version: 1,
     dataset_id: annotation.dataset_id,
     dataset_version: annotation.dataset_version,
-    annotation_sha256: sha256(annotationBytes),
-    status: "accepted",
-    reviewer_role: "synthetic-reviewer",
-    annotator_role: "synthetic-annotator"
+    annotation_pack_sha256: sha256(annotationBytes),
+    status: "completed",
+    review_status: "accepted",
+    annotator_id: annotation.annotator_id,
+    reviewer_id: "RV-SYNTHETIC",
+    model_output_was_hidden: true
   };
   const reviewPath = path.join(root, "review.json");
   await writeFile(reviewPath, `${JSON.stringify(review, null, 2)}\n`);

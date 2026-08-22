@@ -15,7 +15,7 @@ const lane = process.platform === "darwin" && process.arch === "arm64"
     ? "linux-amd64-canonical"
     : null;
 
-test("validator accepts an exact synthetic dataset through the controlled storage alias", async (t) => {
+test("validator accepts a C4-shaped synthetic dataset only as a synthetic contract", async (t) => {
   if (!lane) return t.skip("This runtime is not an accepted benchmark lane");
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-appearance-env-"));
   t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
@@ -39,11 +39,37 @@ test("validator accepts an exact synthetic dataset through the controlled storag
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), {
-    status: "environment_validated",
+    status: "synthetic_contract_validated",
     storage_alias: "HIFLY_APPEARANCE_BENCHMARK_V1",
     lane,
     samples: 1
   });
+});
+
+test("validator cannot promote an arbitrary formatted lock to a real validated environment", async (t) => {
+  if (!lane) return t.skip("This runtime is not an accepted benchmark lane");
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-appearance-fake-lock-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const fixture = await createSyntheticBenchmarkFixture(temporaryRoot);
+  const lock = JSON.parse(await readFile(fixture.lockPath, "utf8"));
+  lock.validation_mode = "environment_evidence_complete";
+  await writeFile(fixture.lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+
+  const result = spawnSync(process.execPath, [
+    cli,
+    "validate-environment",
+    "--storage-alias=HIFLY_APPEARANCE_BENCHMARK_V1",
+    "--manifest=dataset-manifest.json",
+    `--environment-lock=${fixture.lockPath}`,
+    `--lane=${lane}`
+  ], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, HIFLY_APPEARANCE_BENCHMARK_V1_ROOT: fixture.datasetRoot }
+  });
+
+  assert.equal(result.status, 1);
+  assert.equal(JSON.parse(result.stderr).error.code, "BENCHMARK_ENVIRONMENT_LOCK_INVALID");
 });
 
 test("validator fails closed when the controlled dataset contains an unregistered file", async (t) => {
@@ -76,7 +102,7 @@ test("validator rejects symlinks and exact-byte hash drift without exposing loca
   t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
   const fixture = await createSyntheticBenchmarkFixture(temporaryRoot);
   const manifest = JSON.parse(await readFile(path.join(fixture.datasetRoot, "dataset-manifest.json"), "utf8"));
-  const source = path.join(fixture.datasetRoot, manifest.samples[0].source.path);
+  const source = path.join(fixture.datasetRoot, manifest.samples[0].source.relative_path);
   const linked = path.join(fixture.datasetRoot, "pairs", "sample-1", "linked.png");
   await symlink(source, linked);
 
