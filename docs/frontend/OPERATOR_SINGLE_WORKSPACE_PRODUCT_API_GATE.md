@@ -46,7 +46,8 @@ GET /api/projects/:projectId/products/:productId/operator-workspace?stage=<stage
 ```
 
 这是只读 BFF projection，不是新领域 aggregate。它只组合现有 org-scoped service 的当前真值，不保存状态、不执行命令，
-不创建组织级队列。`stageCode` 仅接受 `product_content|copy|avatar|video_plan|production`。
+不创建组织级队列。`stageCode` 从 Stage 1 起稳定接受 `product_content|copy|avatar|video_plan|production`，但“语法可识别”
+不等于对应领域已迁移或会被读取；启用能力由版本化 stage registry 决定。
 
 ### 3.2 响应草案
 
@@ -59,20 +60,34 @@ GET /api/projects/:projectId/products/:productId/operator-workspace?stage=<stage
       "name": "商品名",
       "current_revision_id": "revision-id"
     },
-    "requested_stage": "copy",
-    "recommended_stage": "copy",
+    "projection_version": 1,
+    "action_registry_version": 1,
+    "requested_stage": "product_content",
+    "render_mode": "workspace",
+    "recommended_stage": "product_content",
     "recommended_action": {
-      "code": "save_copy",
-      "label": "保存文案"
+      "code": "review_product_blockers",
+      "stage": "product_content",
+      "kind": "focus"
     },
     "stages": [
       {
         "code": "product_content",
+        "implementation_status": "workspace",
         "read_status": "ok",
-        "navigation_state": "completed",
-        "business_status": "商品资料已就绪",
-        "blocker_codes": [],
+        "navigation_state": "current",
+        "business_status": "商品资料待完善",
+        "blocker_codes": ["PRODUCT_NAME_REQUIRED"],
         "current_object": { "type": "product_revision", "id": "revision-id" }
+      },
+      {
+        "code": "copy",
+        "implementation_status": "legacy",
+        "read_status": "not_loaded",
+        "navigation_state": null,
+        "business_status": null,
+        "blocker_codes": [],
+        "current_object": null
       }
     ]
   }
@@ -81,7 +96,14 @@ GET /api/projects/:projectId/products/:productId/operator-workspace?stage=<stage
 
 约束：
 
-- `recommended_action` 为 `null` 或恰好一个受控 action code；前端只把它映射到当前阶段已有命令，不接受任意 URL/脚本。
+- `implementation_status` 仅为 `workspace|legacy`。Stage 1 只有 `product_content=workspace`；其余四项必须是 `legacy`，
+  service 不调用对应领域读取 API。
+- `read_status` 对已迁移项为 `ok|error`，对未迁移项固定为 `not_loaded`。`not_loaded` 不是领域错误或业务阻断，相关
+  `navigation_state/business_status/current_object` 必须为 `null`，`blocker_codes=[]`。
+- `render_mode` 为 `workspace|legacy`。请求未迁移 stage 时返回 `render_mode=legacy`、`recommended_stage=null`、
+  `recommended_action=null`；浏览器只按本地固定 stage route registry 导航至对应既有页面，不接受 API 返回的任意 URL。
+- `recommended_action` 为 `null` 或恰好一个注册 action；字段必须与当前 `action_registry_version`、当前已迁移 stage 和
+  canonical `kind` 完全匹配。前端不得把响应字段解释为任意 URL、脚本或未登记写命令。
 - `read_status=error` 时 `navigation_state=null`，显示中性“状态读取失败”；不得把错误写成 available/completed/blocked。
 - `current_object` 只允许现有公开业务 ID；不返回 object key、token、Provider URL、Profile 路径或私有部署信息。
 - Product 与 Project 必须精确匹配；不能把同组织另一个项目的商品拼入 workspace。
@@ -98,16 +120,58 @@ GET /api/projects/:projectId/products/:productId/operator-workspace?stage=<stage
 | 404 | `OPERATOR_WORKSPACE_NOT_FOUND` | project/product 缺失、跨组织、不可见或不匹配，统一不泄露 |
 | 503 | `OPERATOR_WORKSPACE_UNAVAILABLE` | 当前阶段权威读取失败；不返回猜测状态 |
 
-非当前阶段的读取失败可在 `stages[]` 中按 `read_status=error` 投影；当前阶段失败则整个请求 503，确保主任务 fail-visible。
+已迁移但非当前阶段的读取失败可在 `stages[]` 中按 `read_status=error` 投影；当前已迁移阶段失败则整个请求 503，确保
+主任务 fail-visible。未迁移阶段不发起领域读取，因此不能产生 `error` 或 stale 业务投影。
 
-### 3.4 API TDD acceptance
+### 3.4 stage 路由兼容
 
-- memory + PostgreSQL 同组织 exact project/product 成功，五阶段 object ID 与状态来源正确；
-- missing、cross-org、同组织错 project/product 关系统一 404 且正文不可区分；
-- 非法 stage 400，未认证沿用 401；
-- 任一当前阶段依赖失败返回 503，不留下 stale/recommended action；
-- QC/人工审核、preflight/人工批准、Production persisted terminal truth 不被合并；
-- 输出中没有 Worker 命令、eligible 推断、object key、Provider URL、token 或 Profile path。
+Stage 1 必须锁定以下固定映射；后续 Goal 只把对应项从 `legacy` 切换为 `workspace`，stage code 不改名：
+
+| stage code | Stage 1 状态 | 未迁移时浏览器目标 |
+|---|---|---|
+| `product_content` | `workspace` | 当前 `/workspace.html` |
+| `copy` | `legacy` | 既有 `/copy.html` |
+| `avatar` | `legacy` | 既有 `/avatar.html` |
+| `video_plan` | `legacy` | 既有 `/plan.html` |
+| `production` | `legacy` | 既有 `/production.html` |
+
+导航必须保留已验证的 `project`、`product` 及目标旧页已经支持的具名深链参数；不能携带未知 query，也不能在解析失败时
+回落到另一个商品。五阶段导航中的未迁移项使用中性链接样式，不标 completed/blocked；直接访问
+`/workspace.html?...&stage=<legacy-stage>` 与点击该阶段得到同一既有页面，且不形成跳转循环。
+
+### 3.5 action-code registry v1
+
+`action_registry_version=1` 只登记 Stage 1 商品资料动作。后续 Stage 必须在自身 Goal 合同、RED/GREEN 与兼容审阅中 additive
+增加 code；不得复用其他 stage 的 code 或改变既有 code 语义。
+
+| code | stage | kind | 唯一触发真值 | 行为 |
+|---|---|---|---|---|
+| `save_product_content` | `product_content` | `command` | current、可编辑、前端 dirty，且非 saving/conflict/read error | 调用既有 ProductRevision 保存命令；这是受控客户端状态对服务端推荐动作的优先覆盖 |
+| `load_latest_product_content` | `product_content` | `refresh` | 409 conflict，且本地输入仍被保留 | 只在用户明确确认后读取 exact product 的最新 current revision；不得静默覆盖或切换商品 |
+| `return_to_current_product_revision` | `product_content` | `navigate` | 当前展示 historical/non-current revision，且无 dirty | 回到该 product 的 exact current revision |
+| `review_product_blockers` | `product_content` | `focus` | current、无 dirty、至少一个服务端可解释 blocker | 聚焦当前面板首个 blocker；不执行写命令 |
+| `mark_product_content_ready` | `product_content` | `command` | current draft、无 blocker/dirty/conflict | 调用既有 ProductRevision Ready 命令；仍以服务端最终门禁为准 |
+| `continue_to_copy` | `product_content` | `navigate` | current revision 已 Ready、无 blocker/dirty/conflict | 导航到 `copy` stage；Stage 1 由固定 registry 进入既有 `/copy.html`，Stage 2 后进入 workspace |
+| `retry_product_content_read` | `product_content` | `refresh` | 商品资料或 Stage 1 bootstrap 读取失败 | 重跑当前商品资料作用域；不清 dirty，不刷新其他阶段 |
+
+优先级固定为：读取失败 -> 409 显式恢复 -> dirty 保存 -> historical 回 current -> blocker 聚焦 -> draft 设为 Ready ->
+Ready 进入文案；saving 或无安全动作时 `recommended_action=null`。服务端成功响应只可返回其能从持久真值证明的注册动作；
+`save_product_content`、`load_latest_product_content` 与 `retry_product_content_read` 由前端受控状态覆盖。按钮中文标签也来自
+同版本本地 registry，不直接信任响应文案。未知 registry version、未知 code、code 的 `stage` 与当前面板不一致、或 `kind`
+与注册表不一致时，前端必须 fail closed：不渲染/不执行主动作，显示“下一步暂不可用”，只保留安全刷新或返回。
+
+### 3.6 分片 API TDD acceptance
+
+- 所有 Goal 共同覆盖：memory + PostgreSQL 同组织 exact project/product 成功；missing、cross-org、同组织错关系统一 404；
+  非法 stage 400，未认证沿用 401；输出无 Worker 命令、eligible 推断、object key、Provider URL、token 或 Profile path；
+- Stage 1 只证明 ProductRevision object ID、状态、blockers 与 v1 action registry；`copy/avatar/video_plan/production` 均为
+  `legacy/not_loaded`，没有领域读取调用、对象、状态、blocker 或推荐动作；五个 stage 的直接 URL 与导航均走固定路由；
+- 未知/错 stage/错 kind action code 在公开浏览器 seam 中不显示、不执行，Stage 1 七个注册动作及优先级逐项可观察；
+- Stage 2 才新增 CopyVersion、QC/人工审核来源和 action code；Stage 3 才新增 AvatarSelection/目录/授权与 preview；
+  Stage 4 才新增 VideoPlan、preflight/人工批准；Stage 5 才新增 Production persisted terminal/A12/Work/delivery；
+- 任一当前已迁移阶段依赖失败返回 503，不留下 stale/recommended action；非当前已迁移阶段错误用 `read_status=error`；
+  未迁移阶段始终 `not_loaded`，不得伪装 `ok/error/completed/blocked`；
+- 到达对应 Goal 后仍分别锁定 QC/人工审核、preflight/人工批准、Production persisted terminal truth 不被合并。
 
 ## 4. Decision B：人物专用短时预览授权
 

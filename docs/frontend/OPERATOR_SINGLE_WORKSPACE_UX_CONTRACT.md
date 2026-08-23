@@ -154,15 +154,27 @@ Production 的迁移必须是独立高风险切片；既有 V2 Production/Works 
 
 ## 11. 公开浏览器验收
 
-每个实施切片都必须用真实 Chrome、同一 full-feature runtime 与同一角色验证 1440x900、768x900、390x844：
+每个 Goal 都必须用真实 Chrome、同一 full-feature runtime 与同一角色验证以下共同回归：
 
-- `/`、登录/改密/会话恢复、Projects、workspace 深链、显式 `/index.html` 边界；
-- 商品切换、五阶段切换、刷新与 Back/Forward；
-- loading/empty/error/no_permission/dirty/saving/conflict/history/async/terminal；
-- 每个状态推荐动作最多一个，未迁移页和 legacy 无 DOM/视觉意外变化；
-- 人物真实缩略图、大图、授权失败 fallback、390 列表/详情/返回和焦点恢复；
-- Production 激活前、运行中、失败/需处理、取消、A12、四种 Work/交付状态与读取失败；
-- 无页面级横向滚动、可见焦点、Dialog 焦点恢复与 reduced-motion。
+- 1440x900、768x900、390x844 均无页面级横向滚动；可见焦点、Dialog 焦点恢复与 reduced-motion 保持；
+- `/`、登录/改密/会话恢复、Projects、当前已迁移 workspace 深链和显式 `/index.html` 边界；
+- project/product/current stage、刷新、Back/Forward，以及当前 Goal 涉及的 loading/empty/error/no_permission/dirty/saving/
+  conflict/history/async/terminal；
+- 当前面板 `data-recommended-action` 最多一个；未知、错阶段或不受支持的 action code 不显示、不执行；
+- 尚未迁移的阶段保持中性导航到既有页面，既有 URL、DOM/ARIA、业务状态和写命令无回归；不得在新 workspace 伪造其
+  阶段状态、阻断、对象或推荐动作。
+
+阶段专项验收只在对应 Goal 到达后启用：
+
+| Goal | 新增专项浏览器验收 |
+|---|---|
+| Stage 1 商品资料 | 商品切换、current/history、dirty、保存、409、素材阻断；四个未迁移阶段的 workspace 深链安全回到既有页 |
+| Stage 2 文案 | 保存/派生、QC 与人工审核分离、上游失效、Tab/刷新/冲突恢复 |
+| Stage 3 人物 | 真实缩略图/大图、授权失败 fallback、选择/授权、390 列表/详情/返回与焦点恢复 |
+| Stage 4 视频方案 | 保存、preflight 与人工批准分离、上游失效、Tab/历史/冲突恢复 |
+| Stage 5 生产 | 激活前、运行中、失败/需处理、取消、A12、四种 Work/交付状态与读取失败 |
+| Post-stage 作品库 | 四种 Work 状态、深链、分页、详情/返回、交付冲突与下载真值 |
+| Post-stage 素材中心与移动收口 | Assets 三类与权限/冲突、全链路 768/390、旧 URL 和恢复回归 |
 
 截图只写入 Git 忽略的临时目录，文件名与 PNG 像素头必须一致；截图不是部署或 Provider 证据。
 
@@ -170,7 +182,7 @@ Production 的迁移必须是独立高风险切片；既有 V2 Production/Works 
 
 | Goal | 最小范围类别 | 公共 seam | 停止条件 |
 |---|---|---|---|
-| Stage 1 商品资料 | shared opt-in workspace foundation、Stage 1 所需最小只读投影、商品资料 panel/routing、browser/API tests | 新 URL、project/product/current revision、商品列表、五阶段导航、current/history、dirty/409、三视口；旧页不变 | 只读投影需要新领域状态、写聚合、组织级队列，或无法保持旧深链/角色导航时停止 |
+| Stage 1 商品资料 | shared opt-in workspace foundation、Stage 1 所需最小只读投影、商品资料 panel/routing、browser/API tests | 新 URL、project/product/current revision、商品列表、五阶段导航、current/history、dirty/409、三视口；未迁移阶段稳定回旧页 | 只读投影需要新领域状态、写聚合、组织级队列，或无法保持旧深链/角色导航时停止 |
 | Stage 2 文案 | 文案 panel/routing、既有 Copy API、browser tests | 保存/派生、QC 与人工审核分离、冲突/上游失效、Back/Forward 与刷新恢复 | 需要改变 CopyVersion、QC 或人工审核语义时停止 |
 | Stage 3 人物 | 人物 panel/routing、人物专用预览授权、底层 Asset 授权复用、browser/API tests | 同组织真实缩略图/大图、选择/授权、fallback、390 列表详情、过期/失败恢复 | 无法原子验证目录绑定、`avatar_image`、父 Asset `active` 与版本 `available` 时停止 |
 | Stage 4 视频方案 | 视频方案 panel/routing、既有 Plan API、browser tests | 保存、preflight/人工批准分离、上游失效、历史/冲突/恢复 | workspace API 缺少业务真值或需要改变 VideoPlan 状态机时停止 |

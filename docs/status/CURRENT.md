@@ -52,8 +52,9 @@
   HTML/CSS/JS/API 已实现、已部署、已被客户采用或通过 Provider 验收。Owner 评审过的 throwaway 原型只作为设计输入，
   不得直接合并或当成运行证据。
 - Product/API 审计确认各阶段现有 API 继续持有写入和业务状态真值，但稳定工作区缺少 project/product/stage 的只读
-  聚合投影。未来建议以 additive、默认关闭的只读 seam 返回五阶段读取状态、阻断和一个受控推荐 action code；不得
-  创建组织级队列、跨阶段写事务或前端 Production 门禁推断。
+  聚合投影。Stage 1 只读取商品资料；未迁移阶段稳定返回 `legacy/not_loaded` 并导航到既有页面，不投影对象、业务状态、
+  blocker 或推荐动作。推荐动作使用按 Goal additive 的版本化 registry；未知或错阶段 code 一律不显示、不执行。不得创建
+  组织级队列、跨阶段写事务或前端 Production 门禁推断。
 - 人物目录当前只渲染首字，公开 workspace 也没有受控图片授权。未来必须以人物专用短时 preview authorization 在
   服务端原子核对组织、目录条目、私有素材绑定、`avatar_image`、父 Asset `active` 与版本 `available`；底层可复用通用
   AssetVersion grant/bytes，但浏览器不获取 `material_asset_version_id` 或对象存储路径。首字只在图片不可用时作为有原因的

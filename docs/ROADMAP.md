@@ -162,7 +162,9 @@ Owner 已接受下一代运营工作台“方案 A：单任务工作区”方向
 对应 PR 只固化一个商品、一个稳定工作区、一个当前阶段和一个唯一推荐动作的正式合同，并审计两项最小 additive seam：
 project/product/stage 只读聚合投影，以及人物目录专用短时 preview authorization。人物预览必须绑定组织内真实
 `avatar_image`、父 Asset `active`、版本 `available`；浏览器不获取内部素材 ID 或对象存储路径，首字只作为有原因的
-失败占位。未来实现严格串行并独立 Review：Stage 1 商品资料（含所需最小 shared foundation/只读投影）、Stage 2 文案、
+失败占位。Stage 1 只读取商品资料；未迁移阶段固定为 `legacy/not_loaded` 并回既有页面，不伪造状态或动作。推荐动作使用
+版本化、按 Goal additive 的 registry，未知或错阶段 code fail closed。未来实现严格串行并独立 Review：Stage 1 商品资料
+（含所需最小 shared foundation/只读投影）、Stage 2 文案、
 Stage 3 人物（secure real preview）、Stage 4 视频方案、Stage 5 Production、Post-stage 作品库、素材中心/移动收口。
 作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实
 服务端集合真值，不得前端伪造。原型只是设计输入，不得直接合并；任何实现均不自动部署。

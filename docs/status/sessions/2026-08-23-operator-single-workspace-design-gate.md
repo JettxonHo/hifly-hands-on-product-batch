@@ -18,8 +18,8 @@
 ### 现有页面与工作区
 
 - Project、Copy、Avatar、Plan、Production 各有独立 URL、bootstrap、商品选择、阶段链接、刷新与历史/冲突处理。
-- 各领域 API 足以继续持有阶段内真值，但没有 project/product/stage 只读聚合，无法让一个稳定 shell 在不猜测的情况下
-  同时投影五阶段读取状态、阻断和唯一下一步。
+- 各领域 API 足以继续持有阶段内真值，但没有 project/product/stage 只读聚合。未来投影必须按已到达 Goal 逐阶段读取；
+  未迁移阶段只保留稳定 route identity，不能提前投影状态、阻断或下一步。
 - 当前没有组织级生产任务索引；新工作区不得由浏览器拼队列，也不得增加 Worker 启停命令。
 
 ### 人物图片
@@ -42,6 +42,11 @@
    Stage 3 包含 secure real preview；Stage 5 单独高风险 Review，生产门禁保持不变。
 6. 作品库后续桌面验收记录为 9 项原型数据第 1 页 6 项、第 2 页 3 项；390 继续列表 -> 详情 -> 返回。该结论属于
    后续 Works Goal，不是本会话的实现证据。
+7. 独立复审后将验收拆为共同回归与到达对应 Goal 才启用的专项矩阵。Stage 1 只读取商品资料；其余 stage code 保持
+   稳定，但投影为 `implementation_status=legacy`、`read_status=not_loaded`，不读取或伪造其业务真值，并导航到既有页面。
+8. `recommended_action` 使用版本化 registry。v1 只登记商品资料的保存、409 显式恢复、回 current、检查 blocker、设为
+   Ready、进入文案和 scoped refresh；未知 registry/code、错 stage 或错 kind 一律不呈现、不执行，后续 Goal 只能
+   additive 扩展。
 
 ## 文件 allowlist
 
