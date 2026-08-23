@@ -69,7 +69,8 @@
   辅助上下文/固定操作区。canonical local/demo/production 启动链均有显式配置路径；local 与 production 默认关闭，受控
   demo 明确开启且继续使用 fake executor。`copy/avatar/video_plan/production` 固定为 `legacy/not_loaded` 并回既有页面；
   路由只消费实时选中商品和 revision，商品或版本变化后不沿用旧 copy/plan/order 上下文。Back/Forward 的 dirty 取消恢复
-  exact 已接受路由，投影读取失败则隐藏旧表单并提供 scoped refresh。只有该 PR 经独立 Review 合并后才表示 Stage 1
+  exact 已接受路由；投影、Project 或 Assets 读取失败时隐藏旧表单并移除桌面/移动全部阶段 href，只保留 scoped refresh，
+  恢复成功后才按 exact current 商品与 revision 重建导航。只有该 PR 经独立 Review 合并后才表示 Stage 1
   仓库实现成立，仍不表示部署或生产验收，也不授权 Stage 2。
 
 ## UX V1 Slice A 仓库实现

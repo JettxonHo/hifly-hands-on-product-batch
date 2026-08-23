@@ -394,10 +394,23 @@ test("Stage 1 preserves Product Content truth across actions, history, conflicts
   await page.getByText("商品资料暂时无法读取", { exact: true }).waitFor();
   assert.equal(popstateFailed, true);
   assert.equal(await page.locator("#revisionForm").isHidden(), true);
+  const failedStageLinks = page.locator("[data-stage-code]");
+  assert.equal(await failedStageLinks.count(), 10);
+  for (const link of await failedStageLinks.all()) {
+    assert.equal(await link.getAttribute("href"), null);
+    assert.equal(await link.getAttribute("aria-disabled"), "true");
+  }
   await assertRecommendedAction(page, "retry_product_content_read", "刷新当前商品");
   await page.locator("#workspacePrimaryAction").click();
   await page.waitForFunction(() => document.querySelector('#revisionForm input[name="product_name"]')?.value === "清透防晒乳 SPF50+");
   assert.equal(new URL(page.url()).searchParams.get("product"), product.id);
+  for (const link of await page.locator("[data-stage-code]").all()) {
+    const stage = await link.getAttribute("data-stage-code");
+    const href = new URL(await link.getAttribute("href"), origin);
+    assert.equal(await link.getAttribute("aria-disabled"), null);
+    if (stage === "copy") assert.equal(href.searchParams.get("revision"), concurrent.revision.id);
+    else assert.equal(href.searchParams.get("product"), product.id);
+  }
   await page.unroute(endpoint);
 
   const invalidActions = [

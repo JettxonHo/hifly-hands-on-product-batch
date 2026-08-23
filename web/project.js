@@ -302,6 +302,7 @@
 
   function refreshTask() {
     if (workspaceMode && workspaceReadFailed) {
+      disableStageLinks();
       setTask({ title: "商品资料暂时无法读取", status: "读取失败", statusClass: "failure", saved: dirty ? "本地修改仍保留" : "未载入", next: "刷新当前商品", blocker: "未读取到当前商品的权威状态。", action: refreshButton, actionCode: "retry_product_content_read" });
       return;
     }
@@ -345,6 +346,15 @@
   });
 
   mobileProductBack?.addEventListener("click", () => showWorkspaceLayer("list", true));
+
+  function disableStageLinks() {
+    for (const link of document.querySelectorAll("[data-stage-code]")) {
+      link.removeAttribute("href");
+      link.setAttribute("aria-disabled", "true");
+      const stateNode = link.closest("li") || link;
+      stateNode.dataset.stageState = "blocked";
+    }
+  }
 
   function syncStageLinks() {
     if (workspaceMode) {
@@ -749,6 +759,7 @@
       productOpener.disabled = true;
       workspaceReadFailed = workspaceMode;
       const returnLink = document.querySelector('.eyebrow a[href="/projects.html"]');
+      if (workspaceMode) disableStageLinks();
       setTask({ title: "商品工作区暂时无法载入", status: "加载失败", statusClass: "failure", saved: "未载入", next: workspaceMode ? "刷新当前商品" : "返回项目列表", blocker: "项目或商品信息未载入。", action: workspaceMode ? refreshButton : returnLink, actionCode: workspaceMode ? "retry_product_content_read" : null });
     }
   }
@@ -783,6 +794,7 @@
       if (targetIndex != null) acceptedWorkspaceHistoryIndex = targetIndex;
       revisionForm.hidden = true;
       productOpener.disabled = true;
+      disableStageLinks();
       setTask({ title: "正在载入商品资料", status: "加载中", statusClass: "processing", saved: "等待权威状态", next: "载入完成后继续", blocker: "", action: null });
       try {
         if (!(await loadWorkspaceProjection())) return;

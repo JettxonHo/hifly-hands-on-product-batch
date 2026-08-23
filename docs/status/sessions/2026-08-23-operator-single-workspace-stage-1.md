@@ -54,6 +54,9 @@
    并在商品切换时清除 stale copy/plan/orderId；真实 Chrome 断言旧具名上下文均不跨商品。
 8. history RED：dirty Forward 取消可能留下 URL 与可见商品不一致，popstate 503 也可能残留旧表单。GREEN 以 history index
    恢复取消的 Back/Forward，接受导航先进入不可编辑 loading，读取失败隐藏旧表单并由唯一“刷新当前商品”恢复。
+9. 第二轮独立复审 RED：A -> B -> 接受 Back 到 A 后注入 A projection 503，错误摘要和 URL 已属于 A，但桌面/移动共
+   10 个阶段入口仍保留 B 的 product/revision href。GREEN 在 accepted navigation loading 及任何 workspace 权威读取失败时
+   统一移除全部阶段 href、设置 `aria-disabled=true`；scoped Refresh 成功后才以 A 的 exact current revision/product 重建。
 
 ## 验证证据
 
@@ -70,6 +73,9 @@
   `npm test` 均无失败断言，但分别在并发运行既有 Assets、Production Chrome 文件时长时间无日志后被明确终止；对应文件
   单独运行分别 8/8、1/1 pass，不把两次中止记为 full-suite pass。最终 check、range diff、22-file allowlist 与新 fixed-head
   CI 以 PR #239 结果评论和 GitHub 元数据为准。
+- 第二轮修复后 Stage 1 Chrome 2/2、config/service/API 39 pass + 1 个既有 PG env-gated skip、check 243。直接受影响组合中
+  既有 Copy initial fail-once seam 本轮在 30 秒等待“加载失败”时超时，单文件复跑仍超时；该文件不在本轮增量中，不能记为
+  pass，也不据此弱化 fixed-head CI 要求。
 
 ## 复审范围治理
 
