@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
+import { createFakeExecutor } from "../src/executors/fake-executor.js";
+import { createMemoryIdentityRepository } from "../src/identity/memory-identity-repository.js";
+import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { createMemoryProjectContentRepository } from "../src/project-content/memory-project-content-repository.js";
+import { buildApp } from "../src/server/app.js";
 import { activateAdmin, identityApp, identityHeaders } from "./helpers/identity-world.js";
 
 const assetReferencePort = {
@@ -21,12 +28,187 @@ async function world(t) {
   return { ...result, repository, auth: await activateAdmin(result.app) };
 }
 
+async function operatorWorld(t, { repository = createMemoryProjectContentRepository() } = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-workspace-api-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const identityRepository = createMemoryIdentityRepository();
+  await seedInitialAdmin(identityRepository, {
+    organizationId: "org_test",
+    organizationName: "Test Organization",
+    adminEmail: "admin@example.test",
+    adminDisplayName: "Test Admin",
+    adminTempPassword: "Temporary-Admin-9!"
+  });
+  const app = await buildApp({
+    root,
+    executor: createFakeExecutor(),
+    operatorWorkspace: { enabled: true },
+    projectContent: { enabled: true, repository, assetReferencePort },
+    identity: {
+      enabled: true,
+      repository: identityRepository,
+      trustedHosts: ["app.test"],
+      trustedOrigins: ["https://app.test"],
+      cookieSecure: false,
+      seed: { enabled: false }
+    }
+  });
+  t.after(() => app.close());
+  return { app, repository, auth: await activateAdmin(app) };
+}
+
 test("project content is disabled by default and reported by runtime", async (t) => {
   const { app } = await identityApp(t);
   const auth = await activateAdmin(app);
   const runtime = await app.inject({ method: "GET", url: "/api/runtime", headers: headers(auth) });
   assert.equal(runtime.json().projectContentEnabled, false);
+  assert.equal(runtime.json().operatorWorkspaceEnabled, false);
   assert.equal((await app.inject({ method: "GET", url: "/api/projects", headers: headers(auth) })).statusCode, 404);
+});
+
+test("operator workspace rejects an invalid stage with its stable client error", async (t) => {
+  const { app, auth } = await operatorWorld(t);
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/projects/project-a/products/product-a/operator-workspace?stage=unknown",
+    headers: headers(auth)
+  });
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json(), { error: "INVALID_OPERATOR_WORKSPACE_STAGE" });
+});
+
+test("operator workspace cannot be enabled without Project Content", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-workspace-requires-content-"));
+  await assert.rejects(
+    buildApp({ root, executor: createFakeExecutor(), operatorWorkspace: { enabled: true } }),
+    { code: "OPERATOR_WORKSPACE_REQUIRES_PROJECT_CONTENT" }
+  );
+});
+
+test("operator workspace returns the Product Content projection and legacy stage identities", async (t) => {
+  const { app, auth } = await operatorWorld(t);
+  assert.equal((await app.inject({ method: "GET", url: "/api/runtime", headers: headers(auth) })).json().operatorWorkspaceEnabled, true);
+  const projectResponse = await app.inject({
+    method: "POST",
+    url: "/api/projects",
+    headers: headers(auth, true, "operator-project"),
+    payload: { name: "单任务项目" }
+  });
+  const project = projectResponse.json().project;
+  const productResponse = await app.inject({
+    method: "POST",
+    url: `/api/projects/${project.id}/products`,
+    headers: headers(auth, true, "operator-product"),
+    payload: { product_name: "待完善商品" }
+  });
+  const product = productResponse.json();
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/projects/${project.id}/products/${product.product.id}/operator-workspace?stage=product_content`,
+    headers: headers(auth)
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  const workspace = response.json().workspace;
+  assert.equal(workspace.projection_version, 1);
+  assert.equal(workspace.action_registry_version, 1);
+  assert.deepEqual(workspace.project, { id: project.id, name: "单任务项目" });
+  assert.deepEqual(workspace.product, {
+    id: product.product.id,
+    name: "待完善商品",
+    current_revision_id: product.revision.id
+  });
+  assert.equal(workspace.render_mode, "workspace");
+  assert.equal(workspace.recommended_stage, "product_content");
+  assert.deepEqual(workspace.recommended_action, {
+    code: "review_product_blockers",
+    stage: "product_content",
+    kind: "focus"
+  });
+  assert.deepEqual(workspace.stages[0], {
+    code: "product_content",
+    implementation_status: "workspace",
+    read_status: "ok",
+    navigation_state: "current",
+    business_status: "商品资料待完善",
+    blocker_codes: ["SELLING_POINT_REQUIRED", "IMAGE_REQUIRED"],
+    current_object: { type: "product_revision", id: product.revision.id }
+  });
+  for (const stage of workspace.stages.slice(1)) {
+    assert.deepEqual(stage, {
+      code: stage.code,
+      implementation_status: "legacy",
+      read_status: "not_loaded",
+      navigation_state: null,
+      business_status: null,
+      blocker_codes: [],
+      current_object: null
+    });
+  }
+
+  const legacy = await app.inject({
+    method: "GET",
+    url: `/api/projects/${project.id}/products/${product.product.id}/operator-workspace?stage=copy`,
+    headers: headers(auth)
+  });
+  assert.equal(legacy.statusCode, 200, legacy.body);
+  assert.equal(legacy.json().workspace.render_mode, "legacy");
+  assert.equal(legacy.json().workspace.recommended_stage, null);
+  assert.equal(legacy.json().workspace.recommended_action, null);
+  assert.equal(legacy.json().workspace.stages[0].read_status, "ok");
+  assert.equal(legacy.json().workspace.stages[0].navigation_state, "available");
+});
+
+test("operator workspace unifies missing and mismatched products without leaking organization truth", async (t) => {
+  const { app, auth } = await operatorWorld(t);
+  const project = (await app.inject({
+    method: "POST", url: "/api/projects", headers: headers(auth, true, "operator-errors-project"), payload: { name: "隔离项目" }
+  })).json().project;
+  const product = (await app.inject({
+    method: "POST", url: `/api/projects/${project.id}/products`, headers: headers(auth, true, "operator-errors-product"), payload: { product_name: "隔离商品" }
+  })).json().product;
+
+  const missing = await app.inject({
+    method: "GET", url: `/api/projects/${project.id}/products/missing-product/operator-workspace?stage=product_content`, headers: headers(auth)
+  });
+  assert.equal(missing.statusCode, 404);
+  assert.deepEqual(missing.json(), { error: "OPERATOR_WORKSPACE_NOT_FOUND" });
+
+  const otherProject = (await app.inject({
+    method: "POST", url: "/api/projects", headers: headers(auth, true, "operator-errors-other-project"), payload: { name: "另一项目" }
+  })).json().project;
+  const otherProduct = (await app.inject({
+    method: "POST", url: `/api/projects/${otherProject.id}/products`, headers: headers(auth, true, "operator-errors-other-product"), payload: { product_name: "另一商品" }
+  })).json().product;
+  const mismatch = await app.inject({
+    method: "GET", url: `/api/projects/${project.id}/products/${otherProduct.id}/operator-workspace?stage=product_content`, headers: headers(auth)
+  });
+  assert.equal(mismatch.statusCode, 404);
+  assert.deepEqual(mismatch.json(), { error: "OPERATOR_WORKSPACE_NOT_FOUND" });
+
+  const unauthenticated = await app.inject({
+    method: "GET", url: `/api/projects/${project.id}/products/${product.id}/operator-workspace?stage=product_content`, headers: identityHeaders()
+  });
+  assert.equal(unauthenticated.statusCode, 401);
+  assert.deepEqual(unauthenticated.json(), { error: "AUTH_REQUIRED" });
+});
+
+test("operator workspace returns 503 when the Product Content authority cannot be read", async (t) => {
+  const repository = {
+    async initialize() {},
+    async close() {},
+    async transaction() {
+      throw new Error("project content repository unavailable");
+    }
+  };
+  const { app, auth } = await operatorWorld(t, { repository });
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/projects/project-a/products/product-a/operator-workspace?stage=product_content",
+    headers: headers(auth)
+  });
+  assert.equal(response.statusCode, 503);
+  assert.deepEqual(response.json(), { error: "OPERATOR_WORKSPACE_UNAVAILABLE" });
 });
 
 test("authenticated API creates, restores, edits, confirms, and readies a product snapshot", async (t) => {

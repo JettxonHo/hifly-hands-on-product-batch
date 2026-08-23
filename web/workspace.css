@@ -1,0 +1,67 @@
+.single-workspace-page { background: #f4f6f9; }
+.single-workspace-page .workspace-content { width: min(100% - 36px, 1440px); padding-bottom: 88px; }
+.workspace-object-header { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.workspace-object-header h1 { margin-bottom: 2px; }
+.workspace-stages { margin-bottom: 14px !important; }
+.single-workspace-layout { display: grid; grid-template-columns: 230px minmax(440px, 1fr) 270px; gap: 14px; align-items: start; }
+.workspace-panel { min-width: 0; border: 1px solid var(--n-200); border-radius: var(--radius-panel); background: var(--n-0); box-shadow: var(--shadow-panel); }
+.workspace-panel-heading { min-height: 66px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px 12px; border-bottom: 1px solid var(--n-200); }
+.workspace-panel-heading h2, .workspace-panel-heading p { margin: 0; }
+.workspace-product-panel { position: sticky; top: 66px; overflow: hidden; }
+.workspace-product-panel .product-list { padding: 8px; }
+.workspace-task-panel { overflow: hidden; }
+.workspace-form { padding: 16px 18px 22px; }
+.workspace-context-panel { position: sticky; top: 66px; padding: 16px; }
+.workspace-task-summary h2 { overflow-wrap: anywhere; }
+.workspace-facts, .workspace-technical-facts { display: grid; gap: 0; margin: 14px 0 0; }
+.workspace-facts > div, .workspace-technical-facts > div { padding: 10px 0; border-top: 1px solid var(--n-200); }
+.workspace-facts dt, .workspace-technical-facts dt { margin-bottom: 3px; color: var(--n-500); font-size: 12px; font-weight: 600; }
+.workspace-facts dd, .workspace-technical-facts dd { margin: 0; overflow-wrap: anywhere; font-weight: 600; }
+.workspace-context-panel .task-summary-blocker { margin: 12px 0 0; padding: 9px 10px; }
+.workspace-context-panel .operator-technical-details { margin-top: 14px; }
+.workspace-action-bar { position: fixed; z-index: 25; right: 0; bottom: 0; left: 200px; min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 10px max(24px, calc((100vw - 200px - 1440px) / 2 + 18px)); border-top: 1px solid var(--n-200); background: rgba(255, 255, 255, 0.97); box-shadow: 0 -4px 14px rgba(16, 24, 40, 0.06); }
+.workspace-action-bar span, .workspace-action-bar strong { display: block; }
+.workspace-action-bar span { color: var(--n-500); font-size: 12px; }
+.workspace-action-bar strong { max-width: 58ch; overflow-wrap: anywhere; }
+.workspace-action-bar button { min-width: 150px; }
+.mobile-layer-control { display: none; }
+.single-workspace-page .inline-save-actions { margin-bottom: 0; }
+
+@media (max-width: 1120px) {
+  .single-workspace-page .app-shell { display: block; }
+  .single-workspace-page .app-sidebar { position: sticky; z-index: 30; height: auto; padding: 8px 12px 0; border-right: 0; border-bottom: 1px solid var(--n-200); }
+  .single-workspace-page .app-brand { min-height: 36px; padding-inline: 2px; }
+  .single-workspace-page .app-nav { display: flex; gap: 4px; margin: 6px -4px 0; padding: 0 4px 8px; overflow-x: auto; }
+  .single-workspace-page .app-nav a { flex: 0 0 auto; min-height: 34px; padding: 6px 10px; }
+  .single-workspace-page .app-topbar { min-height: 48px; padding: 7px 16px; }
+  .single-workspace-layout { grid-template-columns: 220px minmax(0, 1fr); }
+  .workspace-context-panel { position: static; grid-column: 1 / -1; }
+  .workspace-action-bar { left: 0; }
+}
+
+@media (max-width: 680px) {
+  .single-workspace-page .workspace-content { width: min(100% - 24px, 640px); padding-top: 12px; padding-bottom: 82px; }
+  .workspace-object-header { min-height: 56px; align-items: flex-start; }
+  .workspace-object-header .page-description { display: none; }
+  .workspace-object-header > button { min-width: 104px; }
+  .single-workspace-layout { display: block; }
+  .workspace-panel { margin: 0; }
+  .workspace-product-panel { position: static; }
+  .workspace-task-panel, .workspace-context-panel { display: none; }
+  .single-workspace-page[data-mobile-layer="detail"] .workspace-product-panel { display: none; }
+  .single-workspace-page[data-mobile-layer="detail"] .workspace-task-panel { display: block; }
+  .single-workspace-page[data-mobile-layer="detail"] .workspace-context-panel { display: block; margin-top: 10px; }
+  .mobile-layer-control { display: inline-flex; }
+  .task-panel-heading { align-items: flex-start; }
+  .task-toolbar { width: 100%; flex-wrap: wrap; }
+  .task-toolbar > * { flex: 1 1 auto; }
+  .workspace-form { padding: 14px 12px 18px; }
+  .workspace-action-bar { min-height: 72px; padding: 9px 12px; }
+  .workspace-action-bar > div { min-width: 0; }
+  .workspace-action-bar strong { max-width: 22ch; font-size: 13px; }
+  .workspace-action-bar button { min-width: 132px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-action-bar, .workspace-panel { scroll-behavior: auto; transition-duration: 0.01ms !important; }
+}
