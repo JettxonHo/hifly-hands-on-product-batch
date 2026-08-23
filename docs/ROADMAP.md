@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-23
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5 合同、synthetic harness 与 C5a 首轮 Evidence 已进入 `main@4e18f116`。Issue #232 / 对应 PR 是后续许可证、依赖与安全 Evidence acceptance gate；只有合并进入 main 才接受其 blocker 真值，不建立 accepted lane。BOS archive-specific 再分发 Evidence、两架构 exact selected artifact/hash/license graph、OpenCV contrib 4.10 的 FFmpeg/Qt 义务和静态解码安全均未接受；CVE-2025-53644 已将 OpenCV 4.10.0 列为受影响版本。因此环境保持 blocked，没有安装或运行模型/accepted benchmark。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持；不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5 合同、synthetic harness 与 C5a 许可证、依赖和安全 blocker Evidence 已进入 `main@eab7758af94253aa22dd057f943f55d226f597b3`。Issue #234 / 对应 PR 是 patched lane 与 fixed model route successor Evidence acceptance gate；只有合并进入 main 才接受增量审计，不建立 accepted lane。最新固定 PaddleX `v3.7.2` 仍精确 pin vulnerable contrib 4.10；OpenCV 4.14 patched artifacts 没有官方支持的 Paddle graph，fixed model tree 也没有形成完整 SHA-256/许可/替代 BOS 的官方路线。因此环境保持 blocked，没有安装或运行模型/accepted benchmark。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持；不代表真实 Hifly Adapter、Fidelity-C～E、部署或外观保真已完成。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -42,7 +42,7 @@ UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到�
 P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实管理员只读复验（已完成）
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
-P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228/#229 synthetic harness implemented → #230/#231 C5a 首轮 Evidence accepted（lane blocked）→ #232 后续 archive/license/security blocker acceptance gate → Owner/upstream inputs → C5b 未授权 → 受控 benchmark 未授权 → Fidelity-C～E 未开始
+P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228/#229 synthetic harness implemented → #230/#231 C5a 首轮 Evidence accepted（lane blocked）→ #232/#233 archive/license/security blocker Evidence accepted → #234 patched lane/fixed model successor Evidence gate → Owner/upstream inputs → C5b 未授权 → 受控 benchmark 未授权 → Fidelity-C～E 未开始
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -147,12 +147,13 @@ source/candidate identity，scoring 拒绝跨数据集 truth，并以 exact vers
 经 symlink 写回受控数据包。Synthetic truth 必须使用 C4 exact pack/sample/review 审计字段；人工分歧的普通理由不能替代
 `decision_note`。
 Issue #230 / PR #231 的 C5a 首轮 Evidence 已进入 `main@4e18f116`，将 det/rec exact 参数 bytes 绑定到 PaddlePaddle 官方
-Apache-2.0 模型卡与固定 LFS OID，但 BOS tar 的 archive-specific 复制/再分发边界仍未证明。Issue #232 / 对应 PR 进一步
-锁定：两架构 resolver 的 64/62 条 package records 不是 exact selected artifact/hash/license lock；PaddleX 精确要求
-`opencv-contrib-python==4.10.0.84`，headless 4.13 不能替代；contrib wheel 的 FFmpeg/Qt obligations 尚未接受，且
-CVE-2025-53644 将 OpenCV 4.10.0 列为受影响版本。该 PR 合并只接受 blocker Evidence，不建立环境 lane。故完整 lock/cache、
-离线安装与 synthetic model smoke 继续 blocked；只有 archive Evidence、逐 artifact 义务计划和安全 acceptance 全部解除后，
-才可另行决定是否授权 C5b。
+Apache-2.0 模型卡与固定 LFS OID，但 BOS tar 的 archive-specific 复制/再分发边界仍未证明。Issue #232 / PR #233 又进入
+`main@eab7758af94253aa22dd057f943f55d226f597b3`，接受两架构 resolver 不是 exact artifact/hash/license lock、PaddleX 精确要求
+vulnerable contrib 4.10，以及 FFmpeg/Qt 义务和静态解码安全未接受的 blocker 真值。Issue #234 / 对应 PR 进一步只读核对：
+OpenCV 4.14 patched artifacts 已存在，但最新固定 PaddleX `v3.7.2` 仍精确 pin 4.10，手工 contrib/headless 替换均非官方支持；
+第一方 fixed model tree 也缺完整 SHA-256、license/notice scope 与替代 BOS tar 的官方声明。该 PR 合并只接受 successor Evidence，
+不建立环境 lane。故完整 lock/cache、离线安装与 synthetic model smoke 继续 blocked；只有官方支持的 patched graph 或完整 model
+route、逐 artifact 义务计划和安全 acceptance 全部解除后，才可另行决定是否授权 C5b。
 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
@@ -174,8 +175,9 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
   Fidelity-C0 检查能力 gate、#218/#219 shortlist、#220 blocker 审计与 #222/#223 准入合同已进入 `main`。Owner 已接受
   Fidelity-C4 仓库外 exact bytes、用途依据、脱敏 manifest 与分离角色完成的七维人工真值；#224 / PR #225 已把该
   acceptance 固化进仓库。#226/#227 已完成环境与 harness 设计合同，#228/#229 已实现 synthetic validator/harness；#230/#231
-  已完成 C5a 首轮官方 artifact/license/dependency Evidence，#232 只接受后续 archive/license/security blocker Evidence。
-  BOS tar 再分发、两架构 exact artifact/license graph 与 OpenCV contrib lane 未解除前不得授权 C5b，C5b
+  已完成 C5a 首轮官方 artifact/license/dependency Evidence，#232/#233 已接受后续 archive/license/security blocker Evidence；
+  #234 / 对应 PR 只接受 patched lane/fixed model successor Evidence。BOS tar 再分发、两架构 exact artifact/license graph 与
+  官方支持的 patched OpenCV lane 未解除前不得授权 C5b，C5b
   独立 Review 前也不得授权受控 benchmark。
   Fidelity-C～E 不得并行抢跑，也不得把设计、研究、fake Adapter 或 Provider Evidence 写成真实 Hifly 能力、部署或
   外观保真通过。
