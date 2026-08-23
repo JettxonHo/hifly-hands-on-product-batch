@@ -33,6 +33,17 @@
 6. **完整依赖许可锁：未形成。** 两份 resolver report 可规范化为 Linux 64 条、macOS 62 条 `name==version` 记录，
    但没有锁定各 target 实际选择的 wheel/source、hash、wheel 内第三方许可和 native graph。官方 PyPI release metadata
    只能作为候选清单，不能代替完整离线 lock、SBOM 或 Owner/legal acceptance。
+7. **patched OpenCV artifact 已存在，但没有受支持的 Paddle lane。** 2026-08-23 复核的 OpenCV Python release `94`
+   已发布基于 OpenCV 4.14.0 的 Linux/amd64 与 macOS/arm64 contrib/headless wheels；4.14.0 不在
+   CVE-2025-53644 的 `>=4.10,<4.12` 受影响区间内。可是最新固定 PaddleOCR `v3.7.0` 仍要求
+   PaddleX `>=3.7,<3.8`，最新固定 PaddleX `v3.7.2` 的 `ocr-core` 仍精确要求
+   `opencv-contrib-python==4.10.0.84`。使用 4.14 或 headless distribution 都会违反官方 metadata，不能成为 accepted lane。
+8. **fixed model repository 仍只是部分替代候选。** 两个第一方 Hugging Face fixed tree 已为全部五个路径发布不可变
+   commit 与 Git/LFS identity；只有 `inference.pdiparams` 的 LFS OID 是 SHA-256。`inference.json`、`inference.yml`
+   和 `README.md` 只有 Git blob OID，tree 仍无 `LICENSE` / `NOTICE`，也没有官方声明该五文件集合是可替代 BOS tar 的
+   完整 inference artifact。因此不能据此建立可复制、可离线复现的 model route。
+9. **Owner 路线保持 fail closed。** exact 4.10 已知风险不接受，缺 archive-specific Evidence 的 BOS tar 不复制、缓存、
+   镜像或再分发，也不虚构法律/开源合规责任人。没有 accepted lane，不生成 D-037，不开始 C5b。
 
 ## 2. 方法、术语与边界
 
@@ -281,3 +292,63 @@ accepted benchmark，也不得把环境状态改为 ready：
 - `BLOCKED_CHECK_CAPABILITY_UNSELECTED`
 
 **Stop.** 本文只建立 successor Evidence，不建立 accepted lane，不授权 C5b，不生成 D-037。
+
+## 8. Patched lane 与 fixed model route successor audit
+
+### 8.1 固定发行与 artifact identity
+
+以下均于 **2026-08-23** 从官方固定 tag、commit 或 versioned release metadata 只读核对；没有下载 wheel、模型或其他
+artifact body。
+
+| 层 | 固定官方 Evidence | 结论 |
+|---|---|---|
+| PaddleOCR | [release `v3.7.0`](https://github.com/PaddlePaddle/PaddleOCR/releases/tag/v3.7.0)，tag commit `b03f46425e8ff4442b268ce449e3eef758146cd4`；[PyPI 3.7.0 JSON](https://pypi.org/pypi/paddleocr/3.7.0/json) 要求 `paddlex[ocr-core]>=3.7.0,<3.8.0` | 截至观察日仍是最新固定 PaddleOCR release；不能绕过 PaddleX dependency contract |
+| PaddleX | [release `v3.7.2`](https://github.com/PaddlePaddle/PaddleX/releases/tag/v3.7.2)，tag commit `ffb64904d23708863ff5b8da312a5cbd52a7f462`；[PyPI 3.7.2 JSON](https://pypi.org/pypi/paddlex/3.7.2/json) 的 `ocr-core` 仍精确要求 `opencv-contrib-python==4.10.0.84` | `3.7.0`、`3.7.1`、`3.7.2` 三个固定 release metadata 均保持同一 pin；没有官方 patched dependency lane |
+| OpenCV Python 4.14 | [opencv-python release `94`](https://github.com/opencv/opencv-python/releases/tag/94) 的 packaging commit `2ba8bf62f2f1215ab620416b041c9659005fa25c` 固定 OpenCV submodule `0654a42e19215ef25b1d367d822f3c630447e7c7` 与 opencv_contrib `a8e9acd62cabd30419dba83007f2ac0d07de5e2c`；前者也是 [OpenCV 4.14.0](https://github.com/opencv/opencv/releases/tag/4.14.0) release commit | 证明 4.14 wheel 的 source identity；不证明 PaddleX 支持该版本，也不是全面安全证明 |
+| OpenCV 4.14 contrib Linux | [PyPI 4.14.0.94 JSON](https://pypi.org/pypi/opencv-contrib-python/4.14.0.94/json)：`opencv_contrib_python-4.14.0.94-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl`，`78185083` bytes，SHA-256 `b36cd24d7e2bd5159bc9f6572c3ccfe333640ab28e123017f366ef286cae7514` | exact patched artifact candidate exists, but dependency metadata rejects it |
+| OpenCV 4.14 contrib macOS | 同一 PyPI JSON：`opencv_contrib_python-4.14.0.94-cp37-abi3-macosx_13_0_arm64.whl`，`52286667` bytes，SHA-256 `ac2e796be65ee8eee56f4f0a6514183f193264f4dc22f9e3a648a261e37f7ebe` | exact patched artifact candidate exists, but raises macOS minimum tag from 11.0 to 13.0 and still is not a supported PaddleX lane |
+| OpenCV 4.14 headless | [PyPI headless 4.14.0.94 JSON](https://pypi.org/pypi/opencv-contrib-python-headless/4.14.0.94/json) publishes Linux SHA-256 `4c0a7f18921a010b7418b2059d934ab9206b20cc1b13bd9eac97307f5d973c3e` and macOS SHA-256 `5f3b3eaa8390356da6b82828b6d63af10b24fa9ffdc056c5aceedc5457dad602` | headless avoids Qt GUI build, but it is a different distribution; substituting it would require `--no-deps`/metadata override or an unsupported equivalence assumption |
+
+[NVD CVE-2025-53644 JSON](https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2025-53644) fixes the affected range at
+`>=4.10.0,<4.12.0`; 4.14.0 is outside that specific range. This only resolves that one version-range question. It does not prove the
+4.14 wheel, its codecs, or all registered image operations free of other vulnerabilities. Release `94` also states that FFmpeg was upgraded to
+8.1.2 for CVE-2026-8461, proving the packaged FFmpeg surface remains present. The fixed
+[release-94 third-party inventory](https://github.com/opencv/opencv-python/blob/94/LICENSE-3RD-PARTY.txt) continues to identify FFmpeg in all
+packages and Qt5 in non-headless Linux/macOS packages. Owner has not accepted those distribution obligations.
+
+### 8.2 Fixed PaddlePaddle model repository route
+
+The fixed PaddlePaddle repositories remain first-party and immutable at the recorded commits:
+
+| Model | Fixed tree files and identity | Missing acceptance Evidence |
+|---|---|---|
+| `PP-OCRv6_medium_det` | commit `8e0f56fb2ef86b461d99cfc7ac5c137738985f61`; `README.md` blob `715b0f0f...`; `inference.json` blob `548f60c0...`; `inference.yml` blob `1c5c0580...`; `inference.pdiparams` LFS SHA-256 `85218d2e...` | no `LICENSE`/`NOTICE`; no official SHA-256 for regular files; no statement that this exact set replaces the BOS inference archive |
+| `PP-OCRv6_medium_rec` | commit `e5a92bcbc5cc1b494628e458d267778f0704fd7c`; `README.md` blob `580e21d8...`; `inference.json` blob `9e019234...`; `inference.yml` blob `c53a96fc...`; `inference.pdiparams` LFS SHA-256 `1b01c79a...` | same missing boundaries |
+
+The versioned [det tree API](https://huggingface.co/api/models/PaddlePaddle/PP-OCRv6_medium_det/tree/8e0f56fb2ef86b461d99cfc7ac5c137738985f61?recursive=true&expand=true)
+and [rec tree API](https://huggingface.co/api/models/PaddlePaddle/PP-OCRv6_medium_rec/tree/e5a92bcbc5cc1b494628e458d267778f0704fd7c?recursive=true&expand=true)
+return the complete listed tree and exact object identities. The corresponding model APIs continue to expose
+`cardData.license=apache-2.0`. This is useful provenance and exact parameter license Evidence, but it does not authorize this project to invent
+archive-level or repository-wide notice/redistribution terms. Git blob OID is also not the contract's required SHA-256. No artifact body was read
+to manufacture missing hashes.
+
+### 8.3 Route disposition
+
+| Route | Result | Reason |
+|---|---|---|
+| Exact PaddleOCR/PaddleX release graph | **Rejected** | only supported graph still selects OpenCV 4.10, which Owner explicitly rejects |
+| Replace contrib 4.10 with contrib 4.14 | **Rejected** | conflicts with exact PaddleX release metadata; no `--no-deps` or metadata override |
+| Replace contrib with headless 4.14 | **Rejected** | different distribution and still unsupported; package equivalence cannot be assumed |
+| Custom low-level PaddlePaddle OCR without OpenCV | **Rejected for this gate** | no fixed PaddleOCR/PaddleX release contract proving PP-OCRv6 preprocessing/runtime compatibility; would be a new integration, not an official supported lane |
+| Fixed Hugging Face exact files instead of BOS tar | **Candidate blocked** | immutable source exists, but full SHA-256 manifest, file-set equivalence, license/notice scope and redistribution terms remain incomplete |
+
+The minimum upstream inputs are therefore narrower than accepting known risk:
+
+1. a fixed PaddleOCR/PaddleX release whose official dependency metadata selects a patched OpenCV distribution on both target architectures, or an
+   official backport release with equivalent security Evidence;
+2. for the model route, an upstream statement binding license/notice scope to the exact repository file set, an official or independently
+   authorized SHA-256 manifest for every required file, and confirmation that the set is the supported inference artifact;
+3. only after 1 and 2, an exact two-architecture selected artifact/source/hash/license graph and an Owner-approved distribution plan.
+
+Until those inputs exist, all six status codes in Section 7 remain current. This audit is an Evidence increment, not legal advice, risk acceptance,
+environment acceptance, dependency installation or C5b authorization.
