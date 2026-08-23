@@ -2,7 +2,7 @@
 
 > 关联决策：D-035、D-036
 > 关联 Issue：#226、#228、#230
-> 生命周期：Issue #226 / PR #227 已进入 `main@a65a74ef0f94c131df0712e9943b68a0c835220e`，合同为 designed/locked；Issue #228 / PR #229 已进入 `main@4e352334374fee6a077fb95a599944239b12f5c1`，只实现 synthetic contract；Issue #230 / 对应 PR 是 C5a Evidence acceptance gate
+> 生命周期：Issue #226 / PR #227 已进入 `main@a65a74ef0f94c131df0712e9943b68a0c835220e`，合同为 designed/locked；Issue #228 / PR #229 已进入 `main@4e352334374fee6a077fb95a599944239b12f5c1`，只实现 synthetic contract；Issue #230 / PR #231 已进入 `main@4e18f1166869f2259d68083cd2975452cbbeb476`，完成 C5a 首轮 Evidence 审计；Issue #232 / 对应 PR 是后续许可证、依赖与安全 acceptance gate
 > 当前能力状态：`BLOCKED_CHECK_CAPABILITY_UNSELECTED`
 > 当前环境状态：`BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`
 > 非目标：environment implementation 不等于运行 accepted benchmark、选择能力/阈值或实现 Fidelity-C 产品状态
@@ -21,9 +21,15 @@ archive 的 SHA-256、内容清单或 archive-specific 再分发声明。因此�
 
 两架构 no-install resolver report 同时证明：PaddleOCR 3.7.0 / PaddleX 3.7.0 的 `ocr-core` 唯一官方 metadata lane 精确要求
 `opencv-contrib-python==4.10.0.84`；`opencv-python-headless==4.13.0.92` 是不同 distribution，不能用 `--no-deps`、metadata
-override 或“模块等价”替换。该 contrib wheel 同时打包 FFmpeg，Linux 与 macOS 非 headless wheels 均打包 Qt5；官方资料没有证明
-4.13 的图像内存安全修复已回移至 4.10。故 C5a 未形成 accepted lane，环境继续 blocked，完整 cache 与离线
-`--require-hashes` 安装也未验证。不得安装、运行模型或 benchmark，也不得用 resolver report 冒充 accepted environment。
+override 或“模块等价”替换。Issue #232 的官方 metadata 复核又收敛出三个独立阻断：
+
+1. BOS tar 仍没有 archive-specific 许可与再分发 Evidence；
+2. resolver 文本只能枚举 64 个 Linux 与 62 个 macOS 的固定 `name==version` 记录，不是两架构 exact selected wheel/source、hash 与 wheel 内第三方许可的完整 lock；
+3. `opencv-contrib-python==4.10.0.84` 对应的 OpenCV 4.10 落在 CVE-2025-53644 已知受影响范围，上游在 4.12 才发布修复；4.13 又记录了更多 PNG/BMP 溢出与崩溃修复，未见回移至 4.10 的官方 Evidence。
+
+该 contrib wheel 还同时打包 FFmpeg，Linux 与 macOS 非 headless wheels 均打包 Qt5。故后续 gate 仍未形成 accepted lane，
+环境继续 blocked，完整 cache 与离线 `--require-hashes` 安装也未验证。不得安装、运行模型或 benchmark，
+也不得用 resolver report、顶层 PyPI license 字段或 image-only 运行约定冒充 accepted environment。
 
 ## 2. 只读输入绑定
 
@@ -77,9 +83,12 @@ accepted 四对数据。测试专用字段名不得成为另一套产品合同�
 PaddlePaddle 官方 macOS 安装边界当前是 ARM64、CPU-only，不支持 macOS x86_64；本合同也没有证明 Linux/arm64 exact stack。
 因此 Intel Mac、Linux/arm64、GPU 或其他 Python ABI 都不是可替换 lane，出现时必须停止并另过环境选择 gate。
 
-Issue #230 使用 Python 3.11 的官方 PyPI metadata 做了两份无安装解析：Linux/amd64 解析为 65 个 artifact，report SHA-256
-`13261371db551c8ee5603a66fe011adee52cb1b191bb0bf2b09966ce3a349327`；macOS/arm64 解析为 63 个 artifact，report SHA-256
-`4ff7e2df45801c12e5e725159d365fd8ba347a28acae000bdf29c3c26045418c`。两份均只含一个 `cv2` distribution，即
+Issue #230 使用 Python 3.11 的官方 PyPI metadata 做了两份无安装解析：Linux/amd64 report SHA-256
+`13261371db551c8ee5603a66fe011adee52cb1b191bb0bf2b09966ce3a349327`；macOS/arm64 report SHA-256
+`4ff7e2df45801c12e5e725159d365fd8ba347a28acae000bdf29c3c26045418c`。Issue #232 按文本中规范化的 `name==version`
+记录重算为 Linux 64 条、macOS 62 条，共 64 个 distribution 名；62 个两架构共有，Linux 另有
+`pytz` / `tzdata`，`numpy` / `pandas` / `pillow` 的版本跨架构不同。这一重算是 package-record 口径，
+不把旧的 65/63 artifact 计数或任一 report 当成 exact selected artifact lock。两份 report 均只含一个 `cv2` distribution，即
 `opencv-contrib-python==4.10.0.84`。这些仓库外 report 只证明 metadata graph 可解，不是完整许可清单、可离线安装 cache 或
 accepted lock。正式 implementation gate 仍必须生成完整、architecture-specific requirements lock，并以
 `pip --require-hashes` 覆盖全部传递依赖。
@@ -204,11 +213,18 @@ macOS/arm64 smoke 与 canonical Linux/amd64 run 必须分开命名和统计。CI
   参数 bytes 已由 LFS OID 绑定。BOS tar 的 archive-specific 再分发边界仍未证明，不能只凭模型卡把 tar 打包或镜像。
   OpenCV core 使用 Apache-2.0，opencv-python packaging 使用 MIT；contrib wheel 还携带 FFmpeg LGPLv2.1，Linux 与 macOS
   non-headless wheels 均携带 Qt5 LGPLv3。implementation gate 必须逐 artifact 归档 LICENSE/NOTICE/第三方许可并形成可复核
-  obligations plan；PyPI 顶层 license 字段不能替代 wheel 内第三方许可。CPython 使用 PSF License。
+  obligations plan；PyPI 顶层 license 字段不能替代 wheel 内第三方许可。Issue #232 对 64 个 distribution 名的
+  67 个 exact version row 查询了官方 PyPI release JSON；这只提供发行层元数据。其中 `crc32c` 和 `python-bidi`
+  有 LGPL 声明，`pypdfium2` 明确要求二进制分发携带 PDFium 及其依赖许可，`fsspec` 该 PyPI JSON 的顶层
+  license 为空而固定源码声明 BSD-3-Clause。这些都说明完整 graph 仍需 exact wheel 内许可和第三方清单，
+  不能由 metadata 分组直接推导为 Owner/legal acceptance。CPython 使用 PSF License。
 - 所有第三方 wheel/weight 都是不可信输入：hash、magic/archive containment、路径和反序列化边界必须在实现 gate 单独审阅。
 - OpenCV 4.10 contrib wheel 的构建信息和随附组件必须进入安全复核；本 baseline 即使禁用 video/GUI/codec/FFmpeg 路径，
-  也不能据此宣称打包组件不存在或依赖零风险。官方没有发布“无漏洞”证明；4.13 变更记录中的图像安全修复也没有官方
-  Evidence 证明已回移到 4.10，因此只能记录为未决安全复核，不能反向断言具体 CVE。
+  也不能据此宣称打包组件不存在或依赖零风险。CVE-2025-53644 明确将 OpenCV 4.10.0/4.11.0 列为
+  受影响版本，恶意构造的 JPEG 2000 输入可在 `imdecode` 路径触发堆写，修复于 4.12 发布；4.13 变更记录又包含
+  PNG/BMP 溢出与崩溃修复。未见这些修复回移到 exact 4.10 wheel 的官方 Evidence，因此 4.10 不能记为
+  accepted static decoder。后续即使评估精确 benchmark 输入的可达性，也必须另有安全决策与 negative controls，
+  不能用格式 allowlist 事后涂销已知受影响版本事实。
 
 ## 6. 官方来源
 
@@ -234,8 +250,11 @@ macOS/arm64 smoke 与 canonical Linux/amd64 run 必须分开命名和统计。CI
 - [opencv-contrib-python 4.10.0.84 artifacts and packaging notes](https://pypi.org/project/opencv-contrib-python/4.10.0.84/)
 - [opencv-python license at release 84](https://github.com/opencv/opencv-python/blob/84/LICENSE.txt)
 - [opencv-python third-party licenses at release 84](https://github.com/opencv/opencv-python/blob/84/LICENSE-3RD-PARTY.txt)
-- [OpenCV 4.13 change log](https://github.com/opencv/opencv/wiki/OpenCV-Change-Logs#version4130)
+- [OpenCV 4.13 change log at fixed wiki revision](https://github.com/opencv/opencv/wiki/OpenCV-Change-Logs/e69f11cb5f61be10fbe549381161c3bf0b69fafb#version4130)
 - [OpenCV 4.10 security policy](https://github.com/opencv/opencv/blob/4.10.0/SECURITY.md)
+- [NVD CVE-2025-53644 JSON](https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2025-53644)
+- [GitHub Security Lab GHSL-2025-057](https://securitylab.github.com/advisories/GHSL-2025-057_OpenCV/)
+- [OpenCV 4.12 fix commit](https://github.com/opencv/opencv/commit/a39db41390de546d18962ee1278bd6dbb715f466)
 - [Python 3.11.16 release](https://www.python.org/downloads/release/python-31116/)
 - [CPython 3.11.16 license](https://github.com/python/cpython/blob/v3.11.16/LICENSE)
 - [Docker Official Image: Python](https://hub.docker.com/_/python)
@@ -262,8 +281,9 @@ Issue #228 已实现 synthetic-only 的 alias/input validator、blind raw Eviden
 测试 lock 必须显式声明 `synthetic_contract_only`，validator 只能返回 `synthetic_contract_validated`；任意只有格式正确的外部
 lock、假 dependency hash 或 OCI digest 都不能得到 `environment_validated`。真实 environment 状态必须等待完整 lock/cache/runtime
 Evidence 和本节阻断解除后另行开放。上述代码只有随对应 PR 合并进入 `main` 后才计为 repository implemented；它们不解除
-上述 artifact gate。C5a 已证明 exact 模型参数许可与唯一官方 dependency graph，但 BOS archive 再分发和 OpenCV contrib
-4.10 随附组件的许可/安全接受仍未满足，故环境配置明确保持 blocked，不提交 accepted requirements lock、不安装或运行模型。解除阻断、形成
+上述 artifact gate。C5a 已证明 exact 模型参数许可与唯一官方 dependency metadata lane，但 BOS archive 再分发、两架构
+exact selected artifact/hash/license graph、OpenCV contrib 4.10 随附组件义务和静态解码安全接受仍未满足，故环境配置明确
+保持 blocked，不提交 accepted requirements lock、不安装或运行模型。解除阻断、形成
 完整 cache 与离线安装 Evidence 后还需独立 Review，之后才可另行授权本地 accepted benchmark。`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 持续到 benchmark Evidence、
 Reviewer 复核和 Owner capability/policy/阈值 acceptance 全部完成。
 

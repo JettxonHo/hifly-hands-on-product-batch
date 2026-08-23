@@ -2,7 +2,7 @@
 
 > 状态：Accepted
 > Owner：owner（JettxonHo）
-> 最后更新：2026-08-20
+> 最后更新：2026-08-23
 > 适用范围：本项目全部产品设计、Issue 拆分、PR 审查与技术架构决策
 > 非目标：本目录不包含任何代码、测试、配置或运行时行为变更
 
@@ -49,6 +49,7 @@
 ### Evidence
 
 - [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md)
+- [PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md](PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md)
 
 ---
 
@@ -71,6 +72,7 @@
 14. PRODUCT_APPEARANCE_CHECK_LOCAL_BENCHMARK_GATE.md
 15. PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md
 16. PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md
+17. PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md
 ```
 
 | 文档 | 内容 |
@@ -94,10 +96,11 @@
 | [PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md](PRODUCT_APPEARANCE_CHECK_CAPABILITY_SHORTLIST.md) | Issue #218 / Fidelity-C1 的官方来源研究：当前仅本地 OCR/CV 基线具备可执行 benchmark 资格；OpenAI/Google 保持 reserve、混合方案 deferred，并保留未来预算公式；不选择模型、不运行 benchmark，也不代表准确率或产品能力已验证 |
 | [PRODUCT_APPEARANCE_CHECK_LOCAL_BENCHMARK_GATE.md](PRODUCT_APPEARANCE_CHECK_LOCAL_BENCHMARK_GATE.md) | Issue #220 / Fidelity-C2 的历史本地数据与标注 readiness gate：当时的 dataset/annotation blocker 已由后续 Fidelity-C4 acceptance 解除；环境、harness 与 benchmark 仍未开始 |
 | [PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md](PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md) | Issue #222 / Fidelity-C3 合同与 Issue #224 / Fidelity-C4 acceptance：记录仓库外 exact-byte 数据、用途依据、脱敏 artifact hash、独立七维标注/复核和保留边界；只允许进入后续环境/harness gate，不代表能力已选择 |
-| [PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md](PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md) | Issue #226 / Fidelity-C5 proposal：锁定可证明的本地环境、离线缓存、输入绑定、盲评、逐维 raw Evidence、失败关闭和结果 manifest；PR 合并后才计 designed，不代表已安装、运行 benchmark 或选择能力 |
+| [PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md](PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md) | Issue #226 / PR #227 已接受的 Fidelity-C5 合同与 Issue #228 / PR #229 synthetic-only seam：锁定环境、缓存、输入绑定、盲评、逐维 Evidence 和失败关闭；当前 artifact/license/security gate 仍 blocked，不代表已安装、运行 benchmark 或选择能力 |
 | [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：D-036 外观保真采用 ProductionOrder 前独立候选门禁 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决，Q-018 已由 D-032 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
+| [PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md](PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md) | Issue #232 的官方 Evidence 台账：固定 PP-OCRv6 archive/参数许可边界、两架构 dependency metadata、OpenCV contrib 4.10 第三方义务与静态解码安全阻断；不建立 accepted environment lane |
 
 ---
 
