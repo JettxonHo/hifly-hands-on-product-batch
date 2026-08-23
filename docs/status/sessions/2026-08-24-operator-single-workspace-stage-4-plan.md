@@ -10,8 +10,9 @@
 - 现有 VideoPlanning service/API 已持有 VideoPlan 创建、保存、派生、preflight run/result/history、人工审核、上游失效、
   idempotency、optimistic conflict 与组织隔离真值；不需要新领域状态、数据库 schema、权限角色、跨阶段写聚合或依赖。
 - operator workspace 只 additive 调用既有 `getWorkspace`，并把 exact current VideoPlan、preflight 与人工审核投影为公开业务
-  真值。selected plan、run/result/review/history 必须绑定 exact organization/project/product/plan；错配或字段缺失 fail
-  closed，不以旧版本或其他商品的数据补位。
+  真值。project 边界由 exact selected product/project workspace 持有；plan、version、run/result/review/history 必须各自携带
+  现有 schema 要求的 identity，并绑定 exact organization/product/plan。current result 还必须绑定 exact current run；错配、
+  缺失或不属于 current head 均 fail closed，不以旧版本或其他商品的数据补位。
 - Stage 1 商品资料、Stage 2 文案与 Stage 3 人物继续使用已合并投影；Stage 5 Production 固定
   `legacy/not_loaded`，counted/throwing 端口和默认 App API 证明 Stage 4 请求零读取 Production service。进入生产只导航
   到既有页面，不创建工单、不推断 eligible、attempt、Worker、A12 或 Work。
@@ -38,6 +39,17 @@
    权威读取失败则禁用全部阶段链接并只留 scoped refresh。
 6. Responsive RED：基线没有 Stage 4 的单任务 composition。GREEN 后 1440 使用商品列表、当前任务、辅助上下文与固定操作区；
    768 独立收敛为两栏；390 使用单面板、紧凑阶段入口和底部主动作。三者共享业务真值但不把桌面实现成放大移动布局。
+7. 独立复审纠偏 RED：`pending` 人工审核会遮蔽 `invalidated/blocked/running` 预检；原型链 action code 可穿过普通对象
+   registry；缺失 identity 或 result/run 错配仍可能投影。GREEN 后预检不可审核、失败和运行中真值优先，只有 exact
+   `reviewable && can_decide` 才开放批准；action registry 只接受 own property；所有计划链 identity 与 current head/run
+   均严格核对。
+8. 并发与恢复 RED：同商品旧请求可覆盖新 plan，版本 Dialog 选中后不关闭，首版 dirty 的“保存并继续”无操作，无本地草稿的
+   409 不进入冲突恢复。GREEN 后所有 load 提交均核对单调 request epoch、product 与 requested plan；版本选择关闭 Dialog 并
+   聚焦 exact 版本入口或任务标题；首版保存分派到 create，既有方案分派到 save；任何写命令 409 都只开放“载入最新方案
+   状态”，本地草稿只决定是否额外保留输入。
+9. 公开 browser matrix RED：宽松断言不能区分完整 preflight 状态，三视口也未逐一证明 Dialog 焦点恢复。GREEN 后
+   queued/running/failed/blocked/invalidated 使用确定性 fixture；1440/768/390 分别验证可见焦点、Dialog 恢复、唯一动作与
+   无页面级横向滚动，并覆盖旧响应成功/失败不得覆盖新方案、首版保存继续及无草稿 409 恢复。
 
 ## 实现边界
 
@@ -69,11 +81,11 @@
 
 ## 验证
 
-- service/API/VideoPlanning 非数据库聚焦组：51/51 pass；本地临时 PostgreSQL 16 的 VideoPlanning integration 1/1
+- service/API/VideoPlanning 非数据库聚焦组：58/58 pass；本地临时 PostgreSQL 16 的 VideoPlanning integration 1/1
   pass，验证后容器已停止。
-- Stage 4 真实 Chrome：4/4 pass；Stage 1/2/3/4 与旧 Plan 页面组合：13/13 pass。公开 seam 覆盖创建、dirty/save、409、
+- Stage 4 真实 Chrome：7/7 pass；Stage 1/2/3/4 与旧 Plan 页面组合：16/16 pass。公开 seam 覆盖创建、dirty/save、409、
   preflight、人工审核、历史、Back/Forward、initial/scoped recovery、unknown action、下游阶段中性错误态、Production
-  zero-read、键盘 Tab、焦点、reduced-motion 与无页面级横向滚动。
+  zero-read、request epoch、版本 Dialog、键盘 Tab、三视口焦点、reduced-motion 与无页面级横向滚动。
 - 1440x900、768x900、390x844 临时 PNG 位于 Git 外临时目录；SHA-256 分别为
   `b852b4a6b12ac3293d0ab9011f9e65e7ef45c6cc728ad65af8796d3eeba6e07a`、
   `94d1f85daa4fc313a6d6230dd8f0a8f460bdbf5a625d1c740d105bc6765b4277`、
@@ -81,9 +93,12 @@
   synthetic browser seam 的响应式 composition，不是部署、Provider 或生产数据证据；二进制未提交。
 - `npm run check`：246 JavaScript files；official-registry audit 为 0 high/critical、2 个既有 moderate，均来自
   `exceljs -> uuid`，本片未执行 breaking `--force` 修复。
-- 默认 `npm test` 未修改并发参数并自然完成：1148 total / 1133 pass / 15 existing environment-gated skips / 0 fail，
-  约 138.1 秒。`git diff --check` 与严格 15 文件 allowlist 通过；fixed-head CI 的最终结果以 Draft PR 元数据和结果评论
-  为准，session 不在提交正文中自引用最终 commit。
+- 首轮实现 head 的默认 `npm test` 未修改并发参数并自然完成：1148 total / 1133 pass / 15 existing environment-gated
+  skips / 0 fail，约 138.1 秒。本次纠偏后的默认命令在与另一 worktree 已悬挂的同套全量进程并行时完成 1119 项且未见
+  failure，随后同样停在未改动的 `yingdao-rpa-executor.test.js`；本进程在确认等待点后人工停止，未把不完整运行写成通过，
+  也未使用串行参数规避。fixed-head 隔离 CI 与结果评论将保留最终完整证据。
+- `git diff --check` 与严格 15 文件 allowlist 通过；fixed-head CI 的最终结果以 Draft PR 元数据和结果评论为准，session 不在
+  提交正文中自引用最终 commit。
 
 ## 未执行边界
 

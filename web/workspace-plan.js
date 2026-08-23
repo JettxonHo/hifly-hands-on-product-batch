@@ -97,6 +97,7 @@
 
   function registeredAction(action) {
     if (!action || typeof action !== "object") return null;
+    if (!Object.hasOwn(ACTIONS, action.code)) return null;
     const registered = ACTIONS[action.code];
     if (!registered || action.stage !== registered.stage || action.kind !== registered.kind) return null;
     return { code: action.code, stage: action.stage, kind: action.kind };
@@ -147,6 +148,7 @@
     let acceptedHistoryIndex = 0;
     let historyTraversal = null;
     let pendingHistory = null;
+    let requestEpoch = 0;
 
     const panel = node("#videoPlanWorkspacePanel");
     const primary = node("#workspacePrimaryAction");
@@ -225,7 +227,7 @@
     function setPrimary(code) {
       document.querySelectorAll('[data-recommended-action="true"]').forEach((item) => item.removeAttribute("data-recommended-action"));
       primary.removeAttribute("data-action-code");
-      const registered = code ? ACTIONS[code] : null;
+      const registered = code && Object.hasOwn(ACTIONS, code) ? ACTIONS[code] : null;
       if (!trusted || !registered || registered.stage !== STAGE || registered.kind !== ACTIONS[code]?.kind || busy) {
         primary.disabled = true;
         primary.textContent = busy ? "正在处理" : "暂不可用";
@@ -384,7 +386,15 @@
         button.append(title, meta);
         button.addEventListener("click", () => {
           versionDialogTrigger = button;
-          guardNavigation(() => navigatePlan(version.id));
+          const selectedFromDialog = versionDialog.open;
+          guardNavigation(async () => {
+            const loaded = await navigatePlan(version.id);
+            if (loaded && selectedFromDialog) {
+              versionDialog.close();
+              node("#videoPlanWorkspaceHeading").focus();
+            }
+            return loaded;
+          });
         });
         return button;
       };
@@ -639,9 +649,12 @@
       return `${url.pathname}${url.search}`;
     }
 
-    async function loadProjection({ planId: requestedPlanId = null, focus = true, preserveDraft = false, scoped = false } = {}) {
+    async function loadProjection({ planId: requestedPlanId = null, focus = true, preserveDraft = false, scoped = false,
+      epoch = null } = {}) {
       clearPolling();
+      const loadEpoch = epoch == null ? ++requestEpoch : epoch;
       const requestedProduct = productId;
+      const authorityPlan = planId || null;
       const localDraft = preserveDraft || dirty ? captureDraft() : null;
       node("#videoPlanWorkspaceLoading").hidden = false;
       node("#videoPlanWorkspaceContent").hidden = true;
@@ -650,7 +663,7 @@
           request(workspaceRequestUrl(requestedPlanId)),
           request(`/api/projects/${encodeURIComponent(projectId)}`)
         ]);
-        if (productId !== requestedProduct) return;
+        if (loadEpoch !== requestEpoch || productId !== requestedProduct || (planId || null) !== authorityPlan) return false;
         const validated = validateProjection(workspaceBody.workspace);
         if (!validated) throw new Error("OPERATOR_WORKSPACE_RESPONSE_INVALID");
         const exactProduct = projectBody.project?.products?.find((item) => item.id === requestedProduct);
@@ -678,24 +691,29 @@
         schedulePolling();
         return true;
       } catch (error) {
+        if (loadEpoch !== requestEpoch || productId !== requestedProduct || (planId || null) !== authorityPlan) return false;
         if (scoped || !readFailed) failRead(error?.message === "VIDEO_PLAN_NOT_FOUND" ? "当前方案不存在或已不可见，请刷新当前方案。" : "视频方案工作区加载失败，请刷新重试。");
         throw error;
       }
     }
 
     async function bootstrap({ focus = true } = {}) {
+      const epoch = ++requestEpoch;
+      const requestedProduct = productId;
+      const requestedPlan = planId || null;
       node("#videoPlanWorkspaceLoading").hidden = false;
       node("#videoPlanWorkspaceContent").hidden = true;
       try {
         const nextRuntime = await request("/api/runtime");
+        if (epoch !== requestEpoch || productId !== requestedProduct || (planId || null) !== requestedPlan) return false;
         runtime = nextRuntime;
         if (runtime.operatorWorkspaceEnabled !== true || runtime.videoPlanningEnabled !== true || runtime.avatarSelectionEnabled !== true || runtime.copyReviewEnabled !== true) {
           location.replace(legacyPlanUrl(projectId, productId, planId));
           return false;
         }
-        await loadProjection({ planId, focus });
-        return true;
+        return await loadProjection({ planId: requestedPlan, focus, epoch });
       } catch (_error) {
+        if (epoch !== requestEpoch || productId !== requestedProduct || (planId || null) !== requestedPlan) return false;
         failRead("视频方案工作区加载失败，请刷新重试。");
         return false;
       }
@@ -706,7 +724,9 @@
       pendingNavigation = work;
       dialogTrigger = document.activeElement;
       node("#workspaceUnsavedTitle").textContent = "保留当前视频方案修改";
-      unsavedDialog.querySelector(".dialog-body p").textContent = "切换商品、方案版本、刷新或返回前，请先处理当前修改。";
+      const summary = unsavedDialog.querySelector(".dialog-body p");
+      summary.textContent = "切换商品、方案版本、刷新或返回前，请先处理当前修改。";
+      summary.removeAttribute("role");
       unsavedDialog.showModal();
       node("#keepWorkspaceEditing").focus();
     }
@@ -733,7 +753,16 @@
         restoreFocus(node("#outputInstructions"));
         return;
       }
-      if (mode === "save" && !(await saveDraft())) return;
+      if (mode === "save") {
+        const saved = currentPlan() ? await saveDraft() : await createPlan();
+        if (!saved) {
+          const summary = unsavedDialog.querySelector(".dialog-body p");
+          summary.textContent = "保存未完成，仍停留在当前商品。请核对输入或稍后重试。";
+          summary.setAttribute("role", "alert");
+          node("#saveWorkspaceAndContinue").focus();
+          return;
+        }
+      }
       if (mode === "discard") {
         dirty = false;
         conflict = false;
@@ -760,11 +789,11 @@
     }
 
     async function navigatePlan(nextPlanId) {
-      if (!nextPlanId) return;
+      if (!nextPlanId) return false;
       planId = nextPlanId;
       acceptedHistoryIndex += 1;
       history.pushState({ ...(history.state || {}), planWorkspaceHistoryIndex: acceptedHistoryIndex, productId, planId }, "", workspaceUrl(projectId, productId, STAGE, nextPlanId));
-      await bootstrap();
+      return bootstrap();
     }
 
     async function navigateStage(target) {
@@ -832,10 +861,10 @@
         return true;
       } catch (error) {
         if (error.status === 409) {
+          conflict = true;
           if (local) {
             draftBuffer = local;
             dirty = true;
-            conflict = true;
             restoreDraft(local);
           }
           setNotice(node("#videoPlanEditorNotice"), "版本冲突：没有覆盖你的本地文字和呈现大小。请先载入最新状态。", "blocked");
@@ -944,6 +973,10 @@
           payload: {}, nextPlanId: plan.id
         });
         if (ok) closeReview();
+        else if (conflict) {
+          closeReview({ restore: false });
+          node("#videoPlanWorkspaceHeading").focus();
+        }
         return ok;
       }
       if (!review?.id) return false;
@@ -960,10 +993,15 @@
         nextPlanId: plan.id
       });
       if (ok) closeReview();
+      else if (conflict) {
+        closeReview({ restore: false });
+        node("#videoPlanWorkspaceHeading").focus();
+      }
       return ok;
     }
 
     async function execute(code) {
+      if (!Object.hasOwn(ACTIONS, code)) return false;
       const action = ACTIONS[code];
       if (!action || action.stage !== STAGE || action.kind !== ACTIONS[code]?.kind) return false;
       if (code === "retry_video_plan_read") return bootstrap();

@@ -136,6 +136,14 @@ async function authenticate(page, origin) {
   await page.waitForURL(`${origin}/projects.html`);
 }
 
+async function authenticateExisting(page, origin) {
+  await page.goto(`${origin}/login.html`);
+  await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL);
+  await page.getByLabel("密码", { exact: true }).fill("Single-Workspace-Stage-4-Password-9!");
+  await page.getByRole("button", { name: "登录" }).click();
+  await page.waitForURL(`${origin}/projects.html`);
+}
+
 function workspaceUrl(origin, projectId, productId, planId = null) {
   const result = new URL("/workspace.html", origin);
   result.searchParams.set("project", projectId);
@@ -170,6 +178,36 @@ async function createPlanInBrowser(page, { instructions = "竖版产品说明", 
   await page.waitForFunction(() => new URL(location.href).searchParams.has("plan"));
   await page.locator("#outputInstructions").waitFor();
   return new URL(page.url()).searchParams.get("plan");
+}
+
+async function createPlanVersions(app, actor, productId, key) {
+  const first = await app.videoPlanning.service.createPlan({ ...actor, productId,
+    outputInstructions: "第一版方案", presentationSizeCode: "small", expectedHeadRevision: 0,
+    idempotencyKey: `${key}-create` });
+  await app.videoPlanning.service.requestPreflight({ ...actor, productId, planId: first.current_plan.id,
+    expectedRevision: first.current_plan.row_version, idempotencyKey: `${key}-preflight` });
+  let frozen = null;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    frozen = await app.videoPlanning.service.getWorkspace({ ...actor, productId, planId: first.current_plan.id });
+    if (["succeeded", "failed"].includes(frozen.preflight.current_run?.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(frozen?.preflight.current_run?.status, "succeeded");
+  const second = await app.videoPlanning.service.deriveDraft({ ...actor, productId,
+    planId: frozen.current_plan.id, outputInstructions: "第二版方案", presentationSizeCode: "medium",
+    expectedHeadRevision: frozen.head_revision, idempotencyKey: `${key}-derive` });
+  return { first: frozen.current_plan, second: second.current_plan };
+}
+
+async function expectVisibleFocus(page, selector) {
+  const evidence = await page.locator(selector).evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { active: document.activeElement === element, outlineStyle: style.outlineStyle,
+      outlineWidth: style.outlineWidth, boxShadow: style.boxShadow, focusVisible: element.matches(":focus-visible") };
+  });
+  assert.equal(evidence.active, true, JSON.stringify(evidence));
+  assert.equal(evidence.outlineStyle !== "none" && evidence.outlineWidth !== "0px" || evidence.boxShadow !== "none", true,
+    JSON.stringify(evidence));
 }
 
 async function expectNoHorizontalOverflow(page) {
@@ -274,7 +312,7 @@ test("Stage 4 preserves local input through 409 and keeps preflight separate fro
 
   await page.locator("#workspacePrimaryAction").click();
   await expectAction(page, "submit_video_plan_review", "提交方案审核");
-  assert.match(await page.locator("#preflightBadge").textContent(), /预检通过|存在提醒/);
+  assert.equal(await page.locator("#preflightBadge").textContent(), "存在提醒");
   assert.equal(await page.locator("#reviewBadge").textContent(), "未提交审核");
 
   await page.locator("#workspacePrimaryAction").click();
@@ -396,23 +434,26 @@ test("Stage 4 bootstrap and scoped refresh fail closed without stale actions or 
     item.state === "error"), true, JSON.stringify(copyLinkStates));
 
   await page.unroute(pattern);
-  let corruptOnce = true;
-  await page.route(pattern, async (route) => {
-    if (!corruptOnce) return route.continue();
-    corruptOnce = false;
-    const response = await route.fetch();
-    const body = await response.json();
-    body.workspace.recommended_action = { code: "unregistered_plan_command", stage: "video_plan", kind: "command" };
-    return route.fulfill({ response, json: body });
-  });
-  await page.locator("#refreshVideoPlanWorkspace").click();
-  await page.locator("#videoPlanWorkspaceHeading").filter({ hasText: "视频方案暂时无法读取" }).waitFor();
-  await expectAction(page, "retry_video_plan_read", "刷新当前方案");
-  assert.equal(await stageLinksAreDisabled(page), true);
-  assert.equal(await page.locator("#videoPlanWorkspaceContent").isHidden(), true);
-  await page.locator("#workspacePrimaryAction").click();
-  await page.getByRole("heading", { name: "制定并审核视频方案" }).waitFor();
-  await expectAction(page, "create_video_plan", "创建视频方案");
+  for (const code of ["unregistered_plan_command", "toString", "constructor", "__proto__"]) {
+    await page.unroute(pattern);
+    let corruptOnce = true;
+    await page.route(pattern, async (route) => {
+      if (!corruptOnce) return route.continue();
+      corruptOnce = false;
+      const response = await route.fetch();
+      const body = await response.json();
+      body.workspace.recommended_action = { code, stage: "video_plan", kind: "command" };
+      return route.fulfill({ response, json: body });
+    });
+    await page.locator("#refreshVideoPlanWorkspace").click();
+    await page.locator("#videoPlanWorkspaceHeading").filter({ hasText: "视频方案暂时无法读取" }).waitFor();
+    await expectAction(page, "retry_video_plan_read", "刷新当前方案");
+    assert.equal(await stageLinksAreDisabled(page), true);
+    assert.equal(await page.locator("#videoPlanWorkspaceContent").isHidden(), true);
+    await page.locator("#workspacePrimaryAction").click();
+    await page.getByRole("heading", { name: "制定并审核视频方案" }).waitFor();
+    await expectAction(page, "create_video_plan", "创建视频方案");
+  }
   await expectNoHorizontalOverflow(page);
 });
 
@@ -475,4 +516,163 @@ test("Stage 4 keeps PC and mobile composition first-class and restores exact dir
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const columnsAt768 = await page.locator(".single-workspace-layout").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length);
   assert.equal(columnsAt768, 2);
+});
+
+test("Stage 4 rejects stale same-product plan responses and closes version selection with exact focus", async (t) => {
+  const setup = await startWorld(t, 59680);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { app, browser, origin, project, first, actor } = setup;
+  const versions = await createPlanVersions(app, actor, first.product.id, "stage-4-epoch");
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await authenticate(page, origin);
+  await page.goto(workspaceUrl(origin, project.id, first.product.id, versions.second.id));
+  await page.locator("#planVersionTitle").filter({ hasText: "方案 v2" }).waitFor();
+
+  await page.locator("#openVersionDrawer").click();
+  await page.locator(`#mobileVersionList [data-plan-id="${versions.first.id}"]`).click();
+  await page.waitForURL(new RegExp(`plan=${versions.first.id}`));
+  assert.equal(await page.locator("#versionDialog").evaluate((dialog) => dialog.open), false);
+  await expectVisibleFocus(page, "#videoPlanWorkspaceHeading");
+  await page.locator("#workspacePrimaryAction").click();
+  await page.waitForURL(new RegExp(`plan=${versions.second.id}`));
+  await page.locator("#planVersionTitle").filter({ hasText: "方案 v2" }).waitFor();
+
+  let releaseOld;
+  let oldRequestStarted;
+  const oldStarted = new Promise((resolve) => { oldRequestStarted = resolve; });
+  const release = new Promise((resolve) => { releaseOld = resolve; });
+  const pattern = "**/api/projects/*/products/*/operator-workspace**";
+  await page.route(pattern, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("plan") !== versions.first.id) return route.continue();
+    const response = await route.fetch();
+    oldRequestStarted();
+    await release;
+    return route.fulfill({ response });
+  });
+  await page.locator(`#versionList [data-plan-id="${versions.first.id}"]`).click();
+  await oldStarted;
+  await page.evaluate(() => history.back());
+  await page.waitForURL(new RegExp(`plan=${versions.second.id}`));
+  await page.locator("#planVersionTitle").filter({ hasText: "方案 v2" }).waitFor();
+  releaseOld();
+  await page.waitForTimeout(100);
+  assert.equal(new URL(page.url()).searchParams.get("plan"), versions.second.id);
+  assert.equal(await page.locator("#planVersionTitle").textContent(), "方案 v2");
+
+  await page.unroute(pattern);
+  let releaseFailure;
+  let failureStarted;
+  const failureRequestStarted = new Promise((resolve) => { failureStarted = resolve; });
+  const failureRelease = new Promise((resolve) => { releaseFailure = resolve; });
+  await page.route(pattern, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("plan") !== versions.first.id) return route.continue();
+    failureStarted();
+    await failureRelease;
+    return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "OPERATOR_WORKSPACE_UNAVAILABLE" }) });
+  });
+  await page.locator(`#versionList [data-plan-id="${versions.first.id}"]`).click();
+  await failureRequestStarted;
+  await page.evaluate(() => history.back());
+  await page.waitForURL(new RegExp(`plan=${versions.second.id}`));
+  releaseFailure();
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator("#videoPlanWorkspaceHeading").textContent(), "制定并审核视频方案");
+  assert.equal(new URL(page.url()).searchParams.get("plan"), versions.second.id);
+});
+
+test("Stage 4 saves the first plan before navigation and treats command 409 as a recoverable conflict", async (t) => {
+  const setup = await startWorld(t, 59700);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { browser, origin, project, first, second } = setup;
+  const page = await browser.newPage({ viewport: { width: 768, height: 900 } });
+  await authenticate(page, origin);
+  await page.goto(workspaceUrl(origin, project.id, first.product.id));
+  await page.locator("#firstInstructions").fill("保存首版后切换商品");
+  await page.locator(`#productList [data-product-id="${second.product.id}"]`).click();
+  await page.locator("#workspaceUnsavedDialog").waitFor();
+  await page.locator("#saveWorkspaceAndContinue").click();
+  await page.waitForURL(new RegExp(`product=${second.product.id}`));
+  assert.equal(await page.locator("#workspaceUnsavedDialog").evaluate((dialog) => dialog.open), false);
+
+  await page.locator(`#productList [data-product-id="${first.product.id}"]`).click();
+  await page.waitForURL(new RegExp(`product=${first.product.id}`));
+  await expectAction(page, "run_video_plan_preflight", "开始预检");
+  let conflictOnce = true;
+  await page.route("**/api/products/*/video-plans/*/preflight", async (route) => {
+    if (!conflictOnce) return route.continue();
+    conflictOnce = false;
+    return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "VIDEO_PLAN_CONFLICT" }) });
+  });
+  await page.locator("#workspacePrimaryAction").click();
+  await expectAction(page, "load_latest_video_plan", "载入最新方案状态");
+  assert.match(await page.locator("#videoPlanEditorNotice").textContent(), /版本冲突/);
+
+  await page.unroute("**/api/products/*/video-plans/*/preflight");
+  await page.locator("#workspacePrimaryAction").click();
+  await expectAction(page, "run_video_plan_preflight", "开始预检");
+  await page.locator("#workspacePrimaryAction").click();
+  await expectAction(page, "submit_video_plan_review", "提交方案审核");
+  await page.route("**/api/products/*/video-plans/*/reviews", (route) => route.fulfill({ status: 409,
+    contentType: "application/json", body: JSON.stringify({ error: "VIDEO_PLAN_REVIEW_CONFLICT" }) }));
+  await page.locator("#workspacePrimaryAction").click();
+  await page.locator("#confirmReviewAction").click();
+  await expectAction(page, "load_latest_video_plan", "载入最新方案状态");
+  assert.equal(await page.locator("#reviewDialog").evaluate((dialog) => dialog.open), false);
+  await expectVisibleFocus(page, "#videoPlanWorkspaceHeading");
+});
+
+test("Stage 4 renders every preflight state and restores visible dialog focus at all accepted viewports", async (t) => {
+  const setup = await startWorld(t, 59720);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { app, browser, origin, project, first, actor } = setup;
+  const versions = await createPlanVersions(app, actor, first.product.id, "stage-4-matrix");
+  const matrix = [
+    { run: "queued", result: null, title: "方案正在预检", action: null },
+    { run: "running", result: null, title: "方案正在预检", action: null },
+    { run: "failed", result: null, title: "预检未完成", action: "retry_video_plan_preflight" },
+    { run: "succeeded", result: "blocked", title: "预检发现阻断", action: "derive_video_plan_draft" },
+    { run: "succeeded", result: "invalidated", title: "预检结论已失效", action: "derive_video_plan_draft" }
+  ];
+  const matrixPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await authenticate(matrixPage, origin);
+  let fixture = matrix[0];
+  await matrixPage.route("**/api/projects/*/products/*/operator-workspace**", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    const stage = body.workspace.stages.find((item) => item.code === "video_plan");
+    const plan = stage.video_plan_workspace.current_plan;
+    stage.video_plan_workspace.preflight.current_run = { id: `fixture-${fixture.run}`, video_plan_version_id: plan.id, status: fixture.run };
+    stage.video_plan_workspace.preflight.current_result = fixture.result ? { id: `fixture-${fixture.result}`,
+      video_plan_version_id: plan.id, preflight_run_id: `fixture-${fixture.run}`, status: fixture.result, groups: {} } : null;
+    stage.video_plan_workspace.human_review.current_review = fixture.result ? { id: "fixture-review", video_plan_version_id: plan.id,
+      status: "pending", row_version: 1 } : null;
+    stage.business_status = fixture.title;
+    body.workspace.recommended_action = fixture.action ? { code: fixture.action, stage: "video_plan", kind: "command" } : null;
+    return route.fulfill({ response, json: body });
+  });
+  for (const item of matrix) {
+    fixture = item;
+    await matrixPage.goto(workspaceUrl(origin, project.id, first.product.id, versions.second.id));
+    await matrixPage.locator("#taskSummaryTitle").filter({ hasText: item.title }).waitFor();
+    if (item.action) assert.equal(await matrixPage.locator("#workspacePrimaryAction").getAttribute("data-action-code"), item.action);
+    else assert.equal(await matrixPage.locator('[data-recommended-action="true"]').count(), 0);
+  }
+  await matrixPage.close();
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    const page = await browser.newPage({ viewport });
+    await authenticateExisting(page, origin);
+    await page.goto(workspaceUrl(origin, project.id, first.product.id, versions.second.id));
+    await page.locator("#openVersionDrawer").focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expectVisibleFocus(page, "#openVersionDrawer");
+    await page.locator("#openVersionDrawer").press("Enter");
+    await page.locator("#closeVersionDialog").press("Enter");
+    await expectVisibleFocus(page, "#openVersionDrawer");
+    await expectNoHorizontalOverflow(page);
+    await page.close();
+  }
 });

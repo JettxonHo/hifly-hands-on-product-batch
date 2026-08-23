@@ -93,6 +93,9 @@
 - Issue #244 是 Stage 4 视频方案独立 acceptance gate：只 additive 读取 exact current VideoPlan、preflight run/result、
   人工审核与历史，保持 preflight passed/warning 与人工批准严格分离。方案创建、保存、派生、预检和审核仍调用既有
   VideoPlanning API/状态机；上游人物失效、历史版本、dirty/409、异步预检、读取失败与 Back/Forward 均 fail-visible。
+  当前 Draft 的复审纠偏还要求 preflight 不可审核/失败/运行中真值优先、计划链 exact identity 与 result/run 绑定、action
+  registry own-property 校验、同商品 request epoch、首版保存继续、版本 Dialog 焦点和所有写命令 409 的统一恢复；这些只在
+  对应 fixed head 经独立 Review 合并后计入仓库实现。
   Stage 1/2/3 保持稳定，`production` 继续 `legacy/not_loaded` 且不读取 Production service；进入生产只保持旧页导航，
   不创建工单、不推断 eligible/attempt/Worker。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 4 仓库实现成立；
   不表示部署或生产验收，也不授权 Stage 5。

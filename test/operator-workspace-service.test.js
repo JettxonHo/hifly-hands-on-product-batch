@@ -762,24 +762,43 @@ test("orders VideoPlan recommendations from exact plan, preflight, review, and h
 
   assert.equal((await read()).recommended_action.code, "run_video_plan_preflight");
 
-  videoWorkspace.preflight.current_run = { id: "run-a", status: "queued", video_plan_version_id: plan.id };
+  videoWorkspace.preflight.current_run = { id: "run-a", organization_id: "org-a", status: "queued", video_plan_version_id: plan.id };
   assert.equal((await read()).recommended_action, null);
 
-  videoWorkspace.preflight.current_run = { id: "run-a", status: "failed", video_plan_version_id: plan.id, failure_code: "TEMPORARY" };
+  videoWorkspace.preflight.current_run = { id: "run-a", organization_id: "org-a", status: "failed", video_plan_version_id: plan.id, failure_code: "TEMPORARY" };
   assert.equal((await read()).recommended_action.code, "retry_video_plan_preflight");
 
   videoWorkspace.current_plan = { ...plan, status: "frozen", row_version: 2 };
   videoWorkspace.versions[1] = videoWorkspace.current_plan;
-  videoWorkspace.preflight.current_run = { id: "run-b", status: "succeeded", video_plan_version_id: plan.id };
-  videoWorkspace.preflight.current_result = { id: "result-a", status: "warning", video_plan_version_id: plan.id,
+  videoWorkspace.preflight.current_run = { id: "run-b", organization_id: "org-a", status: "succeeded", video_plan_version_id: plan.id };
+  videoWorkspace.preflight.current_result = { id: "result-a", organization_id: "org-a", status: "warning", video_plan_version_id: plan.id,
     preflight_run_id: "run-b", groups: {} };
   videoWorkspace.review.gate = { can_submit: true, can_decide: false, reasons: [] };
   assert.equal((await read()).recommended_action.code, "submit_video_plan_review");
 
-  videoWorkspace.review.current_review = { id: "review-a", video_plan_version_id: plan.id, status: "pending", row_version: 1 };
+  videoWorkspace.review.current_review = { id: "review-a", organization_id: "org-a", video_plan_version_id: plan.id, status: "pending", row_version: 1 };
   videoWorkspace.review.history = [videoWorkspace.review.current_review];
   videoWorkspace.review.gate = { can_submit: false, can_decide: true, reasons: ["review_pending"] };
   assert.equal((await read()).recommended_action.code, "approve_video_plan_review");
+
+  videoWorkspace.preflight.current_result = { ...videoWorkspace.preflight.current_result, status: "invalidated" };
+  videoWorkspace.review.gate = { can_submit: false, can_decide: true, reasons: ["preflight_not_reviewable"] };
+  assert.equal((await read()).stages[3].business_status, "视频方案预检已失效");
+  assert.equal((await read()).recommended_action.code, "derive_video_plan_draft");
+
+  videoWorkspace.preflight.current_result = { ...videoWorkspace.preflight.current_result, status: "blocked" };
+  assert.equal((await read()).stages[3].business_status, "视频方案预检未通过");
+  assert.equal((await read()).recommended_action.code, "derive_video_plan_draft");
+
+  videoWorkspace.preflight.current_result = null;
+  videoWorkspace.preflight.current_run = { id: "run-c", organization_id: "org-a", status: "running", video_plan_version_id: plan.id };
+  assert.equal((await read()).stages[3].business_status, "正在进行视频方案预检");
+  assert.equal((await read()).recommended_action, null);
+
+  videoWorkspace.preflight.current_run = { id: "run-b", organization_id: "org-a", status: "succeeded", video_plan_version_id: plan.id };
+  videoWorkspace.preflight.current_result = { id: "result-a", organization_id: "org-a", status: "warning", video_plan_version_id: plan.id,
+    preflight_run_id: "run-b", groups: {} };
+  videoWorkspace.review.gate = { can_submit: false, can_decide: true, reasons: ["review_pending"] };
 
   videoWorkspace.review.current_review = { ...videoWorkspace.review.current_review, status: "approved", row_version: 2 };
   videoWorkspace.review.history = [videoWorkspace.review.current_review];
@@ -788,6 +807,16 @@ test("orders VideoPlan recommendations from exact plan, preflight, review, and h
   videoWorkspace.review.current_review = { ...videoWorkspace.review.current_review, status: "changes_requested", row_version: 2 };
   videoWorkspace.review.history = [videoWorkspace.review.current_review];
   assert.equal((await read()).recommended_action.code, "derive_video_plan_draft");
+
+  for (const code of ["toString", "constructor", "__proto__"]) {
+    videoWorkspace.current_plan = plan;
+    videoWorkspace.versions = [historical, plan];
+    videoWorkspace.preflight = { current_run: null, current_result: null, history: [] };
+    videoWorkspace.review = { current_review: null, history: [], gate: { can_submit: false, can_decide: false, reasons: ["plan_not_frozen"] } };
+    videoWorkspace.recommended_action = { code };
+    assert.equal((await read()).recommended_action, null, `${code} must not resolve through Object.prototype`);
+  }
+  delete videoWorkspace.recommended_action;
 
   videoWorkspace.current_plan = historical;
   videoWorkspace.preflight = { current_run: null, current_result: null, history: [] };
@@ -818,8 +847,8 @@ test("fails closed when VideoPlan run, result, or review is not bound to the exa
   let mismatched = {
     current_plan: plan, head_revision: 1, versions: [plan],
     preflight: {
-      current_run: { id: "run-other", video_plan_version_id: "plan-other", status: "succeeded" },
-      current_result: { id: "result-other", video_plan_version_id: "plan-other", status: "passed", groups: {} },
+      current_run: { id: "run-other", organization_id: "org-a", video_plan_version_id: "plan-other", status: "succeeded" },
+      current_result: { id: "result-other", organization_id: "org-a", video_plan_version_id: "plan-other", preflight_run_id: "run-other", status: "passed", groups: {} },
       history: []
     },
     review: { current_review: null, history: [], gate: { can_submit: true, can_decide: false, reasons: [] } }
@@ -838,9 +867,30 @@ test("fails closed when VideoPlan run, result, or review is not bound to the exa
 
   await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
   mismatched.preflight = { current_run: null, current_result: null, history: [] };
-  mismatched.review.current_review = { id: "review-missing-binding", status: "pending", row_version: 1 };
+  mismatched.review.current_review = { id: "review-missing-binding", organization_id: "org-a", status: "pending", row_version: 1 };
   mismatched.review.history = [mismatched.review.current_review];
   await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
+
+  mismatched = { current_plan: { ...plan }, head_revision: 1, versions: [{ ...plan }],
+    preflight: { current_run: { id: "run-selected", organization_id: "org-a", video_plan_version_id: plan.id, status: "succeeded" },
+      current_result: { id: "result-selected", organization_id: "org-a", video_plan_version_id: plan.id,
+        preflight_run_id: "run-other", status: "passed", groups: {} }, history: [] },
+    review: { current_review: null, history: [], gate: { can_submit: true, can_decide: false, reasons: [] } } };
+  await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
+
+  for (const mutate of [
+    (value) => { delete value.current_plan.id; },
+    (value) => { delete value.current_plan.organization_id; },
+    (value) => { delete value.current_plan.product_id; },
+    (value) => { value.versions = []; },
+    (value) => { delete value.versions[0].organization_id; }
+  ]) {
+    mismatched = { current_plan: { ...plan }, head_revision: 1, versions: [{ ...plan }],
+      preflight: { current_run: null, current_result: null, history: [] },
+      review: { current_review: null, history: [], gate: { can_submit: false, can_decide: false, reasons: [] } } };
+    mutate(mismatched);
+    await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
+  }
 });
 
 test("fails visible when VideoPlan truth cannot be read and never retains a plan action", async () => {

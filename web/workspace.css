@@ -16,6 +16,7 @@
 .workspace-form { padding: 16px 18px 22px; }
 .workspace-context-panel { position: sticky; top: 66px; padding: 16px; }
 .workspace-task-summary h2 { overflow-wrap: anywhere; }
+#videoPlanWorkspaceHeading:focus { outline: 3px solid rgba(23, 105, 224, 0.25); outline-offset: 2px; }
 .workspace-facts, .workspace-technical-facts { display: grid; gap: 0; margin: 14px 0 0; }
 .workspace-facts > div, .workspace-technical-facts > div { padding: 10px 0; border-top: 1px solid var(--n-200); }
 .workspace-facts dt, .workspace-technical-facts dt { margin-bottom: 3px; color: var(--n-500); font-size: 12px; font-weight: 600; }
