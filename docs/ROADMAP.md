@@ -43,7 +43,7 @@ P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
 P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228/#229 synthetic harness implemented → #230/#231 C5a 首轮 Evidence accepted（lane blocked）→ #232/#233 archive/license/security blocker Evidence accepted → #234/#235 patched lane/fixed model successor Evidence accepted（lane blocked）→ Owner/upstream inputs → C5b 未授权 → 受控 benchmark 未授权 → Fidelity-C～E 未开始
-P1 UX Next  单任务工作区方向 accepted → #236 正式合同/Product/API gate → SW-0 只读投影 → SW-1 shared foundation → SW-2 Avatar secure preview → SW-3A/B/C 阶段吸收 → SW-4 手机与恢复收敛（后续实现均待独立 gate）
+P1 UX Next  单任务工作区方向 accepted → #236 正式合同/Product/API gate → Stage 1 商品资料 → Stage 2 文案 → Stage 3 人物（secure real preview）→ Stage 4 视频方案 → Stage 5 生产 → Post-stage 作品库 → 素材中心/移动收口（后续 Goals 均待独立 gate）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -162,9 +162,10 @@ Owner 已接受下一代运营工作台“方案 A：单任务工作区”方向
 对应 PR 只固化一个商品、一个稳定工作区、一个当前阶段和一个唯一推荐动作的正式合同，并审计两项最小 additive seam：
 project/product/stage 只读聚合投影，以及人物目录专用短时 preview authorization。人物预览必须绑定组织内真实
 `avatar_image`、父 Asset `active`、版本 `available`；浏览器不获取内部素材 ID 或对象存储路径，首字只作为有原因的
-失败占位。未来实现严格串行并独立 Review：SW-0 只读投影、SW-1 shared opt-in foundation、SW-2 Avatar secure preview、
-SW-3A 商品资料/文案、SW-3B 人物/视频方案、SW-3C Production、SW-4 手机/恢复/旧路由收敛。原型只是设计输入，
-不得直接合并；任何实现均不自动部署。
+失败占位。未来实现严格串行并独立 Review：Stage 1 商品资料（含所需最小 shared foundation/只读投影）、Stage 2 文案、
+Stage 3 人物（secure real preview）、Stage 4 视频方案、Stage 5 Production、Post-stage 作品库、素材中心/移动收口。
+作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实
+服务端集合真值，不得前端伪造。原型只是设计输入，不得直接合并；任何实现均不自动部署。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、

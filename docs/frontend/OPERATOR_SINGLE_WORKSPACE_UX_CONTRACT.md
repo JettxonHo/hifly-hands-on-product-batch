@@ -70,6 +70,13 @@ Owner 评审过的移动工作流研究和 throwaway HTML 原型只是方向证�
 
 三个视口均不得出现页面级横向滚动；长中文名、状态、阻断和按钮必须换行或截断并可访问完整内容。
 
+### 4.4 后续作品库密度合同
+
+作品库继续是企业一级导航中的独立业务页面，不塞入商品五阶段工作区。后续 Works Goal 必须保留桌面可扫描列表与明确
+详情上下文：对 Owner 已评审的 9 项原型数据，1440 首屏分页固定为第 1 页 6 项、第 2 页 3 项；分页、总数和筛选必须
+来自服务端可观察真值或既有分页合同，不得由前端伪造生产集合。390 继续使用作品列表 -> 详情 -> 返回，进入详情和返回
+时分别转移、恢复焦点。该密度结论是后续 Works Goal 的验收输入，不表示 Stage 0 已实现作品库分页。
+
 ## 5. 五阶段状态映射
 
 | 阶段 | 主对象 | 业务状态来源 | 首屏阻断 | 唯一推荐动作 | 技术详情 |
@@ -159,21 +166,22 @@ Production 的迁移必须是独立高风险切片；既有 V2 Production/Works 
 
 截图只写入 Git 忽略的临时目录，文件名与 PNG 像素头必须一致；截图不是部署或 Provider 证据。
 
-## 12. 严格串行实施切片
+## 12. 严格串行 Stage Goals
 
-| 切片 | 最小范围类别 | 公共 seam | 停止条件 |
+| Goal | 最小范围类别 | 公共 seam | 停止条件 |
 |---|---|---|---|
-| SW-0 工作区只读投影 | project/product/stage 聚合 service、memory/PG、route/API tests、状态文档 | exact project+product、五阶段读取真值、404 隔离、错误 fail-visible | 需要新领域状态、写聚合或组织级队列时停止 |
-| SW-1 shared foundation | 新 opt-in workspace HTML/CSS/JS、shell/tokens 最小增量、Entry/Projects 接线、browser tests | 新 URL、商品列表、当前任务、阶段/Back/Forward、三视口；旧页不变 | 无法保持旧深链/dirty/角色导航时停止 |
-| SW-2 Avatar secure preview | 人物专用授权 service/route、底层 Asset 授权复用、Avatar UI/tests、状态文档 | 同组织真实缩略图/大图、fallback、390 列表详情、过期/失败恢复 | 无法原子验证目录绑定 + active/available 时停止 |
-| SW-3A 商品资料 + 文案吸收 | 两阶段 workspace panel、既有 page logic 最小模块化、browser tests | current/history、dirty/409、QC/人工审核与 URL 恢复 | 需要改变既有写 API 或状态机时停止 |
-| SW-3B 人物 + 视频方案吸收 | 两阶段 panel/routing、既有 Avatar/Plan API、browser tests | 选择/授权、preflight/批准、图片预览与上下游失效 | workspace API 缺少业务真值时停止并回 Product/API gate |
-| SW-3C Production 吸收 | Production panel/routing、既有 API、完整安全回归 | 激活前/运行/terminal/A12/Work/交付及读取失败 | 任何 Worker 命令、门禁弱化或前端推断时停止 |
-| SW-4 移动与恢复收敛 | workspace CSS/JS、entry/legacy compatibility、跨页 browser tests、状态文档 | 390 单面板、768 收敛、focus/Back/Refresh/错误恢复、旧 URL 兼容 | 任一旧深链、未迁移页或生产合同回归时停止 |
+| Stage 1 商品资料 | shared opt-in workspace foundation、Stage 1 所需最小只读投影、商品资料 panel/routing、browser/API tests | 新 URL、project/product/current revision、商品列表、五阶段导航、current/history、dirty/409、三视口；旧页不变 | 只读投影需要新领域状态、写聚合、组织级队列，或无法保持旧深链/角色导航时停止 |
+| Stage 2 文案 | 文案 panel/routing、既有 Copy API、browser tests | 保存/派生、QC 与人工审核分离、冲突/上游失效、Back/Forward 与刷新恢复 | 需要改变 CopyVersion、QC 或人工审核语义时停止 |
+| Stage 3 人物 | 人物 panel/routing、人物专用预览授权、底层 Asset 授权复用、browser/API tests | 同组织真实缩略图/大图、选择/授权、fallback、390 列表详情、过期/失败恢复 | 无法原子验证目录绑定、`avatar_image`、父 Asset `active` 与版本 `available` 时停止 |
+| Stage 4 视频方案 | 视频方案 panel/routing、既有 Plan API、browser tests | 保存、preflight/人工批准分离、上游失效、历史/冲突/恢复 | workspace API 缺少业务真值或需要改变 VideoPlan 状态机时停止 |
+| Stage 5 生产 | Production panel/routing、既有 API、完整安全回归 | 激活前/运行/terminal/A12/Work/交付及读取失败 | 任何 Worker 命令、门禁弱化、自动重试/下一单或前端推断时停止 |
+| Post-stage 作品库 | Works 列表/详情/分页、既有 Works API、browser tests | 1440 的 9 项 fixture 为 6+3 分页，768 非双窄栏，390 列表/详情/返回，四种 Work 状态 | 服务端无法提供分页/总数/深链真值或需要前端伪造集合时停止 |
+| Post-stage 素材中心与移动收口 | Assets 业务页、workspace/entry/legacy compatibility、跨页 browser tests | Assets 三类真值、390/768 收敛、focus/Back/Refresh/错误恢复、旧 URL 兼容 | 任一旧深链、未迁移页、素材权限或生产合同回归时停止 |
 
-每片独立 Issue、独立 Draft PR、独立 RED -> GREEN、真实浏览器回归和 fixed-head CI。只有前一片合并后才开始下一片；
-任何片均不自动部署。SW-2 可在 SW-1 后优先完成，以解除 Owner 已确认的人物真实预览门禁；不得把人物预览推迟到
-Production 迁移之后。
+每个 Goal 都使用独立 Issue、Draft PR、RED -> GREEN、真实浏览器回归和 fixed-head CI。只有前一 Goal 经独立 Review
+并合并后才开始下一 Goal；任何 Goal 均不自动部署。Stage 1 只建立商品资料所需的最小共享壳层和只读投影，后续阶段
+按需 additive 扩展，不得先横向实现全部阶段。Stage 3 必须完成 Owner 已确认的人物真实预览门禁，Stage 5 Production
+保持独立高风险 Review。作品库及素材中心/移动收口只能在五阶段完成后按表中顺序另行开始。
 
 ## 13. 非目标
 

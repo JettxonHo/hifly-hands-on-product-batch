@@ -58,9 +58,11 @@
   服务端原子核对组织、目录条目、私有素材绑定、`avatar_image`、父 Asset `active` 与版本 `available`；底层可复用通用
   AssetVersion grant/bytes，但浏览器不获取 `material_asset_version_id` 或对象存储路径。首字只在图片不可用时作为有原因的
   fallback；390 使用人物列表 -> 详情 -> 返回。
-- 后续严格串行：工作区只读投影 -> shared opt-in foundation -> Avatar secure preview -> 商品资料/文案 -> 人物/视频方案
-  -> 独立 Production 吸收 -> 手机与恢复收敛。每片独立 Issue、Draft PR、真实 Chrome 1440/768/390、CI 和 Review；
-  不自动部署，也不得搬运 throwaway 原型或旧 `gui/visual-refresh` 改动。
+- 后续严格串行 Stage Goals：Stage 1 商品资料（含所需最小 shared foundation/只读投影）-> Stage 2 文案 -> Stage 3 人物
+  （含 secure real preview）-> Stage 4 视频方案 -> Stage 5 生产 -> Post-stage 作品库 -> 素材中心/移动收口。作品库的后续
+  桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项；390 保持列表 -> 详情 -> 返回。每个 Goal 独立 Issue、Draft PR、
+  真实 Chrome 1440/768/390、CI 和 Review；前一 Goal 合并后才开始下一 Goal，不自动部署，也不得搬运 throwaway 原型或旧
+  `gui/visual-refresh` 改动。
 
 ## UX V1 Slice A 仓库实现
 
@@ -562,8 +564,9 @@
    C5b 离线环境 materialization + synthetic smoke。不得以 headless 4.13/4.14、手工 contrib 4.14、
    `--no-deps`、metadata override 或 resolver report 绕过；C5b Review 前不得运行 accepted benchmark。capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
    有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
-3. Issue #236 / 对应 PR 的单任务工作区合同只有合并进入 `main` 后才计为 designed；实现必须从独立只读投影 gate 开始，并按
-   shared foundation、Avatar secure preview、阶段吸收和移动恢复严格串行。当前不得把原型或合同写成代码、部署或验收。
+3. Issue #236 / 对应 PR 的单任务工作区合同只有合并进入 `main` 后才计为 designed；后续严格按 Stage 1 商品资料、Stage 2
+   文案、Stage 3 人物、Stage 4 视频方案、Stage 5 生产、Post-stage 作品库、素材中心/移动收口串行，前一 Goal 合并后才可
+   开始下一 Goal。当前不得把原型或合同写成代码、部署或验收。
 4. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
 5. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。

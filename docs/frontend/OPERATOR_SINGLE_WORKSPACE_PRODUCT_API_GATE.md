@@ -196,8 +196,9 @@ mint。目录初始加载按可见项懒加载并限制并发；不能为全部�
 ## 6. 兼容与推出
 
 - 两个 seam 均 additive、feature-gated、默认关闭；关闭时现有页面/API/Production/Assets 行为不变。
-- SW-0 只实现 operator workspace 读取投影；SW-1 才新增 opt-in 页面骨架。
-- Avatar preview 独立 SW-2；可先接当前 Avatar 页验证真实图片，再进入单工作区阶段吸收。
+- Stage 1 只实现商品资料所需的最小 operator workspace 读取投影与 opt-in 页面骨架；后续阶段只按当前 Goal 所需
+  additive 扩展投影，不得预先横向实现全部阶段。
+- Avatar preview 固定在 Stage 3；同一 Goal 内先通过 service/API 的目录绑定与授权回归，再接入人物工作区 UI。
 - 旧 URL、DOM/ARIA 与写命令在相应阶段迁移完成前保持；redirect 必须最后单独接受。
 - 无 migration/DB 必要性是当前设计假设；若实现审计发现必须持久化新状态或公开内部引用，立即停止并重新过 Product/API gate。
 
