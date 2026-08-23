@@ -110,8 +110,10 @@
     let dialogTrigger = null;
     let logicalSelectionKey = null;
     const previewCache = new Map();
+    const previewExpiryTimers = new Map();
     const previewQueue = [];
     let previewActive = 0;
+    let previewEpoch = 0;
 
     const primary = node("#workspacePrimaryAction");
     const actionLabel = node("#workspaceActionLabel");
@@ -146,24 +148,68 @@
       return url.origin === location.origin && url.pathname.startsWith("/api/assets/downloads/") && Number.isFinite(Date.parse(value.expires_at));
     }
 
+    function clearPreviewTimer(key) {
+      const timer = previewExpiryTimers.get(key);
+      if (timer) clearTimeout(timer);
+      previewExpiryTimers.delete(key);
+    }
+
+    function setPreviewState(entry, state) {
+      const key = previewKey(entry);
+      clearPreviewTimer(key);
+      previewCache.set(key, state);
+      if (state.status !== "ready") return;
+      const epoch = previewEpoch;
+      const delay = Math.max(0, Date.parse(state.expiresAt) - Date.now());
+      previewExpiryTimers.set(key, setTimeout(() => {
+        const current = previewCache.get(key);
+        if (epoch !== previewEpoch || current?.status !== "ready" || current.url !== state.url) return;
+        previewExpiryTimers.delete(key);
+        previewCache.set(key, { status: "expired", reason: "人物图片授权已过期，请重新获取。" });
+        updatePreviewNodes(entry);
+      }, delay));
+    }
+
+    function invalidatePreviewCache(nextCatalog) {
+      previewEpoch += 1;
+      previewQueue.length = 0;
+      for (const timer of previewExpiryTimers.values()) clearTimeout(timer);
+      previewExpiryTimers.clear();
+      previewCache.clear();
+      for (const entry of nextCatalog || []) {
+        if (entry.materials_accessible !== false) continue;
+        previewCache.set(previewKey(entry), {
+          status: "error", reason: "人物图片当前不可用，已显示文字占位。"
+        });
+      }
+    }
+
     async function authorizePreview(entry, force = false) {
       const key = previewKey(entry);
       const existing = previewState(entry);
       if (!force && existing.status === "ready" && Date.parse(existing.expiresAt) > Date.now()) return existing;
-      previewCache.set(key, { status: "loading", reason: "" });
+      if (entry.materials_accessible === false) {
+        setPreviewState(entry, { status: "error", reason: "人物图片当前不可用，已显示文字占位。" });
+        updatePreviewNodes(entry);
+        return previewState(entry);
+      }
+      const epoch = previewEpoch;
+      setPreviewState(entry, { status: "loading", reason: "" });
       updatePreviewNodes(entry);
       try {
         const body = await request(`/api/avatar-catalog/${encodeURIComponent(entry.id)}/preview-authorizations`, {
           method: "POST", headers: { "content-type": "application/json" }, body: "{}"
         });
+        if (epoch !== previewEpoch) return previewState(entry);
         if (!validPreview(body.preview)) throw Object.assign(new Error("INVALID_AVATAR_PREVIEW_RESPONSE"), { status: 503 });
         const state = Date.parse(body.preview.expires_at) <= Date.now()
           ? { status: "expired", reason: "人物图片授权已过期，请重新获取。" }
           : { status: "ready", url: body.preview.url, expiresAt: body.preview.expires_at,
             mediaType: body.preview.media_type, size: body.preview.size, checksum: body.preview.checksum_sha256, reason: "" };
-        previewCache.set(key, state);
+        setPreviewState(entry, state);
       } catch (error) {
-        previewCache.set(key, { status: "error", reason: previewReason(error) });
+        if (epoch !== previewEpoch) return previewState(entry);
+        setPreviewState(entry, { status: "error", reason: previewReason(error) });
       }
       updatePreviewNodes(entry);
       return previewState(entry);
@@ -184,8 +230,10 @@
       drainPreviewQueue();
     }
 
-    function imageError(entry) {
-      previewCache.set(previewKey(entry), { status: "error", reason: "人物图片解码失败，可以重试。" });
+    function imageError(entry, expectedUrl, epoch) {
+      const current = previewState(entry);
+      if (epoch !== previewEpoch || current.status !== "ready" || current.url !== expectedUrl) return;
+      setPreviewState(entry, { status: "error", reason: "人物图片解码失败，可以重试。" });
       updatePreviewNodes(entry);
     }
 
@@ -195,7 +243,8 @@
         const image = document.createElement("img");
         image.src = state.url;
         image.alt = `${entry.display_name}人物缩略图`;
-        image.addEventListener("error", () => imageError(entry), { once: true });
+        const epoch = previewEpoch;
+        image.addEventListener("error", () => imageError(entry, state.url, epoch), { once: true });
         return image;
       }
       const fallback = document.createElement("span");
@@ -221,7 +270,8 @@
         image.alt = `${entry.display_name}人物大图`;
         image.hidden = false;
         fallback.hidden = true;
-        image.onerror = () => imageError(entry);
+        const epoch = previewEpoch;
+        image.onerror = () => imageError(entry, state.url, epoch);
       } else {
         image.hidden = true;
         image.removeAttribute("src");
@@ -290,7 +340,7 @@
       list.replaceChildren(...project.products.map((item) => {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "product-list-item";
+        button.className = "product-list-item secondary";
         button.dataset.productId = item.id;
         button.setAttribute("aria-current", String(item.id === productId));
         const title = document.createElement("strong");
@@ -310,12 +360,13 @@
       const list = node("#avatarCatalogList");
       const fragment = document.createDocumentFragment();
       for (const entry of catalog()) {
+        const item = document.createElement("div");
+        item.setAttribute("role", "listitem");
         const button = document.createElement("button");
         button.type = "button";
         button.className = "workspace-avatar-item";
         button.dataset.avatarId = entry.id;
         button.dataset.avatarVersionId = entry.asset_version.id;
-        button.setAttribute("role", "listitem");
         button.setAttribute("aria-current", String(entry.asset_version.id === viewedAvatarVersionId));
         const copy = document.createElement("span");
         copy.className = "workspace-avatar-item-copy";
@@ -326,7 +377,8 @@
         copy.append(title, meta);
         button.append(thumbContent(entry), copy);
         button.addEventListener("click", () => selectEntry(entry, button));
-        fragment.append(button);
+        item.append(button);
+        fragment.append(item);
         if ("IntersectionObserver" in window) {
           const observer = new IntersectionObserver((records) => {
             if (records.some((record) => record.isIntersecting)) { observer.disconnect(); queuePreview(entry); }
@@ -416,9 +468,11 @@
       if (!exactProduct || exactProduct.current_revision_id !== workspaceBody.workspace.product.current_revision_id) {
         throw new Error("OPERATOR_WORKSPACE_RESPONSE_INVALID");
       }
+      const nextAvatarStage = workspaceBody.workspace.stages.find((stage) => stage.code === "avatar");
+      invalidatePreviewCache(nextAvatarStage?.avatar_workspace?.catalog);
       workspace = workspaceBody.workspace;
       project = projectBody.project;
-      avatarStage = workspace.stages.find((stage) => stage.code === "avatar");
+      avatarStage = nextAvatarStage;
       copyVersionId = avatarWorkspace().resolved_copy_version_id || workspace.stages.find((stage) => stage.code === "copy")?.current_copy_version_id || null;
       const currentVersion = avatarWorkspace().selection.current_selection?.asset_version_id || null;
       selectedAvatarVersionId = preservePending && entryByVersion(pending)?.gate?.can_confirm ? pending : currentVersion;

@@ -315,8 +315,28 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
     return version;
   }
 
+  async function authorizeAvatarPreview({ organizationId, assetVersionId, transactionClient = null }) {
+    if (typeof repository.authorizeAvatarPreviewMaterial !== "function") fail("ASSET_VERSION_NOT_AVAILABLE");
+    return repository.authorizeAvatarPreviewMaterial({ organizationId, assetVersionId, transactionClient,
+      mintGrant({ assetVersion }) {
+        const token = randomBytes(24).toString("base64url");
+        const expiresAt = new Date(now() + downloadTtlMs).toISOString();
+        const metadata = {
+          original_filename: assetVersion.original_filename,
+          verified_content_type: assetVersion.verified_content_type,
+          verified_size: assetVersion.verified_size,
+          verified_checksum_sha256: assetVersion.verified_checksum_sha256
+        };
+        downloads.set(token, { organizationId, objectKey: assetVersion.object_key,
+          contentType: assetVersion.verified_content_type, expiresAt, ...metadata });
+        return { token, expires_at: expiresAt, asset_version_id: assetVersion.id, ...metadata };
+      }
+    });
+  }
+
   return {
     createUploadAuthorization, uploadObject, completeUpload, runNextVerificationJob, recoverVerificationJobs,
+    authorizeAvatarPreview,
     getAssetVersion: ({ organizationId, assetVersionId }) => getPublicAssetVersion(organizationId, assetVersionId),
     getAsset: ({ organizationId, assetId }) => getPublicAsset(organizationId, assetId),
     listAssets: async ({ organizationId }) => (await repository.listAssets(organizationId)).filter((asset) => asset.kind !== APPEARANCE_CANDIDATE_KIND),

@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 
+import { createAssetService } from "../src/assets/asset-service.js";
+import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
+import { createPostgresAssetRepository } from "../src/assets/postgres-asset-repository.js";
+import { createAvatarSelectionService } from "../src/avatar-selection/avatar-selection-service.js";
 import { createPostgresAvatarSelectionRepository } from "../src/avatar-selection/postgres-avatar-selection-repository.js";
 import { runAvatarSelectionMigrations } from "../src/avatar-selection/postgres.js";
 import { runAssetMigrations } from "../src/assets/postgres.js";
@@ -132,4 +136,73 @@ test("clean PostgreSQL avatar migration seeds controlled catalog and serializes 
   assert.deepEqual(state.history.map((item) => item.status), ["superseded", "confirmed"]);
   assert.equal((await repository.listEvents("org-avatar-pg", ids.product)).length, 5);
   await assert.rejects(pool.query("UPDATE avatar_selections SET copy_version_id=$1 WHERE id=$2", [ids.copy,first.current_selection.id]), /append-only/);
+
+  const assetRepository = createPostgresAssetRepository({ pool });
+  const assetService = createAssetService({ repository: assetRepository, objectStore: createMemoryObjectStore(),
+    now: () => Date.parse("2026-08-24T00:00:00.000Z") });
+  const previewService = createAvatarSelectionService({ repository, materialAssetPort: assetService,
+    now: () => Date.parse("2026-08-24T00:00:00.000Z"),
+    copyApprovalPort: { async getCurrentApprovedCopy() { return null; } } });
+  assert.equal(typeof repository.authorizePreview, "function", "PostgreSQL catalog authorization must expose one transaction gate");
+  assert.equal(typeof assetService.authorizeAvatarPreview, "function", "Asset authorization must join the catalog transaction gate");
+  async function insertMaterial(label) {
+    const assetId = randomUUID(), versionId = randomUUID();
+    await pool.query(`INSERT INTO asset_assets(id,organization_id,kind,display_name,status,row_version,created_by_member_id,created_at,updated_at)
+      VALUES ($1,'org-avatar-pg','avatar_image',$2,'active',1,$3,$4,$4)`, [assetId, label, seeded.member.id, at]);
+    await pool.query(`INSERT INTO asset_versions(id,asset_id,organization_id,version_number,status,object_key,original_filename,
+        expected_content_type,expected_size,expected_checksum_sha256,verified_content_type,verified_size,verified_checksum_sha256,
+        verified_at,created_at,updated_at)
+      VALUES ($1,$2,'org-avatar-pg',1,'available',$3,$4,'image/png',1,$5,'image/png',1,$5,$6,$6,$6)`,
+    [versionId, assetId, `org-avatar-pg/material/${versionId}`, `${label}.png`, "c".repeat(64), at]);
+    const avatar = await repository.registerEnterpriseAvatar({ organizationId: "org-avatar-pg", actorMemberId: seeded.member.id,
+      materialAssetVersionId: versionId, displayName: label, description: `${label} preview`, authorizationStatus: "valid",
+      capabilities: [], now: at });
+    return { assetId, versionId, avatar };
+  }
+
+  const catalogRace = await insertMaterial("目录竞态人物");
+  const catalogBlocker = await pool.connect();
+  await catalogBlocker.query("BEGIN");
+  await catalogBlocker.query("SELECT 1 FROM avatar_assets WHERE id=$1 FOR UPDATE", [catalogRace.avatar.asset.id]);
+  let catalogMaterialCalled = false;
+  const originalAssetAuthorize = assetService.authorizeAvatarPreview.bind(assetService);
+  assetService.authorizeAvatarPreview = async (input) => { catalogMaterialCalled = true; return originalAssetAuthorize(input); };
+  const catalogAuthorization = previewService.authorizePreview({ organizationId: "org-avatar-pg", actorMemberId: seeded.member.id,
+    actorRole: "admin", avatarId: catalogRace.avatar.asset.id });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(catalogMaterialCalled, false, "catalog row lock must stop grant creation before the private binding gate");
+  await catalogBlocker.query("UPDATE avatar_assets SET status='disabled',row_version=row_version+1,updated_at=$2 WHERE id=$1",
+    [catalogRace.avatar.asset.id, "2026-08-24T00:00:01.000Z"]);
+  await catalogBlocker.query("COMMIT");
+  catalogBlocker.release();
+  await assert.rejects(catalogAuthorization, { code: "AVATAR_PREVIEW_NOT_FOUND" });
+  assert.equal(catalogMaterialCalled, false);
+
+  const parentRace = await insertMaterial("父素材竞态人物");
+  const parentBlocker = await pool.connect();
+  await parentBlocker.query("BEGIN");
+  await parentBlocker.query("SELECT 1 FROM asset_assets WHERE id=$1 FOR UPDATE", [parentRace.assetId]);
+  let parentGateEntered;
+  const parentGateStarted = new Promise((resolve) => { parentGateEntered = resolve; });
+  const originalRepositoryAuthorize = assetRepository.authorizeAvatarPreviewMaterial.bind(assetRepository);
+  assetRepository.authorizeAvatarPreviewMaterial = async (input) => {
+    parentGateEntered();
+    return originalRepositoryAuthorize(input);
+  };
+  const parentAuthorization = previewService.authorizePreview({ organizationId: "org-avatar-pg", actorMemberId: seeded.member.id,
+    actorRole: "admin", avatarId: parentRace.avatar.asset.id });
+  const parentGateReached = await Promise.race([
+    parentGateStarted.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 100))
+  ]);
+  if (!parentGateReached) {
+    await parentBlocker.query("ROLLBACK");
+    parentBlocker.release();
+  }
+  assert.equal(parentGateReached, true, "authorization must enter the atomic parent Asset gate");
+  await parentBlocker.query("UPDATE asset_assets SET status='disabled',row_version=row_version+1,updated_at=$2 WHERE id=$1",
+    [parentRace.assetId, "2026-08-24T00:00:02.000Z"]);
+  await parentBlocker.query("COMMIT");
+  parentBlocker.release();
+  await assert.rejects(parentAuthorization, { code: "AVATAR_PREVIEW_UNAVAILABLE" });
 });

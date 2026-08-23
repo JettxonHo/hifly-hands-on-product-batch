@@ -323,6 +323,17 @@ test("enterprise avatar API reuses verified upload, projects safe fields, and ke
   assert.equal(previewBytes.headers["content-type"], "image/png");
   assert.equal(createHash("sha256").update(previewBytes.rawPayload).digest("hex"), checksum);
 
+  const exactAssetAuthorize = app.assets.service.authorizeAvatarPreview;
+  app.assets.service.authorizeAvatarPreview = async () => {
+    throw new Error("temporary grant failure credential=secret-value");
+  };
+  const transientPreview = await app.inject({ method: "POST",
+    url: `/api/avatar-catalog/${encodeURIComponent(enterprise.id)}/preview-authorizations`, headers: memberMutation, payload: {} });
+  assert.equal(transientPreview.statusCode, 503);
+  assert.deepEqual(transientPreview.json(), { error: "AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE" });
+  assert.doesNotMatch(transientPreview.body, /secret-value|credential/);
+  app.assets.service.authorizeAvatarPreview = exactAssetAuthorize;
+
   const disabled = await app.inject({ method: "POST", url: `/api/avatar-catalog/enterprise/${encodeURIComponent(enterprise.id)}/disable`,
     headers: mutation, payload: { expected_revision: enterprise.revision_number } });
   assert.equal(disabled.statusCode, 200);

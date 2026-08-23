@@ -56,8 +56,9 @@
   blocker 或推荐动作。推荐动作使用按 Goal additive 的版本化 registry；未知或错阶段 code 一律不显示、不执行。不得创建
   组织级队列、跨阶段写事务或前端 Production 门禁推断。
 - Stage 3 人物的 Product/API gate 复用现有私有目录素材绑定与通用短时 Asset grant/bytes，并新增人物专用
-  preview authorization：服务端在一次授权门禁中重核 actor/organization、可见 active 目录条目、私有素材绑定、
-  `avatar_image` 父 Asset `active`、exact AssetVersion `available` 以及已验证 media/size/SHA-256。公共响应只投影短时
+  preview authorization：memory 在相应串行门禁内、PostgreSQL 在同一事务行锁内重核 actor/organization、可见 active
+  目录条目、私有素材绑定、`avatar_image` 父 Asset `active`、exact AssetVersion `available` 以及已验证
+  media/size/SHA-256，再 mint 短时 grant，关闭目录读取与通用授权之间的 interleaving。公共响应只投影短时
   preview URL 与受控元数据，不返回 `material_asset_version_id`、object key、永久/Provider URL 或凭据。真实缩略图与大图
   使用同一受控版本；只有缺失、不可用、授权或解码失败时才显示带自然中文原因的首字 fallback。390 使用人物列表 ->
   详情 -> 返回，并恢复 exact list item 焦点。
@@ -81,7 +82,9 @@
   接受，effective QC 真正通过前不开放人工审核。AI 改写仍由既有 Copy 页面承载，本片未迁入。该合并只表示 Stage 2
   仓库实现成立；不表示部署、真实 Provider 生成或生产验收。
 - Issue #242 是 Stage 3 人物的独立 acceptance gate：additive 投影 exact current AvatarSelection、组织可见目录、授权/
-  素材/能力门禁，并实现上述人物专用短时 preview authorization。Stage 1 商品资料与 Stage 2 文案保持稳定；
+  素材/能力门禁，并实现上述人物专用短时 preview authorization。首轮独立复审要求的原子授权、权威 refresh/自然到期
+  清除 stale `src`、原生按钮语义、三视口 fallback 与 required PostgreSQL CI 均只在同一 Draft gate 内纠偏；合并前仍不
+  计为 Stage 3 完成。Stage 1 商品资料与 Stage 2 文案保持稳定；
   `video_plan/production` 继续 `legacy/not_loaded` 且保持 zero-read。人物动作只 additive 扩展版本化 registry，未知版本、
   未知 code、错 stage/kind 一律 fail closed。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 3 仓库实现成立；
   不表示部署、真实 Provider 或生产验收，也不授权 Stage 4。

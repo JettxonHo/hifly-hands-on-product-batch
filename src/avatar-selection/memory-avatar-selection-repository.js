@@ -2,6 +2,17 @@ import { randomUUID } from "node:crypto";
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const failure = (code) => Object.assign(new Error(code), { code });
+function createSerialGate() {
+  let tail = Promise.resolve();
+  return async (work) => {
+    const prior = tail;
+    let release;
+    tail = new Promise((resolve) => { release = resolve; });
+    await prior;
+    try { return await work(); }
+    finally { release(); }
+  };
+}
 export const PUBLIC_CATALOG_SEED_LABEL = "飞影公共目录（能力待核验）";
 export const PUBLIC_CATALOG_DESCRIPTION = "飞影公共目录同步条目；官方列表未提供预览或手里有货能力证据。";
 
@@ -30,6 +41,7 @@ export function createMemoryAvatarSelectionRepository() {
   const assets = new Map(), versions = new Map(), capabilities = new Map();
   const selections = new Map(), heads = new Map(), productHeads = new Map(), receipts = new Map();
   const events = [], audits = [], seededOrganizations = new Set();
+  const previewGate = createSerialGate();
 
   function receipt(receiptKey, fingerprint) {
     const value = receipts.get(receiptKey);
@@ -123,6 +135,20 @@ export function createMemoryAvatarSelectionRepository() {
       const version = [...versions.values()].find((value) => value.asset_id === asset.id);
       return version ? catalogEntry(asset, version) : null;
     },
+    async authorizePreview({ organizationId, avatarId, authorizeMaterial }) {
+      if (typeof authorizeMaterial !== "function") throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      return previewGate(async () => {
+        const asset = assets.get(avatarId);
+        if (!asset || asset.organization_id !== organizationId || asset.status !== "active") {
+          throw failure("AVATAR_PREVIEW_NOT_FOUND");
+        }
+        const version = [...versions.values()].filter((value) => value.asset_id === avatarId)
+          .sort((left, right) => right.version_number - left.version_number)[0];
+        if (!version || version.organization_id !== organizationId || version.status !== "available" ||
+            !version.material_asset_version_id) throw failure("AVATAR_PREVIEW_UNAVAILABLE");
+        return authorizeMaterial({ materialAssetVersionId: version.material_asset_version_id, transactionClient: null });
+      });
+    },
     async registerEnterpriseAvatar({ organizationId, actorMemberId = null, materialAssetVersionId, materialAsset, materialVersion,
       displayName, description, authorizationStatus, authorizationExpiresAt = null, categoryTags = [], capabilities: verified = [], now }) {
       if (!materialAsset || !materialVersion || materialAsset.organization_id !== organizationId || materialVersion.organization_id !== organizationId) {
@@ -146,16 +172,18 @@ export function createMemoryAvatarSelectionRepository() {
       return { ...catalogEntry(asset, version), replayed: false };
     },
     async disableEnterpriseAvatar({ organizationId, assetId, expectedRevision, actorMemberId = null, now }) {
-      const asset = assets.get(assetId);
-      if (!asset || asset.organization_id !== organizationId) throw failure("AVATAR_ASSET_NOT_FOUND");
-      if (asset.source_type !== "enterprise" || asset.controlled_seed) throw failure("AVATAR_ASSET_DISABLE_FORBIDDEN");
-      if (asset.revision_number !== expectedRevision) throw failure("AVATAR_ASSET_VERSION_CONFLICT");
-      if (asset.status !== "active") throw failure("AVATAR_ASSET_NOT_ACTIVE");
-      asset.status = "disabled"; asset.revision_number += 1; asset.updated_at = now;
-      audits.push({ id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId,
-        event_type: "avatar.enterprise_disabled", asset_id: assetId, created_at: now });
-      const version = [...versions.values()].find((value) => value.asset_id === assetId);
-      return { ...catalogEntry(asset, version), replayed: false };
+      return previewGate(async () => {
+        const asset = assets.get(assetId);
+        if (!asset || asset.organization_id !== organizationId) throw failure("AVATAR_ASSET_NOT_FOUND");
+        if (asset.source_type !== "enterprise" || asset.controlled_seed) throw failure("AVATAR_ASSET_DISABLE_FORBIDDEN");
+        if (asset.revision_number !== expectedRevision) throw failure("AVATAR_ASSET_VERSION_CONFLICT");
+        if (asset.status !== "active") throw failure("AVATAR_ASSET_NOT_ACTIVE");
+        asset.status = "disabled"; asset.revision_number += 1; asset.updated_at = now;
+        audits.push({ id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId,
+          event_type: "avatar.enterprise_disabled", asset_id: assetId, created_at: now });
+        const version = [...versions.values()].find((value) => value.asset_id === assetId);
+        return { ...catalogEntry(asset, version), replayed: false };
+      });
     },
     async getReceipt(receiptKey, fingerprint) { return receipt(receiptKey, fingerprint); },
     async updateReceiptResult(receiptKey, result) {

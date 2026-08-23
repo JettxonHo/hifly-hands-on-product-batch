@@ -282,56 +282,30 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
         throw failure("AVATAR_SELECTION_FORBIDDEN");
       }
       if (!clean(input.avatarId)) throw failure("AVATAR_PREVIEW_NOT_FOUND");
-      if (typeof repository.getCatalogAsset !== "function") {
+      if (typeof repository.authorizePreview !== "function" || typeof materialAssetPort?.authorizeAvatarPreview !== "function") {
         throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
-      }
-      let entry;
-      try {
-        entry = await repository.getCatalogAsset(input.organizationId, input.avatarId);
-      } catch {
-        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
-      }
-      if (!entry || entry.asset.status !== "active") throw failure("AVATAR_PREVIEW_NOT_FOUND");
-      const materialVersionId = entry.asset_version.material_asset_version_id;
-      if (!clean(materialVersionId)) throw failure("AVATAR_PREVIEW_UNAVAILABLE");
-      if (!materialAssetPort?.getAssetVersion || !materialAssetPort?.getAsset || !materialAssetPort?.createDownloadAuthorization) {
-        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
-      }
-      let materialVersion, materialAsset;
-      try {
-        materialVersion = await materialAssetPort.getAssetVersion({ organizationId: input.organizationId,
-          assetVersionId: materialVersionId });
-        materialAsset = await materialAssetPort.getAsset({ organizationId: input.organizationId,
-          assetId: materialVersion.asset_id });
-      } catch (error) {
-        if (["ASSET_VERSION_NOT_FOUND", "ASSET_NOT_FOUND", "ASSET_VERSION_NOT_AVAILABLE"].includes(error?.code)) {
-          throw failure("AVATAR_PREVIEW_UNAVAILABLE");
-        }
-        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
-      }
-      const mediaType = materialVersion.verified_content_type;
-      const size = materialVersion.verified_size;
-      const checksum = materialVersion.verified_checksum_sha256;
-      if (materialVersion.id !== materialVersionId || materialVersion.organization_id !== input.organizationId ||
-          materialAsset.id !== materialVersion.asset_id || materialAsset.organization_id !== input.organizationId ||
-          materialAsset.status !== "active" || materialAsset.kind !== "avatar_image" ||
-          materialVersion.status !== "available" || !PREVIEW_MEDIA_TYPES.has(mediaType) ||
-          !Number.isInteger(size) || size < 1 || !/^[a-f0-9]{64}$/.test(checksum || "")) {
-        throw failure("AVATAR_PREVIEW_UNAVAILABLE");
       }
       let grant;
       try {
-        grant = await materialAssetPort.createDownloadAuthorization({ organizationId: input.organizationId,
-          assetVersionId: materialVersionId, actorMemberId: input.actorMemberId });
+        grant = await repository.authorizePreview({ organizationId: input.organizationId, avatarId: input.avatarId,
+          authorizeMaterial: ({ materialAssetVersionId, transactionClient }) => materialAssetPort.authorizeAvatarPreview({
+            organizationId: input.organizationId, assetVersionId: materialAssetVersionId,
+            actorMemberId: input.actorMemberId, transactionClient
+          }) });
       } catch (error) {
-        if (["ASSET_VERSION_NOT_FOUND", "ASSET_NOT_FOUND", "ASSET_VERSION_NOT_AVAILABLE"].includes(error?.code)) {
+        if (["AVATAR_PREVIEW_NOT_FOUND", "AVATAR_PREVIEW_UNAVAILABLE"].includes(error?.code)) throw error;
+        if (["ASSET_VERSION_NOT_FOUND", "ASSET_NOT_FOUND", "ASSET_VERSION_NOT_AVAILABLE", "ASSET_NOT_ACTIVE"].includes(error?.code)) {
           throw failure("AVATAR_PREVIEW_UNAVAILABLE");
         }
         throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
       }
+      const mediaType = grant?.verified_content_type;
+      const size = grant?.verified_size;
+      const checksum = grant?.verified_checksum_sha256;
+      if (!PREVIEW_MEDIA_TYPES.has(mediaType)) throw failure("AVATAR_PREVIEW_UNAVAILABLE");
       if (!clean(grant?.token) || !clean(grant?.expires_at) || !Number.isFinite(Date.parse(grant.expires_at)) ||
-          Date.parse(grant.expires_at) <= now() || grant.verified_content_type !== mediaType ||
-          grant.verified_size !== size || grant.verified_checksum_sha256 !== checksum) {
+          Date.parse(grant.expires_at) <= now() || !Number.isInteger(size) || size < 1 ||
+          !/^[a-f0-9]{64}$/.test(checksum || "")) {
         throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
       }
       return { token: grant.token, expires_at: grant.expires_at, media_type: mediaType, size, checksum_sha256: checksum };

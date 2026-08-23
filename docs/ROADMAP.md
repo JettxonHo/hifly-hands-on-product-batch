@@ -170,8 +170,10 @@ fail-visible 恢复。Issue #240 / PR #241 已把 Stage 2 文案实现合并进�
 CopyVersion、生成、QC 与人工审核，并保持后续阶段 `legacy/not_loaded`。其投影固定使用 CopyGeneration newest-first
 任务头；`needs_review` 仅复用既有 resolution API 提供接受理由、返回商品资料与人工修改，hard block 不可接受，AI
 改写暂留既有 Copy 页面。Issue #242 是 Stage 3 人物独立 acceptance gate：只 additive 投影 exact AvatarSelection、
-组织可见目录、授权/素材/能力门禁，并通过人物专用短时授权提供同一受控 `avatar_image` 版本的缩略图与大图；公共响应
-不暴露私有素材绑定、object key 或 Provider/凭据数据，授权/解码失败使用带原因的首字 fallback。Stage 1/2 保持稳定，
+组织可见目录、授权/素材/能力门禁，并通过人物专用短时授权提供同一受控 `avatar_image` 版本的缩略图与大图；memory
+串行门禁与 PostgreSQL 同事务行锁关闭目录、私有绑定、父 Asset/Version 和 grant 之间的 interleaving。公共响应不暴露
+私有素材绑定、object key 或 Provider/凭据数据；权威 refresh 与自然到期会撤下旧 `src`，授权/解码失败使用带原因的
+首字 fallback。Stage 1/2 保持稳定，
 Stage 4/5 继续 `legacy/not_loaded`。对应 Draft PR 合并前不计为完成，也不授权 Stage 4。后续实现严格串行：
 Stage 4 视频方案、Stage 5 Production、Post-stage 作品库、素材中心/移动收口。
 作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实

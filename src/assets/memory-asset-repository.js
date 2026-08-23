@@ -3,6 +3,18 @@ import { createHash, randomUUID } from "node:crypto";
 const clone = (value) => value == null ? value : structuredClone(value);
 const failure = (code) => Object.assign(new Error(code), { code });
 const APPEARANCE_CANDIDATE_KIND = "appearance_candidate_image";
+const AVATAR_PREVIEW_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+function createSerialGate() {
+  let tail = Promise.resolve();
+  return async (work) => {
+    const prior = tail;
+    let release;
+    tail = new Promise((resolve) => { release = resolve; });
+    await prior;
+    try { return await work(); }
+    finally { release(); }
+  };
+}
 
 export function createMemoryAssetRepository() {
   const assets = new Map();
@@ -13,6 +25,7 @@ export function createMemoryAssetRepository() {
   const authorizationReceipts = new Map();
   const references = new Map();
   const audits = [];
+  const previewGate = createSerialGate();
   function owned(map, id, organizationId, code) {
     const value = map.get(id);
     if (!value || value.organization_id !== organizationId) throw failure(code);
@@ -87,6 +100,21 @@ export function createMemoryAssetRepository() {
     },
     async getAssetVersion(organizationId, id) { return clone(owned(versions, id, organizationId, "ASSET_VERSION_NOT_FOUND")); },
     async getAsset(organizationId, id) { return clone(owned(assets, id, organizationId, "ASSET_NOT_FOUND")); },
+    async authorizeAvatarPreviewMaterial({ organizationId, assetVersionId, mintGrant }) {
+      if (typeof mintGrant !== "function") throw new TypeError("mintGrant is required");
+      return previewGate(async () => {
+        const version = owned(versions, assetVersionId, organizationId, "ASSET_VERSION_NOT_FOUND");
+        const asset = owned(assets, version.asset_id, organizationId, "ASSET_NOT_FOUND");
+        if (asset.status !== "active" || asset.kind !== "avatar_image" || version.status !== "available" ||
+            !AVATAR_PREVIEW_MEDIA_TYPES.has(version.verified_content_type) ||
+            !Number.isInteger(version.verified_size) || version.verified_size < 1 ||
+            !/^[a-f0-9]{64}$/.test(version.verified_checksum_sha256 || "") ||
+            typeof version.object_key !== "string" || !version.object_key) {
+          throw failure("ASSET_VERSION_NOT_AVAILABLE");
+        }
+        return mintGrant({ asset: clone(asset), assetVersion: clone(version) });
+      });
+    },
     async listAssets(organizationId) {
       return [...assets.values()].filter((asset) => asset.organization_id === organizationId && asset.status !== "deleted" && asset.kind !== APPEARANCE_CANDIDATE_KIND)
         .map((asset) => ({
@@ -174,26 +202,30 @@ export function createMemoryAssetRepository() {
       return clone(job);
     },
     async finishVerification({ jobId, versionStatus, failureCode = null, verification = null, now }) {
-      const job = jobs.get(jobId);
-      if (!job) throw failure("VERIFICATION_JOB_NOT_FOUND");
-      const version = versions.get(job.asset_version_id);
-      version.status = versionStatus; version.failure_code = failureCode; version.updated_at = now;
-      if (verification) {
-        version.verified_content_type = verification.contentType; version.verified_size = verification.size;
-        version.verified_checksum_sha256 = verification.checksumSha256; version.verified_at = now;
-      }
-      job.status = "succeeded"; job.updated_at = now;
-      audits.push({ id: randomUUID(), organization_id: version.organization_id, event_type: versionStatus === "available" ? "asset.version_available" : "asset.verification_failed", asset_id: version.asset_id, asset_version_id: version.id, metadata: failureCode ? { failure_code: failureCode } : {}, created_at: now });
-      return clone(version);
+      return previewGate(async () => {
+        const job = jobs.get(jobId);
+        if (!job) throw failure("VERIFICATION_JOB_NOT_FOUND");
+        const version = versions.get(job.asset_version_id);
+        version.status = versionStatus; version.failure_code = failureCode; version.updated_at = now;
+        if (verification) {
+          version.verified_content_type = verification.contentType; version.verified_size = verification.size;
+          version.verified_checksum_sha256 = verification.checksumSha256; version.verified_at = now;
+        }
+        job.status = "succeeded"; job.updated_at = now;
+        audits.push({ id: randomUUID(), organization_id: version.organization_id, event_type: versionStatus === "available" ? "asset.version_available" : "asset.verification_failed", asset_id: version.asset_id, asset_version_id: version.id, metadata: failureCode ? { failure_code: failureCode } : {}, created_at: now });
+        return clone(version);
+      });
     },
     async updateAssetStatus({ organizationId, assetId, expectedRevision, status, actorMemberId = null, now }) {
-      const asset = owned(assets, assetId, organizationId, "ASSET_NOT_FOUND");
-      if (asset.revision_number !== expectedRevision) throw failure("ASSET_VERSION_CONFLICT");
-      if (asset.status === "deleted" || (status === "disabled" && asset.status !== "active")) throw failure("ASSET_NOT_ACTIVE");
-      if (status === "deleted" && [...references.values()].some((ref) => ref.asset_id === assetId)) throw failure("ASSET_HISTORY_REFERENCED");
-      asset.status = status; asset.revision_number += 1; asset.updated_at = now;
-      audits.push({ id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId, event_type: `asset.${status}`, asset_id: assetId, created_at: now });
-      return clone(asset);
+      return previewGate(async () => {
+        const asset = owned(assets, assetId, organizationId, "ASSET_NOT_FOUND");
+        if (asset.revision_number !== expectedRevision) throw failure("ASSET_VERSION_CONFLICT");
+        if (asset.status === "deleted" || (status === "disabled" && asset.status !== "active")) throw failure("ASSET_NOT_ACTIVE");
+        if (status === "deleted" && [...references.values()].some((ref) => ref.asset_id === assetId)) throw failure("ASSET_HISTORY_REFERENCED");
+        asset.status = status; asset.revision_number += 1; asset.updated_at = now;
+        audits.push({ id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId, event_type: `asset.${status}`, asset_id: assetId, created_at: now });
+        return clone(asset);
+      });
     },
     async updateAssetMetadata({ organizationId, assetId, expectedRevision, displayName, actorMemberId = null, now }) {
       const asset = owned(assets, assetId, organizationId, "ASSET_NOT_FOUND");

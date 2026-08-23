@@ -25,14 +25,17 @@ import { buildApp } from "../src/server/app.js";
 import { findAvailablePort } from "../src/server/start.js";
 import { ADMIN_EMAIL, ADMIN_TEMP_PASSWORD } from "./helpers/identity-world.js";
 
-const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
-const PNG_SHA = createHash("sha256").update(PNG).digest("hex");
+const PNG_A = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+const PNG_B = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGP4zwAAAgEBAScY42YAAAAASUVORK5CYII=", "base64");
+const PNG_A_SHA = createHash("sha256").update(PNG_A).digest("hex");
+const PNG_B_SHA = createHash("sha256").update(PNG_B).digest("hex");
 
-async function uploadImage(assetService, actor, key, filename, kind) {
+async function uploadImage(assetService, actor, key, filename, kind, body = PNG_A) {
+  const checksum = createHash("sha256").update(body).digest("hex");
   const created = await assetService.createUploadAuthorization({ ...actor, idempotencyKey: `${key}-upload`,
-    filename, contentType: "image/png", size: PNG.length, checksumSha256: PNG_SHA, assetKind: kind });
+    filename, contentType: "image/png", size: body.length, checksumSha256: checksum, assetKind: kind });
   await assetService.uploadObject({ organizationId: actor.organizationId, uploadToken: created.upload.token,
-    body: PNG, contentType: "image/png" });
+    body, contentType: "image/png" });
   await assetService.completeUpload({ ...actor, uploadSessionId: created.upload_session_id,
     idempotencyKey: `${key}-complete` });
   await assetService.runNextVerificationJob();
@@ -84,8 +87,8 @@ async function startWorld(t, portStart = 59400) {
   const objectStore = createMemoryObjectStore();
   const assetService = createAssetService({ repository: assetRepository, objectStore });
   const productImage = await uploadImage(assetService, actor, "stage-3-product", "商品.png", "product_image");
-  const avatarImageA = await uploadImage(assetService, actor, "stage-3-avatar-a", "人物甲.png", "avatar_image");
-  const avatarImageB = await uploadImage(assetService, actor, "stage-3-avatar-b", "人物乙.png", "avatar_image");
+  const avatarImageA = await uploadImage(assetService, actor, "stage-3-avatar-a", "人物甲.png", "avatar_image", PNG_A);
+  const avatarImageB = await uploadImage(assetService, actor, "stage-3-avatar-b", "人物乙.png", "avatar_image", PNG_B);
 
   const app = await buildApp({
     root, executor: createFakeExecutor(),
@@ -128,7 +131,8 @@ async function startWorld(t, portStart = 59400) {
     throw error;
   }
   t.after(() => browser.close());
-  return { app, browser, origin, project, first, second, firstCopy, secondCopy, avatarA, avatarB };
+  return { app, browser, origin, project, first, second, firstCopy, secondCopy, avatarA, avatarB, avatarImageA, avatarImageB,
+    actor, assetRepository };
 }
 
 async function authenticate(page, origin) {
@@ -158,6 +162,21 @@ async function expectAction(page, code, label) {
   assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
 }
 
+async function responseSha(page, origin, value) {
+  const response = await page.request.get(new URL(value, origin).href);
+  assert.equal(response.status(), 200);
+  return createHash("sha256").update(await response.body()).digest("hex");
+}
+
+async function refreshAvatarWorkspace(page) {
+  const response = page.waitForResponse((value) => value.request().method() === "GET" &&
+    new URL(value.url()).pathname.endsWith("/operator-workspace"));
+  await page.locator("#refreshAvatarWorkspace").click();
+  const dirtyDialog = page.locator("#workspaceAvatarPendingDialog");
+  if (await dirtyDialog.isVisible()) await page.locator("#discardWorkspaceAvatarSelection").click();
+  await response;
+}
+
 test("Stage 3 shows exact secure previews and confirms an explicit Avatar selection", async (t) => {
   const setup = await startWorld(t);
   if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
@@ -180,6 +199,11 @@ test("Stage 3 shows exact secure previews and confirms an explicit Avatar select
   const thumbnailSource = await avatarButton.locator("img").getAttribute("src");
   const detailSource = await page.locator("#avatarPreviewImage").getAttribute("src");
   assert.equal(detailSource, thumbnailSource, "thumbnail and detail must use the same short-lived grant");
+  assert.equal(await responseSha(page, origin, thumbnailSource), PNG_A_SHA);
+  const secondThumbnail = page.locator(`[data-avatar-id]:has-text("周言") img`);
+  await secondThumbnail.waitFor();
+  assert.equal(await responseSha(page, origin, await secondThumbnail.getAttribute("src")), PNG_B_SHA);
+  assert.notEqual(PNG_A_SHA, PNG_B_SHA);
   assert.equal(await page.locator("body").textContent().then((value) => value.includes(avatarA.asset_version.material_asset_version_id)), false);
 
   await page.locator("#workspacePrimaryAction").click();
@@ -241,15 +265,23 @@ test("Stage 3 fails visibly and recovers exact previews, conflicts, and dirty hi
     }
     return route.continue();
   });
+  let previewAFailNext = false;
   let previewAFailures = 0;
   await page.route(`**/api/avatar-catalog/${avatarA.asset.id}/preview-authorizations`, (route) => {
-    if (previewAFailures++ === 0) return route.fulfill({ status: 503, contentType: "application/json",
-      body: JSON.stringify({ error: "AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE" }) });
+    if (previewAFailNext) {
+      previewAFailNext = false;
+      previewAFailures += 1;
+      return route.fulfill({ status: 503, contentType: "application/json",
+        body: JSON.stringify({ error: "AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE" }) });
+    }
     return route.continue();
   });
+  let previewBExpireNext = false;
   let previewBExpired = 0;
   await page.route(`**/api/avatar-catalog/${avatarB.asset.id}/preview-authorizations`, async (route) => {
-    if (previewBExpired++ > 0) return route.continue();
+    if (!previewBExpireNext) return route.continue();
+    previewBExpireNext = false;
+    previewBExpired += 1;
     const response = await route.fetch();
     const body = await response.json();
     body.preview.expires_at = "2000-01-01T00:00:00.000Z";
@@ -276,20 +308,24 @@ test("Stage 3 fails visibly and recovers exact previews, conflicts, and dirty hi
   await page.locator("#workspacePrimaryAction").click();
   await expectAction(page, "select_avatar", "选择人物");
 
+  previewAFailNext = true;
+  await refreshAvatarWorkspace(page);
   const avatarAButton = page.locator(`[data-avatar-id="${avatarA.asset.id}"]`);
   await avatarAButton.click();
   await page.locator("#avatarPreviewNotice").getByText("人物图片授权暂时失败，可以重试。", { exact: true }).waitFor();
   assert.equal(await page.locator("#avatarPreviewFallback span").textContent(), "林");
   await page.locator("#retryAvatarPreview").click();
   await page.locator("#avatarPreviewImage").waitFor();
-  assert.equal(previewAFailures, 2);
+  assert.equal(previewAFailures, 1);
 
+  previewBExpireNext = true;
+  await refreshAvatarWorkspace(page);
   const avatarBButton = page.locator(`[data-avatar-id="${avatarB.asset.id}"]`);
   await avatarBButton.click();
   await page.locator("#avatarPreviewNotice").getByText("人物图片授权已过期，请重新获取。", { exact: true }).waitFor();
   await page.locator("#retryAvatarPreview").click();
   await page.locator("#avatarPreviewImage").waitFor();
-  assert.equal(previewBExpired, 2);
+  assert.equal(previewBExpired, 1);
   await expectAction(page, "confirm_avatar_selection", "确认选择人物");
 
   const idempotencyKeys = [];
@@ -339,4 +375,120 @@ test("Stage 3 fails visibly and recovers exact previews, conflicts, and dirty hi
   await page.waitForFunction((productId) => new URL(location.href).searchParams.get("product") === productId, second.product.id);
   assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+});
+
+test("Stage 3 invalidates stale previews and preserves accessible controls at every accepted viewport", async (t) => {
+  const setup = await startWorld(t, 59500);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { browser, origin, project, first, avatarA, avatarImageA, actor, assetRepository } = setup;
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await authenticate(page, origin);
+
+  let materialAssetRevision = 1;
+  let previewMode = "normal";
+  const corruptPaths = new Set();
+  await page.route(`**/api/avatar-catalog/${avatarA.asset.id}/preview-authorizations`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (previewMode === "expiring") body.preview.expires_at = new Date(Date.now() + 120).toISOString();
+    if (previewMode === "corrupt") corruptPaths.add(new URL(body.preview.url, origin).pathname);
+    return route.fulfill({ response, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await page.route("**/api/assets/downloads/*", (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (previewMode === "corrupt" && corruptPaths.has(pathname)) {
+      return route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from("not-a-valid-image") });
+    }
+    return route.continue();
+  });
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    previewMode = "normal";
+    corruptPaths.clear();
+    await page.goto(workspaceUrl(origin, project.id, first.product.id));
+    await page.getByRole("heading", { name: "选择并确认人物" }).waitFor();
+    const productButton = page.locator(`#productList [data-product-id="${first.product.id}"]`);
+    const avatarButton = page.getByRole("button", { name: /林小满/ }).first();
+    await avatarButton.locator("img").waitFor();
+    const staleThumbnail = await avatarButton.locator("img").elementHandle();
+    assert.equal(await productButton.evaluate((element) => element.classList.contains("secondary")), true);
+    const productColors = await productButton.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const channel = (value) => {
+        const normalized = value / 255;
+        return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+      };
+      const luminance = (value) => {
+        const [red, green, blue] = value.match(/[\d.]+/g).slice(0, 3).map(Number).map(channel);
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+      };
+      const foreground = luminance(style.color), background = luminance(style.backgroundColor);
+      return { color: style.color, background: style.backgroundColor,
+        ratio: (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05) };
+    });
+    assert.notEqual(productColors.color, productColors.background);
+    assert.ok(productColors.ratio >= 4.5, `current product contrast must be at least 4.5:1, received ${productColors.ratio}`);
+    assert.equal(await productButton.evaluate((element) => element.tagName), "BUTTON");
+    assert.equal(await page.locator("#productList button:not(.secondary)").count(), 0,
+      "product selectors must not compete with the one recommended action");
+    assert.equal(await avatarButton.getAttribute("role"), null, "Avatar selection must retain native button semantics");
+    assert.equal(await avatarButton.evaluate((element) => element.parentElement?.getAttribute("role")), "listitem");
+    await avatarButton.focus();
+    assert.equal(await avatarButton.evaluate((element) => document.activeElement === element), true);
+    await avatarButton.click();
+    if (viewport.width <= 680) {
+      assert.equal(await page.locator("#avatarDetailHeading").evaluate((element) => document.activeElement === element), true);
+      await page.locator("#mobileAvatarDetailBack").click();
+      assert.equal(await avatarButton.evaluate((element) => document.activeElement === element), true);
+      await avatarButton.click();
+    }
+    assert.equal(await responseSha(page, origin, await page.locator("#avatarPreviewImage").getAttribute("src")), PNG_A_SHA);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+
+    const staleSource = await page.locator("#avatarPreviewImage").getAttribute("src");
+    await assetRepository.updateAssetStatus({ organizationId: actor.organizationId, assetId: avatarImageA.asset.id,
+      expectedRevision: materialAssetRevision, status: "disabled", actorMemberId: actor.actorMemberId,
+      now: new Date().toISOString() });
+    materialAssetRevision += 1;
+    await refreshAvatarWorkspace(page);
+    await page.locator("#avatarPreviewNotice").getByText("人物图片当前不可用，已显示文字占位。", { exact: true }).waitFor();
+    assert.equal(await page.locator("#avatarPreviewImage").getAttribute("src"), null);
+    assert.equal(await page.locator(`img[src="${staleSource}"]`).count(), 0);
+    assert.equal(await page.locator("#avatarPreviewFallback span").textContent(), "林");
+
+    await assetRepository.updateAssetStatus({ organizationId: actor.organizationId, assetId: avatarImageA.asset.id,
+      expectedRevision: materialAssetRevision, status: "active", actorMemberId: actor.actorMemberId,
+      now: new Date().toISOString() });
+    materialAssetRevision += 1;
+    await refreshAvatarWorkspace(page);
+    await page.locator("#avatarPreviewImage").waitFor();
+    assert.equal(await responseSha(page, origin, await page.locator("#avatarPreviewImage").getAttribute("src")), PNG_A_SHA);
+    await staleThumbnail.evaluate((image) => image.dispatchEvent(new Event("error")));
+    assert.equal(await page.locator("#avatarPreviewFrame").getAttribute("data-preview-state"), "ready",
+      "a detached stale image error must not replace the refreshed authorization");
+
+    previewMode = "expiring";
+    await refreshAvatarWorkspace(page);
+    await page.locator("#avatarPreviewNotice").getByText("人物图片授权已过期，请重新获取。", { exact: true }).waitFor();
+    assert.equal(await page.locator("#avatarPreviewImage").getAttribute("src"), null);
+    previewMode = "normal";
+    await page.locator("#retryAvatarPreview").click();
+    await page.locator("#avatarPreviewImage").waitFor();
+    assert.equal(await responseSha(page, origin, await page.locator("#avatarPreviewImage").getAttribute("src")), PNG_A_SHA);
+
+    previewMode = "corrupt";
+    await refreshAvatarWorkspace(page);
+    await page.locator("#avatarPreviewNotice").getByText("人物图片解码失败，可以重试。", { exact: true }).waitFor();
+    assert.equal(await page.locator("#avatarPreviewImage").getAttribute("src"), null);
+    assert.equal(await page.locator("#avatarPreviewFallback span").textContent(), "林");
+    assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1,
+      "image decode failure must not rewrite the Avatar business gate");
+    previewMode = "normal";
+    corruptPaths.clear();
+    await page.locator("#retryAvatarPreview").click();
+    await page.locator("#avatarPreviewImage").waitFor();
+    assert.equal(await responseSha(page, origin, await page.locator("#avatarPreviewImage").getAttribute("src")), PNG_A_SHA);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  }
 });

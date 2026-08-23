@@ -144,6 +144,18 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
         return row ? catalogEntry(client, organizationId, row.version_id) : null;
       } finally { client.release(); }
     },
+    async authorizePreview({ organizationId, avatarId, authorizeMaterial }) {
+      if (typeof authorizeMaterial !== "function") throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      return withTransaction(pool, async (client) => {
+        const row = (await client.query(`SELECT a.status asset_status,v.status version_status,v.material_asset_version_id
+          FROM avatar_assets a JOIN avatar_asset_versions v ON v.asset_id=a.id AND v.organization_id=a.organization_id
+          WHERE a.organization_id=$1 AND a.id=$2
+          ORDER BY v.version_number DESC LIMIT 1 FOR UPDATE OF a,v`, [organizationId, avatarId])).rows[0];
+        if (!row || row.asset_status !== "active") throw failure("AVATAR_PREVIEW_NOT_FOUND");
+        if (row.version_status !== "available" || !row.material_asset_version_id) throw failure("AVATAR_PREVIEW_UNAVAILABLE");
+        return authorizeMaterial({ materialAssetVersionId: row.material_asset_version_id, transactionClient: client });
+      });
+    },
     async getCatalogVersion(organizationId, assetVersionId) {
       const catalog = await this.listCatalog(organizationId);
       return catalog.find((entry) => entry.asset_version.id === assetVersionId) || null;

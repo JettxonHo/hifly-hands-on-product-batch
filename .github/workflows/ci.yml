@@ -71,6 +71,8 @@ jobs:
         run: node --test test/manual-execution-postgres.integration.test.js
       - name: Run Fidelity-B Appearance PostgreSQL integration
         run: node --test test/appearance-fidelity-postgres.integration.test.js
+      - name: Run Stage 3 AvatarSelection PostgreSQL integration
+        run: node --test test/avatar-selection-postgres.integration.test.js
       - name: Run identity browser smoke
         env:
           IDENTITY_BROWSER_SMOKE: "1"

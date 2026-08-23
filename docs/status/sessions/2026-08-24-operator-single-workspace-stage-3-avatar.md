@@ -9,9 +9,11 @@
 
 - 现有 AvatarSelection service/API 已持有目录、推荐、显式确认、授权、能力 Evidence、历史与 optimistic conflict 真值；
   通用 Asset service 已持有组织隔离的短时授权与 exact verified bytes，不需要新领域状态、数据库 schema、角色或跨阶段事务。
-- 现有目录表私有持有 `material_asset_version_id`，memory 与 PostgreSQL repository 均可按 actor organization 和 exact
-  catalog ID 读取当前可见条目。人物 preview gate 因而能在服务端重核目录、私有绑定、父 Asset 与 exact AssetVersion，
-  而不把内部 ID 投影给浏览器；未命中 Product/API stop condition。
+- 现有目录表私有持有 `material_asset_version_id`。首轮独立复审证明“先读目录、再单独 mint 通用 Asset grant”会留下
+  interleaving 窗口；修正后 memory 使用相应串行门禁，PostgreSQL 在同一事务内依次锁定 exact 目录/目录版本和父
+  Asset/AssetVersion，并在门禁内 mint grant。授权因而在一个可线性化边界内重核组织、active 目录、私有绑定、
+  `avatar_image` 父 Asset、available exact version 与 verified metadata，而不把内部 ID 投影给浏览器；未命中
+  Product/API stop condition。
 - operator workspace 只 additive 读取 exact current approved CopyVersion 下的 Avatar workspace。Stage 1 商品资料与 Stage 2
   文案保持原投影；`video_plan`、`production` 继续 `legacy/not_loaded`，本切片没有读取这些领域 service。
 - 人物选择仍由既有显式确认 API 写入；目录卡片和预览授权本身不提交选择，不改变 authorization/capability/material gate，
@@ -19,9 +21,11 @@
 
 ## RED -> GREEN
 
-1. Service RED：基线 Avatar service 没有 preview authorization；GREEN 后按 actor/org、可见 active 目录条目、私有素材绑定、
-   父 Asset `active`、`kind=avatar_image`、exact version `available` 与 verified media/size/SHA-256 fail closed，再内部复用
-   短时 Asset grant。父 Asset disabled、版本 unavailable、wrong kind、checksum/grant drift 均在返回 URL 前阻断。
+1. Service/atomic RED：基线没有 preview authorization；首轮实现又可在目录读取后、grant mint 前禁用目录或父 Asset，
+   仍返回 token。GREEN 后按 actor/org、可见 active 目录条目、私有素材绑定、父 Asset `active`、`kind=avatar_image`、
+   exact version `available` 与 verified media/size/SHA-256 fail closed，并以 memory 串行门禁和 PostgreSQL 同事务行锁覆盖
+   mutation-first 与 authorization-first 的确定时序。父 Asset disabled、版本 unavailable、wrong kind、checksum/grant
+   drift 均在返回 URL 前阻断。
 2. API RED：`POST /api/avatar-catalog/:avatarId/preview-authorizations` 基线为 404；GREEN 后保持既有 identity/CSRF，缺失、
    跨组织或不可见统一 404，素材不可用为 422，瞬时读取/授权错误为 503。201 公共响应只含
    `url/expires_at/media_type/size/checksum_sha256`，不含 material ID、object key、永久/Provider URL、Cookie、token body、
@@ -33,14 +37,17 @@
 4. Integration RED：真实默认 App 的 Avatar copy gate 返回嵌套 `copy.copy_version_id`，初版 projection 只读取扁平字段并
    产生 `copy_version_id=null`；默认 App API 回归稳定复现后，GREEN 显式兼容现有服务契约并锁定 exact ID，不修改 Avatar
    领域响应。
-5. Browser RED：基线 workspace 人物阶段没有真实图片、详情层或确认路径；GREEN 后真实 Chrome 从同一短时授权 URL 渲染
-   缩略图与大图，确认仍需 Dialog 和既有 POST。授权失败、过期、解码失败显示自然中文原因与首字 fallback；重试重新授权，
-   不用假图片或远端 CDN。
-6. Responsive/recovery RED：基线 390 没有人物列表 -> 详情 -> 返回语义；GREEN 后点击列表与移动主动作均把焦点送入详情，
-   返回恢复 exact list item。初始/bootstrap、scoped refresh、dirty、409、history、Back/Forward、preview expiry 以及 unknown
-   action 均 fail-visible；权威读取失败会禁用桌面/移动全部阶段链接，只保留 scoped refresh，恢复后按 exact 当前对象重建。
+5. Browser RED：基线 workspace 人物阶段没有真实图片、详情层或确认路径；首轮实现又会在权威 refresh 后沿用同 catalog
+   version 的旧 URL，并在自然到期后继续保留已加载图片。GREEN 后真实 Chrome 从同一短时授权 URL 渲染缩略图与大图，
+   权威 refresh 总是作废旧授权并按最新素材真值重新授权；到期定时器主动清除 `src`。两个 distinct exact PNG/hash 证明
+   人物和版本没有串用；授权失败、过期和 corrupt bytes 解码失败均显示自然中文原因与首字 fallback，重试只刷新图片。
+6. Responsive/recovery RED：基线 390 没有人物列表 -> 详情 -> 返回语义；首轮人物条目又覆盖原生 button role，商品选择器
+   未使用 secondary 层级并在当前态出现不可读颜色。GREEN 后人物按钮保留原生语义并由 listitem wrapper 承载列表结构，
+   商品选择器保持次级层级与可读 current 状态；390 点击人物把焦点送入详情，返回恢复 exact list item。1440/768/390
+   均覆盖真实图片、素材失效、过期、decode fallback、重试、可见焦点与无页面级横向滚动。
 7. Reliability RED：Stage 3 浏览器 seam 初始复用 Stage 2 的 `59300` 端口段，默认并行组合暴露冲突风险；改用独立
-   `59400` / `59450` 后，Stage 1/2/3 默认并行 7/7，完整受影响 Chrome 组合 11/11。
+   `59400` / `59450` / `59500`。PostgreSQL Avatar 原子回归显式加入 required `identity-postgres` job，不再依赖默认测试中
+   的环境 skip；route-level 503 证明临时 cause 中的 credential 字样不会进入安全响应。
 
 ## 实现边界
 
@@ -55,43 +62,53 @@
 
 ## 精确 allowlist
 
-1. `src/avatar-selection/avatar-selection-service.js`
-2. `src/avatar-selection/memory-avatar-selection-repository.js`
-3. `src/avatar-selection/postgres-avatar-selection-repository.js`
-4. `src/operator-workspace/operator-workspace-service.js`
-5. `src/server/app.js`
-6. `src/server/routes/avatar-selection.js`
-7. `web/project.js`
-8. `web/workspace.html`
-9. `web/workspace.css`
-10. `web/workspace-avatar.js`
-11. `test/avatar-selection-service.test.js`
-12. `test/avatar-selection-api.test.js`
-13. `test/avatar-selection-postgres.integration.test.js`
-14. `test/operator-workspace-service.test.js`
-15. `test/project-content-api.test.js`
-16. `test/operator-single-workspace-stage-3-browser.test.js`
-17. `docs/status/CURRENT.md`
-18. `docs/ROADMAP.md`
-19. `docs/status/sessions/2026-08-24-operator-single-workspace-stage-3-avatar.md`
+1. `.github/workflows/ci.yml`
+2. `docs/ROADMAP.md`
+3. `docs/status/CURRENT.md`
+4. `docs/status/sessions/2026-08-24-operator-single-workspace-stage-3-avatar.md`
+5. `src/assets/asset-service.js`
+6. `src/assets/memory-asset-repository.js`
+7. `src/assets/postgres-asset-repository.js`
+8. `src/avatar-selection/avatar-selection-service.js`
+9. `src/avatar-selection/memory-avatar-selection-repository.js`
+10. `src/avatar-selection/postgres-avatar-selection-repository.js`
+11. `src/operator-workspace/operator-workspace-service.js`
+12. `src/server/app.js`
+13. `src/server/routes/avatar-selection.js`
+14. `test/avatar-selection-api.test.js`
+15. `test/avatar-selection-postgres.integration.test.js`
+16. `test/avatar-selection-service.test.js`
+17. `test/operator-single-workspace-stage-3-browser.test.js`
+18. `test/operator-workspace-service.test.js`
+19. `test/project-content-api.test.js`
+20. `web/project.js`
+21. `web/workspace-avatar.js`
+22. `web/workspace.css`
+23. `web/workspace.html`
 
-该 allowlist 在代码编辑前已锁定于 Issue #242，没有 API/backend/DB/dependency 或后续阶段扩张。
+Issue #242 初始锁定 19 文件；首轮独立复审在实现前记录了四类必要扩张：required CI 与 Asset service/memory/PostgreSQL
+内部授权门禁。最终总 diff 严格为以上 23 文件，没有 DB migration、dependency、通用公共 Asset API、后续阶段或部署扩张。
 
 ## 验证
 
-- focused service/API：55/55 pass。
-- local PostgreSQL 16：`test/avatar-selection-postgres.integration.test.js` 1/1 pass；一次性容器随后停止并移除。
-- 真实 Chrome 受影响组合：Stage 1/2/3 与旧 Project/Copy/Avatar/Assets 11/11 pass；其中 Stage 1/2/3 默认并行
-  7/7 pass。
-- Assets/Avatar service/API compatibility：72/72 pass。
+- focused service/API/Assets compatibility：94/94 pass。
+- local PostgreSQL 16：`test/avatar-selection-postgres.integration.test.js` 1/1 pass；一次性容器在验证完成后停止。
+- Stage 3 真实 Chrome：3/3 pass；第三条用例在 1440x900、768x900、390x844 逐一覆盖 exact bytes、素材失效、
+  自然到期、corrupt bytes、重试、原生 button/focus、商品次级控件层级与无页面级横向滚动。
+- 一次受影响浏览器并行组合为 21/22，未改动的 V2-D Assets focus 断言偶发失败，随后该文件独立 1/1 pass。一次
+  补充组合又在未改动的 `assets-browser` 首条通过后的清理阶段零 CPU 停顿并被终止；对应文件独立 3/3 pass，且最终
+  默认全量包含这些浏览器用例并自然通过。这两次非通过记录均未以串行参数替代或从证据中删除。
 - `npm run check`：245 JavaScript files。
-- 默认 `npm test` 自然完成：1136 total / 1121 pass / 15 existing environment-gated skips / 0 fail。既有
-  V2 Production browser 用例在默认并发中耗时约 332 秒但最终通过，没有中止、取消或以串行替代。
-- `git diff --check`：pass；总 diff 严格 19 文件。
-- 临时 PNG 位于 `/private/tmp/hifly-stage-3-avatar-screenshots-20260824c/`，像素头为 1440x900、768x900、
-  390x844，SHA-256 分别为 `4498b5584e4b2ba0c3ab4accac1ce914a9df6e6b1b28240fe14b5e2f237199cf`、
-  `96011c53dc2ed0ff746f80693b78edbb379ddc35a4d00751c51bd80e280ba379`、
-  `2acbbef71e0ee31573f695534b37894280d738eb59d2cb10481cf4bbc401eca7`；二进制未提交。
+- 第一轮默认 `npm test` 在最终小修前运行到第 649 条后，于未改动的 V2 Production browser 组零 CPU 停顿超过
+  10 分钟并被终止，不能计为全量通过；该文件随后独立 1/1 pass。最终代码树的默认 `npm test` 未改并发参数并自然完成：
+  1138 total / 1123 pass / 15 existing environment-gated skips / 0 fail，约 86.9 秒。
+- `npm audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org`：0 high/critical；2 个既有 moderate，
+  均为 `exceljs -> uuid`，本片未执行 breaking `--force` 修复。本机默认 npmmirror audit endpoint 不受支持的失败亦未冒充安全结论。
+- `git diff --check`：pass；总 diff 严格 23 文件。
+- 修正后临时 PNG 位于 `/private/tmp/hifly-stage-3-avatar-screenshots-20260824e/`，像素头为 1440x900、768x900、
+  390x844，SHA-256 分别为 `1ec0cc6a5c5b50e2e456fcc01fb5211088192c4dbcf47785523b8e43121d3bc8`、
+  `0c5e16fdac957d913d3e30ecee163e7235c224d013c63936fef36a82f5b84989`、
+  `d1169289db6f7b8e8e96a7134bea003998d51a8c8567b13d8629b5283e5cae38`；二进制未提交并已人工看图。
 - 截图使用公开 browser seam 的本地 exact-byte 1x1 PNG fixture，只证明同源授权图片路径、三视口层级与无页面级横向
   滚动，不是生产人物素材、Provider 或视觉质量证据。390 详情焦点与返回由公开 Chrome 断言补证。
 - fixed-head GitHub CI 以 Draft PR checks 元数据与最终结果评论为准；session 不在提交正文中自引用最终 head。
