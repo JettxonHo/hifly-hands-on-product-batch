@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="/workspace.css">
     <script src="/shell.js" defer></script>
     <script src="/workspace-copy.js" defer></script>
+    <script src="/workspace-avatar.js" defer></script>
     <script src="/project.js" defer></script>
   </head>
   <body class="operator-task-page single-workspace-page" data-shell-page="projects" data-workspace-stage="product_content">
@@ -116,6 +117,38 @@
               </div>
             </section>
 
+            <section id="avatarWorkspacePanel" class="workspace-panel workspace-avatar-panel" hidden>
+              <div class="workspace-panel-heading task-panel-heading">
+                <div><p class="eyebrow">当前任务</p><h2 id="avatarWorkspaceHeading" tabindex="-1">选择并确认人物</h2><span id="avatarSelectionState" class="state">正在读取</span></div>
+                <div class="button-row task-toolbar"><button id="mobileAvatarProductBack" class="secondary mobile-layer-control" type="button">返回商品列表</button><button id="refreshAvatarWorkspace" class="secondary" type="button" data-refresh-scope="current-avatar">刷新当前人物</button></div>
+              </div>
+              <div id="avatarWorkspaceLoading" class="workspace-avatar-loading" role="status">正在读取人物目录...</div>
+              <div id="avatarWorkspaceContent" hidden>
+                <div class="workspace-avatar-browser">
+                  <section class="avatar-catalog-pane" aria-labelledby="avatarCatalogTitle">
+                    <div class="section-head"><div><h3 id="avatarCatalogTitle">可用人物</h3><p>选择后先查看大图，再明确确认。</p></div></div>
+                    <div id="avatarCatalogList" class="workspace-avatar-list" role="list" aria-live="polite"></div>
+                  </section>
+                  <section id="avatarDetailPane" class="avatar-detail-pane" aria-labelledby="avatarDetailHeading">
+                    <button id="mobileAvatarDetailBack" class="secondary avatar-detail-back" type="button">返回人物列表</button>
+                    <div id="avatarPreviewFrame" class="avatar-preview-frame" data-preview-state="loading">
+                      <img id="avatarPreviewImage" alt="" hidden>
+                      <div id="avatarPreviewFallback" class="avatar-preview-fallback" role="img" aria-label="人物图片正在读取"><span aria-hidden="true"></span><small>正在读取人物图片</small></div>
+                    </div>
+                    <div class="avatar-detail-copy"><span id="avatarDetailStatus" class="state">待选择</span><h3 id="avatarDetailHeading" tabindex="-1">选择一个人物查看详情</h3><p id="avatarDetailDescription" class="muted">人物图片、授权与能力依据会在这里显示。</p></div>
+                    <p id="avatarPreviewNotice" class="notice" role="status"></p>
+                    <button id="retryAvatarPreview" class="secondary" type="button" hidden>重试人物图片</button>
+                    <dl class="avatar-business-facts">
+                      <div><dt>人物授权</dt><dd id="avatarAuthorizationFact">待选择</dd></div>
+                      <div><dt>人物图片</dt><dd id="avatarMaterialFact">待选择</dd></div>
+                      <div><dt>已验证能力</dt><dd id="avatarCapabilityFact">待选择</dd></div>
+                    </dl>
+                    <details class="operator-technical-details"><summary>技术与审计详情</summary><dl class="workspace-technical-facts"><div><dt>人物目录版本</dt><dd id="avatarTechnicalVersion">未选择</dd></div><div><dt>能力依据</dt><dd id="avatarEvidenceList">未选择</dd></div></dl></details>
+                  </section>
+                </div>
+              </div>
+            </section>
+
             <aside class="workspace-panel workspace-context-panel" data-workspace-panel="supporting-context" aria-labelledby="taskSummaryTitle">
               <section class="workspace-task-summary" aria-label="当前任务摘要" aria-live="polite">
                 <div><p class="eyebrow">辅助上下文</p><h2 id="taskSummaryTitle">载入商品工作区</h2></div>
@@ -150,6 +183,12 @@
     </dialog>
     <dialog id="workspaceFindingDialog" aria-labelledby="workspaceFindingTitle">
       <form id="workspaceFindingForm"><div class="dialog-header"><div><p class="eyebrow">质检判断</p><h2 id="workspaceFindingTitle">接受当前判断项</h2></div><button id="closeWorkspaceFinding" class="dialog-close" type="button" aria-label="关闭质检判断">×</button></div><div class="dialog-body"><p id="workspaceFindingMessage"></p><label for="workspaceFindingReason">接受理由</label><textarea id="workspaceFindingReason" rows="4"></textarea><p id="workspaceFindingError" class="error" role="alert"></p><div class="actions"><button id="cancelWorkspaceFinding" class="secondary" type="button">取消</button><button type="submit">确认接受</button></div></div></form>
+    </dialog>
+    <dialog id="workspaceAvatarConfirmDialog" aria-labelledby="workspaceAvatarConfirmTitle">
+      <form id="workspaceAvatarConfirmForm"><div class="dialog-header"><div><p class="eyebrow">明确确认</p><h2 id="workspaceAvatarConfirmTitle">确认人物选择</h2></div><button id="closeWorkspaceAvatarConfirm" class="dialog-close" type="button" aria-label="关闭人物确认">×</button></div><div class="dialog-body"><p id="workspaceAvatarConfirmMessage">确认后，视频方案将引用这个人物版本。</p><p id="workspaceAvatarConfirmError" class="error" role="alert"></p><div id="workspaceAvatarConflict" class="notice blocked" hidden><span>人物选择已被其他成员更新，本地选择仍保留。</span><button id="loadLatestAvatarSelection" class="secondary" type="button">载入最新人物状态</button></div><div class="actions"><button id="cancelWorkspaceAvatarConfirm" class="secondary" type="button">取消</button><button id="confirmWorkspaceAvatar" type="submit">确认选择</button></div></div></form>
+    </dialog>
+    <dialog id="workspaceAvatarPendingDialog" aria-labelledby="workspaceAvatarPendingTitle">
+      <div class="dialog-header"><div><p class="eyebrow">尚未确认</p><h2 id="workspaceAvatarPendingTitle">保留当前人物选择</h2></div><button id="closeWorkspaceAvatarPending" class="dialog-close" type="button" aria-label="关闭未确认提示">×</button></div><div class="dialog-body"><p>切换商品或返回前，请先确认是否放弃当前人物选择。</p><div class="actions"><button id="keepWorkspaceAvatarSelection" class="secondary" type="button">继续查看</button><button id="discardWorkspaceAvatarSelection" type="button">放弃并继续</button></div></div>
     </dialog>
   </body>
 </html>

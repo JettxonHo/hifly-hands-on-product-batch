@@ -13,6 +13,14 @@
     });
     return;
   }
+  if (workspaceMode && requestedStage === "avatar") {
+    await window.HiflyAvatarWorkspace.start({
+      projectId,
+      productId: requestedProductId,
+      copyVersionId: params.get("copy")
+    });
+    return;
+  }
   const editor = document.querySelector("#editor");
   const revisionForm = document.querySelector("#revisionForm");
   const pointList = document.querySelector("#pointList");

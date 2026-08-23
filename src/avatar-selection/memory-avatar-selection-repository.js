@@ -117,6 +117,12 @@ export function createMemoryAvatarSelectionRepository() {
       if (!version || version.organization_id !== organizationId) return null;
       return catalogEntry(assets.get(version.asset_id), version);
     },
+    async getCatalogAsset(organizationId, assetId) {
+      const asset = assets.get(assetId);
+      if (!asset || asset.organization_id !== organizationId || asset.status === "deleted") return null;
+      const version = [...versions.values()].find((value) => value.asset_id === asset.id);
+      return version ? catalogEntry(asset, version) : null;
+    },
     async registerEnterpriseAvatar({ organizationId, actorMemberId = null, materialAssetVersionId, materialAsset, materialVersion,
       displayName, description, authorizationStatus, authorizationExpiresAt = null, categoryTags = [], capabilities: verified = [], now }) {
       if (!materialAsset || !materialVersion || materialAsset.organization_id !== organizationId || materialVersion.organization_id !== organizationId) {

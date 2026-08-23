@@ -223,7 +223,6 @@ test("projects the exact current CopyVersion while keeping QC and human approval
         return { current_review: null, reviews: [], history: [], gate: { can_submit: true, can_approve: false, reasons: [] } };
       }
     },
-    avatarService: { async getWorkspace() { downstreamReads.avatar += 1; } },
     videoPlanService: { async getWorkspace() { downstreamReads.videoPlan += 1; } },
     productionService: { async getWorkspace() { downstreamReads.production += 1; } }
   });
@@ -310,4 +309,256 @@ test("projects the newest generation job from the repository newest-first contra
   assert.equal(workspace.stages[1].generation.status, "queued");
   assert.deepEqual(workspace.stages[1].blocker_codes, ["COPY_GENERATION_IN_PROGRESS"]);
   assert.equal(workspace.recommended_action, null);
+});
+
+test("projects the exact approved CopyVersion and Avatar workspace while leaving later stages unloaded", async () => {
+  const revision = {
+    id: "revision-a",
+    organization_id: "org-a",
+    project_id: "project-a",
+    product_id: "product-a",
+    status: "ready",
+    product_name: "清透防晒乳",
+    asset_version_ids: ["product-image-a"],
+    selling_points: [{ id: "point-a", text: "清爽", confirmed: true }]
+  };
+  const approvedCopy = {
+    id: "copy-approved",
+    organization_id: "org-a",
+    project_id: "project-a",
+    product_id: "product-a",
+    product_revision_id: revision.id,
+    status: "frozen",
+    version_number: 3,
+    row_version: 2,
+    body: "清爽不黏腻。"
+  };
+  const avatarWorkspace = {
+    catalog_kind: "existing_only",
+    provider_integration: false,
+    recommendation: { primary_category: null, has_recommendations: true, recommended_count: 1, reason_code: "general_pool_fallback", reason: "使用通用人物。" },
+    controlled_seed_notice: "受控预置。",
+    resolved_copy_version_id: approvedCopy.id,
+    copy_gate: { approved: true, reasons: [], copy_version_id: approvedCopy.id },
+    catalog: [{ id: "avatar-a", display_name: "林小满", asset_version: { id: "avatar-version-a", version_number: 1, status: "available", preview_kind: "controlled_placeholder" }, gate: { can_confirm: true, reasons: [] } }],
+    selection: {
+      current_selection: { id: "selection-a", product_id: "product-a", copy_version_id: approvedCopy.id, asset_version_id: "avatar-version-a", version_number: 1, status: "confirmed", row_version: 1 },
+      selection_revision: 1,
+      current_valid: true,
+      invalidation_reasons: [],
+      history: []
+    }
+  };
+  const calls = [];
+  const service = createOperatorWorkspaceService({
+    projectContentService: {
+      async getProject() {
+        return { id: "project-a", name: "夏日项目", products: [{ id: "product-a", current_revision_id: revision.id, revision }] };
+      }
+    },
+    copyService: {
+      async listCopyVersions(input) {
+        calls.push({ kind: "copy", input });
+        return [approvedCopy];
+      }
+    },
+    reviewService: {
+      async getReviewState(input) {
+        calls.push({ kind: "review", input });
+        return { current_review: { id: "review-a", status: "approved", copy_version_id: approvedCopy.id, product_revision_id: revision.id }, gate: { can_submit: false, can_approve: false, reasons: [] } };
+      }
+    },
+    avatarService: {
+      async getWorkspace(input) {
+        calls.push({ kind: "avatar", input });
+        return avatarWorkspace;
+      }
+    }
+  });
+
+  const result = await service.getWorkspace({
+    organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "avatar"
+  });
+
+  assert.equal(result.render_mode, "workspace");
+  assert.equal(result.recommended_stage, "avatar");
+  assert.deepEqual(result.recommended_action, { code: "continue_to_video_plan", stage: "avatar", kind: "navigate" });
+  assert.deepEqual(result.stages[2], {
+    code: "avatar",
+    implementation_status: "workspace",
+    read_status: "ok",
+    navigation_state: "current",
+    business_status: "人物已确认",
+    blocker_codes: [],
+    current_object: { type: "avatar_selection", id: "selection-a" },
+    current_copy_version_id: "copy-approved",
+    copy_version: {
+      id: "copy-approved", status: "frozen", version_number: 3, row_version: 2,
+      body: "清爽不黏腻。", product_revision_id: "revision-a"
+    },
+    avatar_workspace: avatarWorkspace
+  });
+  assert.deepEqual(result.stages.slice(3), [
+    { code: "video_plan", implementation_status: "legacy", read_status: "not_loaded", navigation_state: null, business_status: null, blocker_codes: [], current_object: null },
+    { code: "production", implementation_status: "legacy", read_status: "not_loaded", navigation_state: null, business_status: null, blocker_codes: [], current_object: null }
+  ]);
+  assert.deepEqual(calls, [
+    { kind: "copy", input: { organizationId: "org-a", actorMemberId: "member-a", productRevisionId: "revision-a" } },
+    { kind: "review", input: { organizationId: "org-a", actorMemberId: "member-a", copyVersionId: "copy-approved" } },
+    { kind: "avatar", input: { organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin", productId: "product-a", copyVersionId: "copy-approved" } }
+  ]);
+});
+
+test("fails closed when Avatar returns a workspace bound to a different CopyVersion", async () => {
+  const revision = {
+    id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["product-image-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const copy = {
+    id: "copy-approved", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: 1, row_version: 1, body: "文案"
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: { async listCopyVersions() { return [copy]; } },
+    reviewService: { async getReviewState() { return { current_review: { id: "review-a", status: "approved", copy_version_id: copy.id }, gate: { reasons: [] } }; } },
+    avatarService: { async getWorkspace() {
+      return { resolved_copy_version_id: "copy-from-another-revision", copy_gate: { approved: true, reasons: [], copy_version_id: "copy-from-another-revision" }, catalog: [], selection: { current_selection: null } };
+    } }
+  });
+
+  await assert.rejects(
+    service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin", projectId: "project-a", productId: "product-a", stage: "avatar" }),
+    { code: "OPERATOR_WORKSPACE_NOT_FOUND" }
+  );
+});
+
+test("does not treat an unapproved draft CopyVersion as the Avatar upstream", async () => {
+  const revision = {
+    id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["product-image-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const draft = {
+    id: "copy-draft", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "draft", version_number: 1, row_version: 1, body: "未批准文案"
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: { async listCopyVersions() { return [draft]; } },
+    avatarService: { async getWorkspace() {
+      return { resolved_copy_version_id: draft.id, copy_gate: { approved: true, reasons: [], copy_version_id: draft.id }, catalog: [], selection: { current_selection: null } };
+    } }
+  });
+
+  await assert.rejects(
+    service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin", projectId: "project-a", productId: "product-a", stage: "avatar" }),
+    { code: "OPERATOR_WORKSPACE_NOT_FOUND" }
+  );
+});
+
+test("does not project a CopyVersion when Avatar approval is accompanied by blocking reasons", async () => {
+  const revision = {
+    id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["product-image-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const copy = {
+    id: "copy-approved", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: 1, row_version: 1, body: "文案"
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: { async listCopyVersions() { return [copy]; } },
+    avatarService: { async getWorkspace() {
+      return { resolved_copy_version_id: copy.id, copy_gate: { approved: true, reasons: ["copy_version_changed"], copy_version_id: copy.id }, catalog: [], selection: { current_selection: null } };
+    } }
+  });
+
+  const result = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin", projectId: "project-a", productId: "product-a", stage: "avatar" });
+  assert.equal(result.stages[2].current_copy_version_id, null);
+  assert.equal(result.stages[2].copy_version, null);
+  assert.deepEqual(result.recommended_action, { code: "return_to_copy", stage: "avatar", kind: "navigate" });
+});
+
+test("selects the newest approved CopyVersion for Avatar when a revision has approval history", async () => {
+  const revision = {
+    id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["product-image-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const copy = (id, version) => ({ id, organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: version, row_version: 1, body: `文案${version}` });
+  const copies = [copy("copy-old", 1), copy("copy-new", 2)];
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: { async listCopyVersions() { return copies; } },
+    reviewService: { async getReviewState({ copyVersionId }) { return { current_review: { id: `review-${copyVersionId}`, status: "approved", copy_version_id: copyVersionId }, gate: { reasons: [] } }; } },
+    avatarService: { async getWorkspace(input) {
+      assert.equal(input.copyVersionId, "copy-new");
+      return { resolved_copy_version_id: "copy-new", copy_gate: { approved: true, reasons: [], copy_version_id: "copy-new" }, catalog: [], selection: { current_selection: null } };
+    } }
+  });
+
+  const result = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin", projectId: "project-a", productId: "product-a", stage: "avatar" });
+  assert.equal(result.stages[2].current_copy_version_id, "copy-new");
+  assert.equal(result.stages[2].copy_version.version_number, 2);
+});
+
+test("fails closed for unknown or wrong-stage Avatar recommended actions", async () => {
+  const revision = {
+    id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["product-image-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const copy = {
+    id: "copy-approved", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: 1, row_version: 1, body: "文案"
+  };
+  for (const recommendedAction of [
+    { code: "unknown_avatar_action", stage: "avatar", kind: "navigate" },
+    { code: "continue_to_video_plan", stage: "copy", kind: "navigate" },
+    { code: "continue_to_video_plan", stage: "avatar", kind: "command" }
+  ]) {
+    const service = createOperatorWorkspaceService({
+      projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+      copyService: { async listCopyVersions() { return [copy]; } },
+      reviewService: { async getReviewState() { return { current_review: { id: "review-a", status: "approved", copy_version_id: copy.id }, gate: { reasons: [] } }; } },
+      avatarService: { async getWorkspace() {
+        return { resolved_copy_version_id: copy.id, copy_gate: { approved: true, reasons: [], copy_version_id: copy.id }, recommended_action: recommendedAction,
+          catalog: [], selection: { current_selection: null, selection_revision: 0, current_valid: false, invalidation_reasons: [], history: [] } };
+      } }
+    });
+
+    const result = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin", projectId: "project-a", productId: "product-a", stage: "avatar" });
+    assert.equal(result.recommended_action, null);
+  }
+});
+
+test("projects Avatar read errors as workspace error without stale Avatar object or action", async () => {
+  const revision = {
+    id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["product-image-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const copy = {
+    id: "copy-approved", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: 1, row_version: 1, body: "文案"
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: { async listCopyVersions() { return [copy]; } },
+    reviewService: { async getReviewState() { return { current_review: { id: "review-a", status: "approved", copy_version_id: copy.id }, gate: { reasons: [] } }; } },
+    avatarService: { async getWorkspace() { throw new Error("avatar read failed"); } }
+  });
+
+  const result = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin", projectId: "project-a", productId: "product-a", stage: "product_content" });
+  assert.deepEqual(result.stages[2], {
+    code: "avatar",
+    implementation_status: "workspace",
+    read_status: "error",
+    navigation_state: null,
+    business_status: null,
+    blocker_codes: [],
+    current_object: null
+  });
+  assert.equal(result.stages[2].copy_version, undefined);
+  assert.equal(result.stages[2].avatar_workspace, undefined);
+  assert.notEqual(result.recommended_action, null);
 });

@@ -14,6 +14,7 @@ import { createMemoryCopyQualityRepository } from "../src/copy-quality/memory-co
 import { createControlledQualityEvaluator } from "../src/copy-quality/controlled-evaluator.js";
 import { createControlledCopyRewriter } from "../src/copy-quality/controlled-rewriter.js";
 import { createMemoryCopyReviewRepository } from "../src/copy-review/memory-copy-review-repository.js";
+import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
 import { buildApp } from "../src/server/app.js";
 import { activateAdmin, identityApp, identityHeaders } from "./helpers/identity-world.js";
 
@@ -34,7 +35,7 @@ async function world(t) {
   return { ...result, repository, auth: await activateAdmin(result.app) };
 }
 
-async function operatorWorld(t, { repository = createMemoryProjectContentRepository() } = {}) {
+async function operatorWorld(t, { repository = createMemoryProjectContentRepository(), operatorWorkspaceOptions = {} } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-workspace-api-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const identityRepository = createMemoryIdentityRepository();
@@ -48,7 +49,7 @@ async function operatorWorld(t, { repository = createMemoryProjectContentReposit
   const app = await buildApp({
     root,
     executor: createFakeExecutor(),
-    operatorWorkspace: { enabled: true },
+    operatorWorkspace: { enabled: true, ...operatorWorkspaceOptions },
     projectContent: { enabled: true, repository, assetReferencePort },
     identity: {
       enabled: true,
@@ -105,6 +106,56 @@ async function copyOperatorWorld(t) {
   });
   t.after(() => app.close());
   return { app, auth: await activateAdmin(app), copyGenerationRepository };
+}
+
+async function avatarOperatorWorld(t, { avatarRepository = createMemoryAvatarSelectionRepository(), includeCopyGeneration = true } = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-avatar-workspace-api-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const identityRepository = createMemoryIdentityRepository();
+  await seedInitialAdmin(identityRepository, {
+    organizationId: "org_test",
+    organizationName: "Test Organization",
+    adminEmail: "admin@example.test",
+    adminDisplayName: "Test Admin",
+    adminTempPassword: "Temporary-Admin-9!"
+  });
+  const approvals = new Map();
+  const copyApprovalPort = {
+    async getCurrentApprovedCopy({ productId, copyVersionId }) {
+      const approved = approvals.get(productId);
+      return approved?.copy_version_id === copyVersionId ? { ...approved } : null;
+    },
+    async resolveCurrentApprovedCopy({ productId }) {
+      const approved = approvals.get(productId);
+      return approved ? { ...approved } : null;
+    }
+  };
+  const copyGenerationRepository = includeCopyGeneration ? createMemoryCopyGenerationRepository() : null;
+  const app = await buildApp({
+    root,
+    executor: createFakeExecutor(),
+    operatorWorkspace: { enabled: true },
+    projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
+    ...(includeCopyGeneration ? {
+      copyGeneration: {
+        enabled: true,
+        repository: copyGenerationRepository,
+        provider: createControlledCopyProvider(),
+        worker: { autoStart: false }
+      }
+    } : {}),
+    avatarSelection: { enabled: true, repository: avatarRepository, copyApprovalPort },
+    identity: {
+      enabled: true,
+      repository: identityRepository,
+      trustedHosts: ["app.test"],
+      trustedOrigins: ["https://app.test"],
+      cookieSecure: false,
+      seed: { enabled: false }
+    }
+  });
+  t.after(() => app.close());
+  return { app, auth: await activateAdmin(app), approvals, copyGenerationRepository, avatarRepository };
 }
 
 test("project content is disabled by default and reported by runtime", async (t) => {
@@ -291,6 +342,73 @@ test("operator workspace API projects the newest active Copy generation job", as
   assert.equal(response.json().workspace.stages[1].generation.current_job_id, "job-new");
   assert.equal(response.json().workspace.stages[1].generation.status, "queued");
   assert.equal(response.json().workspace.recommended_action, null);
+});
+
+test("buildApp operator workspace projects an enabled Avatar stage and keeps later stages unloaded", async (t) => {
+  const { app, auth, approvals } = await avatarOperatorWorld(t);
+  const project = (await app.inject({ method: "POST", url: "/api/projects", headers: headers(auth, true, "avatar-workspace-project"), payload: { name: "人物工作区" } })).json().project;
+  let revision = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`, headers: headers(auth, true, "avatar-workspace-product"), payload: { product_name: "待配人物商品" } })).json().revision;
+  revision = (await app.inject({ method: "PATCH", url: `/api/product-revisions/${revision.id}`, headers: headers(auth, true), payload: {
+    expected_revision: revision.revision_number, product_name: revision.product_name,
+    selling_points: [{ text: "人物工作区卖点" }], asset_version_ids: ["product-image-avatar"]
+  } })).json().revision;
+  revision = (await app.inject({ method: "POST", url: `/api/product-revisions/${revision.id}/selling-points/${revision.selling_points[0].id}/confirm`, headers: headers(auth, true), payload: { expected_revision: revision.revision_number } })).json().revision;
+  revision = (await app.inject({ method: "POST", url: `/api/product-revisions/${revision.id}/ready`, headers: headers(auth, true, "avatar-workspace-ready"), payload: { expected_revision: revision.revision_number } })).json().revision;
+
+  await app.copyGeneration.service.requestGeneration({ organizationId: "org_test", actorMemberId: auth.body.member.id, productRevisionId: revision.id, idempotencyKey: "avatar-copy-generation" });
+  const job = await app.copyGeneration.service.claimNextGenerationJob();
+  const copy = await app.copyGeneration.service.completeGenerationJob({ job, body: "人物工作区批准文案" });
+  const frozen = await app.copyGeneration.service.freezeCopyVersion({ organizationId: "org_test", actorMemberId: auth.body.member.id,
+    copyVersionId: copy.id, expectedRevision: copy.row_version, idempotencyKey: "avatar-copy-freeze" });
+  approvals.set(revision.product_id, { copy_version_id: frozen.id, product_revision_id: revision.id, current_valid: true });
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/projects/${project.id}/products/${revision.product_id}/operator-workspace?stage=avatar`,
+    headers: headers(auth)
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  const workspace = response.json().workspace;
+  assert.equal(workspace.render_mode, "workspace");
+  assert.equal(workspace.recommended_stage, "avatar");
+  assert.deepEqual(workspace.recommended_action, { code: "select_avatar", stage: "avatar", kind: "focus" });
+  assert.equal(workspace.stages[2].implementation_status, "workspace");
+  assert.equal(workspace.stages[2].read_status, "ok");
+  assert.equal(workspace.stages[2].current_copy_version_id, frozen.id);
+  assert.equal(workspace.stages[2].avatar_workspace.copy_gate.approved, true);
+  assert.equal(workspace.stages[2].avatar_workspace.copy_gate.copy_version_id, frozen.id);
+  assert.equal(workspace.stages[2].avatar_workspace.resolved_copy_version_id, frozen.id);
+  assert.equal(workspace.stages[2].current_object, null);
+  assert.equal(workspace.stages[3].read_status, "not_loaded");
+  assert.equal(workspace.stages[4].read_status, "not_loaded");
+});
+
+test("buildApp operator workspace clears Avatar projection on a read error without stale action", async (t) => {
+  const avatarRepository = createMemoryAvatarSelectionRepository();
+  avatarRepository.listCatalog = async () => { throw new Error("avatar authority unavailable"); };
+  const { app, auth } = await avatarOperatorWorld(t, { avatarRepository, includeCopyGeneration: false });
+  const project = (await app.inject({ method: "POST", url: "/api/projects", headers: headers(auth, true, "avatar-error-project"), payload: { name: "人物错误工作区" } })).json().project;
+  const product = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`, headers: headers(auth, true, "avatar-error-product"), payload: { product_name: "待读取商品" } })).json();
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/projects/${project.id}/products/${product.product.id}/operator-workspace?stage=product_content`,
+    headers: headers(auth)
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  const avatarStage = response.json().workspace.stages[2];
+  assert.deepEqual(avatarStage, {
+    code: "avatar",
+    implementation_status: "workspace",
+    read_status: "error",
+    navigation_state: null,
+    business_status: null,
+    blocker_codes: [],
+    current_object: null
+  });
+  assert.equal(avatarStage.copy_version, undefined);
+  assert.equal(avatarStage.avatar_workspace, undefined);
+  assert.equal(avatarStage.recommended_action, undefined);
 });
 
 test("operator workspace unifies missing and mismatched products without leaking organization truth", async (t) => {

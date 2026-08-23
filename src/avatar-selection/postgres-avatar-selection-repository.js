@@ -134,6 +134,16 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
         };
       }));
     },
+    async getCatalogAsset(organizationId, avatarAssetId) {
+      const client = await pool.connect();
+      try {
+        const row = (await client.query(`SELECT v.id version_id
+          FROM avatar_assets a JOIN avatar_asset_versions v ON v.asset_id=a.id AND v.organization_id=a.organization_id
+          WHERE a.organization_id=$1 AND a.id=$2 AND a.status<>'deleted'
+          ORDER BY v.version_number DESC LIMIT 1`, [organizationId, avatarAssetId])).rows[0];
+        return row ? catalogEntry(client, organizationId, row.version_id) : null;
+      } finally { client.release(); }
+    },
     async getCatalogVersion(organizationId, assetVersionId) {
       const catalog = await this.listCatalog(organizationId);
       return catalog.find((entry) => entry.asset_version.id === assetVersionId) || null;

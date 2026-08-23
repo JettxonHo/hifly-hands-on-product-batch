@@ -7,6 +7,7 @@ const MAX_CATEGORY_TAGS = 12;
 const MAX_CATEGORY_TAG_LENGTH = 40;
 const MAX_CAPABILITIES = 12;
 const MAX_CAPABILITY_FIELD_LENGTH = 120;
+const PREVIEW_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const RECOMMENDATION_REASON = Object.freeze({
   exact_category_match: (category) => `匹配商品主品类「${category}」。`,
   general_pool_fallback: "未找到商品主品类精确匹配，使用未设置分类标签的通用人物。",
@@ -275,6 +276,65 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       if (!clean(input.assetId) || !Number.isInteger(input.expectedRevision) || input.expectedRevision < 1) throw failure("INVALID_AVATAR_ASSET_REVISION");
       return repository.disableEnterpriseAvatar({ organizationId: input.organizationId, assetId: input.assetId,
         expectedRevision: input.expectedRevision, actorMemberId: input.actorMemberId, now: timestamp() });
+    },
+    async authorizePreview(input = {}) {
+      if (!clean(input.organizationId) || !clean(input.actorMemberId) || !["member", "admin"].includes(input.actorRole)) {
+        throw failure("AVATAR_SELECTION_FORBIDDEN");
+      }
+      if (!clean(input.avatarId)) throw failure("AVATAR_PREVIEW_NOT_FOUND");
+      if (typeof repository.getCatalogAsset !== "function") {
+        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      }
+      let entry;
+      try {
+        entry = await repository.getCatalogAsset(input.organizationId, input.avatarId);
+      } catch {
+        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      }
+      if (!entry || entry.asset.status !== "active") throw failure("AVATAR_PREVIEW_NOT_FOUND");
+      const materialVersionId = entry.asset_version.material_asset_version_id;
+      if (!clean(materialVersionId)) throw failure("AVATAR_PREVIEW_UNAVAILABLE");
+      if (!materialAssetPort?.getAssetVersion || !materialAssetPort?.getAsset || !materialAssetPort?.createDownloadAuthorization) {
+        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      }
+      let materialVersion, materialAsset;
+      try {
+        materialVersion = await materialAssetPort.getAssetVersion({ organizationId: input.organizationId,
+          assetVersionId: materialVersionId });
+        materialAsset = await materialAssetPort.getAsset({ organizationId: input.organizationId,
+          assetId: materialVersion.asset_id });
+      } catch (error) {
+        if (["ASSET_VERSION_NOT_FOUND", "ASSET_NOT_FOUND", "ASSET_VERSION_NOT_AVAILABLE"].includes(error?.code)) {
+          throw failure("AVATAR_PREVIEW_UNAVAILABLE");
+        }
+        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      }
+      const mediaType = materialVersion.verified_content_type;
+      const size = materialVersion.verified_size;
+      const checksum = materialVersion.verified_checksum_sha256;
+      if (materialVersion.id !== materialVersionId || materialVersion.organization_id !== input.organizationId ||
+          materialAsset.id !== materialVersion.asset_id || materialAsset.organization_id !== input.organizationId ||
+          materialAsset.status !== "active" || materialAsset.kind !== "avatar_image" ||
+          materialVersion.status !== "available" || !PREVIEW_MEDIA_TYPES.has(mediaType) ||
+          !Number.isInteger(size) || size < 1 || !/^[a-f0-9]{64}$/.test(checksum || "")) {
+        throw failure("AVATAR_PREVIEW_UNAVAILABLE");
+      }
+      let grant;
+      try {
+        grant = await materialAssetPort.createDownloadAuthorization({ organizationId: input.organizationId,
+          assetVersionId: materialVersionId, actorMemberId: input.actorMemberId });
+      } catch (error) {
+        if (["ASSET_VERSION_NOT_FOUND", "ASSET_NOT_FOUND", "ASSET_VERSION_NOT_AVAILABLE"].includes(error?.code)) {
+          throw failure("AVATAR_PREVIEW_UNAVAILABLE");
+        }
+        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      }
+      if (!clean(grant?.token) || !clean(grant?.expires_at) || !Number.isFinite(Date.parse(grant.expires_at)) ||
+          Date.parse(grant.expires_at) <= now() || grant.verified_content_type !== mediaType ||
+          grant.verified_size !== size || grant.verified_checksum_sha256 !== checksum) {
+        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      }
+      return { token: grant.token, expires_at: grant.expires_at, media_type: mediaType, size, checksum_sha256: checksum };
     },
     async getWorkspace(input) {
       validateContext(input);

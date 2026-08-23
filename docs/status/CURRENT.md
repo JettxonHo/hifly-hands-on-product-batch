@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-24
 > 当前 Goal：下一代运营单任务工作区严格串行 Stage Goals
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。最新固定 PaddleX `v3.7.2` 仍精确要求 vulnerable contrib 4.10；OpenCV 4.14 patched artifacts 不能在违反 metadata 的情况下替换，fixed model tree 也未形成完整 SHA-256/许可/替代 BOS 的官方路线。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`；没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同与 Stage 1 商品资料实现已进入精确 `main@f87c2068d4668f72f40396ddfc815c0a472fc003`；Issue #240 是 Stage 2 文案仓库实现的独立 acceptance gate，只有对应 PR 合并后才计为实现，不代表部署或生产验收。可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。最新固定 PaddleX `v3.7.2` 仍精确要求 vulnerable contrib 4.10；OpenCV 4.14 patched artifacts 不能在违反 metadata 的情况下替换，fixed model tree 也未形成完整 SHA-256/许可/替代 BOS 的官方路线。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`；没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同、Stage 1 商品资料与 Stage 2 文案实现已进入精确 `main@c6ce40166a9b68da58dfb91c77682148f9876c60`；Issue #242 是 Stage 3 人物仓库实现的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为实现，不代表部署、运行时或生产验收。可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -44,7 +44,7 @@
   Worker offline、`current_order=null` 时确认 persisted succeeded 工单首屏为“作品待检查”，唯一推荐动作
   “进入作品库检查”指向 exact Work；“生产门禁未通过”未出现，创建工单入口保持 disabled。
 
-## 下一代运营单任务工作区 Stage 0、Stage 1 与 Stage 2 门禁
+## 下一代运营单任务工作区 Stage 0 至 Stage 3 门禁
 
 - Owner 已于 2026-08-23 接受“一个商品、一个稳定工作区、一个当前阶段、一个唯一推荐动作”的方向。1440 使用
   商品列表 / 当前任务 / 辅助上下文 / 底部操作，768 收敛为两栏，390 使用单面板与列表/详情/返回。
@@ -55,10 +55,12 @@
   聚合投影。Stage 1 只读取商品资料；未迁移阶段稳定返回 `legacy/not_loaded` 并导航到既有页面，不投影对象、业务状态、
   blocker 或推荐动作。推荐动作使用按 Goal additive 的版本化 registry；未知或错阶段 code 一律不显示、不执行。不得创建
   组织级队列、跨阶段写事务或前端 Production 门禁推断。
-- 人物目录当前只渲染首字，公开 workspace 也没有受控图片授权。未来必须以人物专用短时 preview authorization 在
-  服务端原子核对组织、目录条目、私有素材绑定、`avatar_image`、父 Asset `active` 与版本 `available`；底层可复用通用
-  AssetVersion grant/bytes，但浏览器不获取 `material_asset_version_id` 或对象存储路径。首字只在图片不可用时作为有原因的
-  fallback；390 使用人物列表 -> 详情 -> 返回。
+- Stage 3 人物的 Product/API gate 复用现有私有目录素材绑定与通用短时 Asset grant/bytes，并新增人物专用
+  preview authorization：服务端在一次授权门禁中重核 actor/organization、可见 active 目录条目、私有素材绑定、
+  `avatar_image` 父 Asset `active`、exact AssetVersion `available` 以及已验证 media/size/SHA-256。公共响应只投影短时
+  preview URL 与受控元数据，不返回 `material_asset_version_id`、object key、永久/Provider URL 或凭据。真实缩略图与大图
+  使用同一受控版本；只有缺失、不可用、授权或解码失败时才显示带自然中文原因的首字 fallback。390 使用人物列表 ->
+  详情 -> 返回，并恢复 exact list item 焦点。
 - 后续严格串行 Stage Goals：Stage 1 商品资料（含所需最小 shared foundation/只读投影）-> Stage 2 文案 -> Stage 3 人物
   （含 secure real preview）-> Stage 4 视频方案 -> Stage 5 生产 -> Post-stage 作品库 -> 素材中心/移动收口。作品库的后续
   桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项；390 保持列表 -> 详情 -> 返回。每个 Goal 独立 Issue、Draft PR、
@@ -71,13 +73,18 @@
   路由只消费实时选中商品和 revision，商品或版本变化后不沿用旧 copy/plan/order 上下文。Back/Forward 的 dirty 取消恢复
   exact 已接受路由；投影、Project 或 Assets 读取失败时隐藏旧表单并移除桌面/移动全部阶段 href，只保留 scoped refresh，
   恢复成功后才按 exact current 商品与 revision 重建导航。该合并只表示 Stage 1 仓库实现成立，仍不表示部署或生产验收。
-- Issue #240 是 Stage 2 文案的独立 acceptance gate：在同一 opt-in workspace 中 additive 投影 exact current
+- Issue #240 / PR #241 已把 Stage 2 文案仓库实现合并进入 `main@c6ce40166a9b68da58dfb91c77682148f9876c60`：在同一 opt-in workspace 中 additive 投影 exact current
   CopyVersion、生成任务、QualityResult 与 HumanReview，并保持 QC passed 与人工批准分离。Stage 2 只扩展 `copy`；
   `avatar/video_plan/production` 继续 `legacy/not_loaded`，不读取或伪造后续阶段真值。推荐动作 registry 仅增加
   文案动作，未知版本、未知动作或错阶段动作 fail closed。CopyGeneration 投影按 repository 的 newest-first 契约读取当前
   任务；`needs_review` 只复用既有 finding resolution API，接受理由、返回商品资料与人工修改保持可审计，hard block 不可
-  接受，effective QC 真正通过前不开放人工审核。AI 改写仍由既有 Copy 页面承载，本片未迁入。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 2
-  仓库实现成立；这不表示部署、真实 Provider 生成或生产验收，也不授权 Stage 3。
+  接受，effective QC 真正通过前不开放人工审核。AI 改写仍由既有 Copy 页面承载，本片未迁入。该合并只表示 Stage 2
+  仓库实现成立；不表示部署、真实 Provider 生成或生产验收。
+- Issue #242 是 Stage 3 人物的独立 acceptance gate：additive 投影 exact current AvatarSelection、组织可见目录、授权/
+  素材/能力门禁，并实现上述人物专用短时 preview authorization。Stage 1 商品资料与 Stage 2 文案保持稳定；
+  `video_plan/production` 继续 `legacy/not_loaded` 且保持 zero-read。人物动作只 additive 扩展版本化 registry，未知版本、
+  未知 code、错 stage/kind 一律 fail closed。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 3 仓库实现成立；
+  不表示部署、真实 Provider 或生产验收，也不授权 Stage 4。
 
 ## UX V1 Slice A 仓库实现
 
@@ -580,10 +587,11 @@
    `--no-deps`、metadata override 或 resolver report 绕过；C5b Review 前不得运行 accepted benchmark。capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
    有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
 3. Issue #236 / PR #237 的单任务工作区合同已进入 `main@b7716acf` 并计为 designed；Issue #238 / PR #239 的 Stage 1
-   商品资料实现已进入 `main@f87c2068`。Issue #240 是 Stage 2 文案独立 Draft gate：只 additive 读取 exact CopyVersion、
-   生成、QC 与人工审核真值，后续阶段继续 `legacy/not_loaded`，并保持实时深链与 dirty/冲突/读取失败恢复。
-   只有独立 Review 合并后才计为实现，且不表示部署或生产验收。合并前不得开始 Stage 3。后续继续按 Stage 3 人物、Stage 4 视频方案、Stage 5
-   生产、Post-stage 作品库、素材中心/移动收口串行，且任何仓库实现均不自动成为部署或生产验收事实。
+   商品资料实现与 Issue #240 / PR #241 的 Stage 2 文案实现已进入 `main@c6ce4016`。Issue #242 是 Stage 3 人物独立
+   Draft gate：只 additive 读取 exact AvatarSelection 与目录真值，并以专用短时授权提供组织隔离的真实人物图片预览；
+   Stage 1/2 保持稳定，Stage 4/5 继续 `legacy/not_loaded`。只有独立 Review 合并后才计为实现，且不表示部署或生产验收。
+   合并前不得开始 Stage 4。后续继续按 Stage 4 视频方案、Stage 5 生产、Post-stage 作品库、素材中心/移动收口串行，
+   且任何仓库实现均不自动成为部署或生产验收事实。
 4. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
 5. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。

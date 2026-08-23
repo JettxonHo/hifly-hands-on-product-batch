@@ -60,6 +60,24 @@ test("clean PostgreSQL avatar migration seeds controlled catalog and serializes 
   assert.equal(enterprise.asset_version.material_asset_version_id, materialVersionId);
   assert.equal(enterprise.asset_version.materials_accessible, true);
   assert.deepEqual(enterprise.asset.category_tags, ["护肤"]);
+  const exact = await repository.getCatalogAsset("org-avatar-pg", enterprise.asset.id);
+  assert.ok(exact);
+  assert.equal(exact.asset.id, enterprise.asset.id);
+  assert.equal(exact.asset_version.id, enterprise.asset_version.id);
+  assert.equal(exact.asset_version.material_asset_version_id, materialVersionId);
+  assert.equal(await repository.getCatalogAsset("org-other", enterprise.asset.id), null);
+  assert.equal((await repository.getCatalogVersion("org-avatar-pg", enterprise.asset_version.id)).asset.id, enterprise.asset.id);
+
+  const deletedAssetId = randomUUID(), deletedVersionId = randomUUID();
+  await pool.query(`INSERT INTO avatar_assets(id,organization_id,source_type,display_name,description,status,controlled_seed,seed_key,seed_label,category_tags,row_version,created_at,updated_at)
+    VALUES ($1,'org-avatar-pg','enterprise','已删除人物','已删除人物素材','deleted',false,$2,'企业上传','[]'::jsonb,1,$3,$3)`,
+  [deletedAssetId, `deleted:${deletedAssetId}`, at]);
+  await pool.query(`INSERT INTO avatar_asset_versions(id,asset_id,organization_id,version_number,status,authorization_status,authorization_scope,capability_status,materials_accessible,preview_kind,created_at,updated_at)
+    VALUES ($1,$2,'org-avatar-pg',1,'available','valid','current_organization','verified',false,'uploaded',$3,$3)`,
+  [deletedVersionId, deletedAssetId, at]);
+  assert.equal(await repository.getCatalogAsset("org-avatar-pg", deletedAssetId), null);
+  assert.equal(await repository.getCatalogVersion("org-avatar-pg", deletedVersionId), null);
+  assert.equal((await repository.listCatalog("org-avatar-pg")).some((entry) => entry.asset.id === deletedAssetId), false);
   assert.equal((await repository.listCatalog("org-avatar-pg")).filter((entry) => entry.asset_version.material_asset_version_id === materialVersionId).length, 1);
   const disabled = await repository.disableEnterpriseAvatar({ organizationId: "org-avatar-pg", assetId: enterprise.asset.id,
     expectedRevision: enterprise.asset.revision_number, actorMemberId: seeded.member.id, now: at });
