@@ -15,6 +15,7 @@ import { createControlledQualityEvaluator } from "../src/copy-quality/controlled
 import { createControlledCopyRewriter } from "../src/copy-quality/controlled-rewriter.js";
 import { createMemoryCopyReviewRepository } from "../src/copy-review/memory-copy-review-repository.js";
 import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
+import { createMemoryVideoPlanningRepository } from "../src/video-planning/memory-video-planning-repository.js";
 import { buildApp } from "../src/server/app.js";
 import { activateAdmin, identityApp, identityHeaders } from "./helpers/identity-world.js";
 
@@ -109,7 +110,7 @@ async function copyOperatorWorld(t) {
 }
 
 async function avatarOperatorWorld(t, { avatarRepository = createMemoryAvatarSelectionRepository(), includeCopyGeneration = true,
-  downstreamStagePorts = {} } = {}) {
+  downstreamStagePorts = {}, videoPlanning = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-avatar-workspace-api-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const identityRepository = createMemoryIdentityRepository();
@@ -146,6 +147,9 @@ async function avatarOperatorWorld(t, { avatarRepository = createMemoryAvatarSel
       }
     } : {}),
     avatarSelection: { enabled: true, repository: avatarRepository, copyApprovalPort },
+    ...(videoPlanning ? {
+      videoPlanning: { enabled: true, repository: createMemoryVideoPlanningRepository(), worker: { autoStart: false } }
+    } : {}),
     identity: {
       enabled: true,
       repository: identityRepository,
@@ -597,4 +601,69 @@ test("product revision read seam preserves organization-scoped not-found semanti
   const unauthenticated = await app.inject({ method: "GET", url: `/api/product-revisions/${revision.id}`, headers: identityHeaders() });
   assert.equal(unauthenticated.statusCode, 401);
   assert.deepEqual(unauthenticated.json(), { error: "AUTH_REQUIRED" });
+});
+
+test("default buildApp wiring projects exact VideoPlan query and keeps Production at zero reads", async (t) => {
+  let productionReads = 0;
+  const { app, auth, approvals } = await avatarOperatorWorld(t, {
+    videoPlanning: true,
+    downstreamStagePorts: {
+      productionService: { async getWorkspace() { productionReads += 1; throw new Error("Stage 5 must remain unread"); } }
+    }
+  });
+  const actor = { organizationId: "org_test", actorMemberId: auth.body.member.id, actorRole: "admin" };
+  const project = (await app.inject({ method: "POST", url: "/api/projects",
+    headers: headers(auth, true, "plan-workspace-project"), payload: { name: "方案工作区" } })).json().project;
+  let revision = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`,
+    headers: headers(auth, true, "plan-workspace-product"), payload: { product_name: "方案商品" } })).json().revision;
+  revision = (await app.inject({ method: "PATCH", url: `/api/product-revisions/${revision.id}`,
+    headers: headers(auth, true), payload: { expected_revision: revision.revision_number, product_name: revision.product_name,
+      selling_points: [{ text: "方案卖点" }], asset_version_ids: ["product-image-plan"] } })).json().revision;
+  revision = (await app.inject({ method: "POST",
+    url: `/api/product-revisions/${revision.id}/selling-points/${revision.selling_points[0].id}/confirm`,
+    headers: headers(auth, true), payload: { expected_revision: revision.revision_number } })).json().revision;
+  revision = (await app.inject({ method: "POST", url: `/api/product-revisions/${revision.id}/ready`,
+    headers: headers(auth, true, "plan-workspace-ready"), payload: { expected_revision: revision.revision_number } })).json().revision;
+
+  await app.copyGeneration.service.requestGeneration({ ...actor, productRevisionId: revision.id,
+    idempotencyKey: "plan-workspace-copy-generation" });
+  const generation = await app.copyGeneration.service.claimNextGenerationJob();
+  const draft = await app.copyGeneration.service.completeGenerationJob({ job: generation, body: "已批准方案文案" });
+  const copy = await app.copyGeneration.service.freezeCopyVersion({ ...actor, copyVersionId: draft.id,
+    expectedRevision: draft.row_version, idempotencyKey: "plan-workspace-copy-freeze" });
+  approvals.set(revision.product_id, { copy_version_id: copy.id, product_revision_id: revision.id, current_valid: true });
+  const avatarWorkspace = await app.avatarSelection.service.getWorkspace({ ...actor, productId: revision.product_id,
+    copyVersionId: copy.id });
+  const avatar = avatarWorkspace.catalog.find((entry) => entry.gate.can_confirm);
+  const selection = await app.avatarSelection.service.confirmSelection({ ...actor, productId: revision.product_id,
+    copyVersionId: copy.id, assetVersionId: avatar.asset_version.id, expectedRevision: 0,
+    idempotencyKey: "plan-workspace-avatar-confirm" });
+  assert.equal(selection.current_valid, true);
+
+  const created = await app.videoPlanning.service.createPlan({ ...actor, productId: revision.product_id,
+    outputInstructions: "竖版产品说明", presentationSizeCode: "small", expectedHeadRevision: 0,
+    idempotencyKey: "plan-workspace-create" });
+  const planId = created.current_plan.id;
+  const response = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${revision.product_id}/operator-workspace?stage=video_plan&plan=${planId}`,
+    headers: headers(auth) });
+
+  assert.equal(response.statusCode, 200, response.body);
+  const workspace = response.json().workspace;
+  assert.equal(workspace.render_mode, "workspace");
+  assert.equal(workspace.recommended_stage, "video_plan");
+  assert.equal(workspace.stages[3].current_object.id, planId);
+  assert.equal(workspace.stages[3].video_plan_workspace.current_plan.id, planId);
+  assert.equal(workspace.stages[3].video_plan_workspace.current_plan.presentation_size_code, "small");
+  assert.deepEqual(workspace.recommended_action, {
+    code: "run_video_plan_preflight", stage: "video_plan", kind: "command"
+  });
+  assert.deepEqual(workspace.stages[4], {
+    code: "production", implementation_status: "legacy", read_status: "not_loaded", navigation_state: null,
+    business_status: null, blocker_codes: [], current_object: null
+  });
+  assert.equal(JSON.stringify(workspace).includes("organization_id"), false);
+  assert.equal(JSON.stringify(workspace).includes("lease_token"), false);
+  assert.equal(JSON.stringify(workspace).includes("input_snapshot"), false);
+  assert.equal(productionReads, 0);
 });

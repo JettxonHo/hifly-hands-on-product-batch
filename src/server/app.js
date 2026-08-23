@@ -666,19 +666,6 @@ export async function buildApp({
     app.addHook("onClose", async () => repository.close?.());
     await registerAvatarSelectionRoutes(app, { service });
   }
-  if (operatorWorkspaceEnabled) {
-    const operatorWorkspaceService = createOperatorWorkspaceService({
-      projectContentService: app.projectContent.service,
-      copyService: app.copyGeneration?.service,
-      qualityService: app.copyQuality?.service,
-      reviewService: app.copyReview?.service,
-      avatarService: app.avatarSelection?.service,
-      videoPlanningService: operatorWorkspaceOptions.videoPlanningService || null,
-      productionService: operatorWorkspaceOptions.productionService || null
-    });
-    app.decorate("operatorWorkspace", { service: operatorWorkspaceService });
-    await registerOperatorWorkspaceRoutes(app, { service: operatorWorkspaceService });
-  }
   if (videoPlanningEnabled) {
     const repository = videoPlanningOptions.repository || (sharedPool ? createPostgresVideoPlanningRepository({ pool: sharedPool }) : null);
     if (!repository) throw Object.assign(new Error("VIDEO_PLANNING_REPOSITORY_REQUIRED"), { code: "VIDEO_PLANNING_REPOSITORY_REQUIRED" });
@@ -699,6 +686,23 @@ export async function buildApp({
     app.addHook("onClose", async () => { worker.stop(); await repository.close?.(); });
     await registerVideoPlanningRoutes(app, { service });
     if (videoPlanningOptions.worker?.autoStart !== false) worker.start();
+  }
+  if (operatorWorkspaceEnabled) {
+    const configuredVideoPlanningService = Object.hasOwn(operatorWorkspaceOptions || {}, "videoPlanningService")
+      ? operatorWorkspaceOptions.videoPlanningService
+      : app.videoPlanning?.service || null;
+    const operatorWorkspaceService = createOperatorWorkspaceService({
+      projectContentService: app.projectContent.service,
+      copyService: app.copyGeneration?.service,
+      qualityService: app.copyQuality?.service,
+      reviewService: app.copyReview?.service,
+      avatarService: app.avatarSelection?.service,
+      videoPlanningService: configuredVideoPlanningService,
+      videoPlanningEnabled,
+      productionService: operatorWorkspaceOptions.productionService || null
+    });
+    app.decorate("operatorWorkspace", { service: operatorWorkspaceService });
+    await registerOperatorWorkspaceRoutes(app, { service: operatorWorkspaceService });
   }
   if (appearanceFidelityEnabled) {
     let repository = appearanceFidelityOptions.repository || null;

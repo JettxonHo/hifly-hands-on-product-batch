@@ -1,9 +1,5 @@
 (() => {
-  const stageRoutes = Object.freeze({
-    avatar: "/avatar.html",
-    video_plan: "/plan.html",
-    production: "/production.html"
-  });
+  const stageRoutes = Object.freeze({ avatar: "/avatar.html", video_plan: "/plan.html", production: "/production.html" });
   const actions = Object.freeze({
     return_to_product_content: { stage: "copy", kind: "navigate", label: "返回商品资料" },
     request_copy_generation: { stage: "copy", kind: "command", label: "生成文案" },
@@ -50,7 +46,7 @@
     url.searchParams.set("project", projectId);
     url.searchParams.set("product", productId);
     url.searchParams.set("stage", stage);
-    if (stage === "copy" && copyVersionId) url.searchParams.set("copy", copyVersionId);
+    if (["copy", "avatar"].includes(stage) && copyVersionId) url.searchParams.set("copy", copyVersionId);
     return `${url.pathname}${url.search}`;
   }
 
@@ -62,7 +58,16 @@
     return `${url.pathname}${url.search}`;
   }
 
-  function setStageLinks({ projectId, productId, copyVersionId, failed = false }) {
+  function isLegacyStage(stage) {
+    return stage?.implementation_status === "legacy" && stage.read_status === "not_loaded" &&
+      stage.current_object === null && Array.isArray(stage.blocker_codes) && stage.blocker_codes.length === 0;
+  }
+
+  function isMigratedStage(stage) {
+    return stage?.implementation_status === "workspace" && ["ok", "error"].includes(stage.read_status);
+  }
+
+  function setStageLinks({ projectId, productId, copyVersionId, workspace, failed = false }) {
     for (const link of document.querySelectorAll("[data-stage-code]")) {
       const state = link.closest("li") || link;
       if (failed) {
@@ -73,11 +78,22 @@
         continue;
       }
       const stage = link.dataset.stageCode;
+      const projection = workspace?.stages?.find((value) => value.code === stage);
+      const workspaceStage = isMigratedStage(projection);
+      const legacyStage = isLegacyStage(projection);
+      if (!workspaceStage && !legacyStage) {
+        link.removeAttribute("href");
+        link.setAttribute("aria-disabled", "true");
+        state.dataset.stageState = "error";
+        state.removeAttribute("aria-current");
+        continue;
+      }
       link.removeAttribute("aria-disabled");
-      link.href = ["product_content", "copy"].includes(stage)
-        ? workspaceUrl(projectId, productId, stage, stage === "copy" ? copyVersionId : null)
+      link.href = workspaceStage
+        ? workspaceUrl(projectId, productId, stage, ["copy", "avatar"].includes(stage) ? copyVersionId : null)
         : legacyUrl(stage, projectId, productId, copyVersionId);
-      state.dataset.stageState = stage === "copy" ? "current" : stage === "product_content" ? "completed" : "available";
+      state.dataset.stageState = projection.read_status === "error" ? "error" :
+        stage === "copy" ? "current" : stage === "product_content" ? "completed" : "available";
       if (stage === "copy") state.setAttribute("aria-current", "step");
       else state.removeAttribute("aria-current");
     }
@@ -90,10 +106,11 @@
       workspace.requested_stage !== "copy" || workspace.render_mode !== "workspace" || workspace.recommended_stage !== "copy") return false;
     const copyStage = workspace.stages?.find((stage) => stage.code === "copy");
     if (!copyStage || copyStage.implementation_status !== "workspace" || copyStage.read_status !== "ok") return false;
-    for (const code of ["avatar", "video_plan", "production"]) {
-      const stage = workspace.stages.find((value) => value.code === code);
-      if (!stage || stage.implementation_status !== "legacy" || stage.read_status !== "not_loaded" || stage.current_object !== null || stage.blocker_codes?.length) return false;
-    }
+    const avatarStage = workspace.stages.find((value) => value.code === "avatar");
+    const videoPlanStage = workspace.stages.find((value) => value.code === "video_plan");
+    const productionStage = workspace.stages.find((value) => value.code === "production");
+    if ((!isLegacyStage(avatarStage) && !isMigratedStage(avatarStage)) ||
+        (!isLegacyStage(videoPlanStage) && !isMigratedStage(videoPlanStage)) || !isLegacyStage(productionStage)) return false;
     const action = workspace.recommended_action;
     if (!action) return true;
     const registered = actions[action.code];
@@ -436,7 +453,7 @@
       node("#editor").hidden = true;
       node("#copyWorkspacePanel").hidden = false;
       renderProducts();
-      setStageLinks({ projectId, productId, copyVersionId: copyStage.current_copy_version_id });
+      setStageLinks({ projectId, productId, copyVersionId: copyStage.current_copy_version_id, workspace });
       renderCopy();
       if (focus) node("#copyWorkspaceHeading").focus();
       schedulePolling();
@@ -578,7 +595,12 @@
         node("#workspaceApproveDialog").showModal();
         return;
       }
-      if (code === "continue_to_avatar" && copyStage.current_copy_version_id) return location.assign(legacyUrl("avatar", projectId, productId, copyStage.current_copy_version_id));
+      if (code === "continue_to_avatar" && copyStage.current_copy_version_id) {
+        const workspaceStage = workspace?.stages?.find((value) => value.code === "avatar")?.implementation_status === "workspace";
+        return location.assign(workspaceStage
+          ? workspaceUrl(projectId, productId, "avatar", copyStage.current_copy_version_id)
+          : legacyUrl("avatar", projectId, productId, copyStage.current_copy_version_id));
+      }
     }
 
     async function continuePending({ saveFirst, discard = false }) {

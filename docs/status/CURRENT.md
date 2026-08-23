@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-24
 > 当前 Goal：下一代运营单任务工作区严格串行 Stage Goals
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。最新固定 PaddleX `v3.7.2` 仍精确要求 vulnerable contrib 4.10；OpenCV 4.14 patched artifacts 不能在违反 metadata 的情况下替换，fixed model tree 也未形成完整 SHA-256/许可/替代 BOS 的官方路线。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`；没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同、Stage 1 商品资料与 Stage 2 文案实现已进入精确 `main@c6ce40166a9b68da58dfb91c77682148f9876c60`；Issue #242 是 Stage 3 人物仓库实现的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为实现，不代表部署、运行时或生产验收。可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。最新固定 PaddleX `v3.7.2` 仍精确要求 vulnerable contrib 4.10；OpenCV 4.14 patched artifacts 不能在违反 metadata 的情况下替换，fixed model tree 也未形成完整 SHA-256/许可/替代 BOS 的官方路线。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`；没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同、Stage 1 商品资料、Stage 2 文案与 Stage 3 人物已进入精确 `main@4293be0e80deafc0d844f596239626be4bcdead4`；Issue #244 是 Stage 4 视频方案仓库实现的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为实现，不代表部署、运行时或生产验收。可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -44,7 +44,7 @@
   Worker offline、`current_order=null` 时确认 persisted succeeded 工单首屏为“作品待检查”，唯一推荐动作
   “进入作品库检查”指向 exact Work；“生产门禁未通过”未出现，创建工单入口保持 disabled。
 
-## 下一代运营单任务工作区 Stage 0 至 Stage 3 门禁
+## 下一代运营单任务工作区 Stage 0 至 Stage 4 门禁
 
 - Owner 已于 2026-08-23 接受“一个商品、一个稳定工作区、一个当前阶段、一个唯一推荐动作”的方向。1440 使用
   商品列表 / 当前任务 / 辅助上下文 / 底部操作，768 收敛为两栏，390 使用单面板与列表/详情/返回。
@@ -83,14 +83,19 @@
   任务；`needs_review` 只复用既有 finding resolution API，接受理由、返回商品资料与人工修改保持可审计，hard block 不可
   接受，effective QC 真正通过前不开放人工审核。AI 改写仍由既有 Copy 页面承载，本片未迁入。该合并只表示 Stage 2
   仓库实现成立；不表示部署、真实 Provider 生成或生产验收。
-- Issue #242 是 Stage 3 人物的独立 acceptance gate：additive 投影 exact current AvatarSelection、组织可见目录、授权/
-  素材/能力门禁，并实现上述人物专用短时 preview authorization。首轮独立复审要求的原子授权、权威 refresh/自然到期
-  清除 stale `src`、原生按钮语义、三视口 fallback 与 required PostgreSQL CI，以及第二轮要求的跨表锁序、grant bytes
-  复核、Copy 替换后的失效历史、dirty Back/Forward authority 对齐和重绘后焦点恢复，均只在同一 Draft gate 内纠偏；
-  合并前仍不计为 Stage 3 完成。Stage 1 商品资料与 Stage 2 文案保持稳定；`video_plan/production` 继续
-  `legacy/not_loaded`，并以 counted/throwing 端口证明 Stage 3 请求零读取。人物动作只 additive 扩展版本化 registry，未知版本、
-  未知 code、错 stage/kind 一律 fail closed。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 3 仓库实现成立；
-  不表示部署、真实 Provider 或生产验收，也不授权 Stage 4。
+- Issue #242 / PR #243 已把 Stage 3 人物仓库实现合并进入 `main@4293be0e80deafc0d844f596239626be4bcdead4`：
+  additive 投影 exact current AvatarSelection、组织可见目录及授权/素材/能力门禁，并通过人物专用短时授权提供同一受控
+  `avatar_image` 版本的缩略图与大图。memory 串行门禁与 PostgreSQL 组织级事务锁、同事务行锁关闭目录、私有绑定、父
+  Asset/Version 与 grant 间的 interleaving；下载时复核实际 bytes 的 size/SHA-256。权威刷新、自然到期、授权失败和
+  解码失败均清除 stale `src` 并显示有原因的首字 fallback；390 保持列表 -> 详情 -> 返回及 exact 焦点恢复。同商品
+  CopyVersion 替换保留旧人物选择为失效历史，Stage 4/5 counted/throwing 端口为零读取。该合并只表示 Stage 3 仓库实现，
+  不表示部署、真实 Provider 或生产验收。
+- Issue #244 是 Stage 4 视频方案独立 acceptance gate：只 additive 读取 exact current VideoPlan、preflight run/result、
+  人工审核与历史，保持 preflight passed/warning 与人工批准严格分离。方案创建、保存、派生、预检和审核仍调用既有
+  VideoPlanning API/状态机；上游人物失效、历史版本、dirty/409、异步预检、读取失败与 Back/Forward 均 fail-visible。
+  Stage 1/2/3 保持稳定，`production` 继续 `legacy/not_loaded` 且不读取 Production service；进入生产只保持旧页导航，
+  不创建工单、不推断 eligible/attempt/Worker。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 4 仓库实现成立；
+  不表示部署或生产验收，也不授权 Stage 5。
 
 ## UX V1 Slice A 仓库实现
 
@@ -592,11 +597,11 @@
    C5b 离线环境 materialization + synthetic smoke。不得以 headless 4.13/4.14、手工 contrib 4.14、
    `--no-deps`、metadata override 或 resolver report 绕过；C5b Review 前不得运行 accepted benchmark。capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
    有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
-3. Issue #236 / PR #237 的单任务工作区合同已进入 `main@b7716acf` 并计为 designed；Issue #238 / PR #239 的 Stage 1
-   商品资料实现与 Issue #240 / PR #241 的 Stage 2 文案实现已进入 `main@c6ce4016`。Issue #242 是 Stage 3 人物独立
-   Draft gate：只 additive 读取 exact AvatarSelection 与目录真值，并以专用短时授权提供组织隔离的真实人物图片预览；
-   Stage 1/2 保持稳定，Stage 4/5 继续 `legacy/not_loaded`。只有独立 Review 合并后才计为实现，且不表示部署或生产验收。
-   合并前不得开始 Stage 4。后续继续按 Stage 4 视频方案、Stage 5 生产、Post-stage 作品库、素材中心/移动收口串行，
+3. Issue #236 / PR #237 的单任务工作区合同已进入 `main@b7716acf` 并计为 designed；Stage 1 商品资料、Stage 2 文案与
+   Stage 3 人物已随 Issues #238/#240/#242 和 PRs #239/#241/#243 严格串行进入 `main@4293be0e`。Issue #244 是 Stage 4
+   视频方案独立 Draft gate：只 additive 读取 exact VideoPlan、preflight 与人工审核真值；Stage 1/2/3 保持稳定，Stage 5
+   Production 继续 `legacy/not_loaded` 和零读取。只有独立 Review 合并后才计为实现，且不表示部署或生产验收。合并前
+   不得开始 Stage 5。后续继续按 Stage 5 生产、Post-stage 作品库、素材中心/移动收口串行，
    且任何仓库实现均不自动成为部署或生产验收事实。全部功能 Stage 完成并分别验收后，另开独立视觉 refinement/research
    gate：PC 的 1440 主工作区与 768 收敛、移动 390 的列表/详情分层是并行的一等合同，不设 PC/移动优先级，也不把
    桌面当作移动布局放大。两端共享业务真值、动作和状态词，但可采用不同响应式 composition；实现合并前均须真实

@@ -622,3 +622,246 @@ test("projects Avatar read errors as workspace error without stale Avatar object
   assert.equal(result.stages[2].avatar_workspace, undefined);
   assert.notEqual(result.recommended_action, null);
 });
+
+test("projects exact VideoPlan preflight truth without treating it as human approval or reading Production", async () => {
+  const revision = {
+    id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "清透防晒乳", asset_version_ids: ["product-image-a"], selling_points: [{ text: "清爽", confirmed: true }]
+  };
+  const copy = {
+    id: "copy-approved", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: 2, row_version: 1, body: "清爽防晒文案"
+  };
+  const selection = {
+    id: "selection-confirmed", product_id: "product-a", copy_version_id: copy.id,
+    asset_version_id: "avatar-version-a", status: "confirmed", row_version: 2
+  };
+  let productionReads = 0;
+  const service = createOperatorWorkspaceService({
+    projectContentService: {
+      async getProject() {
+        return { id: "project-a", name: "夏日计划", products: [{ id: "product-a", current_revision_id: revision.id, revision }] };
+      }
+    },
+    copyService: { async listCopyVersions() { return [copy]; } },
+    reviewService: {
+      async getReviewState() {
+        return { current_review: { id: "copy-review-a", status: "approved", copy_version_id: copy.id }, gate: { reasons: [] } };
+      }
+    },
+    avatarService: {
+      async getWorkspace() {
+        return {
+          resolved_copy_version_id: copy.id,
+          copy_gate: { approved: true, reasons: [], copy_version_id: copy.id },
+          catalog: [],
+          selection: { current_selection: selection, selection_revision: 2, current_valid: true, invalidation_reasons: [], history: [selection] }
+        };
+      }
+    },
+    videoPlanningService: {
+      async getWorkspace(input) {
+        assert.equal(input.productId, "product-a");
+        assert.equal(input.planId, "plan-a");
+        return {
+          current_plan: {
+            id: "plan-a", organization_id: "org-a", product_id: "product-a", version_number: 1,
+            status: "frozen", row_version: 2, output_instructions: "竖版口播",
+            presentation_size_code: "small",
+            upstream_snapshot: {
+              product_revision_id: revision.id, copy_version_id: copy.id,
+              avatar_selection_id: selection.id, avatar_asset_version_id: selection.asset_version_id
+            },
+            capability_config_snapshot: { snapshot_version: "cap-v1", verified_capabilities: [{ code: "mandarin", evidence_reference: "evidence-a" }] }
+          },
+          head_revision: 1,
+          versions: [{ id: "plan-a", organization_id: "org-a", product_id: "product-a", version_number: 1, status: "frozen", row_version: 2 }],
+          preflight: {
+            current_run: { id: "run-a", organization_id: "org-a", video_plan_version_id: "plan-a", status: "succeeded", input_snapshot: { private: true } },
+            current_result: { id: "result-a", organization_id: "org-a", video_plan_version_id: "plan-a", preflight_run_id: "run-a", status: "passed", groups: {} },
+            history: []
+          },
+          review: { current_review: null, history: [], gate: { can_submit: true, can_decide: false, reasons: [] } },
+          production_order_available: false,
+          production_order_notice: "创建生产工单尚未开放。"
+        };
+      }
+    },
+    productionService: {
+      async getWorkspace() {
+        productionReads += 1;
+        throw new Error("Stage 5 must remain unread");
+      }
+    }
+  });
+
+  const result = await service.getWorkspace({
+    organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "video_plan", planId: "plan-a"
+  });
+
+  assert.equal(result.render_mode, "workspace");
+  assert.equal(result.recommended_stage, "video_plan");
+  assert.deepEqual(result.recommended_action, { code: "submit_video_plan_review", stage: "video_plan", kind: "command" });
+  const stage = result.stages[3];
+  assert.equal(stage.implementation_status, "workspace");
+  assert.equal(stage.read_status, "ok");
+  assert.equal(stage.business_status, "预检已通过，待提交人工审核");
+  assert.deepEqual(stage.blocker_codes, ["VIDEO_PLAN_HUMAN_REVIEW_REQUIRED"]);
+  assert.deepEqual(stage.current_object, { type: "video_plan", id: "plan-a" });
+  assert.equal(stage.video_plan_workspace.current_plan.id, "plan-a");
+  assert.equal(stage.video_plan_workspace.preflight.current_result.status, "passed");
+  assert.equal(stage.video_plan_workspace.human_review.current_review, null);
+  assert.equal(JSON.stringify(stage).includes("organization_id"), false);
+  assert.equal(JSON.stringify(stage).includes("input_snapshot"), false);
+  assert.deepEqual(result.stages[4], {
+    code: "production", implementation_status: "legacy", read_status: "not_loaded", navigation_state: null,
+    business_status: null, blocker_codes: [], current_object: null
+  });
+  assert.equal(productionReads, 0);
+});
+
+test("orders VideoPlan recommendations from exact plan, preflight, review, and history truth", async () => {
+  const revision = {
+    id: "revision-plan", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["product-image"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const copy = {
+    id: "copy-approved", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: 1, row_version: 1, body: "文案"
+  };
+  const selection = {
+    id: "selection-confirmed", product_id: "product-a", copy_version_id: copy.id,
+    asset_version_id: "avatar-version", status: "confirmed", row_version: 1
+  };
+  const plan = {
+    id: "plan-current", organization_id: "org-a", product_id: "product-a", version_number: 2,
+    status: "draft", row_version: 1, output_instructions: "制作说明", presentation_size_code: "smart_fit",
+    upstream_snapshot: { product_revision_id: revision.id, copy_version_id: copy.id,
+      avatar_selection_id: selection.id, avatar_asset_version_id: selection.asset_version_id },
+    capability_config_snapshot: { snapshot_version: "cap-v1", verified_capabilities: [{ code: "mandarin", evidence_reference: "evidence" }] }
+  };
+  const historical = { ...plan, id: "plan-old", version_number: 1, status: "superseded" };
+  let videoWorkspace = {
+    current_plan: plan, head_revision: 2, versions: [historical, plan],
+    preflight: { current_run: null, current_result: null, history: [] },
+    review: { current_review: null, history: [], gate: { can_submit: false, can_decide: false, reasons: ["plan_not_frozen"] } }
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: { async listCopyVersions() { return [copy]; } },
+    reviewService: { async getReviewState() { return { current_review: { id: "copy-review", status: "approved", copy_version_id: copy.id }, gate: { reasons: [] } }; } },
+    avatarService: { async getWorkspace() { return { resolved_copy_version_id: copy.id,
+      copy_gate: { approved: true, reasons: [], copy_version_id: copy.id }, catalog: [],
+      selection: { current_selection: selection, selection_revision: 1, current_valid: true, invalidation_reasons: [], history: [selection] } }; } },
+    videoPlanningService: { async getWorkspace() { return structuredClone(videoWorkspace); } },
+    productionService: { async getWorkspace() { throw new Error("Production must remain unread"); } }
+  });
+  const read = (planId = null) => service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "video_plan", ...(planId ? { planId } : {}) });
+
+  assert.equal((await read()).recommended_action.code, "run_video_plan_preflight");
+
+  videoWorkspace.preflight.current_run = { id: "run-a", status: "queued", video_plan_version_id: plan.id };
+  assert.equal((await read()).recommended_action, null);
+
+  videoWorkspace.preflight.current_run = { id: "run-a", status: "failed", video_plan_version_id: plan.id, failure_code: "TEMPORARY" };
+  assert.equal((await read()).recommended_action.code, "retry_video_plan_preflight");
+
+  videoWorkspace.current_plan = { ...plan, status: "frozen", row_version: 2 };
+  videoWorkspace.versions[1] = videoWorkspace.current_plan;
+  videoWorkspace.preflight.current_run = { id: "run-b", status: "succeeded", video_plan_version_id: plan.id };
+  videoWorkspace.preflight.current_result = { id: "result-a", status: "warning", video_plan_version_id: plan.id,
+    preflight_run_id: "run-b", groups: {} };
+  videoWorkspace.review.gate = { can_submit: true, can_decide: false, reasons: [] };
+  assert.equal((await read()).recommended_action.code, "submit_video_plan_review");
+
+  videoWorkspace.review.current_review = { id: "review-a", video_plan_version_id: plan.id, status: "pending", row_version: 1 };
+  videoWorkspace.review.history = [videoWorkspace.review.current_review];
+  videoWorkspace.review.gate = { can_submit: false, can_decide: true, reasons: ["review_pending"] };
+  assert.equal((await read()).recommended_action.code, "approve_video_plan_review");
+
+  videoWorkspace.review.current_review = { ...videoWorkspace.review.current_review, status: "approved", row_version: 2 };
+  videoWorkspace.review.history = [videoWorkspace.review.current_review];
+  assert.equal((await read()).recommended_action.code, "continue_to_production");
+
+  videoWorkspace.review.current_review = { ...videoWorkspace.review.current_review, status: "changes_requested", row_version: 2 };
+  videoWorkspace.review.history = [videoWorkspace.review.current_review];
+  assert.equal((await read()).recommended_action.code, "derive_video_plan_draft");
+
+  videoWorkspace.current_plan = historical;
+  videoWorkspace.preflight = { current_run: null, current_result: null, history: [] };
+  videoWorkspace.review = { current_review: null, history: [], gate: { can_submit: false, can_decide: false, reasons: ["plan_not_frozen"] } };
+  assert.equal((await read(historical.id)).recommended_action.code, "return_to_current_video_plan");
+});
+
+test("fails closed when VideoPlan run, result, or review is not bound to the exact selected plan", async () => {
+  const revision = {
+    id: "revision-plan-binding", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["product-image"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const copy = {
+    id: "copy-approved", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: 1, row_version: 1, body: "文案"
+  };
+  const selection = {
+    id: "selection-confirmed", product_id: "product-a", copy_version_id: copy.id,
+    asset_version_id: "avatar-version", status: "confirmed", row_version: 1
+  };
+  const plan = {
+    id: "plan-selected", organization_id: "org-a", product_id: "product-a", version_number: 1,
+    status: "frozen", row_version: 2, output_instructions: "制作说明", presentation_size_code: "smart_fit",
+    upstream_snapshot: { product_revision_id: revision.id, copy_version_id: copy.id,
+      avatar_selection_id: selection.id, avatar_asset_version_id: selection.asset_version_id },
+    capability_config_snapshot: { snapshot_version: "cap-v1", verified_capabilities: [{ code: "mandarin", evidence_reference: "evidence" }] }
+  };
+  let mismatched = {
+    current_plan: plan, head_revision: 1, versions: [plan],
+    preflight: {
+      current_run: { id: "run-other", video_plan_version_id: "plan-other", status: "succeeded" },
+      current_result: { id: "result-other", video_plan_version_id: "plan-other", status: "passed", groups: {} },
+      history: []
+    },
+    review: { current_review: null, history: [], gate: { can_submit: true, can_decide: false, reasons: [] } }
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: { async listCopyVersions() { return [copy]; } },
+    reviewService: { async getReviewState() { return { current_review: { id: "copy-review", status: "approved", copy_version_id: copy.id }, gate: { reasons: [] } }; } },
+    avatarService: { async getWorkspace() { return { resolved_copy_version_id: copy.id,
+      copy_gate: { approved: true, reasons: [], copy_version_id: copy.id }, catalog: [],
+      selection: { current_selection: selection, selection_revision: 1, current_valid: true, invalidation_reasons: [], history: [selection] } }; } },
+    videoPlanningService: { async getWorkspace() { return structuredClone(mismatched); } }
+  });
+  const read = () => service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "video_plan", planId: plan.id });
+
+  await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
+  mismatched.preflight = { current_run: null, current_result: null, history: [] };
+  mismatched.review.current_review = { id: "review-missing-binding", status: "pending", row_version: 1 };
+  mismatched.review.history = [mismatched.review.current_review];
+  await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
+});
+
+test("fails visible when VideoPlan truth cannot be read and never retains a plan action", async () => {
+  const revision = {
+    id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["image"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    videoPlanningService: { async getWorkspace() { throw Object.assign(new Error("read failed"), { secret: "must-not-leak" }); } },
+    productionService: { async getWorkspace() { throw new Error("Production must remain unread"); } }
+  });
+
+  await assert.rejects(service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "video_plan" }), { code: "OPERATOR_WORKSPACE_UNAVAILABLE" });
+
+  const productStage = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "product_content" });
+  assert.deepEqual(productStage.stages[3], {
+    code: "video_plan", implementation_status: "workspace", read_status: "error", navigation_state: null,
+    business_status: null, blocker_codes: [], current_object: null
+  });
+  assert.equal(productStage.recommended_action.stage, "product_content");
+});

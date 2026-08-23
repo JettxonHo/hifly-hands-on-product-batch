@@ -21,6 +21,14 @@
     });
     return;
   }
+  if (workspaceMode && requestedStage === "video_plan") {
+    await window.HiflyPlanWorkspace.start({
+      projectId,
+      productId: requestedProductId,
+      planId: params.get("plan")
+    });
+    return;
+  }
   const editor = document.querySelector("#editor");
   const revisionForm = document.querySelector("#revisionForm");
   const pointList = document.querySelector("#pointList");
@@ -157,6 +165,9 @@
     target.searchParams.set("product", selectedRevision?.product_id || activeProductId);
     target.searchParams.set("stage", stage);
     if (stage === "product_content" && selectedRevision?.id) target.searchParams.set("revision", selectedRevision.id);
+    if (stage === "video_plan" && legacyContext.productId === (selectedRevision?.product_id || activeProductId) && legacyContext.plan) {
+      target.searchParams.set("plan", legacyContext.plan);
+    }
     return `${target.pathname}${target.search}`;
   }
 
@@ -166,6 +177,18 @@
     if (action == null) return true;
     const registered = workspaceActionRegistry[action.code];
     return Boolean(registered && registered.stage === action.stage && registered.kind === action.kind && action.stage === "product_content");
+  }
+
+  function stageUsesWorkspace(stage) {
+    return workspaceProjection?.stages?.find((value) => value.code === stage)?.implementation_status === "workspace";
+  }
+
+  function stageRouteMode(stage) {
+    const projection = workspaceProjection?.stages?.find((value) => value.code === stage);
+    if (projection?.implementation_status === "workspace" && ["ok", "error"].includes(projection.read_status)) return "workspace";
+    if (projection?.implementation_status === "legacy" && projection.read_status === "not_loaded" &&
+        projection.current_object === null && Array.isArray(projection.blocker_codes) && projection.blocker_codes.length === 0) return "legacy";
+    return null;
   }
 
   async function loadWorkspaceProjection() {
@@ -357,7 +380,9 @@
     else if (code === "return_to_current_product_revision") returnCurrentButton.click();
     else if (code === "review_product_blockers") focusFirstProductBlocker();
     else if (code === "mark_product_content_ready") readyButton.click();
-    else if (code === "continue_to_copy") location.assign(legacyStageUrl("copy"));
+    else if (code === "continue_to_copy") {
+      location.assign(stageUsesWorkspace("copy") ? workspaceStageUrl("copy") : legacyStageUrl("copy"));
+    }
     else if (code === "retry_product_content_read") refreshButton.click();
   });
 
@@ -377,10 +402,19 @@
       const stageLinks = document.querySelectorAll("[data-stage-code]");
       for (const link of stageLinks) {
         const stage = link.dataset.stageCode;
-        link.href = stage === "product_content" ? workspaceStageUrl(stage) : legacyStageUrl(stage);
+        const routeMode = stageRouteMode(stage);
+        if (!routeMode) {
+          link.removeAttribute("href");
+          link.setAttribute("aria-disabled", "true");
+          (link.closest("li") || link).dataset.stageState = "error";
+          continue;
+        }
+        link.href = routeMode === "workspace" ? workspaceStageUrl(stage) : legacyStageUrl(stage);
         link.removeAttribute("aria-disabled");
         const stateNode = link.closest("li") || link;
-        stateNode.dataset.stageState = stage === "product_content" ? "current" : "available";
+        const projection = workspaceProjection.stages.find((value) => value.code === stage);
+        stateNode.dataset.stageState = projection.read_status === "error" ? "error" :
+          stage === "product_content" ? "current" : projection.navigation_state || "available";
       }
       return;
     }
