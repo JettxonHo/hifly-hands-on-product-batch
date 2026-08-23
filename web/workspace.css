@@ -43,7 +43,12 @@
 .workspace-gate-panel { min-height: 92px; padding: 12px; border: 1px solid var(--n-200); border-radius: var(--radius-control); background: var(--n-50); }
 .workspace-gate-panel p { margin: 8px 0 0; }
 .workspace-finding-list { display: grid; gap: 7px; margin-top: 10px; }
-.workspace-finding-list > div { padding: 8px 10px; border-left: 3px solid var(--n-300); background: var(--n-0); }
+.workspace-finding { padding: 10px; border-left: 3px solid var(--n-300); background: var(--n-0); }
+.workspace-finding > h4, .workspace-finding > p { margin: 7px 0 0; }
+.workspace-finding > h4 { font-size: 14px; }
+.workspace-finding-meta { color: var(--n-500); font-size: 12px; overflow-wrap: anywhere; }
+.workspace-finding-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.workspace-finding-actions button { min-height: 36px; }
 .single-workspace-page[data-workspace-stage="copy"] #openProductDialog { display: none; }
 
 @media (max-width: 1120px) {

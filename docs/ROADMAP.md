@@ -167,7 +167,9 @@ project/product/stage 只读聚合投影，以及人物目录专用短时 previe
 foundation、只读 Product Content 投影和商品资料 workspace 合并进入 `main@f87c2068`；canonical local/demo/production 启动链具有显式 default-off
 配置，受控 demo 明确开启但继续使用 fake executor；legacy deep link 只绑定实时选中对象，dirty Back/Forward 与读取失败均
 fail-visible 恢复。Issue #240 是 Stage 2 文案独立 acceptance gate，只 additive 投影 exact CopyVersion、生成、QC 与人工审核，
-并保持后续阶段 `legacy/not_loaded`。对应 PR 合并前不计为完成，也不授权 Stage 3。后续实现严格串行：
+并保持后续阶段 `legacy/not_loaded`。其投影固定使用 CopyGeneration newest-first 任务头；`needs_review` 仅复用既有
+resolution API 提供接受理由、返回商品资料与人工修改，hard block 不可接受，AI 改写暂留既有 Copy 页面。对应 PR 合并前
+不计为完成，也不授权 Stage 3。后续实现严格串行：
 Stage 3 人物（secure real preview）、Stage 4 视频方案、Stage 5 Production、Post-stage 作品库、素材中心/移动收口。
 作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实
 服务端集合真值，不得前端伪造。原型只是设计输入，不得直接合并；任何实现均不自动部署。

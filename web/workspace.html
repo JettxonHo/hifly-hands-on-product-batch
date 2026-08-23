@@ -148,5 +148,8 @@
     <dialog id="workspaceApproveDialog" aria-labelledby="workspaceApproveTitle">
       <form id="workspaceApproveForm"><div class="dialog-header"><div><p class="eyebrow">人工决策</p><h2 id="workspaceApproveTitle">批准当前文案</h2></div><button id="closeWorkspaceApprove" class="dialog-close" type="button" aria-label="关闭批准确认">×</button></div><div class="dialog-body"><p>服务端会重新验证当前商品、文案、质检结果和审核状态。</p><p id="workspaceApproveError" class="error" role="alert"></p><div class="actions"><button id="cancelWorkspaceApprove" class="secondary" type="button">取消</button><button type="submit">确认批准</button></div></div></form>
     </dialog>
+    <dialog id="workspaceFindingDialog" aria-labelledby="workspaceFindingTitle">
+      <form id="workspaceFindingForm"><div class="dialog-header"><div><p class="eyebrow">质检判断</p><h2 id="workspaceFindingTitle">接受当前判断项</h2></div><button id="closeWorkspaceFinding" class="dialog-close" type="button" aria-label="关闭质检判断">×</button></div><div class="dialog-body"><p id="workspaceFindingMessage"></p><label for="workspaceFindingReason">接受理由</label><textarea id="workspaceFindingReason" rows="4"></textarea><p id="workspaceFindingError" class="error" role="alert"></p><div class="actions"><button id="cancelWorkspaceFinding" class="secondary" type="button">取消</button><button type="submit">确认接受</button></div></div></form>
+    </dialog>
   </body>
 </html>

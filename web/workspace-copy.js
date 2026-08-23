@@ -120,6 +120,7 @@
     let restoringHistory = false;
     let pendingHistory = null;
     let dialogTrigger = null;
+    let activeFinding = null;
 
     const primary = node("#workspacePrimaryAction");
     const actionLabel = node("#workspaceActionLabel");
@@ -243,17 +244,102 @@
       badge.className = `state ${quality?.conclusion || quality?.status || "pending"}`;
       node("#workspaceQualitySummary").textContent = quality?.current_valid === false ? "结论已失效，不能用于人工审核。" :
         quality?.conclusion === "passed" ? "自动质检已通过，仍需独立人工审核。" :
-          ["queued", "running"].includes(quality?.status) ? "质检正在异步执行，可以离开后返回。" : "保存当前文案后执行完整质检。";
+          quality?.conclusion === "needs_review" ? "请逐条处理待人工判断项；全部处理后服务端才会更新有效结论。" :
+            quality?.conclusion === "blocked" ? "存在不可绕过门禁，不能接受后继续人工审核。" :
+              ["queued", "running"].includes(quality?.status) ? "质检正在异步执行，可以离开后返回。" : "保存当前文案后执行完整质检。";
       const findings = node("#workspaceFindingList");
       findings.replaceChildren(...(quality?.findings || []).map((finding) => {
-        const item = document.createElement("div");
-        const title = document.createElement("strong");
+        const item = document.createElement("article");
+        item.className = "workspace-finding";
+        item.dataset.findingCode = finding.code;
+        const kind = document.createElement("span");
+        kind.className = `state ${finding.kind === "review" ? "needs_review" : "blocked"}`;
+        kind.textContent = finding.kind === "review" ? "待人工判断" : "不可绕过门禁";
+        const title = document.createElement("h4");
         title.textContent = finding.title || "质检问题";
         const message = document.createElement("p");
         message.textContent = finding.message || finding.suggestion || "请核对此项。";
-        item.append(title, message);
+        const evidence = document.createElement("p");
+        evidence.className = "workspace-finding-meta";
+        evidence.textContent = `${finding.rule_source || "规则来源待确认"} · ${finding.evidence_reference || "证据引用待确认"}`;
+        item.append(kind, title, message, evidence);
+        const resolution = finding.resolutions?.at(-1);
+        if (resolution) {
+          const resolved = document.createElement("p");
+          resolved.className = "workspace-finding-meta";
+          resolved.textContent = `${resolution.state === "accepted_with_reason" ? "已接受" : resolution.state === "returned_to_facts" ? "已返回商品资料" : "已选择人工修改"}${resolution.reason ? `：${resolution.reason}` : ""}`;
+          item.append(resolved);
+        } else if (quality?.current_valid !== false) {
+          const controls = document.createElement("div");
+          controls.className = "workspace-finding-actions";
+          if (finding.kind === "review") controls.append(findingButton("接受并填写理由", () => openFindingDialog(finding)));
+          controls.append(
+            findingButton("返回商品资料", () => resolveFinding(finding, "returned_to_facts", "需要补充或修正商品事实").then((ok) => {
+              if (ok) location.assign(workspaceUrl(projectId, productId, "product_content"));
+            })),
+            findingButton("人工修改文案", () => resolveFinding(finding, "change_requested", "运营选择人工修改文案").then((ok) => {
+              if (!ok) return;
+              deriveMode = true;
+              body.readOnly = false;
+              node("#deriveWorkspaceCopy").hidden = true;
+              updateEditorMeta();
+              body.focus();
+            }))
+          );
+          item.append(controls);
+        }
         return item;
       }));
+    }
+
+    function findingButton(label, action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = label;
+      button.addEventListener("click", action);
+      return button;
+    }
+
+    function openFindingDialog(finding) {
+      if (finding.kind !== "review" || finding.resolutions?.length) return;
+      activeFinding = finding;
+      dialogTrigger = document.activeElement;
+      node("#workspaceFindingMessage").textContent = `${finding.title || "质检问题"}：${finding.message || "请确认当前表达。"}`;
+      node("#workspaceFindingReason").value = "";
+      node("#workspaceFindingError").textContent = "";
+      node("#workspaceFindingDialog").showModal();
+      node("#workspaceFindingReason").focus();
+    }
+
+    function closeFindingDialog({ restore = true } = {}) {
+      node("#workspaceFindingDialog").close();
+      activeFinding = null;
+      if (restore) (dialogTrigger?.isConnected ? dialogTrigger : node("#workspaceQualityTab"))?.focus();
+    }
+
+    async function resolveFinding(finding, resolution, reason) {
+      if (!finding?.id || busy) return false;
+      busy = true;
+      renderSummary();
+      try {
+        await request(`/api/quality-findings/${encodeURIComponent(finding.id)}/resolutions`, {
+          method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+          body: JSON.stringify({ resolution, reason })
+        });
+        await load({ focus: false });
+        replaceUrl();
+        return true;
+      } catch (error) {
+        const message = error.status === 409 ? "质检状态已被其他人更新，请刷新当前文案。" :
+          error.status === 422 ? "当前判断项不能这样处理，请刷新后核对。" : "质检判断未保存，请稍后重试。";
+        setNotice(message, error.status === 409 || error.status === 422 ? "blocked" : "error");
+        if (node("#workspaceFindingDialog").open) node("#workspaceFindingError").textContent = message;
+        return false;
+      } finally {
+        busy = false;
+        renderSummary();
+      }
     }
 
     function renderReview() {
@@ -543,6 +629,22 @@
         if (!approved) return;
         node("#workspaceApproveDialog").close();
         dialogTrigger?.focus();
+      });
+      node("#closeWorkspaceFinding").addEventListener("click", () => closeFindingDialog());
+      node("#cancelWorkspaceFinding").addEventListener("click", () => closeFindingDialog());
+      node("#workspaceFindingForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const reason = node("#workspaceFindingReason").value.trim();
+        if (!reason) {
+          node("#workspaceFindingError").textContent = "请填写接受理由。";
+          node("#workspaceFindingReason").focus();
+          return;
+        }
+        if (!activeFinding || activeFinding.kind !== "review") return;
+        const accepted = await resolveFinding(activeFinding, "accepted_with_reason", reason);
+        if (!accepted) return;
+        closeFindingDialog({ restore: false });
+        node("#workspaceQualityTab").focus();
       });
       window.addEventListener("beforeunload", (event) => { if (dirty) event.preventDefault(); });
       window.addEventListener("popstate", async (event) => {

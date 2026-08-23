@@ -64,6 +64,10 @@ function latest(values = []) {
   return values.at(-1) || null;
 }
 
+function newestGenerationJob(values = []) {
+  return values[0] || null;
+}
+
 function currentCopyVersion(values = []) {
   return values.find((value) => value?.status === "draft") || latest(values);
 }
@@ -292,7 +296,7 @@ export function createOperatorWorkspaceService({ projectContentService, copyServ
           review = publicReview(await reviewService.getReviewState({ ...context, copyVersionId: copy.id }));
         }
         copyProjection = copyState({ revision, copy, currentCopyId: currentCopy?.id || null, versions: copies,
-          generation: publicGeneration(latest(jobs)), quality, review, requestedStage, actorRole: input.actorRole });
+          generation: publicGeneration(newestGenerationJob(jobs)), quality, review, requestedStage, actorRole: input.actorRole });
       } catch (error) {
         if (error?.code === "OPERATOR_WORKSPACE_NOT_FOUND") throw error;
         if (requestedStage === "copy") throw unavailable(error);

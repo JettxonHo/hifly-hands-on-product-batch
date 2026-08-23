@@ -74,6 +74,7 @@ async function copyOperatorWorld(t) {
     adminDisplayName: "Test Admin",
     adminTempPassword: "Temporary-Admin-9!"
   });
+  const copyGenerationRepository = createMemoryCopyGenerationRepository();
   const app = await buildApp({
     root,
     executor: createFakeExecutor(),
@@ -81,7 +82,7 @@ async function copyOperatorWorld(t) {
     projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
     copyGeneration: {
       enabled: true,
-      repository: createMemoryCopyGenerationRepository(),
+      repository: copyGenerationRepository,
       provider: createControlledCopyProvider(),
       worker: { autoStart: false }
     },
@@ -103,7 +104,7 @@ async function copyOperatorWorld(t) {
     }
   });
   t.after(() => app.close());
-  return { app, auth: await activateAdmin(app) };
+  return { app, auth: await activateAdmin(app), copyGenerationRepository };
 }
 
 test("project content is disabled by default and reported by runtime", async (t) => {
@@ -244,6 +245,52 @@ test("operator workspace default app wiring exposes Copy only when the existing 
   assert.equal(workspace.stages[2].read_status, "not_loaded");
   assert.equal(workspace.stages[3].read_status, "not_loaded");
   assert.equal(workspace.stages[4].read_status, "not_loaded");
+});
+
+test("operator workspace API projects the newest active Copy generation job", async (t) => {
+  const { app, auth, copyGenerationRepository } = await copyOperatorWorld(t);
+  const project = (await app.inject({
+    method: "POST", url: "/api/projects", headers: headers(auth, true, "copy-order-project"), payload: { name: "任务顺序" }
+  })).json().project;
+  let revision = (await app.inject({
+    method: "POST", url: `/api/projects/${project.id}/products`, headers: headers(auth, true, "copy-order-product"), payload: { product_name: "顺序商品" }
+  })).json().revision;
+  revision = (await app.inject({
+    method: "PATCH", url: `/api/product-revisions/${revision.id}`, headers: headers(auth, true), payload: {
+      expected_revision: revision.revision_number, product_name: revision.product_name,
+      selling_points: [{ text: "顺序卖点" }], asset_version_ids: ["asset-version-a"]
+    }
+  })).json().revision;
+  revision = (await app.inject({
+    method: "POST", url: `/api/product-revisions/${revision.id}/selling-points/${revision.selling_points[0].id}/confirm`,
+    headers: headers(auth, true), payload: { expected_revision: revision.revision_number }
+  })).json().revision;
+  revision = (await app.inject({
+    method: "POST", url: `/api/product-revisions/${revision.id}/ready`, headers: headers(auth, true, "copy-order-ready"),
+    payload: { expected_revision: revision.revision_number }
+  })).json().revision;
+  const job = (id, status, createdAt) => ({
+    id, organization_id: "org_test", type: "copy_generation", status,
+    product_revision_id: revision.id, project_id: project.id, product_id: revision.product_id,
+    intent: "product_recommendation", input_snapshot: revision, attempts: status === "failed" ? 1 : 0,
+    max_attempts: 3, copy_version_id: null, failure_code: status === "failed" ? "COPY_GENERATION_FAILED" : null,
+    started_at: null, heartbeat_at: null, lease_expires_at: null, completed_at: status === "failed" ? createdAt : null,
+    created_at: createdAt, updated_at: createdAt
+  });
+  await copyGenerationRepository.createGenerationRequest({
+    receiptKey: "old", fingerprint: "old", job: job("job-old", "failed", "2026-08-24T01:00:00.000Z"), audit: { id: "audit-old" }
+  });
+  await copyGenerationRepository.createGenerationRequest({
+    receiptKey: "new", fingerprint: "new", job: job("job-new", "queued", "2026-08-24T02:00:00.000Z"), audit: { id: "audit-new" }
+  });
+
+  const response = await app.inject({
+    method: "GET", url: `/api/projects/${project.id}/products/${revision.product_id}/operator-workspace?stage=copy`, headers: headers(auth)
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json().workspace.stages[1].generation.current_job_id, "job-new");
+  assert.equal(response.json().workspace.stages[1].generation.status, "queued");
+  assert.equal(response.json().workspace.recommended_action, null);
 });
 
 test("operator workspace unifies missing and mismatched products without leaking organization truth", async (t) => {

@@ -281,3 +281,33 @@ test("selects only an exact CopyVersion deep link from the current product revis
     { code: "OPERATOR_WORKSPACE_NOT_FOUND" }
   );
 });
+
+test("projects the newest generation job from the repository newest-first contract", async () => {
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return {
+      id: "project-a", products: [{ id: "product-a", current_revision_id: "revision-a", revision: {
+        id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+        status: "ready", product_name: "商品", asset_version_ids: ["asset-a"],
+        selling_points: [{ text: "卖点", confirmed: true }]
+      } }]
+    }; } },
+    copyService: {
+      async listCopyVersions() { return []; },
+      async listGenerationJobs() { return [
+        { id: "job-new", status: "queued", attempts: 0, max_attempts: 3, created_at: "2026-08-24T02:00:00.000Z" },
+        { id: "job-old", status: "failed", failure_code: "COPY_GENERATION_FAILED", attempts: 1, max_attempts: 3, created_at: "2026-08-24T01:00:00.000Z" }
+      ]; }
+    },
+    qualityService: { async listQualityRuns() { return []; }, async getQualityRun() { throw new Error("not reached"); } },
+    reviewService: { async getReviewState() { return { current_review: null, gate: { can_submit: false, can_approve: false, reasons: [] } }; } }
+  });
+
+  const workspace = await service.getWorkspace({
+    organizationId: "org-a", actorMemberId: "member-a", projectId: "project-a", productId: "product-a", stage: "copy"
+  });
+
+  assert.equal(workspace.stages[1].generation.current_job_id, "job-new");
+  assert.equal(workspace.stages[1].generation.status, "queued");
+  assert.deepEqual(workspace.stages[1].blocker_codes, ["COPY_GENERATION_IN_PROGRESS"]);
+  assert.equal(workspace.recommended_action, null);
+});

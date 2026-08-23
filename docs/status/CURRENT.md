@@ -74,7 +74,9 @@
 - Issue #240 是 Stage 2 文案的独立 acceptance gate：在同一 opt-in workspace 中 additive 投影 exact current
   CopyVersion、生成任务、QualityResult 与 HumanReview，并保持 QC passed 与人工批准分离。Stage 2 只扩展 `copy`；
   `avatar/video_plan/production` 继续 `legacy/not_loaded`，不读取或伪造后续阶段真值。推荐动作 registry 仅增加
-  文案动作，未知版本、未知动作或错阶段动作 fail closed。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 2
+  文案动作，未知版本、未知动作或错阶段动作 fail closed。CopyGeneration 投影按 repository 的 newest-first 契约读取当前
+  任务；`needs_review` 只复用既有 finding resolution API，接受理由、返回商品资料与人工修改保持可审计，hard block 不可
+  接受，effective QC 真正通过前不开放人工审核。AI 改写仍由既有 Copy 页面承载，本片未迁入。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 2
   仓库实现成立；这不表示部署、真实 Provider 生成或生产验收，也不授权 Stage 3。
 
 ## UX V1 Slice A 仓库实现

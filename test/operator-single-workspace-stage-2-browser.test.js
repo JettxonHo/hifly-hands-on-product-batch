@@ -43,7 +43,7 @@ async function readyProduct(service, actor, projectId, assetVersionId, key, name
   return { product: created.product, revision };
 }
 
-async function startWorld(t, portStart) {
+async function startWorld(t, portStart, { evaluateQuality } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-single-workspace-stage-2-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const port = await findAvailablePort(portStart);
@@ -77,7 +77,7 @@ async function startWorld(t, portStart) {
     assets: { enabled: true, repository: assetRepository, objectStore, worker: { autoStart: false } },
     projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort: assetService.assetReferencePort },
     copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
-    copyQuality: { enabled: true, repository: createMemoryCopyQualityRepository(), evaluator: createControlledQualityEvaluator(), rewriter: createControlledCopyRewriter(), worker: { autoStart: false } },
+    copyQuality: { enabled: true, repository: createMemoryCopyQualityRepository(), evaluator: createControlledQualityEvaluator({ evaluate: evaluateQuality }), rewriter: createControlledCopyRewriter(), worker: { autoStart: false } },
     copyReview: { enabled: true, repository: createMemoryCopyReviewRepository() },
     operatorWorkspace: { enabled: true }
   });
@@ -275,7 +275,7 @@ test("Stage 2 fails closed and recovers exact Copy context without losing local 
   assert.equal(await editor.isEditable(), false);
   await page.locator("#workspacePrimaryAction").click();
   await page.waitForURL((value) => value.searchParams.get("copy") === child.id);
-  assert.equal(await editor.isEditable(), true);
+  await page.waitForFunction(() => document.querySelector("#workspaceCopyBody")?.readOnly === false);
 
   await editor.fill(`${await editor.inputValue()} 未保存。`);
   await page.goBack({ waitUntil: "domcontentloaded" }).catch(() => undefined);
@@ -312,4 +312,87 @@ test("Stage 2 fails closed and recovers exact Copy context without losing local 
   await page.getByText("文案暂时无法读取", { exact: true }).waitFor();
   await expectAction(page, "retry_copy_read", "刷新当前文案");
   assert.equal(await page.locator('[data-stage-code][aria-disabled="true"]:not([href])').count(), 10);
+});
+
+test("Stage 2 resolves review findings truthfully and never accepts hard blocks", async (t) => {
+  const reviewFinding = {
+    code: "TONE_REVIEW", kind: "review", severity: "medium", title: "语气待判断",
+    matched_text: "全网最好", message: "请人工判断语气是否符合品牌事实",
+    evidence_reference: "copy:text:12-16", rule_source: "brand_policy", suggestion: "改为有事实依据的体验描述"
+  };
+  const hardBlock = {
+    code: "FACT_BLOCK", kind: "hard_block", severity: "critical", title: "事实依据不足",
+    matched_text: "绝对有效", message: "必须修正文案或商品事实",
+    evidence_reference: "copy:text:20-24", rule_source: "fact_policy", suggestion: "返回商品资料核对事实"
+  };
+  const setup = await startWorld(t, 59300, { evaluateQuality: async ({ productRevision }) => ({
+    checks_complete: true,
+    findings: [productRevision.product_name.includes("云感") ? hardBlock : reviewFinding]
+  }) });
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { app, browser, origin, project, first, second } = setup;
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await authenticate(page, origin);
+
+  async function generateAndCheck(product) {
+    await page.goto(url(origin, project.id, product.product.id));
+    await expectAction(page, "request_copy_generation", "生成文案");
+    await page.locator("#workspacePrimaryAction").click();
+    await app.runNextCopyGenerationJob();
+    await page.getByText("文案草稿待质检", { exact: true }).first().waitFor({ timeout: 5000 });
+    await expectAction(page, "start_copy_quality", "开始质检");
+    await page.locator("#workspacePrimaryAction").click();
+    await app.runNextCopyQualityJob();
+  }
+
+  await generateAndCheck(first);
+  await page.getByText("质检需要人工判断", { exact: true }).first().waitFor({ timeout: 5000 });
+  await expectAction(page, "review_copy_quality", "处理质检问题");
+  const reviewCard = page.locator('[data-finding-code="TONE_REVIEW"]');
+  assert.equal(await reviewCard.getByRole("button", { name: "返回商品资料" }).count(), 1);
+  assert.equal(await reviewCard.getByRole("button", { name: "人工修改文案" }).count(), 1);
+  await page.locator("#workspacePrimaryAction").click();
+  await reviewCard.scrollIntoViewIfNeeded();
+  const screenshotDir = process.env.STAGE_2_SCREENSHOTS_DIR;
+  if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await reviewCard.getByRole("button", { name: "人工修改文案" }).scrollIntoViewIfNeeded();
+    await page.evaluate(() => window.scrollBy(0, 84));
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `${viewport.width}px finding overflow`);
+    if (screenshotDir) {
+      const image = await page.screenshot({ path: path.join(screenshotDir, `stage-2-copy-needs-review-${viewport.width}x${viewport.height}.png`) });
+      assert.equal(image.readUInt32BE(16), viewport.width);
+      assert.equal(image.readUInt32BE(20), viewport.height);
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await reviewCard.getByRole("button", { name: "接受并填写理由" }).click();
+  const dialog = page.locator("#workspaceFindingDialog");
+  assert.equal(await dialog.evaluate((element) => element.open), true);
+  assert.equal(await page.locator("#workspaceFindingReason").evaluate((element) => element === document.activeElement), true);
+  await page.getByRole("button", { name: "确认接受" }).click();
+  await page.getByText("请填写接受理由。", { exact: true }).waitFor();
+  await page.locator("#workspaceFindingReason").fill("运营复核后确认符合品牌事实");
+  let conflicts = 0;
+  await page.route("**/api/quality-findings/*/resolutions", (route) => {
+    if (conflicts++ === 0) return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "QUALITY_FINDING_CONFLICT" }) });
+    return route.continue();
+  });
+  await page.getByRole("button", { name: "确认接受" }).click();
+  await page.locator("#workspaceFindingError").getByText("质检状态已被其他人更新，请刷新当前文案。", { exact: true }).waitFor();
+  assert.equal(await dialog.evaluate((element) => element.open), true);
+  assert.equal(await page.locator("#workspaceFindingReason").inputValue(), "运营复核后确认符合品牌事实");
+  await page.unroute("**/api/quality-findings/*/resolutions");
+  await page.getByRole("button", { name: "确认接受" }).click();
+  await page.getByText("质检已通过，待提交人工审核", { exact: true }).first().waitFor({ timeout: 5000 });
+  await expectAction(page, "submit_copy_review", "提交人工审核");
+
+  await generateAndCheck(second);
+  await page.getByText("文案质检未通过", { exact: true }).first().waitFor({ timeout: 5000 });
+  const hardBlockCard = page.locator('[data-finding-code="FACT_BLOCK"]');
+  assert.equal(await hardBlockCard.getByRole("button", { name: "接受并填写理由" }).count(), 0);
+  assert.equal(await hardBlockCard.getByRole("button", { name: "返回商品资料" }).count(), 1);
+  assert.equal(await hardBlockCard.getByRole("button", { name: "人工修改文案" }).count(), 1);
+  await expectAction(page, "review_copy_quality", "处理质检问题");
 });
