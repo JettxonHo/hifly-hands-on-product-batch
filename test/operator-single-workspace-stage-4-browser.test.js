@@ -582,20 +582,22 @@ test("Stage 4 rejects stale same-product plan responses and closes version selec
   assert.equal(new URL(page.url()).searchParams.get("plan"), versions.second.id);
 });
 
-test("Stage 4 saves the first plan before navigation and treats command 409 as a recoverable conflict", async (t) => {
+test("Stage 4 saves the first plan and restores editable controls plus review reason after 409", async (t) => {
   const setup = await startWorld(t, 59700);
   if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
   const { browser, origin, project, first, second } = setup;
-  const page = await browser.newPage({ viewport: { width: 768, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await authenticate(page, origin);
   await page.goto(workspaceUrl(origin, project.id, first.product.id));
   await page.locator("#firstInstructions").fill("保存首版后切换商品");
-  await page.locator(`#productList [data-product-id="${second.product.id}"]`).click();
+  await page.locator("#mobileVideoPlanProductBack").click();
   await page.locator("#workspaceUnsavedDialog").waitFor();
   await page.locator("#saveWorkspaceAndContinue").click();
+  await page.locator(`#productList [data-product-id="${second.product.id}"]`).click();
   await page.waitForURL(new RegExp(`product=${second.product.id}`));
   assert.equal(await page.locator("#workspaceUnsavedDialog").evaluate((dialog) => dialog.open), false);
 
+  await page.locator("#mobileVideoPlanProductBack").click();
   await page.locator(`#productList [data-product-id="${first.product.id}"]`).click();
   await page.waitForURL(new RegExp(`product=${first.product.id}`));
   await expectAction(page, "run_video_plan_preflight", "开始预检");
@@ -612,6 +614,7 @@ test("Stage 4 saves the first plan before navigation and treats command 409 as a
   await page.unroute("**/api/products/*/video-plans/*/preflight");
   await page.locator("#workspacePrimaryAction").click();
   await expectAction(page, "run_video_plan_preflight", "开始预检");
+  assert.equal(await page.locator("#outputInstructions").isEditable(), true);
   await page.locator("#workspacePrimaryAction").click();
   await expectAction(page, "submit_video_plan_review", "提交方案审核");
   await page.route("**/api/products/*/video-plans/*/reviews", (route) => route.fulfill({ status: 409,
@@ -621,6 +624,35 @@ test("Stage 4 saves the first plan before navigation and treats command 409 as a
   await expectAction(page, "load_latest_video_plan", "载入最新方案状态");
   assert.equal(await page.locator("#reviewDialog").evaluate((dialog) => dialog.open), false);
   await expectVisibleFocus(page, "#videoPlanWorkspaceHeading");
+
+  await page.unroute("**/api/products/*/video-plans/*/reviews");
+  await page.locator("#workspacePrimaryAction").click();
+  await expectAction(page, "submit_video_plan_review", "提交方案审核");
+  await page.locator("#workspacePrimaryAction").click();
+  await page.locator("#confirmReviewAction").click();
+  await page.locator("#showReview").click();
+  await page.locator("#requestChanges").waitFor();
+
+  const reason = "商品主体需要保留完整构图与标签位置";
+  let reasonConflict = true;
+  const changesPattern = "**/api/products/*/plan-reviews/*/request-changes";
+  await page.route(changesPattern, async (route) => {
+    if (!reasonConflict) return route.continue();
+    reasonConflict = false;
+    return route.fulfill({ status: 409, contentType: "application/json",
+      body: JSON.stringify({ error: "VIDEO_PLAN_REVIEW_CONFLICT" }) });
+  });
+  await page.locator("#requestChanges").click();
+  await page.locator("#reviewReasonInput").fill(reason);
+  await page.locator("#confirmReviewAction").click();
+  await expectAction(page, "load_latest_video_plan", "载入最新方案状态");
+  await page.locator("#workspacePrimaryAction").click();
+  assert.equal(await page.locator("#requestChanges").isDisabled(), false);
+  await page.locator("#requestChanges").click();
+  assert.equal(await page.locator("#reviewReasonInput").inputValue(), reason);
+  await page.unroute(changesPattern);
+  await page.locator("#confirmReviewAction").click();
+  await page.locator("#taskSummaryTitle").filter({ hasText: "审核要求修改方案" }).waitFor();
 });
 
 test("Stage 4 renders every preflight state and restores visible dialog focus at all accepted viewports", async (t) => {
@@ -629,11 +661,15 @@ test("Stage 4 renders every preflight state and restores visible dialog focus at
   const { app, browser, origin, project, first, actor } = setup;
   const versions = await createPlanVersions(app, actor, first.product.id, "stage-4-matrix");
   const matrix = [
-    { run: "queued", result: null, title: "方案正在预检", action: null },
-    { run: "running", result: null, title: "方案正在预检", action: null },
-    { run: "failed", result: null, title: "预检未完成", action: "retry_video_plan_preflight" },
-    { run: "succeeded", result: "blocked", title: "预检发现阻断", action: "derive_video_plan_draft" },
-    { run: "succeeded", result: "invalidated", title: "预检结论已失效", action: "derive_video_plan_draft" }
+    { run: "queued", result: null, title: "方案正在预检", badge: "预检已排队", action: null },
+    { run: "running", result: null, title: "方案正在预检", badge: "预检中", action: null },
+    { run: "failed", result: null, title: "预检未完成", badge: "预检未完成", action: "retry_video_plan_preflight" },
+    { run: "succeeded", result: "blocked", title: "预检发现阻断", badge: "被阻断",
+      action: "derive_video_plan_draft", pendingReview: true },
+    { run: "succeeded", result: "invalidated", title: "预检结论已失效", badge: "已失效",
+      action: "derive_video_plan_draft", pendingReview: true },
+    { run: "succeeded", result: "passed", title: "预检已完成，等待人工审核", badge: "预检通过",
+      action: "submit_video_plan_review", canSubmit: true }
   ];
   const matrixPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await authenticate(matrixPage, origin);
@@ -646,8 +682,9 @@ test("Stage 4 renders every preflight state and restores visible dialog focus at
     stage.video_plan_workspace.preflight.current_run = { id: `fixture-${fixture.run}`, video_plan_version_id: plan.id, status: fixture.run };
     stage.video_plan_workspace.preflight.current_result = fixture.result ? { id: `fixture-${fixture.result}`,
       video_plan_version_id: plan.id, preflight_run_id: `fixture-${fixture.run}`, status: fixture.result, groups: {} } : null;
-    stage.video_plan_workspace.human_review.current_review = fixture.result ? { id: "fixture-review", video_plan_version_id: plan.id,
+    stage.video_plan_workspace.human_review.current_review = fixture.pendingReview ? { id: "fixture-review", video_plan_version_id: plan.id,
       status: "pending", row_version: 1 } : null;
+    stage.video_plan_workspace.human_review.gate = { can_submit: fixture.canSubmit === true, can_decide: false, reasons: [] };
     stage.business_status = fixture.title;
     body.workspace.recommended_action = fixture.action ? { code: fixture.action, stage: "video_plan", kind: "command" } : null;
     return route.fulfill({ response, json: body });
@@ -656,6 +693,8 @@ test("Stage 4 renders every preflight state and restores visible dialog focus at
     fixture = item;
     await matrixPage.goto(workspaceUrl(origin, project.id, first.product.id, versions.second.id));
     await matrixPage.locator("#taskSummaryTitle").filter({ hasText: item.title }).waitFor();
+    assert.equal(await matrixPage.locator("#preflightBadge").textContent(), item.badge);
+    if (item.result === "passed") assert.match(await matrixPage.locator("#preflightSummary").textContent(), /本次预检结论：预检通过/);
     if (item.action) assert.equal(await matrixPage.locator("#workspacePrimaryAction").getAttribute("data-action-code"), item.action);
     else assert.equal(await matrixPage.locator('[data-recommended-action="true"]').count(), 0);
   }

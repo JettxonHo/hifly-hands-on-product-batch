@@ -144,6 +144,8 @@
     let pendingNavigation = null;
     let dialogTrigger = null;
     let reviewAction = "submit";
+    let pendingReviewReason = "";
+    let pendingReviewReasonPlanId = null;
     let versionDialogTrigger = null;
     let acceptedHistoryIndex = 0;
     let historyTraversal = null;
@@ -820,6 +822,11 @@
         return false;
       } finally {
         busy = false;
+        renderPlanEditor();
+        if (currentPlan()) {
+          renderPreflight();
+          renderReview();
+        }
         renderTaskSummary();
       }
     }
@@ -942,13 +949,20 @@
     function openReview(kind) {
       const plan = currentPlan();
       if (!plan || selectedPlanIsHistorical() || dirty) return;
+      const preservedReason = kind === "changes" && pendingReviewReasonPlanId === plan.id
+        ? pendingReviewReason
+        : "";
+      if (!preservedReason) {
+        pendingReviewReason = "";
+        pendingReviewReasonPlanId = null;
+      }
       reviewAction = kind;
       dialogTrigger = document.activeElement;
       const titles = { submit: "提交方案审核", approve: "批准方案", changes: "要求修改" };
       node("#reviewDialogTitle").textContent = titles[kind];
       node("#confirmReviewAction").textContent = kind === "changes" ? "确认要求修改" : kind === "approve" ? "确认批准" : "确认提交";
       node("#reviewReasonField").hidden = kind !== "changes";
-      node("#reviewReasonInput").value = "";
+      node("#reviewReasonInput").value = preservedReason;
       node("#reviewDialogSummary").textContent = kind === "submit" ? "提交后进入人工审核。预检通过或存在提醒，都不会自动批准方案。" :
         kind === "approve" ? "批准前服务端会重新验证当前方案、预检和上游引用。" : "请填写明确的修改意见；当前方案与历史审核记录会保留。";
       node("#reviewDialogError").textContent = "";
@@ -956,9 +970,13 @@
       (kind === "changes" ? node("#reviewReasonInput") : node("#confirmReviewAction")).focus();
     }
 
-    function closeReview({ restore = true } = {}) {
+    function closeReview({ restore = true, preserveReason = false } = {}) {
       if (reviewDialog.open) reviewDialog.close();
       node("#reviewDialogError").textContent = "";
+      if (!preserveReason) {
+        pendingReviewReason = "";
+        pendingReviewReasonPlanId = null;
+      }
       if (restore) restoreFocus(dialogTrigger);
       dialogTrigger = null;
     }
@@ -994,7 +1012,11 @@
       });
       if (ok) closeReview();
       else if (conflict) {
-        closeReview({ restore: false });
+        if (reviewAction === "changes") {
+          pendingReviewReason = reason;
+          pendingReviewReasonPlanId = plan.id;
+        }
+        closeReview({ restore: false, preserveReason: reviewAction === "changes" });
         node("#videoPlanWorkspaceHeading").focus();
       }
       return ok;

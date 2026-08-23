@@ -667,3 +667,37 @@ test("default buildApp wiring projects exact VideoPlan query and keeps Productio
   assert.equal(JSON.stringify(workspace).includes("input_snapshot"), false);
   assert.equal(productionReads, 0);
 });
+
+test("operator workspace API hides foreign VideoPlan history when no current plan is selected", async (t) => {
+  const marker = "FOREIGN_SECRET";
+  const { app, auth } = await avatarOperatorWorld(t, {
+    videoPlanning: true,
+    downstreamStagePorts: {
+      videoPlanningService: {
+        async getWorkspace() {
+          return {
+            current_plan: null,
+            head_revision: 0,
+            versions: [{ id: "foreign-plan", organization_id: "org_other", product_id: "foreign-product",
+              version_number: 1, status: "superseded", output_instructions: marker }],
+            preflight: { current_run: null, current_result: null, history: [] },
+            review: { current_review: null, history: [], gate: { can_submit: false, can_decide: false, reasons: ["plan_missing"] } }
+          };
+        }
+      }
+    }
+  });
+  const project = (await app.inject({ method: "POST", url: "/api/projects",
+    headers: headers(auth, true, "foreign-plan-project"), payload: { name: "安全项目" } })).json().project;
+  const product = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`,
+    headers: headers(auth, true, "foreign-plan-product"), payload: { product_name: "安全商品" } })).json().product;
+
+  const response = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${product.id}/operator-workspace?stage=video_plan`,
+    headers: headers(auth) });
+
+  assert.equal(response.statusCode, 404);
+  assert.deepEqual(response.json(), { error: "OPERATOR_WORKSPACE_NOT_FOUND" });
+  assert.equal(response.body.includes(marker), false);
+  assert.equal(response.body.includes("foreign-product"), false);
+});

@@ -177,9 +177,11 @@ interleaving，并消除预览与企业目录登记的相反锁序；bytes 响�
 使用带原因的首字 fallback；同商品 approved Copy 替换时保留旧人物选择为 `copy_version_changed` 失效历史，不把它误作
 404 或有效确认。Issue #244 是 Stage 4 视频方案独立 acceptance gate：只 additive 投影 exact VideoPlan、preflight
 run/result、人工审核与历史；方案创建、保存、派生、预检、提交审核、批准或要求修改仍使用既有 VideoPlanning API 与
-状态机，且 preflight passed/warning 不等于人工批准。当前 Draft 的复审纠偏进一步锁定 preflight 真值优先级、计划链
-exact identity/result-run 绑定、own-property action registry、同商品请求世代、首版保存、版本 Dialog 焦点、统一 409 恢复和
-三视口确定性 preflight/focus matrix；只有 fixed head 独立 Review 合并后才计为实现。Stage 1/2/3 保持稳定，Stage 5 Production 继续
+  状态机，且 preflight passed/warning 不等于人工批准。当前 Draft 的复审纠偏进一步锁定 preflight 真值优先级、无 current
+  plan 时的 exact versions/empty children gate、run/result 双向绑定、由核验真值重算推荐动作、同商品请求世代、首版保存、
+  版本 Dialog 焦点、统一 409 恢复及要求修改理由保留，并用三视口确定性 preflight/focus matrix 验证。`main` 分支保护在
+  保留 strict 与既有 Ubuntu/Windows context 的同时 additive 要求 `identity-postgres`。只有 fixed head 独立 Review 合并后
+  才计为实现。Stage 1/2/3 保持稳定，Stage 5 Production 继续
 `legacy/not_loaded` 和零读取；对应 Draft PR 合并前不计为完成，也不授权 Stage 5。后续实现严格串行：Stage 5
 Production、Post-stage 作品库、素材中心/移动收口。
 作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实

@@ -50,6 +50,12 @@
 9. 公开 browser matrix RED：宽松断言不能区分完整 preflight 状态，三视口也未逐一证明 Dialog 焦点恢复。GREEN 后
    queued/running/failed/blocked/invalidated 使用确定性 fixture；1440/768/390 分别验证可见焦点、Dialog 恢复、唯一动作与
    无页面级横向滚动，并覆盖旧响应成功/失败不得覆盖新方案、首版保存继续及无草稿 409 恢复。
+10. 第二轮身份/恢复 RED：无 current plan 会跳过 foreign versions/children 检查，registered 但矛盾的 action 会遮蔽
+    persisted truth，run/result 只单向绑定；409 载入最新会遗留 disabled 控件并清空要求修改理由，公开 matrix 也缺少 passed。
+    GREEN 后每个版本始终先核对 organization/product，无 plan 时 child/history 必须为空；current/history run/result 双向
+    绑定且声明结果缺失即 fail closed；推荐动作只从核验后的 plan/preflight/review 推导，unknown/wrong action 仍不显示；
+    load-latest 清除 busy 后完整重绘 editor/preflight/review，且同一方案的修改理由只在 conflict recovery 中保留。公开
+    Chrome 已加入 `passed + can_submit` 与 390 的冲突恢复、显式重开和重新提交路径。
 
 ## 实现边界
 
@@ -93,10 +99,15 @@
   synthetic browser seam 的响应式 composition，不是部署、Provider 或生产数据证据；二进制未提交。
 - `npm run check`：246 JavaScript files；official-registry audit 为 0 high/critical、2 个既有 moderate，均来自
   `exceljs -> uuid`，本片未执行 breaking `--force` 修复。
-- 首轮实现 head 的默认 `npm test` 未修改并发参数并自然完成：1148 total / 1133 pass / 15 existing environment-gated
-  skips / 0 fail，约 138.1 秒。本次纠偏后的默认命令在与另一 worktree 已悬挂的同套全量进程并行时完成 1119 项且未见
-  failure，随后同样停在未改动的 `yingdao-rpa-executor.test.js`；本进程在确认等待点后人工停止，未把不完整运行写成通过，
-  也未使用串行参数规避。fixed-head 隔离 CI 与结果评论将保留最终完整证据。
+- 第二轮复审纠偏后的聚焦 service/API/VideoPlanning 非数据库组 52/52 pass；Stage 4 真实 Chrome 7/7 pass；Stage 1/2/3/4
+  与旧 Plan 页面组合 16/16 pass。默认 `npm test` 未修改并发参数并自然完成：1152 total / 1137 pass /
+  15 existing environment-gated skips / 0 fail，约 151.4 秒。fixed-head CI 以 Draft PR 结果评论为准。
+- `main` 分支保护已保留 `strict=true` 与原 `test (ubuntu-latest, 22)`、`test (windows-latest, 22)`，仅新增
+  `identity-postgres` 为 required context；该设置变更不扩仓库文件 allowlist。
+- 首轮实现 head 的默认 `npm test` 曾自然完成 1148 total / 1133 pass / 15 existing environment-gated skips / 0 fail；首轮
+  纠偏 head 的一次默认命令受另一 worktree 遗留的同套全量进程影响而停在未改动的 `yingdao-rpa-executor.test.js`，当时未
+  误写为通过。本轮第二次纠偏的默认命令在该外部进程仍存在时仍自然完成，结果以上述 1152 项为准；没有杀死外部进程，
+  也没有用串行参数规避。
 - `git diff --check` 与严格 15 文件 allowlist 通过；fixed-head CI 的最终结果以 Draft PR 元数据和结果评论为准，session 不在
   提交正文中自引用最终 commit。
 

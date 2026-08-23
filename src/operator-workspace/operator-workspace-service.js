@@ -291,30 +291,37 @@ function assertPlanChildIdentity(value, { organizationId, planId }) {
 
 function assertExactVideoPlanWorkspace(value, { organizationId, projectId, productId, requestedPlanId }) {
   void projectId;
+  if (!value || typeof value !== "object") throw notFound();
+  const versions = Array.isArray(value.versions) ? value.versions : [];
+  for (const version of versions) assertPlanIdentity(version, { organizationId, productId });
   const plan = value.current_plan;
   if (requestedPlanId && (!plan || plan.id !== requestedPlanId)) throw notFound();
-  if (!plan) return;
+  const preflight = value.preflight && typeof value.preflight === "object" ? value.preflight : {};
+  const review = value.review && typeof value.review === "object" ? value.review : {};
+  if (!plan) {
+    if (preflight.current_run || preflight.current_result || (preflight.history || []).length ||
+        review.current_review || (review.history || []).length) throw notFound();
+    return;
+  }
   assertPlanIdentity(plan, { organizationId, productId });
   const planId = plan.id;
-  for (const version of value.versions || []) assertPlanIdentity(version, { organizationId, productId });
-  if (!(value.versions || []).some((version) => version.id === planId)) throw notFound();
+  if (!versions.some((version) => version.id === planId)) throw notFound();
   if (!requestedPlanId && videoPlanCurrentId(value) !== planId) throw notFound();
-  const preflight = value.preflight && typeof value.preflight === "object" ? value.preflight : {};
-  if (preflight.current_run) assertPlanChildIdentity(preflight.current_run, { organizationId, planId });
-  if (preflight.current_result) {
-    assertPlanChildIdentity(preflight.current_result, { organizationId, planId });
-    if (!preflight.current_run || preflight.current_result.preflight_run_id !== preflight.current_run.id) {
+  const assertRunResultPair = (run, result) => {
+    if (run) assertPlanChildIdentity(run, { organizationId, planId });
+    if (result) {
+      assertPlanChildIdentity(result, { organizationId, planId });
+      if (!run || result.preflight_run_id !== run.id || run.preflight_result_id !== result.id) {
+        throw failure("VIDEO_PLAN_SELECTED_OBJECT_MISMATCH");
+      }
+    } else if (run?.preflight_result_id) {
       throw failure("VIDEO_PLAN_SELECTED_OBJECT_MISMATCH");
     }
-  }
+  };
+  assertRunResultPair(preflight.current_run, preflight.current_result);
   for (const run of preflight.history || []) {
-    assertPlanChildIdentity(run, { organizationId, planId });
-    if (run.result) {
-      assertPlanChildIdentity(run.result, { organizationId, planId });
-      if (run.result.preflight_run_id !== run.id) throw failure("VIDEO_PLAN_SELECTED_OBJECT_MISMATCH");
-    }
+    assertRunResultPair(run, run.result || null);
   }
-  const review = value.review && typeof value.review === "object" ? value.review : {};
   for (const item of [review.current_review, ...(review.history || [])]) {
     if (item) assertPlanChildIdentity(item, { organizationId, planId });
   }
@@ -382,71 +389,69 @@ function videoPlanStage({ workspace, avatarProjection, revision, requestedStage 
   const reviewGate = review.gate && typeof review.gate === "object" ? review.gate : {};
   const reviewReasons = Array.isArray(reviewGate.reasons) ? reviewGate.reasons : [];
   const reviewable = ["passed", "warning"].includes(result?.status);
+  const suppliedActionInvalid = Object.hasOwn(workspace, "recommended_action") && workspace.recommended_action !== null &&
+    !registeredVideoPlanAction(workspace.recommended_action);
   let businessStatus = "视频方案待创建";
   let blockerCodes = ["VIDEO_PLAN_REQUIRED"];
-  let action = Object.hasOwn(workspace, "recommended_action")
-    ? registeredVideoPlanAction(workspace.recommended_action)
-    : null;
+  let action = null;
 
   if (historical) {
     businessStatus = "历史视频方案";
     blockerCodes = ["VIDEO_PLAN_HISTORICAL"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("return_to_current_video_plan");
+    action = videoPlanAction("return_to_current_video_plan");
   } else if (!avatar.valid || (plan && !upstreamMatches)) {
     businessStatus = !avatar.valid ? "人物选择尚未有效" : "视频方案上游已失效";
     blockerCodes = ["VIDEO_PLAN_UPSTREAM_INVALID"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("return_to_avatar");
+    action = videoPlanAction("return_to_avatar");
   } else if (!plan) {
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("create_video_plan");
+    action = videoPlanAction("create_video_plan");
   } else if (result?.status === "invalidated") {
     businessStatus = "视频方案预检已失效";
     blockerCodes = ["VIDEO_PLAN_PREFLIGHT_INVALIDATED"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("derive_video_plan_draft");
+    action = videoPlanAction("derive_video_plan_draft");
   } else if (result?.status === "blocked") {
     businessStatus = "视频方案预检未通过";
     blockerCodes = ["VIDEO_PLAN_PREFLIGHT_BLOCKED"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("derive_video_plan_draft");
+    action = videoPlanAction("derive_video_plan_draft");
   } else if (run?.status === "failed" || result?.status === "failed") {
     businessStatus = "视频方案预检未完成";
     blockerCodes = ["VIDEO_PLAN_PREFLIGHT_FAILED"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("retry_video_plan_preflight");
+    action = videoPlanAction("retry_video_plan_preflight");
   } else if (["queued", "running"].includes(run?.status)) {
     businessStatus = run.status === "queued" ? "视频方案预检已排队" : "正在进行视频方案预检";
     blockerCodes = ["VIDEO_PLAN_PREFLIGHT_IN_PROGRESS"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = null;
+    action = null;
   } else if (["changes_requested", "revoked"].includes(currentReview?.status)) {
     businessStatus = currentReview.status === "changes_requested" ? "人工审核要求修改视频方案" : "视频方案批准已失效";
     blockerCodes = [currentReview.status === "changes_requested" ? "VIDEO_PLAN_CHANGES_REQUIRED" : "VIDEO_PLAN_APPROVAL_REVOKED"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("derive_video_plan_draft");
+    action = videoPlanAction("derive_video_plan_draft");
   } else if (currentReview?.status === "approved") {
     if (reviewable && plan.status === "frozen") {
       businessStatus = "视频方案已批准";
       blockerCodes = [];
-      if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("continue_to_production");
+      action = videoPlanAction("continue_to_production");
     } else {
       businessStatus = "视频方案批准状态不可继续";
       blockerCodes = ["VIDEO_PLAN_PREFLIGHT_REQUIRED"];
-      if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("derive_video_plan_draft");
+      action = videoPlanAction("derive_video_plan_draft");
     }
   } else if (currentReview?.status === "pending" && reviewable && reviewGate.can_decide === true &&
       !reviewReasons.includes("preflight_not_reviewable")) {
     businessStatus = "视频方案待人工审核";
     blockerCodes = ["VIDEO_PLAN_HUMAN_REVIEW_REQUIRED"];
-    if (!Object.hasOwn(workspace, "recommended_action")) {
-      action = videoPlanAction("approve_video_plan_review");
-    }
+    action = videoPlanAction("approve_video_plan_review");
   } else if (reviewable && reviewGate.can_submit === true) {
     businessStatus = "预检已通过，待提交人工审核";
     blockerCodes = ["VIDEO_PLAN_HUMAN_REVIEW_REQUIRED"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("submit_video_plan_review");
+    action = videoPlanAction("submit_video_plan_review");
   } else if (run?.status === "succeeded" && !result) {
     businessStatus = "视频方案预检结果不可用";
     blockerCodes = ["VIDEO_PLAN_PREFLIGHT_REQUIRED"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("retry_video_plan_preflight");
+    action = videoPlanAction("retry_video_plan_preflight");
   } else {
     businessStatus = plan.status === "draft" ? "视频方案草稿待预检" : "视频方案待运行预检";
     blockerCodes = ["VIDEO_PLAN_PREFLIGHT_REQUIRED"];
-    if (!Object.hasOwn(workspace, "recommended_action")) action = videoPlanAction("run_video_plan_preflight");
+    action = videoPlanAction("run_video_plan_preflight");
   }
 
   return {
@@ -460,7 +465,7 @@ function videoPlanStage({ workspace, avatarProjection, revision, requestedStage 
       current_object: publicWorkspace.current_plan ? { type: "video_plan", id: publicWorkspace.current_plan.id } : null,
       video_plan_workspace: publicWorkspace
     },
-    action
+    action: suppliedActionInvalid ? null : action
   };
 }
 
