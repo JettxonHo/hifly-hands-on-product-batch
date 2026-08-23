@@ -672,7 +672,9 @@ export async function buildApp({
       copyService: app.copyGeneration?.service,
       qualityService: app.copyQuality?.service,
       reviewService: app.copyReview?.service,
-      avatarService: app.avatarSelection?.service
+      avatarService: app.avatarSelection?.service,
+      videoPlanningService: operatorWorkspaceOptions.videoPlanningService || null,
+      productionService: operatorWorkspaceOptions.productionService || null
     });
     app.decorate("operatorWorkspace", { service: operatorWorkspaceService });
     await registerOperatorWorkspaceRoutes(app, { service: operatorWorkspaceService });

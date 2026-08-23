@@ -19,6 +19,18 @@ import { runProjectContentMigrations } from "../src/project-content/postgres.js"
 
 const connectionString = process.env.TEST_DATABASE_URL || process.env.IDENTITY_TEST_DATABASE_URL;
 const isolatedUrl = (value, schema) => { const url = new URL(value); url.searchParams.set("options", `-c search_path=${schema}`); return url.toString(); };
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function waitForLockWait(pool, queryFragment, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await pool.query(`SELECT count(*)::integer count FROM pg_stat_activity
+      WHERE datname=current_database() AND wait_event_type='Lock' AND position($1 in query)>0`, [queryFragment]);
+    if (result.rows[0].count > 0) return;
+    await delay(10);
+  }
+  assert.fail(`timed out waiting for PostgreSQL lock: ${queryFragment}`);
+}
 
 test("clean PostgreSQL avatar migration seeds controlled catalog and serializes selection changes", { skip: !connectionString }, async (t) => {
   const schema = `avatar_selection_${randomUUID().replaceAll("-", "")}`;
@@ -205,4 +217,32 @@ test("clean PostgreSQL avatar migration seeds controlled catalog and serializes 
   await parentBlocker.query("COMMIT");
   parentBlocker.release();
   await assert.rejects(parentAuthorization, { code: "AVATAR_PREVIEW_UNAVAILABLE" });
+
+  const orderingRace = await insertMaterial("锁序人物");
+  const materialBlocker = await pool.connect();
+  await materialBlocker.query("BEGIN");
+  await materialBlocker.query("SELECT 1 FROM asset_assets WHERE id=$1 FOR UPDATE", [orderingRace.assetId]);
+  const registrationReplay = repository.registerEnterpriseAvatar({ organizationId: "org-avatar-pg",
+    actorMemberId: seeded.member.id, materialAssetVersionId: orderingRace.versionId, displayName: "锁序人物重放",
+    description: "锁序人物重放", authorizationStatus: "valid", capabilities: [], now: at });
+  await waitForLockWait(pool, "FROM asset_versions av JOIN asset_assets aa");
+  let previewEnteredMaterialGate = false;
+  assetService.authorizeAvatarPreview = async (input) => {
+    previewEnteredMaterialGate = true;
+    return originalAssetAuthorize(input);
+  };
+  const concurrentPreview = previewService.authorizePreview({ organizationId: "org-avatar-pg",
+    actorMemberId: seeded.member.id, actorRole: "admin", avatarId: orderingRace.avatar.asset.id });
+  await delay(50);
+  const previewEnteredBeforeRegistrationReleased = previewEnteredMaterialGate;
+  await materialBlocker.query("COMMIT");
+  materialBlocker.release();
+  const concurrentResults = await Promise.allSettled([registrationReplay, concurrentPreview]);
+  assetService.authorizeAvatarPreview = originalAssetAuthorize;
+  assert.equal(previewEnteredBeforeRegistrationReleased, false,
+    "preview and registration replay must share one cross-table serialization order before taking row locks");
+  assert.equal(concurrentResults.some((result) => result.status === "rejected" && result.reason?.code === "40P01"), false);
+  assert.deepEqual(concurrentResults.map((result) => result.status), ["fulfilled", "fulfilled"]);
+  assert.equal(concurrentResults[0].value.replayed, true);
+  assert.equal(concurrentResults[1].value.checksum_sha256, "c".repeat(64));
 });

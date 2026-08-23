@@ -434,6 +434,66 @@ test("fails closed when Avatar returns a workspace bound to a different CopyVers
   );
 });
 
+test("preserves a same-product AvatarSelection invalidated by a newer approved CopyVersion", async () => {
+  const revision = {
+    id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
+    product_name: "商品", asset_version_ids: ["product-image-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const copy = (id, version) => ({
+    id, organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: version, row_version: 1, body: `文案 ${version}`
+  });
+  const oldCopy = copy("copy-old", 1);
+  const currentCopy = copy("copy-current", 2);
+  const currentSelection = {
+    id: "selection-old-copy", product_id: "product-a", copy_version_id: oldCopy.id,
+    asset_version_id: "avatar-version-a", status: "confirmed", row_version: 1
+  };
+  let selectionProductId = "product-a";
+  const laterStageReads = { videoPlan: 0, production: 0 };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() {
+      return { id: "project-a", organization_id: "org-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] };
+    } },
+    copyService: { async listCopyVersions() { return [oldCopy, currentCopy]; } },
+    reviewService: { async getReviewState({ copyVersionId }) {
+      return { current_review: { id: `review-${copyVersionId}`, status: copyVersionId === currentCopy.id ? "approved" : "revoked",
+        copy_version_id: copyVersionId, product_revision_id: revision.id }, gate: { reasons: [] } };
+    } },
+    avatarService: { async getWorkspace({ copyVersionId }) {
+      assert.equal(copyVersionId, currentCopy.id);
+      return {
+        resolved_copy_version_id: currentCopy.id,
+        copy_gate: { approved: true, reasons: [], copy_version_id: currentCopy.id },
+        catalog: [],
+        selection: { current_selection: { ...currentSelection, product_id: selectionProductId }, selection_revision: 1, current_valid: false,
+          invalidation_reasons: ["copy_version_changed"], history: [{ ...currentSelection, product_id: selectionProductId }] }
+      };
+    } },
+    videoPlanningService: { async getWorkspace() { laterStageReads.videoPlan += 1; throw new Error("Stage 4 must not be read"); } },
+    productionService: { async getWorkspace() { laterStageReads.production += 1; throw new Error("Stage 5 must not be read"); } }
+  });
+
+  const result = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "avatar" });
+
+  assert.equal(result.stages[2].business_status, "人物选择已失效");
+  assert.equal(result.stages[2].current_copy_version_id, currentCopy.id);
+  assert.equal(result.stages[2].current_object.id, currentSelection.id);
+  assert.equal(result.stages[2].avatar_workspace.selection.current_valid, false);
+  assert.deepEqual(result.stages[2].avatar_workspace.selection.invalidation_reasons, ["copy_version_changed"]);
+  assert.deepEqual(result.recommended_action, { code: "select_avatar", stage: "avatar", kind: "focus" });
+  assert.deepEqual(result.stages.slice(3).map(({ code, read_status }) => ({ code, read_status })), [
+    { code: "video_plan", read_status: "not_loaded" },
+    { code: "production", read_status: "not_loaded" }
+  ]);
+  assert.deepEqual(laterStageReads, { videoPlan: 0, production: 0 });
+
+  selectionProductId = "product-from-another-context";
+  await assert.rejects(service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "avatar" }), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
+});
+
 test("does not treat an unapproved draft CopyVersion as the Avatar upstream", async () => {
   const revision = {
     id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",

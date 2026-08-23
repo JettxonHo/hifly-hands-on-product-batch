@@ -108,7 +108,8 @@ async function copyOperatorWorld(t) {
   return { app, auth: await activateAdmin(app), copyGenerationRepository };
 }
 
-async function avatarOperatorWorld(t, { avatarRepository = createMemoryAvatarSelectionRepository(), includeCopyGeneration = true } = {}) {
+async function avatarOperatorWorld(t, { avatarRepository = createMemoryAvatarSelectionRepository(), includeCopyGeneration = true,
+  downstreamStagePorts = {} } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-avatar-workspace-api-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const identityRepository = createMemoryIdentityRepository();
@@ -134,7 +135,7 @@ async function avatarOperatorWorld(t, { avatarRepository = createMemoryAvatarSel
   const app = await buildApp({
     root,
     executor: createFakeExecutor(),
-    operatorWorkspace: { enabled: true },
+    operatorWorkspace: { enabled: true, ...downstreamStagePorts },
     projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
     ...(includeCopyGeneration ? {
       copyGeneration: {
@@ -345,7 +346,11 @@ test("operator workspace API projects the newest active Copy generation job", as
 });
 
 test("buildApp operator workspace projects an enabled Avatar stage and keeps later stages unloaded", async (t) => {
-  const { app, auth, approvals } = await avatarOperatorWorld(t);
+  const laterStageReads = { videoPlan: 0, production: 0 };
+  const { app, auth, approvals } = await avatarOperatorWorld(t, { downstreamStagePorts: {
+    videoPlanningService: { async getWorkspace() { laterStageReads.videoPlan += 1; throw new Error("Stage 4 must not be read"); } },
+    productionService: { async getWorkspace() { laterStageReads.production += 1; throw new Error("Stage 5 must not be read"); } }
+  } });
   const project = (await app.inject({ method: "POST", url: "/api/projects", headers: headers(auth, true, "avatar-workspace-project"), payload: { name: "人物工作区" } })).json().project;
   let revision = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`, headers: headers(auth, true, "avatar-workspace-product"), payload: { product_name: "待配人物商品" } })).json().revision;
   revision = (await app.inject({ method: "PATCH", url: `/api/product-revisions/${revision.id}`, headers: headers(auth, true), payload: {
@@ -381,6 +386,36 @@ test("buildApp operator workspace projects an enabled Avatar stage and keeps lat
   assert.equal(workspace.stages[2].current_object, null);
   assert.equal(workspace.stages[3].read_status, "not_loaded");
   assert.equal(workspace.stages[4].read_status, "not_loaded");
+  assert.deepEqual(laterStageReads, { videoPlan: 0, production: 0 });
+
+  const avatarWorkspace = await app.avatarSelection.service.getWorkspace({ organizationId: "org_test",
+    actorMemberId: auth.body.member.id, actorRole: "admin", productId: revision.product_id, copyVersionId: frozen.id });
+  const avatar = avatarWorkspace.catalog.find((entry) => entry.gate.can_confirm);
+  const confirmed = await app.avatarSelection.service.confirmSelection({ organizationId: "org_test",
+    actorMemberId: auth.body.member.id, actorRole: "admin", productId: revision.product_id,
+    copyVersionId: frozen.id, assetVersionId: avatar.asset_version.id, expectedRevision: 0,
+    idempotencyKey: "avatar-workspace-confirm-old-copy" });
+  assert.equal(confirmed.current_valid, true);
+
+  await app.copyGeneration.service.requestGeneration({ organizationId: "org_test", actorMemberId: auth.body.member.id,
+    productRevisionId: revision.id, idempotencyKey: "avatar-copy-generation-current" });
+  const currentJob = await app.copyGeneration.service.claimNextGenerationJob();
+  const currentDraft = await app.copyGeneration.service.completeGenerationJob({ job: currentJob, body: "替换后的批准文案" });
+  const currentCopy = await app.copyGeneration.service.freezeCopyVersion({ organizationId: "org_test",
+    actorMemberId: auth.body.member.id, copyVersionId: currentDraft.id, expectedRevision: currentDraft.row_version,
+    idempotencyKey: "avatar-copy-freeze-current" });
+  approvals.set(revision.product_id, { copy_version_id: currentCopy.id, product_revision_id: revision.id, current_valid: true });
+
+  const replaced = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${revision.product_id}/operator-workspace?stage=avatar`, headers: headers(auth) });
+  assert.equal(replaced.statusCode, 200, replaced.body);
+  const replacedAvatar = replaced.json().workspace.stages[2];
+  assert.equal(replacedAvatar.current_copy_version_id, currentCopy.id);
+  assert.equal(replacedAvatar.current_object.id, confirmed.current_selection.id);
+  assert.equal(replacedAvatar.avatar_workspace.selection.current_valid, false);
+  assert.deepEqual(replacedAvatar.avatar_workspace.selection.invalidation_reasons, ["copy_version_changed"]);
+  assert.deepEqual(replaced.json().workspace.recommended_action, { code: "select_avatar", stage: "avatar", kind: "focus" });
+  assert.deepEqual(laterStageReads, { videoPlan: 0, production: 0 });
 });
 
 test("buildApp operator workspace clears Avatar projection on a read error without stale action", async (t) => {

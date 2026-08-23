@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -248,7 +249,7 @@ test("the Web app downloads a Cloud Executor output through the authenticated Wo
     object_key: "cloud-executor/org_test/attempt-cloud-web/candidate-cloud-web.mp4",
     media_type: "video/mp4",
     size: Buffer.byteLength("cloud-web-video"),
-    checksum: "a".repeat(64),
+    checksum: createHash("sha256").update("cloud-web-video").digest("hex"),
     original_filename: "cloud-web.mp4"
   };
   const cloudStore = createLocalObjectStore({ root: cloudRoot });

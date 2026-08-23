@@ -171,13 +171,20 @@ CopyVersion、生成、QC 与人工审核，并保持后续阶段 `legacy/not_lo
 任务头；`needs_review` 仅复用既有 resolution API 提供接受理由、返回商品资料与人工修改，hard block 不可接受，AI
 改写暂留既有 Copy 页面。Issue #242 是 Stage 3 人物独立 acceptance gate：只 additive 投影 exact AvatarSelection、
 组织可见目录、授权/素材/能力门禁，并通过人物专用短时授权提供同一受控 `avatar_image` 版本的缩略图与大图；memory
-串行门禁与 PostgreSQL 同事务行锁关闭目录、私有绑定、父 Asset/Version 和 grant 之间的 interleaving。公共响应不暴露
+串行门禁与 PostgreSQL 组织级跨表事务锁 + 同事务行锁关闭目录、私有绑定、父 Asset/Version 和 grant 之间的
+interleaving，并消除预览与企业目录登记的相反锁序；bytes 响应还会按 grant 的 exact size/SHA-256 fail closed 复核。
+公共响应不暴露
 私有素材绑定、object key 或 Provider/凭据数据；权威 refresh 与自然到期会撤下旧 `src`，授权/解码失败使用带原因的
-首字 fallback。Stage 1/2 保持稳定，
-Stage 4/5 继续 `legacy/not_loaded`。对应 Draft PR 合并前不计为完成，也不授权 Stage 4。后续实现严格串行：
+首字 fallback；同商品 approved Copy 替换时保留旧人物选择为 `copy_version_changed` 失效历史，不把它误作 404 或有效确认。
+Stage 1/2 保持稳定，Stage 4/5 继续 `legacy/not_loaded` 且由 counted/throwing 端口证明零读取。对应 Draft PR 合并前不计为
+完成，也不授权 Stage 4。后续实现严格串行：
 Stage 4 视频方案、Stage 5 Production、Post-stage 作品库、素材中心/移动收口。
 作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实
 服务端集合真值，不得前端伪造。原型只是设计输入，不得直接合并；任何实现均不自动部署。
+全部功能 Stage 完成并分别 Review 后，才另开独立视觉 refinement/research gate。PC 1440 主工作区与 768 收敛、移动
+390 列表/详情分层须作为并行的一等合同：两端共享业务真值、动作和状态词，但 composition 可以不同；不得描述移动
+高于 PC，也不得把桌面实现为放大的移动布局。两端都必须有真实 Chrome 行为/截图和人工视觉 acceptance 后才能合并
+视觉实现；设计站点仅按 Hifly 自身工作流选择性取证，不复制不适合运营清晰度的实验交互。
 
 Slice B 完成后的 successor gate 顺序已获 Owner 锁定。内部问题审计、定向外部研究和 Issue #174 的
 `docs/frontend/OPERATOR_WORKBENCH_UX_V2_CONTRACT.md` 均已进入 `main`；V2 设计状态为 `designed`，但不等于实现、

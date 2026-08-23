@@ -56,9 +56,11 @@
   blocker 或推荐动作。推荐动作使用按 Goal additive 的版本化 registry；未知或错阶段 code 一律不显示、不执行。不得创建
   组织级队列、跨阶段写事务或前端 Production 门禁推断。
 - Stage 3 人物的 Product/API gate 复用现有私有目录素材绑定与通用短时 Asset grant/bytes，并新增人物专用
-  preview authorization：memory 在相应串行门禁内、PostgreSQL 在同一事务行锁内重核 actor/organization、可见 active
+  preview authorization：memory 在相应串行门禁内；PostgreSQL 的预览与企业目录登记先取得同一组织级跨表事务锁，再以
+  同一事务行锁重核 actor/organization、可见 active
   目录条目、私有素材绑定、`avatar_image` 父 Asset `active`、exact AssetVersion `available` 以及已验证
-  media/size/SHA-256，再 mint 短时 grant，关闭目录读取与通用授权之间的 interleaving。公共响应只投影短时
+  media/size/SHA-256，再 mint 短时 grant，关闭目录读取与通用授权之间的 interleaving 和相反行锁顺序。下载时还会把
+  object bytes 与 grant 中的 exact size/SHA-256 重新比对，漂移即 fail closed。公共响应只投影短时
   preview URL 与受控元数据，不返回 `material_asset_version_id`、object key、永久/Provider URL 或凭据。真实缩略图与大图
   使用同一受控版本；只有缺失、不可用、授权或解码失败时才显示带自然中文原因的首字 fallback。390 使用人物列表 ->
   详情 -> 返回，并恢复 exact list item 焦点。
@@ -83,9 +85,10 @@
   仓库实现成立；不表示部署、真实 Provider 生成或生产验收。
 - Issue #242 是 Stage 3 人物的独立 acceptance gate：additive 投影 exact current AvatarSelection、组织可见目录、授权/
   素材/能力门禁，并实现上述人物专用短时 preview authorization。首轮独立复审要求的原子授权、权威 refresh/自然到期
-  清除 stale `src`、原生按钮语义、三视口 fallback 与 required PostgreSQL CI 均只在同一 Draft gate 内纠偏；合并前仍不
-  计为 Stage 3 完成。Stage 1 商品资料与 Stage 2 文案保持稳定；
-  `video_plan/production` 继续 `legacy/not_loaded` 且保持 zero-read。人物动作只 additive 扩展版本化 registry，未知版本、
+  清除 stale `src`、原生按钮语义、三视口 fallback 与 required PostgreSQL CI，以及第二轮要求的跨表锁序、grant bytes
+  复核、Copy 替换后的失效历史、dirty Back/Forward authority 对齐和重绘后焦点恢复，均只在同一 Draft gate 内纠偏；
+  合并前仍不计为 Stage 3 完成。Stage 1 商品资料与 Stage 2 文案保持稳定；`video_plan/production` 继续
+  `legacy/not_loaded`，并以 counted/throwing 端口证明 Stage 3 请求零读取。人物动作只 additive 扩展版本化 registry，未知版本、
   未知 code、错 stage/kind 一律 fail closed。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 3 仓库实现成立；
   不表示部署、真实 Provider 或生产验收，也不授权 Stage 4。
 
@@ -594,7 +597,10 @@
    Draft gate：只 additive 读取 exact AvatarSelection 与目录真值，并以专用短时授权提供组织隔离的真实人物图片预览；
    Stage 1/2 保持稳定，Stage 4/5 继续 `legacy/not_loaded`。只有独立 Review 合并后才计为实现，且不表示部署或生产验收。
    合并前不得开始 Stage 4。后续继续按 Stage 4 视频方案、Stage 5 生产、Post-stage 作品库、素材中心/移动收口串行，
-   且任何仓库实现均不自动成为部署或生产验收事实。
+   且任何仓库实现均不自动成为部署或生产验收事实。全部功能 Stage 完成并分别验收后，另开独立视觉 refinement/research
+   gate：PC 的 1440 主工作区与 768 收敛、移动 390 的列表/详情分层是并行的一等合同，不设 PC/移动优先级，也不把
+   桌面当作移动布局放大。两端共享业务真值、动作和状态词，但可采用不同响应式 composition；实现合并前均须真实
+   Chrome 行为/截图与人工视觉 acceptance。外部设计站点只按 Hifly 自身任务选择性取证，不直接复制风格。
 4. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
 5. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。

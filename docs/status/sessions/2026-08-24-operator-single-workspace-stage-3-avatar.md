@@ -10,12 +10,15 @@
 - 现有 AvatarSelection service/API 已持有目录、推荐、显式确认、授权、能力 Evidence、历史与 optimistic conflict 真值；
   通用 Asset service 已持有组织隔离的短时授权与 exact verified bytes，不需要新领域状态、数据库 schema、角色或跨阶段事务。
 - 现有目录表私有持有 `material_asset_version_id`。首轮独立复审证明“先读目录、再单独 mint 通用 Asset grant”会留下
-  interleaving 窗口；修正后 memory 使用相应串行门禁，PostgreSQL 在同一事务内依次锁定 exact 目录/目录版本和父
-  Asset/AssetVersion，并在门禁内 mint grant。授权因而在一个可线性化边界内重核组织、active 目录、私有绑定、
+  interleaving 窗口；修正后 memory 使用相应串行门禁，PostgreSQL 的预览和企业目录登记先取得相同组织级 advisory
+  transaction gate，再在预览事务内锁定 exact 目录/目录版本和父 Asset/AssetVersion 并 mint grant。授权因而在一个
+  可线性化边界内重核组织、active 目录、私有绑定，且登记重放与预览不会以相反跨表锁序并发；
   `avatar_image` 父 Asset、available exact version 与 verified metadata，而不把内部 ID 投影给浏览器；未命中
   Product/API stop condition。
-- operator workspace 只 additive 读取 exact current approved CopyVersion 下的 Avatar workspace。Stage 1 商品资料与 Stage 2
-  文案保持原投影；`video_plan`、`production` 继续 `legacy/not_loaded`，本切片没有读取这些领域 service。
+- operator workspace 只 additive 读取 exact current approved CopyVersion 下的 Avatar workspace；同商品旧 CopyVersion 已确认的
+  AvatarSelection 保留为 `copy_version_changed` 失效历史并要求重新选择，不误作 404，也不恢复成有效确认。Stage 1 商品资料
+  与 Stage 2 文案保持原投影；`video_plan`、`production` 继续 `legacy/not_loaded`，counted/throwing 端口证明本切片没有读取
+  这些领域 service。
 - 人物选择仍由既有显式确认 API 写入；目录卡片和预览授权本身不提交选择，不改变 authorization/capability/material gate，
   也不把“选中”误写成人工确认。
 
@@ -48,17 +51,27 @@
 7. Reliability RED：Stage 3 浏览器 seam 初始复用 Stage 2 的 `59300` 端口段，默认并行组合暴露冲突风险；改用独立
    `59400` / `59450` / `59500`。PostgreSQL Avatar 原子回归显式加入 required `identity-postgres` job，不再依赖默认测试中
    的环境 skip；route-level 503 证明临时 cause 中的 credential 字样不会进入安全响应。
+8. Second-review RED：在 reviewed head 上，预览会在登记重放释放素材锁前进入相反的目录 -> 素材锁序；同商品 approved
+   Copy 替换使旧人物选择返回 404；dirty Back/Forward 的“放弃并继续”只改变 URL；合法 PNG bytes 替换仍能沿用旧 grant
+   返回 200；目录重绘会把键盘焦点丢给 body。GREEN 以组织级 PostgreSQL advisory gate 串行跨表事务、保留
+   `copy_version_changed` 失效历史、显式区分 history restore/apply、下载时重算 size/SHA-256，并在 1440/768 重聚焦 exact
+   目录按钮、390 先切换可见 layer 再聚焦详情。公开测试还为 Stage 4/5 注入 counted/throwing 端口并锁定零读取；跨商品
+   selection 仍统一 not found。
 
 ## 实现边界
 
 - Preview authorization 是人物专用的同源短时公共 seam；public catalog/workspace 继续不返回私有素材绑定。底层 grant 与
-  bytes 路径继续由既有 Asset service 持有，不新增永久 URL 或 browser data URL。
+  bytes 路径继续由既有 Asset service 持有；实际响应 bytes 必须与授权时 verified size/SHA-256 一致，不新增永久 URL 或
+  browser data URL。
 - Workspace 只预取当前可见列表的有限缩略图，详情复用同一已授权版本。过期或失败不会沿用 stale URL；失败占位明确说明
   是素材缺失、授权失败或图片无法显示，而不是虚构头像。
 - 目录选择是本地 dirty 状态；只有 Dialog 明确确认才调用既有 AvatarSelection 写 API。409 保留选中项与 Dialog 输入，
   “载入最新人物选择”后才以新 revision 继续；历史、授权与能力 blocker 不被前端绕过。
 - 方案 A 只按 Taste Scan -> Diagnose -> targeted upgrade 落到现有 opt-in vanilla HTML/CSS/JS；没有搬运 throwaway
   原型、引入框架/依赖或修改未迁移页面的共享视觉合同。
+- Owner 后续视觉方向不属于本片实现：完成各功能 Stage 后另开独立 gate，把 PC 1440/768 与移动 390 作为并行一等合同，
+  允许响应式 composition 不同但保持同一业务真值、动作与状态词；两端都需真实 Chrome 与人工视觉 acceptance，不把
+  移动置于 PC 之上，也不把桌面当作放大的移动布局。
 
 ## 精确 allowlist
 
@@ -78,37 +91,39 @@
 14. `test/avatar-selection-api.test.js`
 15. `test/avatar-selection-postgres.integration.test.js`
 16. `test/avatar-selection-service.test.js`
-17. `test/operator-single-workspace-stage-3-browser.test.js`
-18. `test/operator-workspace-service.test.js`
-19. `test/project-content-api.test.js`
-20. `web/project.js`
-21. `web/workspace-avatar.js`
-22. `web/workspace.css`
-23. `web/workspace.html`
+17. `test/cloud-executor-persistent-media.test.js`
+18. `test/operator-single-workspace-stage-3-browser.test.js`
+19. `test/operator-workspace-service.test.js`
+20. `test/project-content-api.test.js`
+21. `web/project.js`
+22. `web/workspace-avatar.js`
+23. `web/workspace.css`
+24. `web/workspace.html`
 
 Issue #242 初始锁定 19 文件；首轮独立复审在实现前记录了四类必要扩张：required CI 与 Asset service/memory/PostgreSQL
-内部授权门禁。最终总 diff 严格为以上 23 文件，没有 DB migration、dependency、通用公共 Asset API、后续阶段或部署扩张。
+内部授权门禁。第二轮修复又在编辑前记录了一个兼容测试扩张：下载端按 grant 的真实 size/SHA-256 验证 bytes 后，既有
+Cloud Work fixture 不能再使用占位 checksum，故只在原测试中改为 exact bytes 的真实 SHA-256。最终总 diff 严格为以上
+24 文件，没有 Cloud Executor/Work 行为改动、DB migration、dependency、通用公共 Asset API、后续阶段或部署扩张。
 
 ## 验证
 
-- focused service/API/Assets compatibility：94/94 pass。
+- focused service/API/Assets compatibility：95/95 pass；exact grant-byte 修正后的 Cloud Work/Avatar 下载兼容组 14/14 pass。
 - local PostgreSQL 16：`test/avatar-selection-postgres.integration.test.js` 1/1 pass；一次性容器在验证完成后停止。
 - Stage 3 真实 Chrome：3/3 pass；第三条用例在 1440x900、768x900、390x844 逐一覆盖 exact bytes、素材失效、
   自然到期、corrupt bytes、重试、原生 button/focus、商品次级控件层级与无页面级横向滚动。
-- 一次受影响浏览器并行组合为 21/22，未改动的 V2-D Assets focus 断言偶发失败，随后该文件独立 1/1 pass。一次
-  补充组合又在未改动的 `assets-browser` 首条通过后的清理阶段零 CPU 停顿并被终止；对应文件独立 3/3 pass，且最终
-  默认全量包含这些浏览器用例并自然通过。这两次非通过记录均未以串行参数替代或从证据中删除。
+- Stage 1/2/3 与受影响 Assets 浏览器兼容组：11/11 pass，使用默认并行行为；Stage 3 单独再跑 3/3 pass。
 - `npm run check`：245 JavaScript files。
-- 第一轮默认 `npm test` 在最终小修前运行到第 649 条后，于未改动的 V2 Production browser 组零 CPU 停顿超过
-  10 分钟并被终止，不能计为全量通过；该文件随后独立 1/1 pass。最终代码树的默认 `npm test` 未改并发参数并自然完成：
-  1138 total / 1123 pass / 15 existing environment-gated skips / 0 fail，约 86.9 秒。
+- 第二轮修复过程中，首个默认全量曾出现一个未改 V2-D focus 偶发失败，以及 Cloud Work fixture 的占位 checksum 被新增
+  bytes 校验正确拒绝；前者单文件通过，后者按提前记录的第 24 文件 checkpoint 改为真实 SHA-256。一次自定义失败诊断
+  reporter 留下孤立 Node/Playwright 测试树，已只终止该明确进程树，相关运行不计为全量证据。清理后最终代码树的精确
+  `npm test` 未改并发参数并自然完成：1139 total / 1124 pass / 15 existing environment-gated skips / 0 fail，约 161.9 秒。
 - `npm audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org`：0 high/critical；2 个既有 moderate，
   均为 `exceljs -> uuid`，本片未执行 breaking `--force` 修复。本机默认 npmmirror audit endpoint 不受支持的失败亦未冒充安全结论。
-- `git diff --check`：pass；总 diff 严格 23 文件。
-- 修正后临时 PNG 位于 `/private/tmp/hifly-stage-3-avatar-screenshots-20260824e/`，像素头为 1440x900、768x900、
+- `git diff --check`：pass；总 diff 严格 24 文件。
+- 修正后临时 PNG 位于 `/private/tmp/hifly-stage-3-avatar-screenshots-20260824g/`，像素头为 1440x900、768x900、
   390x844，SHA-256 分别为 `1ec0cc6a5c5b50e2e456fcc01fb5211088192c4dbcf47785523b8e43121d3bc8`、
   `0c5e16fdac957d913d3e30ecee163e7235c224d013c63936fef36a82f5b84989`、
-  `d1169289db6f7b8e8e96a7134bea003998d51a8c8567b13d8629b5283e5cae38`；二进制未提交并已人工看图。
+  `996ed89b3f683c42c36f1c407106e1fee0fb83e272975484e0a542c40ad55869`；二进制未提交并已人工看图。
 - 截图使用公开 browser seam 的本地 exact-byte 1x1 PNG fixture，只证明同源授权图片路径、三视口层级与无页面级横向
   滚动，不是生产人物素材、Provider 或视觉质量证据。390 详情焦点与返回由公开 Chrome 断言补证。
 - fixed-head GitHub CI 以 Draft PR checks 元数据与最终结果评论为准；session 不在提交正文中自引用最终 head。

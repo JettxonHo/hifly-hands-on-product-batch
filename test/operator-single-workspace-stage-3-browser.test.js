@@ -132,7 +132,7 @@ async function startWorld(t, portStart = 59400) {
   }
   t.after(() => browser.close());
   return { app, browser, origin, project, first, second, firstCopy, secondCopy, avatarA, avatarB, avatarImageA, avatarImageB,
-    actor, assetRepository };
+    actor, assetRepository, objectStore };
 }
 
 async function authenticate(page, origin) {
@@ -250,9 +250,11 @@ test("Stage 3 fails visibly and recovers exact previews, conflicts, and dirty hi
 
   let bootstrapFailures = 0;
   let unsafeAction = false;
+  const workspaceRequests = [];
   const workspacePath = `/api/projects/${project.id}/products/${first.product.id}/operator-workspace`;
   await page.route("**/api/projects/*/products/*/operator-workspace?*", async (route) => {
     const requestUrl = new URL(route.request().url());
+    workspaceRequests.push(requestUrl.pathname);
     if (requestUrl.pathname === workspacePath && requestUrl.searchParams.get("stage") === "avatar" && bootstrapFailures === 0) {
       bootstrapFailures += 1;
       return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "OPERATOR_WORKSPACE_UNAVAILABLE" }) });
@@ -362,8 +364,17 @@ test("Stage 3 fails visibly and recovers exact previews, conflicts, and dirty hi
   await secondProductButton.click();
   await page.locator("#discardWorkspaceAvatarSelection").click();
   await page.waitForFunction((productId) => new URL(location.href).searchParams.get("product") === productId, second.product.id);
+  await page.locator(`[data-avatar-id="${avatarA.asset.id}"]`).click();
   await page.goBack();
-  await page.waitForFunction((productId) => new URL(location.href).searchParams.get("product") === productId, first.product.id);
+  await pendingDialog.waitFor({ state: "visible" });
+  await page.locator("#discardWorkspaceAvatarSelection").click();
+  await page.waitForFunction(({ productId, productName }) =>
+    new URL(location.href).searchParams.get("product") === productId &&
+    document.querySelector("#taskContext")?.textContent === productName,
+  { productId: first.product.id, productName: first.revision.product_name });
+  assert.equal(await page.locator("#taskContext").textContent(), first.revision.product_name);
+  assert.equal(await page.locator("#avatarSelectionState").textContent(), "人物已确认");
+  assert.match(workspaceRequests.at(-1), new RegExp(`/products/${first.product.id}/operator-workspace$`));
   await page.locator(`[data-avatar-id="${avatarA.asset.id}"]`).click();
   await page.goForward({ waitUntil: "domcontentloaded" }).catch(() => {});
   await pendingDialog.waitFor({ state: "visible" });
@@ -372,7 +383,13 @@ test("Stage 3 fails visibly and recovers exact previews, conflicts, and dirty hi
   await page.goForward({ waitUntil: "domcontentloaded" }).catch(() => {});
   await pendingDialog.waitFor({ state: "visible" });
   await page.locator("#discardWorkspaceAvatarSelection").click();
-  await page.waitForFunction((productId) => new URL(location.href).searchParams.get("product") === productId, second.product.id);
+  await page.waitForFunction(({ productId, productName }) =>
+    new URL(location.href).searchParams.get("product") === productId &&
+    document.querySelector("#taskContext")?.textContent === productName,
+  { productId: second.product.id, productName: second.revision.product_name });
+  assert.equal(await page.locator("#taskContext").textContent(), second.revision.product_name);
+  assert.equal(await page.locator("#avatarSelectionState").textContent(), "尚未确认人物");
+  assert.match(workspaceRequests.at(-1), new RegExp(`/products/${second.product.id}/operator-workspace$`));
   assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 });
@@ -380,7 +397,7 @@ test("Stage 3 fails visibly and recovers exact previews, conflicts, and dirty hi
 test("Stage 3 invalidates stale previews and preserves accessible controls at every accepted viewport", async (t) => {
   const setup = await startWorld(t, 59500);
   if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
-  const { browser, origin, project, first, avatarA, avatarImageA, actor, assetRepository } = setup;
+  const { browser, origin, project, first, avatarA, avatarImageA, actor, assetRepository, objectStore } = setup;
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await authenticate(page, origin);
 
@@ -409,6 +426,12 @@ test("Stage 3 invalidates stale previews and preserves accessible controls at ev
     await page.goto(workspaceUrl(origin, project.id, first.product.id));
     await page.getByRole("heading", { name: "选择并确认人物" }).waitFor();
     const productButton = page.locator(`#productList [data-product-id="${first.product.id}"]`);
+    if (viewport.width <= 680) {
+      await page.locator("#mobileAvatarProductBack").click();
+      assert.equal(await productButton.evaluate((element) => document.activeElement === element), true);
+      await productButton.click();
+      await page.waitForFunction(() => document.activeElement === document.querySelector("#avatarWorkspaceHeading"));
+    }
     const avatarButton = page.getByRole("button", { name: /林小满/ }).first();
     await avatarButton.locator("img").waitFor();
     const staleThumbnail = await avatarButton.locator("img").elementHandle();
@@ -442,7 +465,7 @@ test("Stage 3 invalidates stale previews and preserves accessible controls at ev
       await page.locator("#mobileAvatarDetailBack").click();
       assert.equal(await avatarButton.evaluate((element) => document.activeElement === element), true);
       await avatarButton.click();
-    }
+    } else assert.equal(await avatarButton.evaluate((element) => document.activeElement === element), true);
     assert.equal(await responseSha(page, origin, await page.locator("#avatarPreviewImage").getAttribute("src")), PNG_A_SHA);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 
@@ -486,6 +509,17 @@ test("Stage 3 invalidates stale previews and preserves accessible controls at ev
       "image decode failure must not rewrite the Avatar business gate");
     previewMode = "normal";
     corruptPaths.clear();
+    await page.locator("#retryAvatarPreview").click();
+    await page.locator("#avatarPreviewImage").waitFor();
+    assert.equal(await responseSha(page, origin, await page.locator("#avatarPreviewImage").getAttribute("src")), PNG_A_SHA);
+
+    const materialVersion = await assetRepository.getAssetVersion(actor.organizationId, avatarImageA.asset_version.id);
+    await objectStore.replace(materialVersion.object_key, PNG_B);
+    await refreshAvatarWorkspace(page);
+    await page.locator("#avatarPreviewNotice").getByText("人物图片解码失败，可以重试。", { exact: true }).waitFor();
+    assert.equal(await page.locator("#avatarPreviewImage").getAttribute("src"), null);
+    assert.equal(await page.locator("#avatarPreviewFallback span").textContent(), "林");
+    await objectStore.replace(materialVersion.object_key, PNG_A);
     await page.locator("#retryAvatarPreview").click();
     await page.locator("#avatarPreviewImage").waitFor();
     assert.equal(await responseSha(page, origin, await page.locator("#avatarPreviewImage").getAttribute("src")), PNG_A_SHA);

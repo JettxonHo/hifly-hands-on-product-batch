@@ -105,7 +105,7 @@
     let selectedAvatarTrigger = null;
     let pendingNavigation = null;
     let acceptedHistoryIndex = 0;
-    let restoringHistory = false;
+    let historyTraversal = null;
     let pendingHistory = null;
     let dialogTrigger = null;
     let logicalSelectionKey = null;
@@ -414,11 +414,14 @@
       selectedAvatarTrigger = trigger;
       if (entry.gate?.can_confirm) selectedAvatarVersionId = entry.asset_version.id;
       conflict = false;
+      document.body.dataset.avatarMobileLayer = "detail";
       renderCatalog();
       renderDetail();
       renderSummary();
-      document.body.dataset.avatarMobileLayer = "detail";
+      const replacement = node(`[data-avatar-version-id="${CSS.escape(entry.asset_version.id)}"]`);
+      selectedAvatarTrigger = replacement;
       if (matchMedia("(max-width: 680px)").matches) node("#avatarDetailHeading").focus();
+      else replacement?.focus();
     }
 
     function renderAvatar() {
@@ -527,9 +530,24 @@
       acceptedHistoryIndex += 1;
       history.pushState({ avatarWorkspaceHistoryIndex: acceptedHistoryIndex, productId }, "",
         workspaceUrl(projectId, productId, "avatar"));
-      await bootstrap();
       document.body.dataset.mobileLayer = "detail";
       document.body.dataset.avatarMobileLayer = "list";
+      await bootstrap();
+    }
+
+    async function applyHistoryEntry(targetIndex) {
+      acceptedHistoryIndex = targetIndex;
+      const url = new URL(location.href);
+      productId = url.searchParams.get("product");
+      copyVersionId = url.searchParams.get("copy");
+      selectedAvatarVersionId = null;
+      viewedAvatarVersionId = null;
+      logicalSelectionKey = null;
+      conflict = false;
+      document.body.dataset.mobileLayer = "detail";
+      document.body.dataset.avatarMobileLayer = "list";
+      if (!productId) return location.reload();
+      await bootstrap();
     }
 
     function guardNavigation(work) {
@@ -640,11 +658,15 @@
       node("#loadLatestAvatarSelection").addEventListener("click", () => execute("load_latest_avatar_selection"));
       node("#keepWorkspaceAvatarSelection").addEventListener("click", () => {
         pendingNavigation = null;
+        pendingHistory = null;
+        historyTraversal = null;
         pendingDialog.close();
         dialogTrigger?.focus();
       });
       node("#closeWorkspaceAvatarPending").addEventListener("click", () => {
         pendingNavigation = null;
+        pendingHistory = null;
+        historyTraversal = null;
         pendingDialog.close();
         dialogTrigger?.focus();
       });
@@ -658,13 +680,14 @@
       window.addEventListener("beforeunload", (event) => { if (isDirty()) event.preventDefault(); });
       window.addEventListener("popstate", async (event) => {
         const targetIndex = Number.isInteger(event.state?.avatarWorkspaceHistoryIndex) ? event.state.avatarWorkspaceHistoryIndex : null;
-        if (restoringHistory) {
-          restoringHistory = false;
+        if (historyTraversal === "restore_accepted") {
+          historyTraversal = null;
           if (pendingHistory) {
+            const pendingTargetIndex = pendingHistory.targetIndex;
             pendingNavigation = async () => {
-              const delta = pendingHistory.targetIndex - acceptedHistoryIndex;
+              const delta = pendingTargetIndex - acceptedHistoryIndex;
               pendingHistory = null;
-              restoringHistory = true;
+              historyTraversal = "apply_pending";
               history.go(delta);
             };
             dialogTrigger = selectedAvatarTrigger || primary;
@@ -673,18 +696,21 @@
           }
           return;
         }
+        if (historyTraversal === "apply_pending") {
+          historyTraversal = null;
+          pendingHistory = null;
+          if (targetIndex == null) return location.reload();
+          await applyHistoryEntry(targetIndex);
+          return;
+        }
         if (targetIndex == null) return location.reload();
         if (isDirty()) {
           pendingHistory = { targetIndex };
-          restoringHistory = true;
+          historyTraversal = "restore_accepted";
           history.go(acceptedHistoryIndex - targetIndex);
           return;
         }
-        acceptedHistoryIndex = targetIndex;
-        const url = new URL(location.href);
-        productId = url.searchParams.get("product");
-        copyVersionId = url.searchParams.get("copy");
-        try { await bootstrap(); } catch (_error) { disableForReadFailure(); }
+        await applyHistoryEntry(targetIndex);
       });
     }
 

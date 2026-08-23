@@ -20,7 +20,9 @@ function unavailable(cause) {
   return failure("OPERATOR_WORKSPACE_UNAVAILABLE", { cause });
 }
 
-function legacyStage(code) {
+function legacyStage(code, _readPort = null) {
+  // A later-stage port may be injected for zero-read tests, but is intentionally untouched until that Stage migrates.
+  void _readPort;
   return {
     code,
     implementation_status: "legacy",
@@ -422,14 +424,20 @@ async function readAvatarProjection({ avatarService, copyService, reviewService,
   }
 
   const currentSelection = workspace.selection?.current_selection;
-  if (currentSelection && copy && (currentSelection.product_id !== product.id || currentSelection.copy_version_id !== copy.id)) {
-    throw notFound();
+  if (currentSelection) {
+    if (currentSelection.product_id !== product.id) throw notFound();
+    if (copy && currentSelection.copy_version_id !== copy.id) {
+      const invalidationReasons = workspace.selection?.invalidation_reasons;
+      if (workspace.selection?.current_valid !== false || !Array.isArray(invalidationReasons) ||
+          !invalidationReasons.includes("copy_version_changed")) throw unavailable();
+    }
   }
   return avatarStage({ project, product, revision, copy, workspace, requestedStage: input.stage });
 }
 
 export function createOperatorWorkspaceService({ projectContentService, copyService = null,
-  qualityService = null, reviewService = null, avatarService = null } = {}) {
+  qualityService = null, reviewService = null, avatarService = null,
+  videoPlanningService = null, productionService = null } = {}) {
   if (!projectContentService?.getProject) throw new TypeError("projectContentService.getProject is required");
 
   async function getWorkspace(input = {}) {
@@ -504,7 +512,8 @@ export function createOperatorWorkspaceService({ projectContentService, copyServ
         avatarProjection = { stage: avatarErrorStage(), action: null };
       }
     }
-    const stages = [productContent, copyProjection.stage, avatarProjection.stage, ...STAGES.slice(3).map(legacyStage)];
+    const stages = [productContent, copyProjection.stage, avatarProjection.stage,
+      legacyStage("video_plan", videoPlanningService), legacyStage("production", productionService)];
     const isProductContent = requestedStage === "product_content";
     const isCopy = requestedStage === "copy" && copyWorkspaceEnabled;
     const isAvatar = requestedStage === "avatar" && avatarWorkspaceEnabled;

@@ -373,7 +373,10 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
       const grant = downloads.get(token);
       if (!grant || grant.organizationId !== organizationId || Date.parse(grant.expiresAt) <= now()) fail("DOWNLOAD_AUTHORIZATION_NOT_FOUND");
       const body = await objectStore.get(grant.objectKey);
-      if (!body) fail("OBJECT_MISSING");
+      if (!Buffer.isBuffer(body) || body.length !== grant.verified_size ||
+          createHash("sha256").update(body).digest("hex") !== grant.verified_checksum_sha256) {
+        fail(body ? "ASSET_CONTENT_INVALID" : "OBJECT_MISSING");
+      }
       return {
         body,
         contentType: grant.contentType,

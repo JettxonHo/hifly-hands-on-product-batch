@@ -245,9 +245,12 @@ test("public avatar sync maps provider failures without returning provider messa
 
 test("enterprise avatar API reuses verified upload, projects safe fields, and keeps management admin-only", async (t) => {
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const replacementPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGP4zwAAAgEBAScY42YAAAAASUVORK5CYII=", "base64");
   const checksum = createHash("sha256").update(png).digest("hex");
+  const assetRepository = createMemoryAssetRepository();
+  const objectStore = createMemoryObjectStore();
   const { app, repository: identityRepository } = await identityApp(t, {
-    assets: { enabled: true, repository: createMemoryAssetRepository(), objectStore: createMemoryObjectStore(), worker: { autoStart: false } },
+    assets: { enabled: true, repository: assetRepository, objectStore, worker: { autoStart: false } },
     avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository(), copyApprovalPort: approvalPort }
   });
   const admin = await activateAdmin(app);
@@ -322,6 +325,17 @@ test("enterprise avatar API reuses verified upload, projects safe fields, and ke
   assert.equal(previewBytes.statusCode, 200);
   assert.equal(previewBytes.headers["content-type"], "image/png");
   assert.equal(createHash("sha256").update(previewBytes.rawPayload).digest("hex"), checksum);
+  const privateVersion = await assetRepository.getAssetVersion("org_test", authorized.json().asset_version.id);
+  await objectStore.replace(privateVersion.object_key, replacementPng);
+  const swappedPreviewBytes = await app.inject({ method: "GET", url: previewAuthorization.json().preview.url,
+    headers: identityHeaders({ cookies: member.cookies }) });
+  assert.equal(swappedPreviewBytes.statusCode, 500);
+  assert.deepEqual(swappedPreviewBytes.json(), { error: "INTERNAL_ERROR" });
+  await objectStore.replace(privateVersion.object_key, png);
+  const recoveredPreviewBytes = await app.inject({ method: "GET", url: previewAuthorization.json().preview.url,
+    headers: identityHeaders({ cookies: member.cookies }) });
+  assert.equal(recoveredPreviewBytes.statusCode, 200);
+  assert.equal(createHash("sha256").update(recoveredPreviewBytes.rawPayload).digest("hex"), checksum);
 
   const exactAssetAuthorize = app.assets.service.authorizeAvatarPreview;
   app.assets.service.authorizeAvatarPreview = async () => {
