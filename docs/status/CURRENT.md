@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-23
 > 当前 Goal：P0 Cloud Executor 纯云端生产闭环（D-034）
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖与安全 blocker 审计已进入精确 `main@eab7758af94253aa22dd057f943f55d226f597b3`。Issue #234 / 对应 PR 是 patched lane 与 fixed model route 的 successor Evidence acceptance gate；只有合并进入 main 才接受该增量审计，不建立 accepted lane。最新固定 PaddleX `v3.7.2` 仍精确要求 vulnerable contrib 4.10；OpenCV 4.14 patched artifacts 不能在违反 metadata 的情况下替换，fixed model tree 也未形成完整 SHA-256/许可/替代 BOS 的官方路线。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`；没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持，可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。最新固定 PaddleX `v3.7.2` 仍精确要求 vulnerable contrib 4.10；OpenCV 4.14 patched artifacts 不能在违反 metadata 的情况下替换，fixed model tree 也未形成完整 SHA-256/许可/替代 BOS 的官方路线。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`；没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。Owner 已接受下一代运营工作台“方案 A：单任务工作区”方向；Issue #236 / 对应 PR 只负责正式设计合同与 Product/API 门禁，合同随该 PR 合并后才计为 designed，不代表实现或部署。可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -43,6 +43,27 @@
 - 该修复已通过 Issue #191 / PR #197 合并，并随 `main@80bdfd45` 部署到内部验收环境。真实管理员只读验收在
   Worker offline、`current_order=null` 时确认 persisted succeeded 工单首屏为“作品待检查”，唯一推荐动作
   “进入作品库检查”指向 exact Work；“生产门禁未通过”未出现，创建工单入口保持 disabled。
+
+## 下一代运营单任务工作区设计门禁
+
+- Owner 已于 2026-08-23 接受“一个商品、一个稳定工作区、一个当前阶段、一个唯一推荐动作”的方向。1440 使用
+  商品列表 / 当前任务 / 辅助上下文 / 底部操作，768 收敛为两栏，390 使用单面板与列表/详情/返回。
+- Issue #236 / 对应 PR 是正式合同 acceptance gate。只有合同随该 PR 合并进入 `main` 后才计为 `designed`；这不表示
+  HTML/CSS/JS/API 已实现、已部署、已被客户采用或通过 Provider 验收。Owner 评审过的 throwaway 原型只作为设计输入，
+  不得直接合并或当成运行证据。
+- Product/API 审计确认各阶段现有 API 继续持有写入和业务状态真值，但稳定工作区缺少 project/product/stage 的只读
+  聚合投影。Stage 1 只读取商品资料；未迁移阶段稳定返回 `legacy/not_loaded` 并导航到既有页面，不投影对象、业务状态、
+  blocker 或推荐动作。推荐动作使用按 Goal additive 的版本化 registry；未知或错阶段 code 一律不显示、不执行。不得创建
+  组织级队列、跨阶段写事务或前端 Production 门禁推断。
+- 人物目录当前只渲染首字，公开 workspace 也没有受控图片授权。未来必须以人物专用短时 preview authorization 在
+  服务端原子核对组织、目录条目、私有素材绑定、`avatar_image`、父 Asset `active` 与版本 `available`；底层可复用通用
+  AssetVersion grant/bytes，但浏览器不获取 `material_asset_version_id` 或对象存储路径。首字只在图片不可用时作为有原因的
+  fallback；390 使用人物列表 -> 详情 -> 返回。
+- 后续严格串行 Stage Goals：Stage 1 商品资料（含所需最小 shared foundation/只读投影）-> Stage 2 文案 -> Stage 3 人物
+  （含 secure real preview）-> Stage 4 视频方案 -> Stage 5 生产 -> Post-stage 作品库 -> 素材中心/移动收口。作品库的后续
+  桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项；390 保持列表 -> 详情 -> 返回。每个 Goal 独立 Issue、Draft PR、
+  真实 Chrome 1440/768/390、CI 和 Review；前一 Goal 合并后才开始下一 Goal，不自动部署，也不得搬运 throwaway 原型或旧
+  `gui/visual-refresh` 改动。
 
 ## UX V1 Slice A 仓库实现
 
@@ -367,9 +388,9 @@
   Linux/amd64 与 macOS/arm64 resolver 只能规范化为 64/62 条 `name==version` 记录，尚未形成 exact selected artifact/hash/license
   graph；PaddleX `ocr-core` 精确要求 `opencv-contrib-python==4.10.0.84`，headless 4.13 不能替代。contrib wheel 打包 FFmpeg，
   Linux 与 macOS non-headless wheels 均另有 Qt5；CVE-2025-53644 又将 OpenCV 4.10.0 列为受影响版本，未见 exact wheel
-  backport Evidence。Issue #234 / 对应 PR 进一步只读核对最新固定版本：PaddleX `v3.7.2` 仍精确 pin contrib 4.10；
+  backport Evidence。Issue #234 / PR #235 已进入 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`，进一步只读核对最新固定版本：PaddleX `v3.7.2` 仍精确 pin contrib 4.10；
   OpenCV 4.14 两架构 patched wheels 存在但没有官方支持的 Paddle graph；第一方 fixed model tree 缺完整 SHA-256、
-  `LICENSE` / `NOTICE` 与替代 BOS tar 的官方声明。该 PR 即使合并，也只固化 successor blocker Evidence，不提交 accepted lock、
+  `LICENSE` / `NOTICE` 与替代 BOS tar 的官方声明。该合并只固化 successor blocker Evidence，不提交 accepted lock、
   不安装或运行模型。
   `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 
@@ -537,19 +558,22 @@
    Fidelity-C4 的仓库外 exact bytes、用途依据、4 类/4 商品族脱敏 manifest，以及不同角色完成的七维人工真值已随
    Issue #224 / PR #225 进入 `main`，Issue #226 / PR #227 已完成 Fidelity-C5 合同 acceptance，Issue #228 / PR #229 已把
    synthetic environment/harness seam 合并进入 `main@4e352334`；Issue #230 / PR #231 的 C5a 首轮 Evidence 已进入
-   `main@4e18f116`；Issue #232 / PR #233 的 blocker Evidence 已进入 `main@eab7758`。Issue #234 / 对应 PR 是 patched lane 与
-   fixed model route successor acceptance gate；其合并只接受“最新固定 PaddleX 仍 pin contrib 4.10、OpenCV 4.14 不能无官方
-   支持地替换、fixed model tree 尚不足以替代 BOS tar”的增量结论。下一步必须取得 archive-specific 官方再分发 Evidence、
+   `main@4e18f116`；Issue #232 / PR #233 的 blocker Evidence 已进入 `main@eab7758`；Issue #234 / PR #235 的 patched lane 与
+   fixed model route successor Evidence 已进入 `main@677d79c2`，只接受“最新固定 PaddleX 仍 pin contrib 4.10、OpenCV 4.14
+   不能无官方支持地替换、fixed model tree 尚不足以替代 BOS tar”的增量结论，没有建立 accepted lane。下一步必须取得 archive-specific 官方再分发 Evidence、
    完整 model file identity/license route，或官方发布两架构受支持的 patched dependency graph；之后才可另行决定是否授权
    C5b 离线环境 materialization + synthetic smoke。不得以 headless 4.13/4.14、手工 contrib 4.14、
    `--no-deps`、metadata override 或 resolver report 绕过；C5b Review 前不得运行 accepted benchmark。capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
    有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
-3. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
+3. Issue #236 / 对应 PR 的单任务工作区合同只有合并进入 `main` 后才计为 designed；后续严格按 Stage 1 商品资料、Stage 2
+   文案、Stage 3 人物、Stage 4 视频方案、Stage 5 生产、Post-stage 作品库、素材中心/移动收口串行，前一 Goal 合并后才可
+   开始下一 Goal。当前不得把原型或合同写成代码、部署或验收。
+4. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。
-4. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
-5. 保持 Cloud Executor/Local Agent disabled、Cloud Executor 并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
+5. 继续 P0.5 release-readiness：正式域名、DNS、可信证书、严格 CA 和 HTTP→HTTPS 仍未完成，当前环境只用于内部验收。
+6. 保持 Cloud Executor/Local Agent disabled、Cloud Executor 并发 1，并按“激活前唯一当前 eligible + 当前 order 零 attempt；
    terminal 立即关 Worker；失败停批且不自动重试；成功验收后才准备下一条”的逐单时序护栏执行。
-6. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；历史三条成功与本次
+7. 是否扩大试运行规模、开放自动队列或宣称长期稳定，必须基于新的运行证据和 Owner 单独决策；历史三条成功与本次
    单条失败都不能直接外推。
 
 ## 长期边界
