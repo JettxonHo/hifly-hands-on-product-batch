@@ -4,6 +4,7 @@ import { withTransaction } from "../identity/postgres.js";
 import { assertAssetSchemaCurrent } from "./postgres.js";
 
 const failure = (code) => Object.assign(new Error(code), { code });
+const AVATAR_PREVIEW_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const one = (result) => result.rows[0] ?? null;
 const iso = (value) => value instanceof Date ? value.toISOString() : value;
 const versionProjection = (row) => row ? {
@@ -153,6 +154,31 @@ export function createPostgresAssetRepository({ pool, ownsPool = false } = {}) {
       const row = assetProjection(one(await pool.query("SELECT * FROM asset_assets WHERE id = $1 AND organization_id = $2", [id, organizationId])));
       if (!row) throw failure("ASSET_NOT_FOUND");
       return row;
+    },
+    async authorizeAvatarPreviewMaterial({ organizationId, assetVersionId, mintGrant, transactionClient = null }) {
+      if (typeof mintGrant !== "function") throw new TypeError("mintGrant is required");
+      const work = async (client) => {
+        const row = (await client.query(`SELECT av.*,aa.id parent_asset_id,aa.organization_id parent_organization_id,
+            aa.kind parent_kind,aa.status parent_status
+          FROM asset_versions av JOIN asset_assets aa ON aa.id=av.asset_id AND aa.organization_id=av.organization_id
+          WHERE av.id=$1 AND av.organization_id=$2 FOR UPDATE OF av,aa`, [assetVersionId, organizationId])).rows[0];
+        if (!row) throw failure("ASSET_VERSION_NOT_FOUND");
+        const version = versionProjection(row);
+        if (row.parent_organization_id !== organizationId || row.parent_status !== "active" || row.parent_kind !== "avatar_image" ||
+            version.status !== "available" || !AVATAR_PREVIEW_MEDIA_TYPES.has(version.verified_content_type) ||
+            !Number.isInteger(version.verified_size) || version.verified_size < 1 ||
+            !/^[a-f0-9]{64}$/.test(version.verified_checksum_sha256 || "") ||
+            typeof version.object_key !== "string" || !version.object_key) {
+          throw failure("ASSET_VERSION_NOT_AVAILABLE");
+        }
+        return mintGrant({ asset: assetProjection({ id: row.parent_asset_id, organization_id: row.parent_organization_id,
+          kind: row.parent_kind, status: row.parent_status, row_version: row.row_version }), assetVersion: version });
+      };
+      if (transactionClient) {
+        if (typeof transactionClient.query !== "function") throw new TypeError("transactionClient must be a PostgreSQL client");
+        return work(transactionClient);
+      }
+      return withTransaction(pool, work);
     },
     async listAssets(organizationId) {
       const assetRows = (await pool.query("SELECT * FROM asset_assets WHERE organization_id = $1 AND status <> 'deleted' ORDER BY created_at DESC", [organizationId])).rows;

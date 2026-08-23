@@ -6,7 +6,7 @@ import { createMemoryAssetRepository } from "../src/assets/memory-asset-reposito
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
 import { seedInitialAdmin } from "../src/identity/seed-admin.js";
-import { activateAdmin, identityApp, identityHeaders, login } from "./helpers/identity-world.js";
+import { activateAdmin, identityApp, identityHeaders, intent, login } from "./helpers/identity-world.js";
 
 const approvalPort = {
   async getCurrentApprovedCopy({ organizationId, productId, copyVersionId }) {
@@ -245,9 +245,12 @@ test("public avatar sync maps provider failures without returning provider messa
 
 test("enterprise avatar API reuses verified upload, projects safe fields, and keeps management admin-only", async (t) => {
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const replacementPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGP4zwAAAgEBAScY42YAAAAASUVORK5CYII=", "base64");
   const checksum = createHash("sha256").update(png).digest("hex");
+  const assetRepository = createMemoryAssetRepository();
+  const objectStore = createMemoryObjectStore();
   const { app, repository: identityRepository } = await identityApp(t, {
-    assets: { enabled: true, repository: createMemoryAssetRepository(), objectStore: createMemoryObjectStore(), worker: { autoStart: false } },
+    assets: { enabled: true, repository: assetRepository, objectStore, worker: { autoStart: false } },
     avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository(), copyApprovalPort: approvalPort }
   });
   const admin = await activateAdmin(app);
@@ -281,6 +284,11 @@ test("enterprise avatar API reuses verified upload, projects safe fields, and ke
   } });
   assert.equal(replay.statusCode, 200);
   assert.equal(replay.json().avatar.id, registered.json().avatar.id);
+  const anonymousIntent = await intent(app);
+  const unauthenticatedPreview = await app.inject({ method: "POST",
+    url: `/api/avatar-catalog/${encodeURIComponent(registered.json().avatar.id)}/preview-authorizations`,
+    headers: identityHeaders({ cookies: anonymousIntent.cookies, csrf: anonymousIntent.csrf, mutation: true }), payload: {} });
+  assert.equal(unauthenticatedPreview.statusCode, 401);
 
   const memberCreated = (await app.inject({ method: "POST", url: "/api/identity/members", headers: mutation,
     payload: { email: "avatar-material-member@example.test", display_name: "Avatar Material Member", role: "member" } })).json();
@@ -301,11 +309,58 @@ test("enterprise avatar API reuses verified upload, projects safe fields, and ke
   assert.equal(Object.hasOwn(enterprise, "material_asset_version_id"), false);
   assert.equal(workspace.body.includes("enterprise:"), false);
 
+  const previewAuthorization = await app.inject({ method: "POST",
+    url: `/api/avatar-catalog/${encodeURIComponent(enterprise.id)}/preview-authorizations`, headers: memberMutation, payload: {} });
+  assert.equal(previewAuthorization.statusCode, 201);
+  assert.deepEqual(Object.keys(previewAuthorization.json().preview).sort(),
+    ["checksum_sha256", "expires_at", "media_type", "size", "url"]);
+  assert.equal(previewAuthorization.json().preview.media_type, "image/png");
+  assert.equal(previewAuthorization.json().preview.size, png.length);
+  assert.equal(previewAuthorization.json().preview.checksum_sha256, checksum);
+  assert.equal(previewAuthorization.body.includes(authorized.json().asset_version.id), false);
+  assert.equal(previewAuthorization.body.includes("object_key"), false);
+  assert.equal(previewAuthorization.body.includes("token"), false);
+  const previewBytes = await app.inject({ method: "GET", url: previewAuthorization.json().preview.url,
+    headers: identityHeaders({ cookies: member.cookies }) });
+  assert.equal(previewBytes.statusCode, 200);
+  assert.equal(previewBytes.headers["content-type"], "image/png");
+  assert.equal(createHash("sha256").update(previewBytes.rawPayload).digest("hex"), checksum);
+  const privateVersion = await assetRepository.getAssetVersion("org_test", authorized.json().asset_version.id);
+  await objectStore.replace(privateVersion.object_key, replacementPng);
+  const swappedPreviewBytes = await app.inject({ method: "GET", url: previewAuthorization.json().preview.url,
+    headers: identityHeaders({ cookies: member.cookies }) });
+  assert.equal(swappedPreviewBytes.statusCode, 500);
+  assert.deepEqual(swappedPreviewBytes.json(), { error: "INTERNAL_ERROR" });
+  await objectStore.replace(privateVersion.object_key, png);
+  const recoveredPreviewBytes = await app.inject({ method: "GET", url: previewAuthorization.json().preview.url,
+    headers: identityHeaders({ cookies: member.cookies }) });
+  assert.equal(recoveredPreviewBytes.statusCode, 200);
+  assert.equal(createHash("sha256").update(recoveredPreviewBytes.rawPayload).digest("hex"), checksum);
+
+  const exactAssetAuthorize = app.assets.service.authorizeAvatarPreview;
+  app.assets.service.authorizeAvatarPreview = async () => {
+    throw new Error("temporary grant failure credential=secret-value");
+  };
+  const transientPreview = await app.inject({ method: "POST",
+    url: `/api/avatar-catalog/${encodeURIComponent(enterprise.id)}/preview-authorizations`, headers: memberMutation, payload: {} });
+  assert.equal(transientPreview.statusCode, 503);
+  assert.deepEqual(transientPreview.json(), { error: "AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE" });
+  assert.doesNotMatch(transientPreview.body, /secret-value|credential/);
+  app.assets.service.authorizeAvatarPreview = exactAssetAuthorize;
+
   const disabled = await app.inject({ method: "POST", url: `/api/avatar-catalog/enterprise/${encodeURIComponent(enterprise.id)}/disable`,
     headers: mutation, payload: { expected_revision: enterprise.revision_number } });
   assert.equal(disabled.statusCode, 200);
   assert.equal(disabled.json().avatar.status, "disabled");
+  const disabledPreview = await app.inject({ method: "POST",
+    url: `/api/avatar-catalog/${encodeURIComponent(enterprise.id)}/preview-authorizations`, headers: memberMutation, payload: {} });
+  assert.equal(disabledPreview.statusCode, 404);
+  assert.equal(disabledPreview.json().error, "AVATAR_PREVIEW_NOT_FOUND");
   const controlled = workspace.json().catalog.find((item) => item.controlled_seed);
+  const unavailablePreview = await app.inject({ method: "POST",
+    url: `/api/avatar-catalog/${encodeURIComponent(controlled.id)}/preview-authorizations`, headers: memberMutation, payload: {} });
+  assert.equal(unavailablePreview.statusCode, 422);
+  assert.equal(unavailablePreview.json().error, "AVATAR_PREVIEW_UNAVAILABLE");
   const controlledDisable = await app.inject({ method: "POST", url: `/api/avatar-catalog/enterprise/${controlled.id}/disable`,
     headers: mutation, payload: { expected_revision: controlled.revision_number } });
   assert.equal(controlledDisable.statusCode, 403);
@@ -319,4 +374,9 @@ test("enterprise avatar API reuses verified upload, projects safe fields, and ke
     material_asset_version_id: authorized.json().asset_version.id, display_name: "跨组织", description: "x", authorization_status: "valid"
   } });
   assert.equal(cross.statusCode, 404);
+  const crossPreview = await app.inject({ method: "POST",
+    url: `/api/avatar-catalog/${encodeURIComponent(enterprise.id)}/preview-authorizations`,
+    headers: identityHeaders({ cookies: other.cookies, csrf: other.csrf, mutation: true }), payload: {} });
+  assert.equal(crossPreview.statusCode, 404);
+  assert.equal(crossPreview.json().error, "AVATAR_PREVIEW_NOT_FOUND");
 });

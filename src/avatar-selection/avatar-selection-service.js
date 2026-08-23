@@ -7,6 +7,7 @@ const MAX_CATEGORY_TAGS = 12;
 const MAX_CATEGORY_TAG_LENGTH = 40;
 const MAX_CAPABILITIES = 12;
 const MAX_CAPABILITY_FIELD_LENGTH = 120;
+const PREVIEW_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const RECOMMENDATION_REASON = Object.freeze({
   exact_category_match: (category) => `匹配商品主品类「${category}」。`,
   general_pool_fallback: "未找到商品主品类精确匹配，使用未设置分类标签的通用人物。",
@@ -275,6 +276,39 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       if (!clean(input.assetId) || !Number.isInteger(input.expectedRevision) || input.expectedRevision < 1) throw failure("INVALID_AVATAR_ASSET_REVISION");
       return repository.disableEnterpriseAvatar({ organizationId: input.organizationId, assetId: input.assetId,
         expectedRevision: input.expectedRevision, actorMemberId: input.actorMemberId, now: timestamp() });
+    },
+    async authorizePreview(input = {}) {
+      if (!clean(input.organizationId) || !clean(input.actorMemberId) || !["member", "admin"].includes(input.actorRole)) {
+        throw failure("AVATAR_SELECTION_FORBIDDEN");
+      }
+      if (!clean(input.avatarId)) throw failure("AVATAR_PREVIEW_NOT_FOUND");
+      if (typeof repository.authorizePreview !== "function" || typeof materialAssetPort?.authorizeAvatarPreview !== "function") {
+        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      }
+      let grant;
+      try {
+        grant = await repository.authorizePreview({ organizationId: input.organizationId, avatarId: input.avatarId,
+          authorizeMaterial: ({ materialAssetVersionId, transactionClient }) => materialAssetPort.authorizeAvatarPreview({
+            organizationId: input.organizationId, assetVersionId: materialAssetVersionId,
+            actorMemberId: input.actorMemberId, transactionClient
+          }) });
+      } catch (error) {
+        if (["AVATAR_PREVIEW_NOT_FOUND", "AVATAR_PREVIEW_UNAVAILABLE"].includes(error?.code)) throw error;
+        if (["ASSET_VERSION_NOT_FOUND", "ASSET_NOT_FOUND", "ASSET_VERSION_NOT_AVAILABLE", "ASSET_NOT_ACTIVE"].includes(error?.code)) {
+          throw failure("AVATAR_PREVIEW_UNAVAILABLE");
+        }
+        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      }
+      const mediaType = grant?.verified_content_type;
+      const size = grant?.verified_size;
+      const checksum = grant?.verified_checksum_sha256;
+      if (!PREVIEW_MEDIA_TYPES.has(mediaType)) throw failure("AVATAR_PREVIEW_UNAVAILABLE");
+      if (!clean(grant?.token) || !clean(grant?.expires_at) || !Number.isFinite(Date.parse(grant.expires_at)) ||
+          Date.parse(grant.expires_at) <= now() || !Number.isInteger(size) || size < 1 ||
+          !/^[a-f0-9]{64}$/.test(checksum || "")) {
+        throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      }
+      return { token: grant.token, expires_at: grant.expires_at, media_type: mediaType, size, checksum_sha256: checksum };
     },
     async getWorkspace(input) {
       validateContext(input);

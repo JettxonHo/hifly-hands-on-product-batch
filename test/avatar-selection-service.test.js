@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
+import { createAssetService } from "../src/assets/asset-service.js";
+import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
+import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createAvatarSelectionService, createCurrentApprovedCopyPort } from "../src/avatar-selection/avatar-selection-service.js";
 import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
 
@@ -364,4 +368,161 @@ test("public avatar sync is admin-only and fails closed without a provider", asy
     { code: "HIFLY_PUBLIC_AVATAR_SYNC_FORBIDDEN" });
   await assert.rejects(service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "admin-a", actorRole: "admin" }),
     { code: "HIFLY_PUBLIC_AVATAR_SYNC_UNAVAILABLE" });
+});
+
+test("secure preview authorization revalidates the exact private avatar image and returns only public metadata", async () => {
+  const repository = createMemoryAvatarSelectionRepository();
+  const materialAsset = { id: "material-asset-a", organization_id: "org-a", kind: "avatar_image", status: "active" };
+  const materialVersion = { id: "material-version-a", asset_id: materialAsset.id, organization_id: "org-a",
+    status: "available", verified_content_type: "image/png", verified_size: 419685,
+    verified_checksum_sha256: "a".repeat(64), object_key: "private/org-a/avatar.png" };
+  const registered = await repository.registerEnterpriseAvatar({ organizationId: "org-a", actorMemberId: "admin-a",
+    materialAssetVersionId: materialVersion.id, materialAsset, materialVersion, displayName: "企业人物",
+    description: "用于受控人物预览。", authorizationStatus: "valid", capabilities: [], now: "2026-08-24T00:00:00.000Z" });
+  const calls = [];
+  const materialAssetPort = {
+    async authorizeAvatarPreview(input) {
+      calls.push(["authorize", input]);
+      return { token: "private-token", expires_at: "2026-08-24T00:05:00.000Z", asset_version_id: materialVersion.id,
+        original_filename: "avatar.png", verified_content_type: "image/png", verified_size: 419685,
+        verified_checksum_sha256: "a".repeat(64), object_key: materialVersion.object_key };
+    }
+  };
+  const service = createAvatarSelectionService({ repository, materialAssetPort, now: () => Date.parse("2026-08-24T00:00:00.000Z"),
+    copyApprovalPort: { async getCurrentApprovedCopy() { return null; } } });
+
+  const preview = await service.authorizePreview({ organizationId: "org-a", actorMemberId: "member-a",
+    actorRole: "member", avatarId: registered.asset.id });
+
+  assert.deepEqual(preview, { token: "private-token", expires_at: "2026-08-24T00:05:00.000Z",
+    media_type: "image/png", size: 419685, checksum_sha256: "a".repeat(64) });
+  assert.equal(calls.length, 1);
+  assert.deepEqual({ ...calls[0][1], transactionClient: undefined }, {
+    organizationId: "org-a", assetVersionId: "material-version-a", actorMemberId: "member-a", transactionClient: undefined
+  });
+  assert.equal(JSON.stringify(preview).includes("material-version-a"), false);
+  assert.equal(JSON.stringify(preview).includes("private/org-a"), false);
+});
+
+test("secure preview authorization hides inaccessible catalog entries and fails closed on material or grant drift", async () => {
+  const repository = createMemoryAvatarSelectionRepository();
+  const materialAsset = { id: "material-asset-b", organization_id: "org-a", kind: "avatar_image", status: "active" };
+  const materialVersion = { id: "material-version-b", asset_id: materialAsset.id, organization_id: "org-a",
+    status: "available", verified_content_type: "image/png", verified_size: 12,
+    verified_checksum_sha256: "b".repeat(64) };
+  const registered = await repository.registerEnterpriseAvatar({ organizationId: "org-a", actorMemberId: "admin-a",
+    materialAssetVersionId: materialVersion.id, materialAsset, materialVersion, displayName: "受控人物",
+    description: "预览边界测试。", authorizationStatus: "valid", capabilities: [], now: "2026-08-24T00:00:00.000Z" });
+  let mode = "wrong_media";
+  let grantCalls = 0;
+  const service = createAvatarSelectionService({ repository, now: () => Date.parse("2026-08-24T00:00:00.000Z"),
+    copyApprovalPort: { async getCurrentApprovedCopy() { return null; } },
+    materialAssetPort: {
+      async authorizeAvatarPreview() {
+        grantCalls += 1;
+        if (["parent_disabled", "version_unavailable", "wrong_kind", "bad_checksum"].includes(mode)) {
+          throw Object.assign(new Error("ASSET_VERSION_NOT_AVAILABLE"), { code: "ASSET_VERSION_NOT_AVAILABLE" });
+        }
+        if (mode === "read_failure") throw new Error("temporary storage read failure");
+        if (mode === "grant_failure") throw new Error("temporary grant failure");
+        return { token: "grant", expires_at: mode === "grant_expired" ? "2000-01-01T00:00:00.000Z" : "2026-08-24T00:05:00.000Z",
+          verified_content_type: mode === "wrong_media" ? "video/mp4" : "image/png",
+          verified_size: 12, verified_checksum_sha256: "b".repeat(64) };
+      }
+    }
+  });
+
+  await assert.rejects(service.authorizePreview({ organizationId: "org-b", actorMemberId: "member-b", actorRole: "member",
+    avatarId: registered.asset.id }), { code: "AVATAR_PREVIEW_NOT_FOUND" });
+  await assert.rejects(service.authorizePreview({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "member",
+    avatarId: registered.asset.id }), { code: "AVATAR_PREVIEW_UNAVAILABLE" });
+  for (const unavailableMode of ["parent_disabled", "version_unavailable", "wrong_kind", "bad_checksum"]) {
+    mode = unavailableMode;
+    await assert.rejects(service.authorizePreview({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "member",
+      avatarId: registered.asset.id }), { code: "AVATAR_PREVIEW_UNAVAILABLE" });
+  }
+  assert.equal(grantCalls, 5, "the private Asset gate must reject invalid parent/version evidence");
+  mode = "read_failure";
+  await assert.rejects(service.authorizePreview({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "member",
+    avatarId: registered.asset.id }), { code: "AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE" });
+  mode = "grant_expired";
+  await assert.rejects(service.authorizePreview({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "member",
+    avatarId: registered.asset.id }), { code: "AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE" });
+  mode = "grant_failure";
+  await assert.rejects(service.authorizePreview({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "member",
+    avatarId: registered.asset.id }), { code: "AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE" });
+  await repository.disableEnterpriseAvatar({ organizationId: "org-a", assetId: registered.asset.id,
+    expectedRevision: 1, actorMemberId: "admin-a", now: "2026-08-24T00:01:00.000Z" });
+  await assert.rejects(service.authorizePreview({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "member",
+    avatarId: registered.asset.id }), { code: "AVATAR_PREVIEW_NOT_FOUND" });
+});
+
+test("secure preview authorization serializes catalog and parent Asset mutations around one grant boundary", async () => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const checksum = createHash("sha256").update(png).digest("hex");
+  const assetRepository = createMemoryAssetRepository();
+  const assetService = createAssetService({ repository: assetRepository, objectStore: createMemoryObjectStore(),
+    now: () => Date.parse("2026-08-24T00:00:00.000Z") });
+  const uploaded = await assetService.createUploadAuthorization({ organizationId: "org-a", actorMemberId: "admin-a",
+    idempotencyKey: "atomic-avatar-upload", filename: "avatar.png", contentType: "image/png", size: png.length,
+    checksumSha256: checksum, assetKind: "avatar_image" });
+  await assetService.uploadObject({ organizationId: "org-a", uploadToken: uploaded.upload.token, body: png, contentType: "image/png" });
+  await assetService.completeUpload({ organizationId: "org-a", actorMemberId: "admin-a",
+    uploadSessionId: uploaded.upload_session_id, idempotencyKey: "atomic-avatar-complete" });
+  await assetService.runNextVerificationJob();
+
+  const repository = createMemoryAvatarSelectionRepository();
+  const service = createAvatarSelectionService({ repository, materialAssetPort: assetService,
+    now: () => Date.parse("2026-08-24T00:00:00.000Z"),
+    copyApprovalPort: { async getCurrentApprovedCopy() { return null; } } });
+  const registered = await service.registerEnterpriseAvatar({ organizationId: "org-a", actorMemberId: "admin-a",
+    actorRole: "admin", materialAssetVersionId: uploaded.asset_version.id, displayName: "原子人物",
+    description: "授权期间目录和父素材都不能漂移。", authorizationStatus: "valid" });
+
+  let catalogDisableSettled = false;
+  let catalogDisable;
+  const originalAuthorize = assetService.authorizeAvatarPreview?.bind(assetService);
+  assetService.authorizeAvatarPreview = async (input) => {
+    catalogDisable = repository.disableEnterpriseAvatar({ organizationId: "org-a", assetId: registered.asset.id,
+      expectedRevision: 1, actorMemberId: "admin-a", now: "2026-08-24T00:00:01.000Z" })
+      .then(() => { catalogDisableSettled = true; });
+    await Promise.resolve();
+    assert.equal(catalogDisableSettled, false, "catalog disable must wait for the authorization gate");
+    return originalAuthorize(input);
+  };
+  const firstGrant = await service.authorizePreview({ organizationId: "org-a", actorMemberId: "member-a",
+    actorRole: "member", avatarId: registered.asset.id });
+  assert.ok(firstGrant.token);
+  await catalogDisable;
+  assert.equal(catalogDisableSettled, true);
+
+  assetService.authorizeAvatarPreview = originalAuthorize;
+  const secondUpload = await assetService.createUploadAuthorization({ organizationId: "org-a", actorMemberId: "admin-a",
+    idempotencyKey: "atomic-avatar-upload-2", filename: "avatar-2.png", contentType: "image/png", size: png.length,
+    checksumSha256: checksum, assetKind: "avatar_image" });
+  await assetService.uploadObject({ organizationId: "org-a", uploadToken: secondUpload.upload.token, body: png, contentType: "image/png" });
+  await assetService.completeUpload({ organizationId: "org-a", actorMemberId: "admin-a",
+    uploadSessionId: secondUpload.upload_session_id, idempotencyKey: "atomic-avatar-complete-2" });
+  await assetService.runNextVerificationJob();
+  const secondRegistered = await service.registerEnterpriseAvatar({ organizationId: "org-a", actorMemberId: "admin-a",
+    actorRole: "admin", materialAssetVersionId: secondUpload.asset_version.id, displayName: "第二原子人物",
+    description: "父素材状态在授权期间不能漂移。", authorizationStatus: "valid" });
+
+  let parentDisableSettled = false;
+  let parentDisable;
+  const originalAssetGate = assetRepository.authorizeAvatarPreviewMaterial?.bind(assetRepository);
+  assetRepository.authorizeAvatarPreviewMaterial = async (input) => originalAssetGate({ ...input,
+    mintGrant(evidence) {
+      parentDisable = assetRepository.updateAssetStatus({ organizationId: "org-a", assetId: secondUpload.asset.id,
+        expectedRevision: 1, status: "disabled", actorMemberId: "admin-a", now: "2026-08-24T00:00:02.000Z" })
+        .then(() => { parentDisableSettled = true; });
+      assert.equal(parentDisableSettled, false, "parent Asset disable must wait for the authorization gate");
+      return input.mintGrant(evidence);
+    }
+  });
+  const secondGrant = await service.authorizePreview({ organizationId: "org-a", actorMemberId: "member-a",
+    actorRole: "member", avatarId: secondRegistered.asset.id });
+  assert.ok(secondGrant.token);
+  await parentDisable;
+  assert.equal(parentDisableSettled, true);
 });

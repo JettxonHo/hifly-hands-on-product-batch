@@ -36,6 +36,17 @@ function publicWorkspace(value) {
 export async function registerAvatarSelectionRoutes(app, { service }) {
   app.post("/api/avatar-catalog/hifly-public/sync", async (request) => service.syncPublicCatalog(actor(request)));
 
+  app.post("/api/avatar-catalog/:avatarId/preview-authorizations", async (request, reply) => {
+    const grant = await service.authorizePreview({ ...actor(request), avatarId: request.params.avatarId });
+    reply.code(201).send({ preview: {
+      url: `/api/assets/downloads/${encodeURIComponent(grant.token)}`,
+      expires_at: grant.expires_at,
+      media_type: grant.media_type,
+      size: grant.size,
+      checksum_sha256: grant.checksum_sha256
+    } });
+  });
+
   app.post("/api/avatar-catalog/enterprise", async (request, reply) => {
     const result = await service.registerEnterpriseAvatar({ ...actor(request),
       materialAssetVersionId: request.body?.material_asset_version_id || request.body?.materialAssetVersionId,

@@ -13,6 +13,10 @@ const normalizeVersion = (row) => ({ ...row, version_number: Number(row.version_
 const normalizeAsset = (row) => ({ ...row, category_tags: Array.isArray(row.category_tags) ? row.category_tags : [],
   revision_number: Number(row.row_version ?? row.revision_number ?? 1), created_at: iso(row.created_at), updated_at: iso(row.updated_at) });
 
+async function lockAvatarMaterialBoundary(client, organizationId) {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-material-boundary:${organizationId}`]);
+}
+
 async function replay(client, receiptKey, fingerprint) {
   const row = (await client.query("SELECT * FROM avatar_selection_idempotency_receipts WHERE receipt_key=$1", [receiptKey])).rows[0];
   if (!row) return null;
@@ -134,6 +138,29 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
         };
       }));
     },
+    async getCatalogAsset(organizationId, avatarAssetId) {
+      const client = await pool.connect();
+      try {
+        const row = (await client.query(`SELECT v.id version_id
+          FROM avatar_assets a JOIN avatar_asset_versions v ON v.asset_id=a.id AND v.organization_id=a.organization_id
+          WHERE a.organization_id=$1 AND a.id=$2 AND a.status<>'deleted'
+          ORDER BY v.version_number DESC LIMIT 1`, [organizationId, avatarAssetId])).rows[0];
+        return row ? catalogEntry(client, organizationId, row.version_id) : null;
+      } finally { client.release(); }
+    },
+    async authorizePreview({ organizationId, avatarId, authorizeMaterial }) {
+      if (typeof authorizeMaterial !== "function") throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
+      return withTransaction(pool, async (client) => {
+        await lockAvatarMaterialBoundary(client, organizationId);
+        const row = (await client.query(`SELECT a.status asset_status,v.status version_status,v.material_asset_version_id
+          FROM avatar_assets a JOIN avatar_asset_versions v ON v.asset_id=a.id AND v.organization_id=a.organization_id
+          WHERE a.organization_id=$1 AND a.id=$2
+          ORDER BY v.version_number DESC LIMIT 1 FOR UPDATE OF a,v`, [organizationId, avatarId])).rows[0];
+        if (!row || row.asset_status !== "active") throw failure("AVATAR_PREVIEW_NOT_FOUND");
+        if (row.version_status !== "available" || !row.material_asset_version_id) throw failure("AVATAR_PREVIEW_UNAVAILABLE");
+        return authorizeMaterial({ materialAssetVersionId: row.material_asset_version_id, transactionClient: client });
+      });
+    },
     async getCatalogVersion(organizationId, assetVersionId) {
       const catalog = await this.listCatalog(organizationId);
       return catalog.find((entry) => entry.asset_version.id === assetVersionId) || null;
@@ -141,6 +168,7 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
     async registerEnterpriseAvatar({ organizationId, actorMemberId = null, materialAssetVersionId, displayName, description,
       authorizationStatus, authorizationExpiresAt = null, categoryTags = [], capabilities: verified = [], now }) {
       return withTransaction(pool, async (client) => {
+        await lockAvatarMaterialBoundary(client, organizationId);
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-enterprise-material:${organizationId}:${materialAssetVersionId}`]);
         const material = (await client.query(`SELECT av.id version_id,av.status version_status,aa.id asset_id,aa.kind,aa.status asset_status
           FROM asset_versions av JOIN asset_assets aa ON aa.id=av.asset_id AND aa.organization_id=av.organization_id

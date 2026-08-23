@@ -159,6 +159,9 @@ function apiError(error, request = null) {
   if (error?.code === "COPY_REVIEW_FORBIDDEN") return { statusCode: 403, code: error.code };
   if (error?.code === "COPY_REVIEW_GATE_BLOCKED") return { statusCode: 422, code: error.code, reasons: error.details || [] };
   if (error?.code === "AVATAR_ASSET_VERSION_NOT_FOUND") return { statusCode: 404, code: error.code };
+  if (error?.code === "AVATAR_PREVIEW_NOT_FOUND") return { statusCode: 404, code: error.code };
+  if (error?.code === "AVATAR_PREVIEW_UNAVAILABLE") return { statusCode: 422, code: error.code };
+  if (error?.code === "AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE") return { statusCode: 503, code: error.code };
   if (["AVATAR_MATERIAL_VERSION_NOT_FOUND", "AVATAR_ASSET_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
   if (["AVATAR_SELECTION_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (["AVATAR_ASSET_VERSION_CONFLICT", "AVATAR_SELECTION_CONFLICT", "AVATAR_SELECTION_IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
@@ -648,16 +651,6 @@ export async function buildApp({
     app.addHook("onClose", async () => repository.close?.());
     await registerCopyReviewRoutes(app, { service });
   }
-  if (operatorWorkspaceEnabled) {
-    const operatorWorkspaceService = createOperatorWorkspaceService({
-      projectContentService: app.projectContent.service,
-      copyService: app.copyGeneration?.service,
-      qualityService: app.copyQuality?.service,
-      reviewService: app.copyReview?.service
-    });
-    app.decorate("operatorWorkspace", { service: operatorWorkspaceService });
-    await registerOperatorWorkspaceRoutes(app, { service: operatorWorkspaceService });
-  }
   if (avatarSelectionEnabled) {
     const repository = avatarSelectionOptions.repository || (sharedPool ? createPostgresAvatarSelectionRepository({ pool: sharedPool }) : null);
     if (!repository) throw Object.assign(new Error("AVATAR_SELECTION_REPOSITORY_REQUIRED"), { code: "AVATAR_SELECTION_REPOSITORY_REQUIRED" });
@@ -672,6 +665,19 @@ export async function buildApp({
     app.decorate("avatarSelection", { repository, service, copyApprovalPort });
     app.addHook("onClose", async () => repository.close?.());
     await registerAvatarSelectionRoutes(app, { service });
+  }
+  if (operatorWorkspaceEnabled) {
+    const operatorWorkspaceService = createOperatorWorkspaceService({
+      projectContentService: app.projectContent.service,
+      copyService: app.copyGeneration?.service,
+      qualityService: app.copyQuality?.service,
+      reviewService: app.copyReview?.service,
+      avatarService: app.avatarSelection?.service,
+      videoPlanningService: operatorWorkspaceOptions.videoPlanningService || null,
+      productionService: operatorWorkspaceOptions.productionService || null
+    });
+    app.decorate("operatorWorkspace", { service: operatorWorkspaceService });
+    await registerOperatorWorkspaceRoutes(app, { service: operatorWorkspaceService });
   }
   if (videoPlanningEnabled) {
     const repository = videoPlanningOptions.repository || (sharedPool ? createPostgresVideoPlanningRepository({ pool: sharedPool }) : null);
