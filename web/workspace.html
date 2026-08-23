@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/operator-task-flow.css">
     <link rel="stylesheet" href="/workspace.css">
     <script src="/shell.js" defer></script>
+    <script src="/workspace-copy.js" defer></script>
     <script src="/project.js" defer></script>
   </head>
   <body class="operator-task-page single-workspace-page" data-shell-page="projects" data-workspace-stage="product_content">
@@ -84,6 +85,37 @@
               </form>
             </section>
 
+            <section id="copyWorkspacePanel" class="workspace-panel workspace-copy-panel" hidden>
+              <div class="workspace-panel-heading task-panel-heading">
+                <div><p class="eyebrow">当前任务</p><h2 id="copyWorkspaceHeading" tabindex="-1">完善并审核文案</h2><span id="copyVersionState" class="state">正在读取</span></div>
+                <div class="button-row task-toolbar"><button id="mobileCopyBack" class="secondary mobile-layer-control" type="button">返回商品列表</button><button id="returnCurrentCopy" class="secondary" type="button" hidden>回到当前文案</button><button id="refreshCopyWorkspace" class="secondary" type="button" data-refresh-scope="current-copy">刷新当前文案</button></div>
+              </div>
+              <div id="copyWorkspaceLoading" class="workspace-copy-loading" role="status">正在读取当前文案...</div>
+              <div id="copyWorkspaceContent" hidden>
+                <section class="workspace-copy-editor" aria-labelledby="copyEditorTitle">
+                  <div class="section-head"><div><h3 id="copyEditorTitle">文案正文</h3><p id="copyVersionMeta" class="muted">尚未生成版本</p></div><div class="button-row"><button id="deriveWorkspaceCopy" class="secondary" type="button" hidden>基于此版本修改</button><button id="generateWorkspaceCopy" type="button" hidden>生成文案</button></div></div>
+                  <div id="copyVersionList" class="workspace-copy-versions" aria-label="文案版本"></div>
+                  <form id="workspaceCopyForm">
+                    <label for="workspaceCopyBody">文案正文</label>
+                    <textarea id="workspaceCopyBody" rows="11" required></textarea>
+                    <div class="editor-meta"><span id="workspaceCopyCount">0 字</span><span id="workspaceCopySaveState">已保存</span></div>
+                    <p id="workspaceCopyNotice" class="notice" role="status"></p>
+                    <section id="workspaceCopyConflict" class="notice blocked action-notice" hidden><span>服务端文案已更新，你的本地修改仍保留。</span><button id="loadLatestWorkspaceCopy" class="secondary" type="button">载入最新状态后继续编辑</button></section>
+                    <div class="actions"><button id="saveWorkspaceCopy" type="submit">保存草稿</button></div>
+                  </form>
+                </section>
+                <section class="workspace-copy-gates" aria-labelledby="copyGateTitle">
+                  <div class="section-head"><div><h3 id="copyGateTitle">质检与人工审核</h3><p>自动质检通过不等于人工批准。</p></div></div>
+                  <div class="panel-tabs" role="tablist" aria-label="文案质检与人工审核">
+                    <button id="workspaceQualityTab" class="panel-tab" type="button" role="tab" aria-selected="true" aria-controls="workspaceQualityPanel" tabindex="0">质检</button>
+                    <button id="workspaceReviewTab" class="panel-tab" type="button" role="tab" aria-selected="false" aria-controls="workspaceReviewPanel" tabindex="-1">人工审核</button>
+                  </div>
+                  <div id="workspaceQualityPanel" class="workspace-gate-panel" role="tabpanel" aria-labelledby="workspaceQualityTab"><span id="workspaceQualityState" class="state">未质检</span><p id="workspaceQualitySummary">保存文案后开始质检。</p><div id="workspaceFindingList" class="workspace-finding-list"></div></div>
+                  <div id="workspaceReviewPanel" class="workspace-gate-panel" role="tabpanel" aria-labelledby="workspaceReviewTab" hidden><span id="workspaceReviewState" class="state">未提交审核</span><p id="workspaceReviewSummary">质检通过后才能提交人工审核。</p></div>
+                </section>
+              </div>
+            </section>
+
             <aside class="workspace-panel workspace-context-panel" data-workspace-panel="supporting-context" aria-labelledby="taskSummaryTitle">
               <section class="workspace-task-summary" aria-label="当前任务摘要" aria-live="polite">
                 <div><p class="eyebrow">辅助上下文</p><h2 id="taskSummaryTitle">载入商品工作区</h2></div>
@@ -95,7 +127,7 @@
                 </dl>
                 <p id="taskBlocker" class="task-summary-blocker" hidden></p>
               </section>
-              <details class="operator-technical-details"><summary>技术与审计详情</summary><dl class="workspace-technical-facts"><div><dt>投影版本</dt><dd id="workspaceProjectionVersion">待载入</dd></div><div><dt>当前阶段</dt><dd>product_content</dd></div></dl></details>
+              <details class="operator-technical-details"><summary>技术与审计详情</summary><dl class="workspace-technical-facts"><div><dt>投影版本</dt><dd id="workspaceProjectionVersion">待载入</dd></div><div><dt>当前阶段</dt><dd id="workspaceTechnicalStage">product_content</dd></div><div id="workspaceTechnicalObjectRow" hidden><dt>当前对象</dt><dd id="workspaceTechnicalObject">未载入</dd></div></dl></details>
             </aside>
           </div>
         </main>
@@ -108,6 +140,16 @@
     <dialog id="productDialog" aria-labelledby="productDialogTitle">
       <div class="dialog-header"><div><p class="eyebrow">新商品</p><h2 id="productDialogTitle">创建商品</h2></div><button id="closeProductDialog" class="dialog-close" type="button" aria-label="关闭创建商品">×</button></div>
       <div class="dialog-body"><form id="productForm" class="grid"><label class="wide">商品名称<input name="product_name" required></label><div class="actions wide"><p id="productError" class="notice error" role="alert"></p><button type="submit">创建商品</button></div></form></div>
+    </dialog>
+    <dialog id="workspaceUnsavedDialog" aria-labelledby="workspaceUnsavedTitle">
+      <div class="dialog-header"><div><p class="eyebrow">尚未保存</p><h2 id="workspaceUnsavedTitle">保留当前文案修改</h2></div><button id="closeWorkspaceUnsaved" class="dialog-close" type="button" aria-label="关闭未保存提示">×</button></div>
+      <div class="dialog-body"><p>切换商品、版本或刷新前，请先处理当前修改。</p><div class="actions"><button id="keepWorkspaceEditing" class="secondary" type="button">继续编辑</button><button id="discardWorkspaceChanges" class="secondary" type="button">放弃修改</button><button id="saveWorkspaceAndContinue" type="button">保存并继续</button></div></div>
+    </dialog>
+    <dialog id="workspaceApproveDialog" aria-labelledby="workspaceApproveTitle">
+      <form id="workspaceApproveForm"><div class="dialog-header"><div><p class="eyebrow">人工决策</p><h2 id="workspaceApproveTitle">批准当前文案</h2></div><button id="closeWorkspaceApprove" class="dialog-close" type="button" aria-label="关闭批准确认">×</button></div><div class="dialog-body"><p>服务端会重新验证当前商品、文案、质检结果和审核状态。</p><p id="workspaceApproveError" class="error" role="alert"></p><div class="actions"><button id="cancelWorkspaceApprove" class="secondary" type="button">取消</button><button type="submit">确认批准</button></div></div></form>
+    </dialog>
+    <dialog id="workspaceFindingDialog" aria-labelledby="workspaceFindingTitle">
+      <form id="workspaceFindingForm"><div class="dialog-header"><div><p class="eyebrow">质检判断</p><h2 id="workspaceFindingTitle">接受当前判断项</h2></div><button id="closeWorkspaceFinding" class="dialog-close" type="button" aria-label="关闭质检判断">×</button></div><div class="dialog-body"><p id="workspaceFindingMessage"></p><label for="workspaceFindingReason">接受理由</label><textarea id="workspaceFindingReason" rows="4"></textarea><p id="workspaceFindingError" class="error" role="alert"></p><div class="actions"><button id="cancelWorkspaceFinding" class="secondary" type="button">取消</button><button type="submit">确认接受</button></div></div></form>
     </dialog>
   </body>
 </html>

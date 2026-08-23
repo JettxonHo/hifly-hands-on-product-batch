@@ -26,6 +26,30 @@
 .workspace-action-bar button { min-width: 150px; }
 .mobile-layer-control { display: none; }
 .single-workspace-page .inline-save-actions { margin-bottom: 0; }
+.workspace-copy-panel { min-height: 560px; }
+.workspace-copy-loading { padding: 24px 18px; color: var(--n-500); }
+.workspace-copy-editor, .workspace-copy-gates { padding: 16px 18px 20px; }
+.workspace-copy-gates { border-top: 1px solid var(--n-200); }
+.workspace-copy-editor .section-head, .workspace-copy-gates .section-head { align-items: flex-start; margin-bottom: 12px; }
+.workspace-copy-editor .section-head h3, .workspace-copy-editor .section-head p,
+.workspace-copy-gates .section-head h3, .workspace-copy-gates .section-head p { margin: 0; }
+.workspace-copy-versions { display: flex; gap: 6px; margin: 0 0 12px; overflow-x: auto; padding-bottom: 3px; }
+.workspace-copy-version { flex: 0 0 auto; min-width: 78px; min-height: 40px; }
+.workspace-copy-version[aria-current="true"] { border-color: var(--brand); background: var(--brand-tint); color: var(--brand-pressed); }
+.workspace-copy-editor textarea { width: 100%; resize: vertical; }
+.workspace-copy-editor .actions { margin-top: 10px; }
+.workspace-copy-editor .action-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.workspace-copy-gates .panel-tabs { margin-bottom: 12px; }
+.workspace-gate-panel { min-height: 92px; padding: 12px; border: 1px solid var(--n-200); border-radius: var(--radius-control); background: var(--n-50); }
+.workspace-gate-panel p { margin: 8px 0 0; }
+.workspace-finding-list { display: grid; gap: 7px; margin-top: 10px; }
+.workspace-finding { padding: 10px; border-left: 3px solid var(--n-300); background: var(--n-0); }
+.workspace-finding > h4, .workspace-finding > p { margin: 7px 0 0; }
+.workspace-finding > h4 { font-size: 14px; }
+.workspace-finding-meta { color: var(--n-500); font-size: 12px; overflow-wrap: anywhere; }
+.workspace-finding-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.workspace-finding-actions button { min-height: 36px; }
+.single-workspace-page[data-workspace-stage="copy"] #openProductDialog { display: none; }
 
 @media (max-width: 1120px) {
   .single-workspace-page .app-shell { display: block; }
@@ -56,6 +80,8 @@
   .task-toolbar { width: 100%; flex-wrap: wrap; }
   .task-toolbar > * { flex: 1 1 auto; }
   .workspace-form { padding: 14px 12px 18px; }
+  .workspace-copy-editor, .workspace-copy-gates { padding: 14px 12px 18px; }
+  .workspace-copy-editor .action-notice { align-items: stretch; flex-direction: column; }
   .workspace-action-bar { min-height: 72px; padding: 9px 12px; }
   .workspace-action-bar > div { min-width: 0; }
   .workspace-action-bar strong { max-width: 22ch; font-size: 13px; }

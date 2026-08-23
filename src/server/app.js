@@ -591,11 +591,6 @@ export async function buildApp({
     app.decorate("projectContent", { repository: projectContentRepository, service: projectContentService, productRevisionPort: projectContentService.productRevisionPort });
     app.addHook("onClose", async () => projectContentRepository.close?.());
     await registerProjectContentRoutes(app, { service: projectContentService });
-    if (operatorWorkspaceEnabled) {
-      const operatorWorkspaceService = createOperatorWorkspaceService({ projectContentService });
-      app.decorate("operatorWorkspace", { service: operatorWorkspaceService });
-      await registerOperatorWorkspaceRoutes(app, { service: operatorWorkspaceService });
-    }
   }
   if (copyGenerationEnabled) {
     const repository = copyGenerationOptions.repository || (sharedPool ? createPostgresCopyGenerationRepository({ pool: sharedPool }) : null);
@@ -652,6 +647,16 @@ export async function buildApp({
     app.decorate("copyReview", { repository, service });
     app.addHook("onClose", async () => repository.close?.());
     await registerCopyReviewRoutes(app, { service });
+  }
+  if (operatorWorkspaceEnabled) {
+    const operatorWorkspaceService = createOperatorWorkspaceService({
+      projectContentService: app.projectContent.service,
+      copyService: app.copyGeneration?.service,
+      qualityService: app.copyQuality?.service,
+      reviewService: app.copyReview?.service
+    });
+    app.decorate("operatorWorkspace", { service: operatorWorkspaceService });
+    await registerOperatorWorkspaceRoutes(app, { service: operatorWorkspaceService });
   }
   if (avatarSelectionEnabled) {
     const repository = avatarSelectionOptions.repository || (sharedPool ? createPostgresAvatarSelectionRepository({ pool: sharedPool }) : null);

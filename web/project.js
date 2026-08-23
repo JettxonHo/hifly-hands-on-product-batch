@@ -5,6 +5,14 @@
   const requestedProductId = workspaceMode ? params.get("product") : null;
   const requestedStage = workspaceMode ? params.get("stage") || "product_content" : "product_content";
   const requestedRevisionId = params.get("revision");
+  if (workspaceMode && requestedStage === "copy") {
+    await window.HiflyCopyWorkspace.start({
+      projectId,
+      productId: requestedProductId,
+      copyVersionId: params.get("copy")
+    });
+    return;
+  }
   const editor = document.querySelector("#editor");
   const revisionForm = document.querySelector("#revisionForm");
   const pointList = document.querySelector("#pointList");
