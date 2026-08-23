@@ -13,6 +13,16 @@ import { createPostgresProjectContentRepository } from "../src/project-content/p
 import { createProjectContentService } from "../src/project-content/project-content-service.js";
 import { runProjectContentMigrations } from "../src/project-content/postgres.js";
 import { createOperatorWorkspaceService } from "../src/operator-workspace/operator-workspace-service.js";
+import { runCopyGenerationMigrations } from "../src/copy-generation/postgres.js";
+import { createPostgresCopyGenerationRepository } from "../src/copy-generation/postgres-copy-generation-repository.js";
+import { createCopyGenerationService } from "../src/copy-generation/copy-generation-service.js";
+import { runCopyQualityMigrations } from "../src/copy-quality/postgres.js";
+import { createPostgresCopyQualityRepository } from "../src/copy-quality/postgres-copy-quality-repository.js";
+import { createCopyQualityService } from "../src/copy-quality/copy-quality-service.js";
+import { createStaticQualityProfileResolver } from "../src/copy-quality/static-profile-resolver.js";
+import { runCopyReviewMigrations } from "../src/copy-review/postgres.js";
+import { createPostgresCopyReviewRepository } from "../src/copy-review/postgres-copy-review-repository.js";
+import { createCopyReviewService } from "../src/copy-review/copy-review-service.js";
 
 const connectionString = process.env.PROJECT_CONTENT_TEST_DATABASE_URL;
 
@@ -34,6 +44,9 @@ test("clean PostgreSQL project-content migration and shared A03 transaction roll
   await runIdentityMigrations(pool);
   await runAssetMigrations(pool);
   await runProjectContentMigrations(pool);
+  await runCopyGenerationMigrations(pool);
+  await runCopyQualityMigrations(pool);
+  await runCopyReviewMigrations(pool);
   assert.equal((await pool.query("SELECT max(version)::integer version FROM project_content_schema_migrations")).rows[0].version, 2);
 
   const identityRepository = createPostgresIdentityRepository({ pool, ownsPool: false });
@@ -87,6 +100,33 @@ test("clean PostgreSQL project-content migration and shared A03 transaction roll
   assert.equal(ready.status, "ready");
   assert.deepEqual(ready.physical_dimensions, { height: 18, width: 12, unit: "cm", weight: { value: 250, unit: "g" } });
   assert.equal((await pool.query("SELECT count(*)::integer count FROM asset_references WHERE reference_id=$1", [ready.id])).rows[0].count, 1);
+
+  const copyRepository = createPostgresCopyGenerationRepository({ pool });
+  await copyRepository.initialize();
+  const copyService = createCopyGenerationService({ repository: copyRepository, productRevisionPort: service.productRevisionPort });
+  await copyService.requestGeneration({ ...actor, productRevisionId: ready.id, intent: "product_recommendation", idempotencyKey: "pg-stage-2-generation" });
+  const generationJob = await copyService.claimNextGenerationJob();
+  const copy = await copyService.completeGenerationJob({ job: generationJob, body: "数据库中的清爽文案。" });
+  const qualityRepository = createPostgresCopyQualityRepository({ pool });
+  await qualityRepository.initialize();
+  const qualityService = createCopyQualityService({ repository: qualityRepository, copyService,
+    profileResolver: createStaticQualityProfileResolver() });
+  await qualityService.startQualityCheck({ ...actor, copyVersionId: copy.id, expectedRevision: copy.row_version, idempotencyKey: "pg-stage-2-quality" });
+  const qualityRun = await qualityService.claimNextQualityRun();
+  await qualityService.completeQualityRun({ run: qualityRun, evaluation: { checks_complete: true, findings: [] } });
+  const reviewRepository = createPostgresCopyReviewRepository({ pool });
+  await reviewRepository.initialize();
+  const reviewService = createCopyReviewService({ repository: reviewRepository, copyService, qualityService });
+  await reviewService.submitReview({ ...actor, copyVersionId: copy.id, idempotencyKey: "pg-stage-2-review" });
+  const stage2Workspace = createOperatorWorkspaceService({ projectContentService: service, copyService, qualityService, reviewService });
+  const copyProjection = await stage2Workspace.getWorkspace({ ...actor, actorRole: "admin", projectId: project.id,
+    productId: product.id, stage: "copy" });
+  assert.equal(copyProjection.stages[1].implementation_status, "workspace");
+  assert.equal(copyProjection.stages[1].quality.conclusion, "passed");
+  assert.equal(copyProjection.stages[1].human_review.status, "pending");
+  assert.notEqual(copyProjection.stages[1].human_review.status, "approved");
+  assert.deepEqual(copyProjection.recommended_action, { code: "approve_copy_review", stage: "copy", kind: "command" });
+  assert.deepEqual(copyProjection.stages.slice(2).map((stage) => stage.read_status), ["not_loaded", "not_loaded", "not_loaded"]);
   await assert.rejects(pool.query("UPDATE project_content_product_revisions SET product_name='覆盖' WHERE id=$1", [ready.id]), /immutable/);
   await assert.rejects(pool.query("UPDATE project_content_product_revisions SET physical_dimensions='{}'::jsonb WHERE id=$1", [ready.id]), /immutable/);
 });

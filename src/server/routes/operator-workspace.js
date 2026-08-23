@@ -1,7 +1,8 @@
 function actor(request) {
   return {
     organizationId: request.identity.organization.id,
-    actorMemberId: request.identity.member.id
+    actorMemberId: request.identity.member.id,
+    actorRole: request.identity.membership.role
   };
 }
 
@@ -11,7 +12,8 @@ export async function registerOperatorWorkspaceRoutes(app, { service }) {
       ...actor(request),
       projectId: request.params.projectId,
       productId: request.params.productId,
-      stage: request.query?.stage
+      stage: request.query?.stage,
+      copyVersionId: request.query?.copy
     })
   }));
 }

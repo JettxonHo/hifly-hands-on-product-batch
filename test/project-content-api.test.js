@@ -8,6 +8,12 @@ import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { createMemoryIdentityRepository } from "../src/identity/memory-identity-repository.js";
 import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { createMemoryProjectContentRepository } from "../src/project-content/memory-project-content-repository.js";
+import { createMemoryCopyGenerationRepository } from "../src/copy-generation/memory-copy-generation-repository.js";
+import { createControlledCopyProvider } from "../src/copy-generation/controlled-provider.js";
+import { createMemoryCopyQualityRepository } from "../src/copy-quality/memory-copy-quality-repository.js";
+import { createControlledQualityEvaluator } from "../src/copy-quality/controlled-evaluator.js";
+import { createControlledCopyRewriter } from "../src/copy-quality/controlled-rewriter.js";
+import { createMemoryCopyReviewRepository } from "../src/copy-review/memory-copy-review-repository.js";
 import { buildApp } from "../src/server/app.js";
 import { activateAdmin, identityApp, identityHeaders } from "./helpers/identity-world.js";
 
@@ -55,6 +61,49 @@ async function operatorWorld(t, { repository = createMemoryProjectContentReposit
   });
   t.after(() => app.close());
   return { app, repository, auth: await activateAdmin(app) };
+}
+
+async function copyOperatorWorld(t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-copy-workspace-api-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const identityRepository = createMemoryIdentityRepository();
+  await seedInitialAdmin(identityRepository, {
+    organizationId: "org_test",
+    organizationName: "Test Organization",
+    adminEmail: "admin@example.test",
+    adminDisplayName: "Test Admin",
+    adminTempPassword: "Temporary-Admin-9!"
+  });
+  const app = await buildApp({
+    root,
+    executor: createFakeExecutor(),
+    operatorWorkspace: { enabled: true },
+    projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
+    copyGeneration: {
+      enabled: true,
+      repository: createMemoryCopyGenerationRepository(),
+      provider: createControlledCopyProvider(),
+      worker: { autoStart: false }
+    },
+    copyQuality: {
+      enabled: true,
+      repository: createMemoryCopyQualityRepository(),
+      evaluator: createControlledQualityEvaluator(),
+      rewriter: createControlledCopyRewriter(),
+      worker: { autoStart: false }
+    },
+    copyReview: { enabled: true, repository: createMemoryCopyReviewRepository() },
+    identity: {
+      enabled: true,
+      repository: identityRepository,
+      trustedHosts: ["app.test"],
+      trustedOrigins: ["https://app.test"],
+      cookieSecure: false,
+      seed: { enabled: false }
+    }
+  });
+  t.after(() => app.close());
+  return { app, auth: await activateAdmin(app) };
 }
 
 test("project content is disabled by default and reported by runtime", async (t) => {
@@ -157,6 +206,44 @@ test("operator workspace returns the Product Content projection and legacy stage
   assert.equal(legacy.json().workspace.recommended_action, null);
   assert.equal(legacy.json().workspace.stages[0].read_status, "ok");
   assert.equal(legacy.json().workspace.stages[0].navigation_state, "available");
+});
+
+test("operator workspace default app wiring exposes Copy only when the existing Copy stack is enabled", async (t) => {
+  const { app, auth } = await copyOperatorWorld(t);
+  const project = (await app.inject({
+    method: "POST", url: "/api/projects", headers: headers(auth, true, "copy-workspace-project"), payload: { name: "文案工作区" }
+  })).json().project;
+  let revision = (await app.inject({
+    method: "POST", url: `/api/projects/${project.id}/products`, headers: headers(auth, true, "copy-workspace-product"), payload: { product_name: "清透防晒乳" }
+  })).json().revision;
+  revision = (await app.inject({
+    method: "PATCH", url: `/api/product-revisions/${revision.id}`, headers: headers(auth, true),
+    payload: { expected_revision: revision.revision_number, product_name: revision.product_name,
+      selling_points: [{ text: "清爽不黏腻" }], asset_version_ids: ["asset-version-a"] }
+  })).json().revision;
+  revision = (await app.inject({
+    method: "POST", url: `/api/product-revisions/${revision.id}/selling-points/${revision.selling_points[0].id}/confirm`,
+    headers: headers(auth, true), payload: { expected_revision: revision.revision_number }
+  })).json().revision;
+  revision = (await app.inject({
+    method: "POST", url: `/api/product-revisions/${revision.id}/ready`, headers: headers(auth, true, "copy-workspace-ready"),
+    payload: { expected_revision: revision.revision_number }
+  })).json().revision;
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/projects/${project.id}/products/${revision.product_id}/operator-workspace?stage=copy`,
+    headers: headers(auth)
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  const workspace = response.json().workspace;
+  assert.equal(workspace.render_mode, "workspace");
+  assert.equal(workspace.stages[1].implementation_status, "workspace");
+  assert.equal(workspace.stages[1].read_status, "ok");
+  assert.deepEqual(workspace.recommended_action, { code: "request_copy_generation", stage: "copy", kind: "command" });
+  assert.equal(workspace.stages[2].read_status, "not_loaded");
+  assert.equal(workspace.stages[3].read_status, "not_loaded");
+  assert.equal(workspace.stages[4].read_status, "not_loaded");
 });
 
 test("operator workspace unifies missing and mismatched products without leaking organization truth", async (t) => {
