@@ -39,6 +39,14 @@
   let workspaceReadFailed = false;
   let selectedProductTrigger;
   let activeProductId = requestedProductId;
+  let acceptedWorkspaceHistoryIndex = 0;
+  let restoringWorkspaceHistoryIndex = null;
+  let legacyContext = {
+    productId: requestedProductId,
+    copy: params.get("copy"),
+    plan: params.get("plan"),
+    orderId: params.get("orderId")
+  };
   let availableAssetVersionIds = new Set();
   const revisionLabels = { draft: "草稿", ready: "商品资料已就绪", superseded: "已被替代" };
   const generalCategoryLabel = "未细分品类";
@@ -112,14 +120,19 @@
   function legacyStageUrl(stage, selectedRevision = revision) {
     const target = new URL(legacyStageRoutes[stage] || "/project.html", location.origin);
     target.searchParams.set("project", projectId);
-    if (["avatar", "video_plan", "production"].includes(stage)) target.searchParams.set("product", selectedRevision?.product_id || activeProductId);
-    if (stage === "copy") {
-      const revisionId = params.get("revision") || selectedRevision?.id;
-      if (revisionId) target.searchParams.set("revision", revisionId);
-    }
+    const selectedProductId = selectedRevision?.product_id || activeProductId;
+    if (["avatar", "video_plan", "production"].includes(stage)) target.searchParams.set("product", selectedProductId);
+    if (stage === "copy" && selectedRevision?.id) target.searchParams.set("revision", selectedRevision.id);
     const namedContext = { avatar: "copy", video_plan: "plan", production: "orderId" }[stage];
-    if (namedContext && params.get(namedContext)) target.searchParams.set(namedContext, params.get(namedContext));
+    if (namedContext && legacyContext.productId === selectedProductId && legacyContext[namedContext]) {
+      target.searchParams.set(namedContext, legacyContext[namedContext]);
+    }
     return `${target.pathname}${target.search}`;
+  }
+
+  function clearLegacyContextForSelection(nextRevision) {
+    if (!revision || (revision.id === nextRevision.id && revision.product_id === nextRevision.product_id)) return;
+    legacyContext = { productId: nextRevision.product_id, copy: null, plan: null, orderId: null };
   }
 
   function workspaceStageUrl(stage, selectedRevision = revision) {
@@ -219,7 +232,10 @@
     }
     if (revision?.id) next.searchParams.set("revision", revision.id);
     else next.searchParams.delete("revision");
-    history.replaceState(null, "", next);
+    const state = workspaceMode
+      ? { ...(history.state || {}), workspaceHistoryIndex: Number.isInteger(history.state?.workspaceHistoryIndex) ? history.state.workspaceHistoryIndex : acceptedWorkspaceHistoryIndex, productId: revision?.product_id || activeProductId }
+      : history.state;
+    history.replaceState(state, "", next);
   }
 
   function setRevisionControls() {
@@ -392,6 +408,7 @@
   }
 
   function renderRevision(value) {
+    clearLegacyContextForSelection(value);
     revision = value;
     dirty = false;
     conflictProductId = undefined;
@@ -399,6 +416,7 @@
     rendering = true;
     syncRevisionUrl();
     editor.hidden = false;
+    revisionForm.hidden = false;
     const state = document.querySelector("#revisionState");
     state.className = `state ${revision.status}`;
     state.textContent = `${revisionLabels[revision.status] || "状态待确认"} · v${revision.revision_number}`;
@@ -459,7 +477,9 @@
         activeProductId = item.id;
         if (workspaceMode) {
           const next = new URL(workspaceStageUrl("product_content", item.revision), location.origin);
-          history.pushState({ productId: item.id }, "", next);
+          const workspaceHistoryIndex = acceptedWorkspaceHistoryIndex + 1;
+          history.pushState({ workspaceHistoryIndex, productId: item.id }, "", next);
+          acceptedWorkspaceHistoryIndex = workspaceHistoryIndex;
         }
         renderRevision(item.revision);
         await refreshAssets();
@@ -739,18 +759,56 @@
     event.returnValue = "";
   });
   if (workspaceMode) {
-    window.addEventListener("popstate", async () => {
+    window.addEventListener("popstate", async (event) => {
+      const targetIndex = Number.isInteger(event.state?.workspaceHistoryIndex) ? event.state.workspaceHistoryIndex : null;
+      if (restoringWorkspaceHistoryIndex != null && targetIndex === restoringWorkspaceHistoryIndex) {
+        restoringWorkspaceHistoryIndex = null;
+        return;
+      }
+      restoringWorkspaceHistoryIndex = null;
       const next = new URLSearchParams(location.search);
       const productId = next.get("product");
       if (!productId || productId === activeProductId) return;
-      if (!confirmDiscardChanges()) return history.forward();
+      if (!confirmDiscardChanges()) {
+        const delta = targetIndex == null ? 0 : acceptedWorkspaceHistoryIndex - targetIndex;
+        if (delta !== 0) {
+          restoringWorkspaceHistoryIndex = acceptedWorkspaceHistoryIndex;
+          history.go(delta);
+        } else {
+          history.replaceState({ ...(history.state || {}), workspaceHistoryIndex: acceptedWorkspaceHistoryIndex, productId: activeProductId }, "", workspaceStageUrl("product_content"));
+        }
+        return;
+      }
       activeProductId = productId;
-      await loadWorkspaceProjection();
-      await loadProject(null, activeProductId);
-      await refreshAssets();
+      if (targetIndex != null) acceptedWorkspaceHistoryIndex = targetIndex;
+      revisionForm.hidden = true;
+      productOpener.disabled = true;
+      setTask({ title: "正在载入商品资料", status: "加载中", statusClass: "processing", saved: "等待权威状态", next: "载入完成后继续", blocker: "", action: null });
+      try {
+        if (!(await loadWorkspaceProjection())) return;
+        await loadProject(null, activeProductId);
+        await refreshAssets();
+        workspaceReadFailed = false;
+        productOpener.disabled = false;
+        showWorkspaceLayer("detail", false);
+      } catch (error) {
+        if (error.message === "AUTH_REQUIRED") return;
+        revision = undefined;
+        dirty = false;
+        workspaceReadFailed = true;
+        revisionForm.hidden = true;
+        editor.hidden = false;
+        productOpener.disabled = true;
+        renderProducts();
+        refreshTask();
+      }
     });
   }
 
   if (!projectId || (workspaceMode && !activeProductId)) return location.replace("/projects.html");
+  if (workspaceMode) {
+    acceptedWorkspaceHistoryIndex = Number.isInteger(history.state?.workspaceHistoryIndex) ? history.state.workspaceHistoryIndex : 0;
+    history.replaceState({ ...(history.state || {}), workspaceHistoryIndex: acceptedWorkspaceHistoryIndex, productId: activeProductId }, "", location.href);
+  }
   await bootstrap();
 })();

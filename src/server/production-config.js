@@ -248,6 +248,7 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
       worker
     },
     projectContent: { enabled: true },
+    operatorWorkspace: { enabled: boolean(env.OPERATOR_WORKSPACE_ENABLED, "OPERATOR_WORKSPACE_ENABLED", false) },
     copyGeneration: {
       enabled: true,
       provider: copyGenerationProvider,

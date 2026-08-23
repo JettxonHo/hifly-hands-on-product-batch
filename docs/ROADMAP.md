@@ -164,7 +164,9 @@ project/product/stage 只读聚合投影，以及人物目录专用短时 previe
 `avatar_image`、父 Asset `active`、版本 `available`；浏览器不获取内部素材 ID 或对象存储路径，首字只作为有原因的
 失败占位。Stage 1 只读取商品资料；未迁移阶段固定为 `legacy/not_loaded` 并回既有页面，不伪造状态或动作。推荐动作使用
 版本化、按 Goal additive 的 registry，未知或错阶段 code fail closed。Issue #238 的 Stage 1 Draft 只实现所需最小 shared
-foundation、只读 Product Content 投影和商品资料 workspace；独立 Review/合并前不计为完成。后续实现严格串行：Stage 2 文案、
+foundation、只读 Product Content 投影和商品资料 workspace；canonical local/demo/production 启动链具有显式 default-off
+配置，受控 demo 明确开启但继续使用 fake executor；legacy deep link 只绑定实时选中对象，dirty Back/Forward 与读取失败均
+fail-visible 恢复。独立 Review/合并前不计为完成。后续实现严格串行：Stage 2 文案、
 Stage 3 人物（secure real preview）、Stage 4 视频方案、Stage 5 Production、Post-stage 作品库、素材中心/移动收口。
 作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实
 服务端集合真值，不得前端伪造。原型只是设计输入，不得直接合并；任何实现均不自动部署。

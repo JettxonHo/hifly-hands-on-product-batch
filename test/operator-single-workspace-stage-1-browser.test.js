@@ -271,6 +271,10 @@ test("Stage 1 preserves Product Content truth across actions, history, conflicts
   await assertRecommendedAction(page, "save_product_content", "保存当前修改");
   await page.locator("#workspacePrimaryAction").click();
   await page.getByText("草稿已保存。", { exact: true }).waitFor();
+  await assertRecommendedAction(page, "mark_product_content_ready", "设为资料已就绪");
+  await page.locator("#workspacePrimaryAction").click();
+  await page.getByText("商品资料已设为就绪。", { exact: true }).waitFor();
+  await assertRecommendedAction(page, "continue_to_copy", "确认并进入文案");
   const currentRevisionId = new URL(page.url()).searchParams.get("revision");
   assert.notEqual(currentRevisionId, parentRevisionId);
 
@@ -279,6 +283,13 @@ test("Stage 1 preserves Product Content truth across actions, history, conflicts
   await assertRecommendedAction(page, "return_to_current_product_revision", "回到当前版本");
   await page.locator("#workspacePrimaryAction").click();
   await page.waitForURL((url) => url.searchParams.get("revision") === currentRevisionId);
+
+  await page.route("**/copy.js", (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+  await page.locator("#workspacePrimaryAction").click();
+  await page.waitForURL((url) => url.pathname === "/copy.html");
+  assert.equal(new URL(page.url()).searchParams.get("revision"), currentRevisionId);
+  await page.unroute("**/copy.js");
+  await page.goto(`${workspaceUrl(origin, project.id, product.id)}&revision=${currentRevisionId}`);
 
   const concurrent = await page.evaluate(async (revisionId) => {
     const csrf = decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
@@ -331,6 +342,62 @@ test("Stage 1 preserves Product Content truth across actions, history, conflicts
   await page.locator("#workspacePrimaryAction").click();
   await page.waitForFunction(() => document.querySelector("#openProductDialog")?.disabled === false);
   assert.equal(await page.getByRole("button", { name: "创建商品" }).isEnabled(), true);
+  await page.unroute(endpoint);
+
+  const staleContextUrl = new URL(workspaceUrl(origin, project.id, product.id));
+  staleContextUrl.searchParams.set("copy", "stale-copy-context");
+  staleContextUrl.searchParams.set("plan", "stale-plan-context");
+  staleContextUrl.searchParams.set("orderId", "stale-order-context");
+  await page.goto(staleContextUrl.href);
+  const secondProductButton = page.getByRole("button", { name: /云感保湿乳/ });
+  await secondProductButton.click();
+  await page.waitForURL((url) => url.searchParams.get("product") !== product.id);
+  for (const [selector, queryName] of [["#avatarStageLink", "copy"], ["#planStageLink", "plan"], ["#productionStageLink", "orderId"]]) {
+    const href = new URL(await page.locator(selector).getAttribute("href"), origin);
+    assert.equal(href.searchParams.has(queryName), false, `${queryName} must be cleared after product switch`);
+  }
+
+  const secondProductId = new URL(page.url()).searchParams.get("product");
+  const secondDescription = page.locator('textarea[name="product_description"]');
+  await secondDescription.fill("B 的未保存修改");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.goBack();
+  await page.waitForURL((url) => url.searchParams.get("product") === secondProductId);
+  assert.equal(await secondDescription.inputValue(), "B 的未保存修改");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.goBack();
+  await page.waitForURL((url) => url.searchParams.get("product") === product.id);
+  await page.waitForFunction(() => document.querySelector('#revisionForm input[name="product_name"]')?.value === "清透防晒乳 SPF50+");
+  const firstDescription = page.locator('textarea[name="product_description"]');
+  await firstDescription.fill("A 的未保存修改");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.goForward();
+  await page.waitForURL((url) => url.searchParams.get("product") === product.id);
+  assert.equal(await firstDescription.inputValue(), "A 的未保存修改");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.goForward();
+  await page.waitForURL((url) => url.searchParams.get("product") === secondProductId);
+  await page.waitForFunction(() => document.querySelector('#revisionForm input[name="product_name"]')?.value === "云感保湿乳");
+  let popstateFailed = false;
+  await page.route(endpoint, (route) => {
+    const url = new URL(route.request().url());
+    if (!popstateFailed && url.pathname === `/api/projects/${project.id}/products/${product.id}/operator-workspace`) {
+      popstateFailed = true;
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "OPERATOR_WORKSPACE_UNAVAILABLE" }) });
+    }
+    return route.continue();
+  });
+  await page.goBack();
+  await page.waitForURL((url) => url.searchParams.get("product") === product.id);
+  await page.getByText("商品资料暂时无法读取", { exact: true }).waitFor();
+  assert.equal(popstateFailed, true);
+  assert.equal(await page.locator("#revisionForm").isHidden(), true);
+  await assertRecommendedAction(page, "retry_product_content_read", "刷新当前商品");
+  await page.locator("#workspacePrimaryAction").click();
+  await page.waitForFunction(() => document.querySelector('#revisionForm input[name="product_name"]')?.value === "清透防晒乳 SPF50+");
+  assert.equal(new URL(page.url()).searchParams.get("product"), product.id);
   await page.unroute(endpoint);
 
   const invalidActions = [

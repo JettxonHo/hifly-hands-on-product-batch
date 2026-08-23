@@ -29,6 +29,12 @@
   不把 API 字段当任意 URL，也不形成 workspace 跳转循环。
 - 移动端进入详情后聚焦任务标题，返回时聚焦重绘后的 exact current 商品；创建新商品后 URL 与当前表单绑定新商品，
   不继续显示旧 active product。
+- 独立复审后补齐 canonical 配置链：local config 与 production env 显式支持 opt-in 且默认关闭，demo 明确开启并继续使用
+  fake executor；没有更改部署配置或启动任何生产执行能力。
+- legacy route 改为从实时选中 ProductRevision 及仍与该商品绑定的受控上下文生成。历史返回 current、商品切换或 revision
+  变化会清除不再匹配的 copy/plan/order 上下文，避免旧页面加载快照污染后续阶段。
+- workspace history 记录单调索引。dirty Back/Forward 取消后按方向无关的 exact delta 恢复已接受路由；接受导航时先隐藏
+  旧表单，投影、Project 或 Assets 读取失败则显示唯一 scoped refresh，成功后再恢复 exact 商品表单。
 
 ## RED -> GREEN
 
@@ -41,6 +47,13 @@
    初始 503 后唯一“刷新当前商品”可完整恢复。
 5. 浏览器纵向链 GREEN：七 action 与固定优先级、unknown/wrong-stage/wrong-kind fail closed、dirty 商品切换与刷新保护、
    Ready parent 历史返回、409 本地输入保留、商品图类型过滤及新商品 exact 选择均由公开 seam 覆盖。
+6. 独立复审配置 RED：canonical local/demo/production 启动链均无法将 feature enablement 送入 `buildApp`，只有测试装配可达。
+   GREEN 增加显式 default-off 配置与启动转发，证明 local 默认关闭/显式开启、demo fake 模式明确开启、production 默认关闭/
+   显式环境开启；没有部署。
+7. legacy deep-link RED：历史 parent 回到 current child 后进入文案仍携带 parent revision。GREEN 只使用实时 current revision，
+   并在商品切换时清除 stale copy/plan/orderId；真实 Chrome 断言旧具名上下文均不跨商品。
+8. history RED：dirty Forward 取消可能留下 URL 与可见商品不一致，popstate 503 也可能残留旧表单。GREEN 以 history index
+   恢复取消的 Back/Forward，接受导航先进入不可编辑 loading，读取失败隐藏旧表单并由唯一“刷新当前商品”恢复。
 
 ## 验证证据
 
@@ -53,6 +66,15 @@
   截图仅位于 `/private/tmp/hifly-stage-1-screenshots`，不提交 Git。
 - 默认 `npm test`：1113 total / 1098 pass / 15 existing env-gated skip / 0 fail；`npm run check`：243 个
   JavaScript 文件通过。最终 range diff、allowlist 与 fixed-head CI 以 PR 元数据和结果评论为准。
+- 复审修复新增 canonical config/start focused 25/25 pass，Stage 1 真实 Chrome 仍为 2/2 pass。复审修复期两次本地默认
+  `npm test` 均无失败断言，但分别在并发运行既有 Assets、Production Chrome 文件时长时间无日志后被明确终止；对应文件
+  单独运行分别 8/8、1/1 pass，不把两次中止记为 full-suite pass。最终 check、range diff、22-file allowlist 与新 fixed-head
+  CI 以 PR #239 结果评论和 GitHub 元数据为准。
+
+## 复审范围治理
+
+- 首轮 13-file allowlist 因 canonical enablement P1 必须最小扩为 22 files；新增仅为 `config.example.json`、六个既有
+  local/demo/production config/start 文件及三个对应 startup/safety test。没有扩 API、DB、migration、领域状态或依赖。
 
 ## 未执行边界
 

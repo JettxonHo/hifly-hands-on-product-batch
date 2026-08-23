@@ -66,8 +66,11 @@
   `gui/visual-refresh` 改动。
 - Issue #238 / 对应 Draft PR 是 Stage 1 商品资料的仓库实现 gate：新增默认关闭的 `/workspace.html` opt-in、只读取
   Product/Project/current ProductRevision 的 operator workspace projection、v1 七动作 registry，以及商品列表/当前任务/
-  辅助上下文/固定操作区。`copy/avatar/video_plan/production` 固定为 `legacy/not_loaded` 并回既有页面；只有该 PR 经独立
-  Review 合并后才表示 Stage 1 仓库实现成立，仍不表示部署或生产验收，也不授权 Stage 2。
+  辅助上下文/固定操作区。canonical local/demo/production 启动链均有显式配置路径；local 与 production 默认关闭，受控
+  demo 明确开启且继续使用 fake executor。`copy/avatar/video_plan/production` 固定为 `legacy/not_loaded` 并回既有页面；
+  路由只消费实时选中商品和 revision，商品或版本变化后不沿用旧 copy/plan/order 上下文。Back/Forward 的 dirty 取消恢复
+  exact 已接受路由，投影读取失败则隐藏旧表单并提供 scoped refresh。只有该 PR 经独立 Review 合并后才表示 Stage 1
+  仓库实现成立，仍不表示部署或生产验收，也不授权 Stage 2。
 
 ## UX V1 Slice A 仓库实现
 
@@ -570,7 +573,8 @@
    `--no-deps`、metadata override 或 resolver report 绕过；C5b Review 前不得运行 accepted benchmark。capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
    有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
 3. Issue #236 / PR #237 的单任务工作区合同已进入 `main@b7716acf` 并计为 designed。Issue #238 的 Stage 1 商品资料实现
-   仍须独立 Review 与合并；合并前不得开始 Stage 2。后续继续按 Stage 2 文案、Stage 3 人物、Stage 4 视频方案、Stage 5
+   仍须独立 Review 与合并；本地/demo/production 的显式默认关闭配置、实时 legacy deep link 与可恢复历史导航均属于本
+   gate。合并前不得开始 Stage 2。后续继续按 Stage 2 文案、Stage 3 人物、Stage 4 视频方案、Stage 5
    生产、Post-stage 作品库、素材中心/移动收口串行，且任何仓库实现均不自动成为部署或生产验收事实。
 4. 任何真实 capability probe、候选生成或再次验收都必须使用当次明确单条积分授权；若进入视频工单，还必须使用
    新批准、唯一新工单与零 attempt，不能复用或重试本次工单。

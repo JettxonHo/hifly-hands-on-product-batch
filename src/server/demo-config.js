@@ -4,6 +4,7 @@ export const DEMO_FEATURES = Object.freeze([
   "identity",
   "assets",
   "projectContent",
+  "operatorWorkspace",
   "copyGeneration",
   "copyQuality",
   "copyReview",
@@ -124,6 +125,7 @@ export function createDemoConfig({ root, port, databaseUrl } = {}) {
       worker: workerOptions()
     },
     projectContent: { enabled: true },
+    operatorWorkspace: { enabled: true },
     copyGeneration: {
       enabled: true,
       provider: "phase1_controlled_test_double",

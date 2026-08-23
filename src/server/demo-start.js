@@ -70,7 +70,7 @@ export function demoLoginUrl(baseUrl, landingPath = "/login.html") {
   return parsed.toString();
 }
 
-function appOptions(config, executor, openBrowser) {
+export function createDemoAppOptions(config, executor, openBrowser) {
   return {
     root: config.root,
     executor,
@@ -83,6 +83,7 @@ function appOptions(config, executor, openBrowser) {
     identity: config.identity,
     assets: config.assets,
     projectContent: config.projectContent,
+    operatorWorkspace: config.operatorWorkspace,
     copyGeneration: {
       ...config.copyGeneration,
       provider: createControlledCopyProvider()
@@ -126,7 +127,7 @@ export async function startDemoServer({
     config = createDemoConfig({ root: path.resolve(root), port: selectedPort, databaseUrl });
     executor = createDemoExecutor();
     try {
-      app = await buildApp(appOptions(config, executor, openBrowser));
+      app = await buildApp(createDemoAppOptions(config, executor, openBrowser));
       await app.listen({ host: "127.0.0.1", port: selectedPort });
       break;
     } catch (error) {
