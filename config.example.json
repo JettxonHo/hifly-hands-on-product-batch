@@ -59,6 +59,9 @@
     "projectContent": {
       "enabled": false
     },
+    "operatorWorkspace": {
+      "enabled": false
+    },
     "copyGeneration": {
       "enabled": false,
       "provider": "phase1_controlled_test_double",

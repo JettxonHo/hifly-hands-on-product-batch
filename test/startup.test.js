@@ -8,8 +8,10 @@ import path from "node:path";
 import { getProjectRoot } from "../src/core/project-root.js";
 import { loadConfig } from "../src/config.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
+import { createMemoryProjectContentRepository } from "../src/project-content/memory-project-content-repository.js";
 import { findAvailablePort, startServer } from "../src/server/start.js";
 import { packageArtifacts } from "../scripts/package-artifacts.mjs";
+import { activateAdmin, IDENTITY_HOST, IDENTITY_ORIGIN, identityHeaders, seededRepository } from "./helpers/identity-world.js";
 
 test("local workbench starts from a non-project cwd", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-startup-root-"));
@@ -61,6 +63,52 @@ test("config fallback resolves next to an absolute missing local config", async 
 
   assert.equal(config.__configPath, path.join(root, "config.example.json"));
   assert.equal(config.__rootDir, root);
+  assert.deepEqual(config.gui.operatorWorkspace, { enabled: false });
+});
+
+test("local workbench forwards an explicitly enabled operator workspace while remaining off by default", async (t) => {
+  const roots = await Promise.all([
+    mkdtemp(path.join(os.tmpdir(), "hifly-workspace-default-off-")),
+    mkdtemp(path.join(os.tmpdir(), "hifly-workspace-explicit-on-"))
+  ]);
+  const servers = [];
+  t.after(async () => {
+    await Promise.all(servers.map((server) => server.close()));
+    await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
+  });
+
+  const defaultServer = await startServer({
+    root: roots[0], executor: createFakeExecutor(), port: await findAvailablePort(58800), openBrowser: async () => {}, handleSignals: false
+  });
+  servers.push(defaultServer);
+  assert.equal((await defaultServer.app.inject({ method: "GET", url: "/api/runtime", headers: { host: new URL(defaultServer.url).host } })).json().operatorWorkspaceEnabled, false);
+
+  const identityRepository = await seededRepository();
+  const enabledServer = await startServer({
+    root: roots[1],
+    executor: createFakeExecutor(),
+    port: await findAvailablePort(defaultServer.port + 1),
+    openBrowser: async () => {},
+    handleSignals: false,
+    identity: {
+      enabled: true,
+      repository: identityRepository,
+      trustedHosts: [IDENTITY_HOST],
+      trustedOrigins: [IDENTITY_ORIGIN],
+      cookieSecure: false,
+      seed: { enabled: false }
+    },
+    projectContent: {
+      enabled: true,
+      repository: createMemoryProjectContentRepository(),
+      assetReferencePort: { async bindAvailableVersion(input) { return { reference: input }; } }
+    },
+    operatorWorkspace: { enabled: true }
+  });
+  servers.push(enabledServer);
+  const auth = await activateAdmin(enabledServer.app);
+  const runtime = await enabledServer.app.inject({ method: "GET", url: "/api/runtime", headers: identityHeaders({ cookies: auth.cookies }) });
+  assert.equal(runtime.json().operatorWorkspaceEnabled, true);
 });
 
 test("default port collision advances to the next available port", async (t) => {

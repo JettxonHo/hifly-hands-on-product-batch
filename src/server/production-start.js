@@ -97,6 +97,7 @@ function appOptions(config, projectRoot, pool, executor, hiflyFetch, deepseekFet
     identity: config.identity,
     assets: config.assets,
     projectContent: config.projectContent,
+    operatorWorkspace: config.operatorWorkspace,
     copyGeneration: { ...config.copyGeneration, provider: copyGenerationProvider(config, deepseekFetch) },
     copyQuality: {
       ...config.copyQuality,

@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-23
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5 合同、synthetic harness 与 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`，但没有建立 accepted environment lane；六项 blocker 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。Owner 已接受下一代运营工作台“方案 A：单任务工作区”方向；Issue #236 / 对应 PR 是正式合同与 Product/API acceptance gate，只有合同随该 PR 合并进入 main 后才计为 designed，不代表实现、部署或客户验收。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5 合同、synthetic harness 与 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`，但没有建立 accepted environment lane；六项 blocker 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同已进入 `main@b7716acf8f58edb9bc1a5f9cb1016532436fb7b4`；Issue #238 的 Stage 1 商品资料实现仍在独立 Draft acceptance gate，合并前不计为仓库实现，也不授权 Stage 2。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -43,7 +43,7 @@ P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
 P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228/#229 synthetic harness implemented → #230/#231 C5a 首轮 Evidence accepted（lane blocked）→ #232/#233 archive/license/security blocker Evidence accepted → #234/#235 patched lane/fixed model successor Evidence accepted（lane blocked）→ Owner/upstream inputs → C5b 未授权 → 受控 benchmark 未授权 → Fidelity-C～E 未开始
-P1 UX Next  单任务工作区方向 accepted → #236 正式合同/Product/API gate → Stage 1 商品资料 → Stage 2 文案 → Stage 3 人物（secure real preview）→ Stage 4 视频方案 → Stage 5 生产 → Post-stage 作品库 → 素材中心/移动收口（后续 Goals 均待独立 gate）
+P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product API gate（已完成）→ #238 Stage 1 商品资料（独立 Draft gate）→ Stage 2 文案 → Stage 3 人物（secure real preview）→ Stage 4 视频方案 → Stage 5 生产 → Post-stage 作品库 → 素材中心/移动收口（后续 Goals 均待独立 gate）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -158,13 +158,15 @@ OpenCV 4.14 patched artifacts 已存在，但最新固定 PaddleX `v3.7.2` 仍�
 route、逐 artifact 义务计划和安全 acceptance 全部解除后，才可另行决定是否授权 C5b。
 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变，Fidelity-C 产品实现继续关闭。
 
-Owner 已接受下一代运营工作台“方案 A：单任务工作区”方向，但方向接受不等于精确合同或实现完成。Issue #236 /
-对应 PR 只固化一个商品、一个稳定工作区、一个当前阶段和一个唯一推荐动作的正式合同，并审计两项最小 additive seam：
+Owner 已接受下一代运营工作台“方案 A：单任务工作区”方向。Issue #236 / PR #237 已将一个商品、一个稳定工作区、
+一个当前阶段和一个唯一推荐动作的正式合同合并进入 `main@b7716acf`，并审计两项最小 additive seam：
 project/product/stage 只读聚合投影，以及人物目录专用短时 preview authorization。人物预览必须绑定组织内真实
 `avatar_image`、父 Asset `active`、版本 `available`；浏览器不获取内部素材 ID 或对象存储路径，首字只作为有原因的
 失败占位。Stage 1 只读取商品资料；未迁移阶段固定为 `legacy/not_loaded` 并回既有页面，不伪造状态或动作。推荐动作使用
-版本化、按 Goal additive 的 registry，未知或错阶段 code fail closed。未来实现严格串行并独立 Review：Stage 1 商品资料
-（含所需最小 shared foundation/只读投影）、Stage 2 文案、
+版本化、按 Goal additive 的 registry，未知或错阶段 code fail closed。Issue #238 的 Stage 1 Draft 只实现所需最小 shared
+foundation、只读 Product Content 投影和商品资料 workspace；canonical local/demo/production 启动链具有显式 default-off
+配置，受控 demo 明确开启但继续使用 fake executor；legacy deep link 只绑定实时选中对象，dirty Back/Forward 与读取失败均
+fail-visible 恢复。独立 Review/合并前不计为完成。后续实现严格串行：Stage 2 文案、
 Stage 3 人物（secure real preview）、Stage 4 视频方案、Stage 5 Production、Post-stage 作品库、素材中心/移动收口。
 作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实
 服务端集合真值，不得前端伪造。原型只是设计输入，不得直接合并；任何实现均不自动部署。

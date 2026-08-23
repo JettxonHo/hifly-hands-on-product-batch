@@ -1,6 +1,9 @@
 (async () => {
   const params = new URLSearchParams(location.search);
-  const projectId = params.get("id");
+  const workspaceMode = document.body.classList.contains("single-workspace-page");
+  const projectId = workspaceMode ? params.get("project") : params.get("id");
+  const requestedProductId = workspaceMode ? params.get("product") : null;
+  const requestedStage = workspaceMode ? params.get("stage") || "product_content" : "product_content";
   const requestedRevisionId = params.get("revision");
   const editor = document.querySelector("#editor");
   const revisionForm = document.querySelector("#revisionForm");
@@ -16,6 +19,9 @@
   const loadLatestButton = document.querySelector("#loadLatestRevision");
   const copyLink = document.querySelector("#openCopyWorkspace");
   const copyStageLinks = [document.querySelector("#copyStageLink"), document.querySelector("#mobileCopyStageLink")];
+  const workspacePrimaryAction = document.querySelector("#workspacePrimaryAction");
+  const workspaceActionLabel = document.querySelector("#workspaceActionLabel");
+  const mobileProductBack = document.querySelector("#mobileProductBack");
   const taskTitle = document.querySelector("#taskSummaryTitle");
   const taskContext = document.querySelector("#taskContext");
   const taskStatus = document.querySelector("#taskStatus");
@@ -28,9 +34,32 @@
   let dirty = false;
   let rendering = false;
   let conflictProductId;
+  let workspaceProjection;
+  let workspaceProjectionTrusted = true;
+  let workspaceReadFailed = false;
+  let selectedProductTrigger;
+  let activeProductId = requestedProductId;
+  let acceptedWorkspaceHistoryIndex = 0;
+  let restoringWorkspaceHistoryIndex = null;
+  let legacyContext = {
+    productId: requestedProductId,
+    copy: params.get("copy"),
+    plan: params.get("plan"),
+    orderId: params.get("orderId")
+  };
   let availableAssetVersionIds = new Set();
   const revisionLabels = { draft: "草稿", ready: "商品资料已就绪", superseded: "已被替代" };
   const generalCategoryLabel = "未细分品类";
+  const workspaceActionRegistry = Object.freeze({
+    save_product_content: { stage: "product_content", kind: "command", label: "保存当前修改" },
+    load_latest_product_content: { stage: "product_content", kind: "refresh", label: "载入服务端最新版本" },
+    return_to_current_product_revision: { stage: "product_content", kind: "navigate", label: "回到当前版本" },
+    review_product_blockers: { stage: "product_content", kind: "focus", label: "查看待补资料" },
+    mark_product_content_ready: { stage: "product_content", kind: "command", label: "设为资料已就绪" },
+    continue_to_copy: { stage: "product_content", kind: "navigate", label: "确认并进入文案" },
+    retry_product_content_read: { stage: "product_content", kind: "refresh", label: "刷新当前商品" }
+  });
+  const legacyStageRoutes = Object.freeze({ copy: "/copy.html", avatar: "/avatar.html", video_plan: "/plan.html", production: "/production.html" });
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
 
   function categoryDisplayValue(value) {
@@ -88,16 +117,100 @@
     return body;
   }
 
-  function recommend(element) {
+  function legacyStageUrl(stage, selectedRevision = revision) {
+    const target = new URL(legacyStageRoutes[stage] || "/project.html", location.origin);
+    target.searchParams.set("project", projectId);
+    const selectedProductId = selectedRevision?.product_id || activeProductId;
+    if (["avatar", "video_plan", "production"].includes(stage)) target.searchParams.set("product", selectedProductId);
+    if (stage === "copy" && selectedRevision?.id) target.searchParams.set("revision", selectedRevision.id);
+    const namedContext = { avatar: "copy", video_plan: "plan", production: "orderId" }[stage];
+    if (namedContext && legacyContext.productId === selectedProductId && legacyContext[namedContext]) {
+      target.searchParams.set(namedContext, legacyContext[namedContext]);
+    }
+    return `${target.pathname}${target.search}`;
+  }
+
+  function clearLegacyContextForSelection(nextRevision) {
+    if (!revision || (revision.id === nextRevision.id && revision.product_id === nextRevision.product_id)) return;
+    legacyContext = { productId: nextRevision.product_id, copy: null, plan: null, orderId: null };
+  }
+
+  function workspaceStageUrl(stage, selectedRevision = revision) {
+    const target = new URL("/workspace.html", location.origin);
+    target.searchParams.set("project", projectId);
+    target.searchParams.set("product", selectedRevision?.product_id || activeProductId);
+    target.searchParams.set("stage", stage);
+    if (stage === "product_content" && selectedRevision?.id) target.searchParams.set("revision", selectedRevision.id);
+    return `${target.pathname}${target.search}`;
+  }
+
+  function validateWorkspaceProjection(value) {
+    if (!value || value.projection_version !== 1 || value.action_registry_version !== 1 || value.requested_stage !== requestedStage) return false;
+    const action = value.recommended_action;
+    if (action == null) return true;
+    const registered = workspaceActionRegistry[action.code];
+    return Boolean(registered && registered.stage === action.stage && registered.kind === action.kind && action.stage === "product_content");
+  }
+
+  async function loadWorkspaceProjection() {
+    if (!workspaceMode) return;
+    const body = await request(`/api/projects/${encodeURIComponent(projectId)}/products/${encodeURIComponent(activeProductId)}/operator-workspace?stage=${encodeURIComponent(requestedStage)}`);
+    workspaceProjection = body.workspace;
+    workspaceProjectionTrusted = validateWorkspaceProjection(workspaceProjection);
+    workspaceReadFailed = false;
+    const projectionVersion = document.querySelector("#workspaceProjectionVersion");
+    if (projectionVersion) projectionVersion.textContent = workspaceProjectionTrusted ? `v${workspaceProjection.projection_version} · 动作表 v${workspaceProjection.action_registry_version}` : "响应不可识别";
+    if (workspaceProjection.render_mode === "legacy") {
+      const target = legacyStageRoutes[requestedStage];
+      if (!target) throw Object.assign(new Error("INVALID_OPERATOR_WORKSPACE_STAGE"), { status: 400 });
+      location.replace(legacyStageUrl(requestedStage, { id: workspaceProjection.product.current_revision_id, product_id: workspaceProjection.product.id }));
+      return false;
+    }
+    return true;
+  }
+
+  function actionCodeForElement(element) {
+    if (element === saveButton) return "save_product_content";
+    if (element === loadLatestButton) return "load_latest_product_content";
+    if (element === returnCurrentButton) return "return_to_current_product_revision";
+    if (element === readyButton) return "mark_product_content_ready";
+    if (element === copyLink) return "continue_to_copy";
+    if (element === refreshButton) return "retry_product_content_read";
+    return null;
+  }
+
+  function setWorkspaceAction(code) {
+    if (!workspaceMode || !workspacePrimaryAction) return;
+    workspacePrimaryAction.removeAttribute("data-recommended-action");
+    workspacePrimaryAction.removeAttribute("data-action-code");
+    const registered = code ? workspaceActionRegistry[code] : null;
+    if (!workspaceProjectionTrusted || !registered || registered.stage !== "product_content") {
+      workspacePrimaryAction.disabled = true;
+      workspacePrimaryAction.textContent = "暂不可用";
+      workspaceActionLabel.textContent = workspaceProjectionTrusted ? "当前没有安全的推荐操作" : "下一步暂不可用";
+      return;
+    }
+    workspacePrimaryAction.disabled = false;
+    workspacePrimaryAction.textContent = registered.label;
+    workspaceActionLabel.textContent = registered.label;
+    workspacePrimaryAction.dataset.actionCode = code;
+    workspacePrimaryAction.dataset.recommendedAction = "true";
+  }
+
+  function recommend(element, actionCode = actionCodeForElement(element)) {
     document.querySelectorAll('[data-recommended-action="true"]').forEach((item) => item.removeAttribute("data-recommended-action"));
     [productOpener, saveButton, readyButton, refreshButton, returnCurrentButton, loadLatestButton].forEach((button) => button.classList.add("secondary"));
     copyLink.classList.add("secondary-link");
+    if (workspaceMode) {
+      setWorkspaceAction(actionCode);
+      return;
+    }
     if (element?.tagName === "BUTTON") element.classList.remove("secondary");
     if (element === copyLink) copyLink.classList.remove("secondary-link");
     element?.setAttribute("data-recommended-action", "true");
   }
 
-  function setTask({ title, status, statusClass, saved, next, blocker = "", action }) {
+  function setTask({ title, status, statusClass, saved, next, blocker = "", action, actionCode }) {
     taskTitle.textContent = title;
     taskContext.textContent = revision ? `${project.name} · ${revision.product_name || "未命名商品"}` : project?.name || "正在读取项目";
     taskStatus.className = `state ${statusClass}`;
@@ -106,14 +219,23 @@
     taskNext.textContent = next;
     taskBlocker.hidden = !blocker;
     taskBlocker.textContent = blocker;
-    recommend(action);
+    recommend(action, actionCode || actionCodeForElement(action));
   }
 
   function syncRevisionUrl() {
     const next = new URL(location.href);
+    if (workspaceMode) {
+      next.searchParams.delete("id");
+      next.searchParams.set("project", projectId);
+      if (revision?.product_id) next.searchParams.set("product", revision.product_id);
+      next.searchParams.set("stage", "product_content");
+    }
     if (revision?.id) next.searchParams.set("revision", revision.id);
     else next.searchParams.delete("revision");
-    history.replaceState(null, "", next);
+    const state = workspaceMode
+      ? { ...(history.state || {}), workspaceHistoryIndex: Number.isInteger(history.state?.workspaceHistoryIndex) ? history.state.workspaceHistoryIndex : acceptedWorkspaceHistoryIndex, productId: revision?.product_id || activeProductId }
+      : history.state;
+    history.replaceState(state, "", next);
   }
 
   function setRevisionControls() {
@@ -149,7 +271,41 @@
     return !dirty || window.confirm("当前有未保存修改。放弃这些修改并继续吗？");
   }
 
+  function showWorkspaceLayer(layer, moveFocus = false) {
+    if (!workspaceMode) return;
+    document.body.dataset.mobileLayer = layer;
+    if (!moveFocus || !matchMedia("(max-width: 680px)").matches) return;
+    if (layer === "detail") {
+      const heading = document.querySelector(".workspace-task-panel h2");
+      heading.tabIndex = -1;
+      requestAnimationFrame(() => heading.focus());
+    } else {
+      requestAnimationFrame(() => {
+        const target = selectedProductTrigger?.isConnected
+          ? selectedProductTrigger
+          : document.querySelector('#productList button[aria-current="true"]') || document.querySelector("#productList button");
+        target?.focus();
+      });
+    }
+  }
+
+  function focusFirstProductBlocker() {
+    const blockers = readyBlockers();
+    let target;
+    if (blockers.includes("填写商品名称")) target = revisionForm.product_name;
+    else if (blockers.includes("确认至少一条卖点")) target = pointList.querySelector("input") || document.querySelector("#addPoint");
+    else if (blockers.some((item) => item.includes("商品图片") || item.includes("素材"))) target = document.querySelector("#assetOptions input") || document.querySelector("#assetOptions");
+    if (!target) return;
+    if (!target.matches("input, button, select, textarea, a[href]")) target.tabIndex = -1;
+    target.focus();
+  }
+
   function refreshTask() {
+    if (workspaceMode && workspaceReadFailed) {
+      disableStageLinks();
+      setTask({ title: "商品资料暂时无法读取", status: "读取失败", statusClass: "failure", saved: dirty ? "本地修改仍保留" : "未载入", next: "刷新当前商品", blocker: "未读取到当前商品的权威状态。", action: refreshButton, actionCode: "retry_product_content_read" });
+      return;
+    }
     if (!revision) {
       setTask({ title: "创建第一个商品", status: "尚未开始", statusClass: "unavailable", saved: "无商品", next: "创建第一个商品", action: productOpener });
     } else if (dirty) {
@@ -157,11 +313,12 @@
     } else if (isHistoricalRevision(revision) || revision.status === "superseded") {
       setTask({ title: revision.product_name, status: "历史版本", statusClass: "superseded", saved: "只读版本", next: "回到当前版本", blocker: "该版本仅供追溯，不能继续修改。", action: returnCurrentButton.hidden ? null : returnCurrentButton });
     } else if (revision.status === "ready") {
-      setTask({ title: revision.product_name, status: "商品资料已就绪", statusClass: "ready", saved: "已保存", next: runtime?.copyGenerationEnabled ? "进入文案" : "等待文案功能启用", action: runtime?.copyGenerationEnabled ? copyLink : null });
+      const copyAvailable = workspaceMode || runtime?.copyGenerationEnabled === true;
+      setTask({ title: revision.product_name, status: "商品资料已就绪", statusClass: "ready", saved: "已保存", next: copyAvailable ? "进入文案" : "等待文案功能启用", action: copyAvailable ? copyLink : null });
     } else {
       const blockers = readyBlockers();
       if (blockers.length) {
-        setTask({ title: revision.product_name || "未命名商品", status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "补齐资料就绪条件", blocker: `${blockers.length} 项待处理：${blockers.join("、")}`, action: null });
+        setTask({ title: revision.product_name || "未命名商品", status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "补齐资料就绪条件", blocker: `${blockers.length} 项待处理：${blockers.join("、")}`, action: null, actionCode: "review_product_blockers" });
       } else {
         setTask({ title: revision.product_name, status: "草稿", statusClass: "draft", saved: "已保存", next: "检查并设为资料已就绪", action: readyButton });
       }
@@ -175,7 +332,42 @@
     refreshTask();
   }
 
+  workspacePrimaryAction?.addEventListener("click", () => {
+    const code = workspacePrimaryAction.dataset.actionCode;
+    const registered = workspaceActionRegistry[code];
+    if (!workspaceProjectionTrusted || !registered || registered.stage !== "product_content") return;
+    if (code === "save_product_content") saveButton.click();
+    else if (code === "load_latest_product_content") loadLatestButton.click();
+    else if (code === "return_to_current_product_revision") returnCurrentButton.click();
+    else if (code === "review_product_blockers") focusFirstProductBlocker();
+    else if (code === "mark_product_content_ready") readyButton.click();
+    else if (code === "continue_to_copy") location.assign(legacyStageUrl("copy"));
+    else if (code === "retry_product_content_read") refreshButton.click();
+  });
+
+  mobileProductBack?.addEventListener("click", () => showWorkspaceLayer("list", true));
+
+  function disableStageLinks() {
+    for (const link of document.querySelectorAll("[data-stage-code]")) {
+      link.removeAttribute("href");
+      link.setAttribute("aria-disabled", "true");
+      const stateNode = link.closest("li") || link;
+      stateNode.dataset.stageState = "blocked";
+    }
+  }
+
   function syncStageLinks() {
+    if (workspaceMode) {
+      const stageLinks = document.querySelectorAll("[data-stage-code]");
+      for (const link of stageLinks) {
+        const stage = link.dataset.stageCode;
+        link.href = stage === "product_content" ? workspaceStageUrl(stage) : legacyStageUrl(stage);
+        link.removeAttribute("aria-disabled");
+        const stateNode = link.closest("li") || link;
+        stateNode.dataset.stageState = stage === "product_content" ? "current" : "available";
+      }
+      return;
+    }
     const available = runtime?.copyGenerationEnabled === true && revision?.status === "ready" && !isHistoricalRevision(revision);
     const href = available ? `/copy.html?project=${encodeURIComponent(projectId)}&revision=${encodeURIComponent(revision.id)}` : "";
     window.HiflyOperatorStages.set(copyStageLinks, available ? "available" : "blocked");
@@ -226,6 +418,7 @@
   }
 
   function renderRevision(value) {
+    clearLegacyContextForSelection(value);
     revision = value;
     dirty = false;
     conflictProductId = undefined;
@@ -233,6 +426,7 @@
     rendering = true;
     syncRevisionUrl();
     editor.hidden = false;
+    revisionForm.hidden = false;
     const state = document.querySelector("#revisionState");
     state.className = `state ${revision.status}`;
     state.textContent = `${revisionLabels[revision.status] || "状态待确认"} · v${revision.revision_number}`;
@@ -251,7 +445,7 @@
     revisionForm.weight_value.value = dimensions.weight?.value ?? "";
     revisionForm.weight_unit.value = dimensions.weight?.unit || "";
     pointList.replaceChildren(...revision.selling_points.map(pointRow));
-    copyLink.hidden = runtime?.copyGenerationEnabled !== true || revision.status !== "ready" || isHistoricalRevision(revision);
+    copyLink.hidden = (!workspaceMode && runtime?.copyGenerationEnabled !== true) || revision.status !== "ready" || isHistoricalRevision(revision);
     copyLink.href = `/copy.html?project=${encodeURIComponent(projectId)}&revision=${encodeURIComponent(revision.id)}`;
     syncStageLinks();
     const current = currentRevisionForProduct(revision.product_id);
@@ -289,8 +483,17 @@
       button.append(name, meta);
       button.addEventListener("click", async () => {
         if (!confirmDiscardChanges()) return;
+        selectedProductTrigger = button;
+        activeProductId = item.id;
+        if (workspaceMode) {
+          const next = new URL(workspaceStageUrl("product_content", item.revision), location.origin);
+          const workspaceHistoryIndex = acceptedWorkspaceHistoryIndex + 1;
+          history.pushState({ workspaceHistoryIndex, productId: item.id }, "", next);
+          acceptedWorkspaceHistoryIndex = workspaceHistoryIndex;
+        }
         renderRevision(item.revision);
         await refreshAssets();
+        if (workspaceMode) showWorkspaceLayer("detail", true);
       });
       list.append(button);
     }
@@ -304,6 +507,7 @@
         throw Object.assign(new Error("PRODUCT_REVISION_RESPONSE_INVALID"), { status: 502 });
       }
       const productVisibleInProject = project.products.some((item) => item.id === candidate.product_id && item.revision.product_id === candidate.product_id);
+      if (workspaceMode && activeProductId && candidate.product_id !== activeProductId) return null;
       return candidate.project_id === project.id && productVisibleInProject ? candidate : null;
     } catch (error) {
       if (error.message === "AUTH_REQUIRED") throw error;
@@ -312,7 +516,7 @@
     }
   }
 
-  async function loadProject(selectRevisionId = revision?.id || requestedRevisionId, selectProductId) {
+  async function loadProject(selectRevisionId = revision?.id || requestedRevisionId, selectProductId = workspaceMode ? activeProductId : null) {
     project = (await request(`/api/projects/${projectId}`)).project;
     const projectName = document.querySelector("#projectName");
     projectName.textContent = project.name;
@@ -320,8 +524,11 @@
     const selected = selectProductId
       ? project.products.find((item) => item.id === selectProductId || item.revision.product_id === selectProductId)
       : project.products.find((item) => item.revision.id === selectRevisionId);
+    if (workspaceMode && !selected && !selectRevisionId) throw Object.assign(new Error("OPERATOR_WORKSPACE_NOT_FOUND"), { status: 404 });
     const historicalRevision = selected ? null : await requestedProjectRevision(selectRevisionId);
-    const selectedRevision = selected?.revision || historicalRevision || project.products[0]?.revision;
+    const selectedRevision = selected?.revision || historicalRevision || (workspaceMode ? null : project.products[0]?.revision);
+    if (workspaceMode && !selectedRevision) throw Object.assign(new Error("OPERATOR_WORKSPACE_NOT_FOUND"), { status: 404 });
+    if (selectedRevision) activeProductId = selectedRevision.product_id;
     if (selectedRevision) renderRevision(selectedRevision);
     else {
       editor.hidden = true;
@@ -397,6 +604,7 @@
     notice.textContent = "正在保存...";
     saveStatus.textContent = "保存中";
     saveButton.disabled = true;
+    if (workspaceMode) setWorkspaceAction(null);
     try {
       const saved = (await request(`/api/product-revisions/${revision.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(payload()) })).revision;
       await loadProject(saved.id);
@@ -446,7 +654,8 @@
       const result = await request(`/api/projects/${projectId}/products`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ product_name: productForm.product_name.value }) });
       productForm.reset();
       productDialog.close();
-      await loadProject(result.revision.id);
+      if (workspaceMode) activeProductId = result.product.id;
+      await loadProject(result.revision.id, workspaceMode ? result.product.id : null);
       await refreshAssets();
     } catch (error) {
       if (error.message !== "AUTH_REQUIRED") document.querySelector("#productError").textContent = "商品创建失败，请重试。";
@@ -462,8 +671,17 @@
   document.querySelector("#addPoint").addEventListener("click", () => { pointList.append(pointRow()); markDirty(); });
   refreshButton.addEventListener("click", async () => {
     if (!confirmDiscardChanges()) return;
-    await loadProject();
-    await refreshAssets();
+    try {
+      if (workspaceMode && !(await loadWorkspaceProjection())) return;
+      await loadProject(null, workspaceMode ? activeProductId : null);
+      await refreshAssets();
+      workspaceReadFailed = false;
+      productOpener.disabled = false;
+    } catch (error) {
+      if (error.message === "AUTH_REQUIRED") return;
+      workspaceReadFailed = true;
+      refreshTask();
+    }
   });
   loadLatestButton.addEventListener("click", async () => {
     if (!confirmDiscardChanges()) return;
@@ -490,13 +708,13 @@
         await refreshAssets();
         notice.className = "notice blocked";
         notice.textContent = "素材已不可引用，请重新选择。";
-        setTask({ title: revision.product_name, status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "重新选择商品图片", blocker: "原商品图片已失效或不可用。", action: null });
+        setTask({ title: revision.product_name, status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "重新选择商品图片", blocker: "原商品图片已失效或不可用。", action: null, actionCode: "review_product_blockers" });
       } else if (error.message === "PRODUCT_REVISION_READY_BLOCKED") {
         const labels = { PRODUCT_NAME_REQUIRED: "填写商品名称", SELLING_POINT_REQUIRED: "确认至少一条卖点", IMAGE_REQUIRED: "选择至少一张可引用图片" };
         const blocker = error.body.reasons.map((item) => labels[item.code]).join("、");
         notice.className = "notice blocked";
         notice.textContent = `暂不能设为资料已就绪：${blocker}。`;
-        setTask({ title: revision.product_name, status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "补齐资料就绪条件", blocker, action: null });
+        setTask({ title: revision.product_name, status: "需要处理", statusClass: "requires_action", saved: "已保存", next: "补齐资料就绪条件", blocker, action: null, actionCode: "review_product_blockers" });
       } else {
         notice.className = "notice error";
         notice.textContent = "资料就绪操作失败，请稍后重试。";
@@ -514,18 +732,95 @@
   document.querySelector("#closeProductDialog").addEventListener("click", () => productDialog.close());
   productDialog.addEventListener("close", () => productOpener.focus());
 
-  if (!projectId) return location.replace("/projects.html");
-  try {
-    runtime = await request("/api/runtime");
-    if (!runtime.projectContentEnabled) return location.replace("/");
-    await loadProject();
-    await refreshAssets();
-  } catch (error) {
-    if (error.message !== "AUTH_REQUIRED") {
-      editor.hidden = true;
+  function fallbackFromWorkspace() {
+    if (requestedStage !== "product_content" && legacyStageRoutes[requestedStage]) return location.replace(legacyStageUrl(requestedStage));
+    const target = new URL("/project.html", location.origin);
+    target.searchParams.set("id", projectId);
+    if (requestedRevisionId) target.searchParams.set("revision", requestedRevisionId);
+    return location.replace(`${target.pathname}${target.search}`);
+  }
+
+  async function bootstrap() {
+    try {
+      runtime = await request("/api/runtime");
+      if (!runtime.projectContentEnabled) return location.replace("/");
+      if (workspaceMode) {
+        if (runtime.operatorWorkspaceEnabled !== true) return fallbackFromWorkspace();
+        if (!(await loadWorkspaceProjection())) return;
+      }
+      await loadProject(requestedRevisionId, workspaceMode && !requestedRevisionId ? activeProductId : null);
+      await refreshAssets();
+      workspaceReadFailed = false;
+      productOpener.disabled = false;
+      if (workspaceMode) showWorkspaceLayer("detail", false);
+    } catch (error) {
+      if (error.message === "AUTH_REQUIRED") return;
+      editor.hidden = workspaceMode ? false : true;
       productOpener.disabled = true;
+      workspaceReadFailed = workspaceMode;
       const returnLink = document.querySelector('.eyebrow a[href="/projects.html"]');
-      setTask({ title: "商品工作区暂时无法载入", status: "加载失败", statusClass: "failure", saved: "未载入", next: "返回项目列表", blocker: "项目或商品信息未载入。", action: returnLink });
+      if (workspaceMode) disableStageLinks();
+      setTask({ title: "商品工作区暂时无法载入", status: "加载失败", statusClass: "failure", saved: "未载入", next: workspaceMode ? "刷新当前商品" : "返回项目列表", blocker: "项目或商品信息未载入。", action: workspaceMode ? refreshButton : returnLink, actionCode: workspaceMode ? "retry_product_content_read" : null });
     }
   }
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!dirty) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+  if (workspaceMode) {
+    window.addEventListener("popstate", async (event) => {
+      const targetIndex = Number.isInteger(event.state?.workspaceHistoryIndex) ? event.state.workspaceHistoryIndex : null;
+      if (restoringWorkspaceHistoryIndex != null && targetIndex === restoringWorkspaceHistoryIndex) {
+        restoringWorkspaceHistoryIndex = null;
+        return;
+      }
+      restoringWorkspaceHistoryIndex = null;
+      const next = new URLSearchParams(location.search);
+      const productId = next.get("product");
+      if (!productId || productId === activeProductId) return;
+      if (!confirmDiscardChanges()) {
+        const delta = targetIndex == null ? 0 : acceptedWorkspaceHistoryIndex - targetIndex;
+        if (delta !== 0) {
+          restoringWorkspaceHistoryIndex = acceptedWorkspaceHistoryIndex;
+          history.go(delta);
+        } else {
+          history.replaceState({ ...(history.state || {}), workspaceHistoryIndex: acceptedWorkspaceHistoryIndex, productId: activeProductId }, "", workspaceStageUrl("product_content"));
+        }
+        return;
+      }
+      activeProductId = productId;
+      if (targetIndex != null) acceptedWorkspaceHistoryIndex = targetIndex;
+      revisionForm.hidden = true;
+      productOpener.disabled = true;
+      disableStageLinks();
+      setTask({ title: "正在载入商品资料", status: "加载中", statusClass: "processing", saved: "等待权威状态", next: "载入完成后继续", blocker: "", action: null });
+      try {
+        if (!(await loadWorkspaceProjection())) return;
+        await loadProject(null, activeProductId);
+        await refreshAssets();
+        workspaceReadFailed = false;
+        productOpener.disabled = false;
+        showWorkspaceLayer("detail", false);
+      } catch (error) {
+        if (error.message === "AUTH_REQUIRED") return;
+        revision = undefined;
+        dirty = false;
+        workspaceReadFailed = true;
+        revisionForm.hidden = true;
+        editor.hidden = false;
+        productOpener.disabled = true;
+        renderProducts();
+        refreshTask();
+      }
+    });
+  }
+
+  if (!projectId || (workspaceMode && !activeProductId)) return location.replace("/projects.html");
+  if (workspaceMode) {
+    acceptedWorkspaceHistoryIndex = Number.isInteger(history.state?.workspaceHistoryIndex) ? history.state.workspaceHistoryIndex : 0;
+    history.replaceState({ ...(history.state || {}), workspaceHistoryIndex: acceptedWorkspaceHistoryIndex, productId: activeProductId }, "", location.href);
+  }
+  await bootstrap();
 })();

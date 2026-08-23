@@ -270,6 +270,7 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   assert.equal(config.copyQuality.evaluator, "phase1_controlled_test_double");
   assert.equal(config.copyQuality.rewriter, "phase1_controlled_test_double");
   assert.equal(config.hiflyApi.enabled, false);
+  assert.deepEqual(config.operatorWorkspace, { enabled: false });
   assert.equal(config.localAgentExecution.enabled, false);
   assert.equal(config.localAgentExecution.token, null);
   assert.deepEqual(config.cloudExecutor, {
@@ -292,6 +293,12 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   });
   assert.equal(withHiflyToken.hiflyApi.enabled, true);
   assert.equal(withHiflyToken.hiflyApi.token, "test-hifly-token");
+
+  const withOperatorWorkspace = createProductionConfig({
+    root: "/tmp/hifly-production-test",
+    env: productionEnv({ OPERATOR_WORKSPACE_ENABLED: "true" })
+  });
+  assert.deepEqual(withOperatorWorkspace.operatorWorkspace, { enabled: true });
 
   for (const missing of ["LOCAL_AGENT_ID", "LOCAL_AGENT_ORGANIZATION_ID", "LOCAL_AGENT_TOKEN"]) {
     const env = productionEnv({
@@ -658,6 +665,7 @@ test("production server binds once on 0.0.0.0 without opening a browser", async 
     root: "/tmp/hifly-production-test",
     env: productionEnv({
       PORT: "4319",
+      OPERATOR_WORKSPACE_ENABLED: "true",
       CLOUD_EXECUTOR_ENABLED: "true",
       CLOUD_EXECUTOR_MODE: "playwright",
       CLOUD_EXECUTOR_ID: "cloud-web-1",
@@ -682,6 +690,7 @@ test("production server binds once on 0.0.0.0 without opening a browser", async 
   assert.equal(buildOptions.databasePool, pool);
   assert.equal(buildOptions.closeDatabasePool, false);
   assert.equal(buildOptions.startupMigrations, false);
+  assert.deepEqual(buildOptions.operatorWorkspace, { enabled: true });
   assert.equal(buildOptions.localAgentExecution.enabled, false);
   assert.deepEqual(buildOptions.cloudExecutor, {
     enabled: true,

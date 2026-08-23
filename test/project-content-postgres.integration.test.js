@@ -12,6 +12,7 @@ import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { createPostgresProjectContentRepository } from "../src/project-content/postgres-project-content-repository.js";
 import { createProjectContentService } from "../src/project-content/project-content-service.js";
 import { runProjectContentMigrations } from "../src/project-content/postgres.js";
+import { createOperatorWorkspaceService } from "../src/operator-workspace/operator-workspace-service.js";
 
 const connectionString = process.env.PROJECT_CONTENT_TEST_DATABASE_URL;
 
@@ -47,7 +48,23 @@ test("clean PostgreSQL project-content migration and shared A03 transaction roll
   const service = createProjectContentService({ repository, assetReferencePort: assetService.assetReferencePort });
   const actor = { organizationId: "org_pg", actorMemberId: seeded.member.id };
   const project = await service.createProject({ ...actor, idempotencyKey: "pg-project", name: "计划" });
-  const { revision } = await service.createProduct({ ...actor, projectId: project.id, idempotencyKey: "pg-product", productName: "商品" });
+  const { product, revision } = await service.createProduct({ ...actor, projectId: project.id, idempotencyKey: "pg-product", productName: "商品" });
+  const operatorWorkspace = createOperatorWorkspaceService({ projectContentService: service });
+  const projection = await operatorWorkspace.getWorkspace({ ...actor, projectId: project.id, productId: product.id, stage: "product_content" });
+  assert.deepEqual(projection.project, { id: project.id, name: "计划" });
+  assert.deepEqual(projection.product, { id: product.id, name: "商品", current_revision_id: revision.id });
+  assert.deepEqual(projection.stages[0].current_object, { type: "product_revision", id: revision.id });
+  assert.equal(projection.stages[0].read_status, "ok");
+  assert.equal(projection.stages[1].read_status, "not_loaded");
+  assert.deepEqual(projection.stages[1].blocker_codes, []);
+  await assert.rejects(
+    operatorWorkspace.getWorkspace({ ...actor, projectId: project.id, productId: randomUUID(), stage: "product_content" }),
+    { code: "OPERATOR_WORKSPACE_NOT_FOUND" }
+  );
+  await assert.rejects(
+    operatorWorkspace.getWorkspace({ organizationId: "org_other", actorMemberId: actor.actorMemberId, projectId: project.id, productId: product.id, stage: "product_content" }),
+    { code: "OPERATOR_WORKSPACE_NOT_FOUND" }
+  );
   assert.equal(revision.physical_dimensions, null);
   assert.equal((await pool.query("SELECT physical_dimensions IS NULL is_null FROM project_content_product_revisions WHERE id=$1", [revision.id])).rows[0].is_null, true);
   const available = await insertAssetVersion(pool, actor.organizationId, actor.actorMemberId, "available");

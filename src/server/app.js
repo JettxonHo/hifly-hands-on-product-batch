@@ -9,6 +9,7 @@ import { createPostgresAssetRepository } from "../assets/postgres-asset-reposito
 import { createVerificationWorker } from "../assets/verification-worker.js";
 import { createProjectContentService } from "../project-content/project-content-service.js";
 import { createPostgresProjectContentRepository } from "../project-content/postgres-project-content-repository.js";
+import { createOperatorWorkspaceService } from "../operator-workspace/operator-workspace-service.js";
 import { createControlledCopyProvider } from "../copy-generation/controlled-provider.js";
 import { createCopyGenerationService } from "../copy-generation/copy-generation-service.js";
 import { createCopyGenerationWorker } from "../copy-generation/copy-generation-worker.js";
@@ -59,6 +60,7 @@ import { createExecutionCoordinator, registerExecutionRoutes } from "./routes/ex
 import { registerImportRoutes } from "./routes/imports.js";
 import { registerRpaCallbackRoutes } from "./routes/rpa-callbacks.js";
 import { registerProjectContentRoutes } from "./routes/project-content.js";
+import { registerOperatorWorkspaceRoutes } from "./routes/operator-workspace.js";
 import { registerCopyGenerationRoutes } from "./routes/copy-generation.js";
 import { registerCopyQualityRoutes } from "./routes/copy-quality.js";
 import { registerCopyReviewRoutes } from "./routes/copy-review.js";
@@ -268,6 +270,9 @@ function apiError(error, request = null) {
   if (error?.code === "PRODUCT_REVISION_READY_BLOCKED") {
     return { statusCode: 422, code: error.code, reasons: error.reasons };
   }
+  if (error?.code === "OPERATOR_WORKSPACE_NOT_FOUND") return { statusCode: 404, code: error.code };
+  if (error?.code === "INVALID_OPERATOR_WORKSPACE_STAGE") return { statusCode: 400, code: error.code };
+  if (error?.code === "OPERATOR_WORKSPACE_UNAVAILABLE") return { statusCode: 503, code: error.code };
   if (["PROJECT_CONTENT_CONTEXT_REQUIRED", "PROJECT_NAME_REQUIRED", "INVALID_CONTENT_BRIEF", "INVALID_PHYSICAL_DIMENSIONS",
     "INVALID_SELLING_POINTS", "INVALID_SELLING_POINT_ID", "SELLING_POINT_EMPTY"].includes(error?.code)) {
     return { statusCode: 400, code: error.code };
@@ -331,6 +336,7 @@ export async function buildApp({
   identity: identityOptions = null,
   assets: assetOptions = null,
   projectContent: projectContentOptions = null,
+  operatorWorkspace: operatorWorkspaceOptions = null,
   copyGeneration: copyGenerationOptions = null,
   copyQuality: copyQualityOptions = null,
   copyReview: copyReviewOptions = null,
@@ -357,6 +363,7 @@ export async function buildApp({
   const identityEnabled = identityOptions?.enabled === true;
   const assetsEnabled = assetOptions?.enabled === true;
   const projectContentEnabled = projectContentOptions?.enabled === true;
+  const operatorWorkspaceEnabled = operatorWorkspaceOptions?.enabled === true;
   const copyGenerationEnabled = copyGenerationOptions?.enabled === true;
   const copyQualityEnabled = copyQualityOptions?.enabled === true;
   const copyReviewEnabled = copyReviewOptions?.enabled === true;
@@ -380,6 +387,7 @@ export async function buildApp({
     : null;
   if (assetsEnabled && !identityEnabled) throw Object.assign(new Error("ASSETS_REQUIRE_IDENTITY"), { code: "ASSETS_REQUIRE_IDENTITY" });
   if (projectContentEnabled && !identityEnabled) throw Object.assign(new Error("PROJECT_CONTENT_REQUIRES_IDENTITY"), { code: "PROJECT_CONTENT_REQUIRES_IDENTITY" });
+  if (operatorWorkspaceEnabled && !projectContentEnabled) throw Object.assign(new Error("OPERATOR_WORKSPACE_REQUIRES_PROJECT_CONTENT"), { code: "OPERATOR_WORKSPACE_REQUIRES_PROJECT_CONTENT" });
   if (copyGenerationEnabled && !projectContentEnabled) throw Object.assign(new Error("COPY_GENERATION_REQUIRES_PROJECT_CONTENT"), { code: "COPY_GENERATION_REQUIRES_PROJECT_CONTENT" });
   if (copyQualityEnabled && !copyGenerationEnabled) throw Object.assign(new Error("COPY_QUALITY_REQUIRES_COPY_GENERATION"), { code: "COPY_QUALITY_REQUIRES_COPY_GENERATION" });
   if (copyReviewEnabled && !copyQualityEnabled) throw Object.assign(new Error("COPY_REVIEW_REQUIRES_COPY_QUALITY"), { code: "COPY_REVIEW_REQUIRES_COPY_QUALITY" });
@@ -501,6 +509,7 @@ export async function buildApp({
       executionBackend: generationConfig.executionBackend || "playwright",
       assetsEnabled,
       projectContentEnabled,
+      operatorWorkspaceEnabled,
       copyGenerationEnabled,
       copyQualityEnabled,
       copyReviewEnabled,
@@ -582,6 +591,11 @@ export async function buildApp({
     app.decorate("projectContent", { repository: projectContentRepository, service: projectContentService, productRevisionPort: projectContentService.productRevisionPort });
     app.addHook("onClose", async () => projectContentRepository.close?.());
     await registerProjectContentRoutes(app, { service: projectContentService });
+    if (operatorWorkspaceEnabled) {
+      const operatorWorkspaceService = createOperatorWorkspaceService({ projectContentService });
+      app.decorate("operatorWorkspace", { service: operatorWorkspaceService });
+      await registerOperatorWorkspaceRoutes(app, { service: operatorWorkspaceService });
+    }
   }
   if (copyGenerationEnabled) {
     const repository = copyGenerationOptions.repository || (sharedPool ? createPostgresCopyGenerationRepository({ pool: sharedPool }) : null);

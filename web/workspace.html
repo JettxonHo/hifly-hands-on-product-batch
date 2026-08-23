@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>商品工作区 · 飞影企业工作台</title>
+    <link rel="stylesheet" href="/tokens.css">
+    <link rel="stylesheet" href="/base.css">
+    <link rel="stylesheet" href="/shell.css">
+    <link rel="stylesheet" href="/project-content.css">
+    <link rel="stylesheet" href="/operator-task-flow.css">
+    <link rel="stylesheet" href="/workspace.css">
+    <script src="/shell.js" defer></script>
+    <script src="/project.js" defer></script>
+  </head>
+  <body class="operator-task-page single-workspace-page" data-shell-page="projects" data-workspace-stage="product_content">
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="app-sidebar">
+        <a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a>
+        <nav class="app-nav" aria-label="主导航">
+          <a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a>
+          <a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a>
+          <a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a>
+        </nav>
+      </aside>
+      <div class="app-frame workspace-frame">
+        <header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
+        <main id="mainContent" class="page-content workspace-content">
+          <header class="workspace-object-header">
+            <div><p class="eyebrow"><a href="/projects.html">项目</a> / 单任务工作区</p><h1 id="projectName">正在加载...</h1><p class="page-description">一个商品、一个当前阶段、一个清晰下一步。</p></div>
+            <button id="openProductDialog" class="secondary" type="button">创建商品</button>
+          </header>
+
+          <nav class="stage-strip stage-desktop workspace-stages" aria-label="项目阶段">
+            <a id="productStageLink" href="#" aria-current="step" data-stage-code="product_content" data-stage-state="current"><span>1</span>商品资料</a>
+            <a id="copyStageLink" href="#" data-stage-code="copy" data-stage-state="available"><span>2</span>文案</a>
+            <a id="avatarStageLink" href="#" data-stage-code="avatar" data-stage-state="available"><span>3</span>人物</a>
+            <a id="planStageLink" href="#" data-stage-code="video_plan" data-stage-state="available"><span>4</span>视频方案</a>
+            <a id="productionStageLink" href="#" data-stage-code="production" data-stage-state="available"><span>5</span>生产</a>
+          </nav>
+          <details class="stage-mobile workspace-mobile-stages">
+            <summary>阶段 1/5 · 商品资料</summary>
+            <ol>
+              <li aria-current="step" data-stage-state="current"><a id="mobileProductStageLink" href="#" data-stage-code="product_content">商品资料</a></li>
+              <li data-stage-state="available"><a id="mobileCopyStageLink" href="#" data-stage-code="copy">文案</a></li>
+              <li data-stage-state="available"><a id="mobileAvatarStageLink" href="#" data-stage-code="avatar">人物</a></li>
+              <li data-stage-state="available"><a id="mobilePlanStageLink" href="#" data-stage-code="video_plan">视频方案</a></li>
+              <li data-stage-state="available"><a id="mobileProductionStageLink" href="#" data-stage-code="production">生产</a></li>
+            </ol>
+          </details>
+
+          <div class="single-workspace-layout">
+            <section class="workspace-panel workspace-product-panel" data-workspace-panel="product-list" aria-labelledby="productListTitle">
+              <div class="workspace-panel-heading"><div><p class="eyebrow">本项目商品</p><h2 id="productListTitle">选择商品</h2></div></div>
+              <div id="productList" class="product-list" aria-live="polite"></div>
+            </section>
+
+            <section id="editor" class="workspace-panel workspace-task-panel product-editor" data-workspace-panel="current-task" hidden>
+              <div class="workspace-panel-heading task-panel-heading">
+                <div><p class="eyebrow">当前任务</p><h2>确认商品资料</h2><span id="revisionState" class="state"></span></div>
+                <div class="button-row task-toolbar"><button id="mobileProductBack" class="secondary mobile-layer-control" type="button">返回商品列表</button><button id="returnCurrentRevision" class="secondary" type="button" hidden>回到当前版本</button><button id="loadLatestRevision" class="secondary" type="button" hidden>载入服务端最新版本</button><button id="refreshRevision" class="secondary" type="button" data-refresh-scope="current-product">刷新当前商品</button></div>
+              </div>
+              <form id="revisionForm" class="grid workspace-form">
+                <label>商品名称<input name="product_name" required></label><label>品类<input name="primary_category" value="未细分品类"></label>
+                <label class="wide">商品说明<textarea name="product_description" rows="3"></textarea></label>
+                <label>表达风格<input name="expression_style"></label><label>补充要求<input name="additional_requirements"></label>
+                <section class="wide fact-panel" aria-labelledby="physicalDimensionsTitle">
+                  <div class="fact-heading"><div><h3 id="physicalDimensionsTitle">实物尺寸</h3><p>记录真实尺寸；未知请留空，不从图片像素推断。</p></div></div>
+                  <div class="fact-grid">
+                    <label for="physicalHeight">高度</label><input id="physicalHeight" name="physical_height" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="physicalWidth">宽度</label><input id="physicalWidth" name="physical_width" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="physicalDepth">深度（可选）</label><input id="physicalDepth" name="physical_depth" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="physicalUnit">尺寸单位</label><select id="physicalUnit" name="physical_unit"><option value="">未知</option><option value="mm">毫米（mm）</option><option value="cm">厘米（cm）</option><option value="m">米（m）</option></select>
+                    <label for="capacityValue">容量数值（可选）</label><input id="capacityValue" name="capacity_value" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="capacityUnit">容量单位</label><select id="capacityUnit" name="capacity_unit"><option value="">未知</option><option value="ml">毫升（ml）</option><option value="l">升（l）</option></select>
+                    <label for="weightValue">重量数值（可选）</label><input id="weightValue" name="weight_value" type="number" min="0.000001" step="any" inputmode="decimal">
+                    <label for="weightUnit">重量单位</label><select id="weightUnit" name="weight_unit"><option value="">未知</option><option value="g">克（g）</option><option value="kg">千克（kg）</option></select>
+                  </div>
+                </section>
+                <div class="wide"><div class="section-head"><strong>核心卖点</strong><button id="addPoint" class="secondary" type="button">新增卖点</button></div><div id="pointList" class="point-list"></div></div>
+                <div class="wide"><strong>商品图片</strong><div id="assetOptions" class="asset-options"><p class="empty">正在加载素材...</p></div></div>
+                <div class="actions wide inline-save-actions"><p id="editorNotice" class="notice" role="status"></p><div class="button-row"><button id="saveDraft" class="secondary" type="submit">保存草稿</button><button id="readyRevision" class="secondary" type="button">设为资料已就绪</button><a id="openCopyWorkspace" class="workspace-link secondary-link" href="/copy.html" hidden>进入文案</a></div></div>
+              </form>
+            </section>
+
+            <aside class="workspace-panel workspace-context-panel" data-workspace-panel="supporting-context" aria-labelledby="taskSummaryTitle">
+              <section class="workspace-task-summary" aria-label="当前任务摘要" aria-live="polite">
+                <div><p class="eyebrow">辅助上下文</p><h2 id="taskSummaryTitle">载入商品工作区</h2></div>
+                <dl class="workspace-facts">
+                  <div><dt>当前对象</dt><dd id="taskContext">正在读取项目</dd></div>
+                  <div><dt>业务状态</dt><dd id="taskStatus" class="state upload_pending">正在加载</dd></div>
+                  <div><dt>保存状态</dt><dd id="saveStatus">等待载入</dd></div>
+                  <div><dt>下一步</dt><dd id="taskNext">等待商品载入</dd></div>
+                </dl>
+                <p id="taskBlocker" class="task-summary-blocker" hidden></p>
+              </section>
+              <details class="operator-technical-details"><summary>技术与审计详情</summary><dl class="workspace-technical-facts"><div><dt>投影版本</dt><dd id="workspaceProjectionVersion">待载入</dd></div><div><dt>当前阶段</dt><dd>product_content</dd></div></dl></details>
+            </aside>
+          </div>
+        </main>
+        <div id="workspaceActionBar" class="workspace-action-bar" aria-live="polite">
+          <div><span>下一步</span><strong id="workspaceActionLabel">正在读取当前任务</strong></div>
+          <button id="workspacePrimaryAction" type="button" disabled>请稍候</button>
+        </div>
+      </div>
+    </div>
+    <dialog id="productDialog" aria-labelledby="productDialogTitle">
+      <div class="dialog-header"><div><p class="eyebrow">新商品</p><h2 id="productDialogTitle">创建商品</h2></div><button id="closeProductDialog" class="dialog-close" type="button" aria-label="关闭创建商品">×</button></div>
+      <div class="dialog-body"><form id="productForm" class="grid"><label class="wide">商品名称<input name="product_name" required></label><div class="actions wide"><p id="productError" class="notice error" role="alert"></p><button type="submit">创建商品</button></div></form></div>
+    </dialog>
+  </body>
+</html>
