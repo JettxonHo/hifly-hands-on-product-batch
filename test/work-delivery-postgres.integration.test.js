@@ -118,8 +118,10 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   const concurrent = await Promise.allSettled(deliveryInputs.map((input) => service.createDelivery(input)));
   assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(concurrent.filter((result) => result.status === "rejected")[0]?.reason?.code, "IDEMPOTENCY_CONFLICT");
-  const winner = concurrent.find((result) => result.status === "fulfilled").value;
-  const replay = await service.createDelivery(deliveryInputs[concurrent.findIndex((result) => result.status === "fulfilled")]);
+  const winnerIndex = concurrent.findIndex((result) => result.status === "fulfilled");
+  const winnerInput = deliveryInputs[winnerIndex];
+  const winner = concurrent[winnerIndex].value;
+  const replay = await service.createDelivery(winnerInput);
   assert.equal(replay.replayed, true);
   assert.equal(replay.delivery.id, winner.delivery.id);
   const second = await service.createDelivery({ ...deliveryInputs[0], idempotencyKey: "a13-second-delivery", note: "第二次真实交付" });
@@ -133,7 +135,7 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   assert.equal(rework.inspection.category, "visual_quality");
   assert.equal(rework.inspection.reason, "画面需要重新检查");
   assert.equal(rework.inspection.target_upstream_stage, "video_plan");
-  assert.equal((await service.createDelivery(deliveryInputs[0])).replayed, true);
+  assert.equal((await service.createDelivery(winnerInput)).replayed, true);
 
   await assert.rejects(service.markDeliverable({ ...actor, workId: ids.work, idempotencyKey: "a13-pass-after-rework",
     expectedInspectionId: rework.inspection.id, expectedRevision: rework.inspection.revision }), (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED");

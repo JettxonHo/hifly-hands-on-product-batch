@@ -59,10 +59,11 @@
 9. `test/manual-handoff-package-postgres.integration.test.js`
 10. `test/operator-workspace-service.test.js`
 11. `test/project-content-api.test.js`
-12. `web/project.js`
-13. `web/workspace-production.js`
-14. `web/workspace.css`
-15. `web/workspace.html`
+12. `test/work-delivery-postgres.integration.test.js`
+13. `web/project.js`
+14. `web/workspace-production.js`
+15. `web/workspace.css`
+16. `web/workspace.html`
 
 `.github/workflows/ci.yml` 的扩张已在 Issue #246 编辑前 checkpoint；它只把既有 ProductionOrder -> handoff ->
 ManualExecution -> A12 -> Work/delivery PostgreSQL integration 串行加入 required `identity-postgres` job，不改变运行时行为。
@@ -96,6 +97,10 @@ Copy、confirmed Avatar 及内部 asset resolver，继续要求现有 compiler �
   ManualHandoff PostgreSQL integration 时得到 `generation_failed`。该测试的旧 fixture 缺少当前 manifest compiler 必需的
   冻结商品/素材、已批准文案和已确认人物证据；本地没有 PostgreSQL，因此不会把 skip 记为 GREEN。修正后的新 fixed head
   必须让该 integration 及后续 ManualExecution/A12/Work delivery 段自然完成，不能重跑旧 head 掩盖失败。
+- CI run `32738363155` 已证明修正后的 ManualHandoff、ManualExecution 与 A12 PostgreSQL integration 自然通过；最后一段
+  WorkDelivery 暴露既有并发测试的非确定性：测试已识别并回放实际 winning payload，却在后续 rework 后硬编码回放 input 0。
+  若 input 1 赢得事务，repository 正确返回 `IDEMPOTENCY_CONFLICT`。测试修正只复用已记录的 exact winner，不改变
+  WorkDelivery receipt、冲突或状态机语义；最终新 fixed head 仍须让整条链和其后 required tests 自然完成。
 
 ## 未执行边界
 
