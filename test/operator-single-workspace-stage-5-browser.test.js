@@ -97,7 +97,13 @@ async function world(t) {
     adminDisplayName: "生产管理员", adminTempPassword: ADMIN_TEMP_PASSWORD
   });
   const actor = { organizationId: "org_stage_5", actorMemberId: seeded.member.id, actorRole: "admin" };
-  const state = { current: null };
+  const state = {
+    current: null,
+    hideNextCreateResponse: false,
+    hideNextHandoffResponse: false,
+    createCalls: 0,
+    handoffCalls: 0
+  };
   const createdOrders = [];
   const generatedPackages = [];
   const createReceipts = new Map();
@@ -122,6 +128,7 @@ async function world(t) {
   state.projectId = project.id;
   state.current = fixture(first.product.id);
   app.post("/api/products/:productId/production-orders", async (request, reply) => {
+    state.createCalls += 1;
     const key = request.headers["idempotency-key"];
     if (createReceipts.has(key)) return reply.code(200).send({ order: createReceipts.get(key), replayed: true });
     const next = fixture(request.params.productId, { projectId: state.projectId });
@@ -129,9 +136,14 @@ async function world(t) {
     const order = structuredClone(next.workspace.selected_order);
     createReceipts.set(key, order);
     createdOrders.push(order);
+    if (state.hideNextCreateResponse) {
+      state.hideNextCreateResponse = false;
+      return reply.code(503).send({ error: "UPSTREAM_RESPONSE_UNKNOWN" });
+    }
     return reply.code(201).send({ order, replayed: false });
   });
   app.post("/api/production-orders/:orderId/manual-handoff-packages", async (request, reply) => {
+    state.handoffCalls += 1;
     const key = request.headers["idempotency-key"];
     if (packageReceipts.has(key)) return reply.code(200).send({ package: packageReceipts.get(key), replayed: true });
     const packageValue = { id: `package-stage-5-${generatedPackages.length + 1}`,
@@ -139,6 +151,10 @@ async function world(t) {
     state.current.packages = [packageValue];
     packageReceipts.set(key, packageValue);
     generatedPackages.push(packageValue);
+    if (state.hideNextHandoffResponse) {
+      state.hideNextHandoffResponse = false;
+      return reply.code(503).send({ error: "UPSTREAM_RESPONSE_UNKNOWN" });
+    }
     return reply.code(201).send({ package: packageValue, replayed: false });
   });
   try { await app.listen({ host: "127.0.0.1", port }); }
@@ -416,39 +432,33 @@ test("Stage 5 reconciles committed create and handoff writes hidden by an HTTP 5
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await login(page, origin);
   await page.goto(workspaceUrl(origin, project.id, first.product.id, null));
+  await page.waitForFunction(() => document.querySelector("#workspacePrimaryAction")?.dataset.actionCode === "create_production_order");
 
-  let createCalls = 0;
-  await page.route("**/api/products/*/production-orders", async (route) => {
-    createCalls += 1;
-    const response = await route.fetch();
-    assert.equal(response.status(), 201);
-    await route.fulfill({ status: 503, contentType: "application/json",
-      body: JSON.stringify({ error: "UPSTREAM_RESPONSE_UNKNOWN" }) });
-  }, { times: 1 });
+  state.hideNextCreateResponse = true;
   await page.locator("#workspacePrimaryAction").click();
   await page.locator("#productionCreateDialog").getByRole("button", { name: "确认创建" }).click();
-  await page.getByText("生产交接资料待生成", { exact: true }).first().waitFor();
+  await page.locator("#productionTaskTitle").filter({ hasText: "生产交接资料待生成" }).waitFor();
+  await page.waitForFunction(() => document.querySelector("#workspacePrimaryAction")?.dataset.actionCode === "generate_handoff_package");
   assert.equal(await page.locator("#productionCreateDialog").evaluate((element) => element.open), false);
-  assert.equal(createCalls, 1);
+  assert.equal(state.createCalls, 1);
   assert.equal(createdOrders.length, 1);
 
-  let handoffCalls = 0;
-  await page.route("**/api/production-orders/*/manual-handoff-packages", async (route) => {
-    handoffCalls += 1;
-    const response = await route.fetch();
-    assert.equal(response.status(), 201);
-    await route.fulfill({ status: 503, contentType: "application/json",
-      body: JSON.stringify({ error: "UPSTREAM_RESPONSE_UNKNOWN" }) });
-  }, { times: 1 });
+  state.hideNextHandoffResponse = true;
   assert.equal(await page.locator("#workspacePrimaryAction").getAttribute("data-action-code"), "generate_handoff_package");
   await page.locator("#workspacePrimaryAction").click();
-  await page.getByText("已就绪", { exact: true }).first().waitFor();
-  assert.equal(handoffCalls, 1);
+  await page.locator("#productionPackageSummary").filter({ hasText: "已就绪" }).waitFor();
+  await page.waitForFunction(() => {
+    const action = document.querySelector("#workspacePrimaryAction");
+    return !action?.dataset.actionCode && action?.disabled === true;
+  });
+  assert.equal(state.handoffCalls, 1);
   assert.equal(generatedPackages.length, 1);
+  assert.equal(await page.locator("#productionPackageSummary").textContent(), "已就绪");
   assert.equal(await page.locator("#workspacePrimaryAction").getAttribute("data-action-code"), null);
+  assert.equal(await page.locator("#workspacePrimaryAction").isDisabled(), true);
   await page.locator("#workspacePrimaryAction").click({ force: true });
   await page.waitForTimeout(100);
-  assert.equal(handoffCalls, 1);
+  assert.equal(state.handoffCalls, 1);
   assert.equal(generatedPackages.length, 1);
 });
 

@@ -17,14 +17,21 @@
   transaction-owned reservation 关闭 bind/delete/disable 交错；PostgreSQL 按 parent Asset -> exact Version 的锁序并持锁至
   enclosing commit。现有删除门禁只覆盖 `asset_references`，不等价于企业人物、AvatarSelection、Work 等跨领域全部历史
   引用；该关系真值与 migration 是明确 deferred 的独立 Product/API gate。
-- Assets canonical kind/asset URL、history/popstate、list/preview epoch、503 撤权、409 二次确认、Dialog/移动返回焦点与
-  bfcache 身份重读均 fail closed；390/768 身份重读失败会撤权并切回保留唯一可见 refresh 的 list layer。只有最新成功 list
+- Assets canonical kind/asset URL、history/popstate、list/preview/action epoch、503 撤权、409 二次确认、Dialog/移动返回
+  焦点与 bfcache 身份重读均 fail closed；迟到 download grant 与过期 rename/upload/danger intent 在 route/refresh/pagehide
+  后零下载/零写，必须显式 reload/reopen 才重绑定。390 detail 只 mint selected preview，1440 exact detail 缩窄到 390/768
+  保持详情 layer；身份重读失败会撤权并切回保留唯一可见 refresh 的 list layer。只有最新成功 list
   snapshot 中 exact available+verified `avatar_image` 复用既有 generic
   same-origin 短时授权生成 list/detail 同 URL 预览；过期、授权失败、decode 或 bytes SHA drift 均清 stale `src`，不把
   token/URL/object key/Provider 信息持久化或写日志。`work_video` 零 image grant。
-- 当前 fixed candidate 本地证据为 focused 59/59、PostgreSQL 16 Assets 1/1、新系统 Chrome 8/8、兼容 12/12、Stage 1–5
-  + Works 24/24，以及默认 suite 1202 total / 1187 pass / 15 既有环境 skip / 0 fail。preview ready 后的精确
-  1440x900、768x900、390x844 临时截图使用 1x1 黑/白 PNG fixture，只证明授权、
+- 当前 fixed candidate 本地证据为 focused 59/59、PostgreSQL 16 Assets 1/1、新系统 Chrome 19/19、兼容 12/12、A14
+  stress 3/3、Stage 5 committed-503 stress 10/10/full 6/6、Stage 1–5 + Works 24/24。review 后本机 default 的两次
+  自然结束各有一个不同浏览器时序失败，第三次在
+  #595 后 0% CPU hang 并显式终止；因此本地 default 仍不记 GREEN，最终全量终态等待 Draft PR exact-head required CI。
+  两个已证实的 harness 竞态均 test-only 收口：A14 先等公开入队 UI 再运行 worker；Stage 5 不再从 Playwright
+  `route.fetch()` 同连接重入 public POST，而由测试 server 的公开 handler 先 commit、再一次性返回 503，继续以真实 HTTP
+  锁定浏览器自动重读。
+  preview ready 后的精确 1440x900、768x900、390x844 临时截图使用 1x1 黑/白 PNG fixture，只证明授权、
   bytes 与布局，不是生产人物视觉。完整 scope、RED/GREEN、hash 与命令见
   `docs/status/sessions/2026-08-25-operator-single-workspace-assets-mobile-closeout.md`。
 - 本 Goal 未访问 Provider/Hifly，未启动 Worker/Local Agent，未 SSH/部署、修改生产数据、生成真实视频或消耗积分，也未

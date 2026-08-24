@@ -15,15 +15,24 @@
   Version，并持锁到 enclosing commit；memory UoW 提供 LIFO rollback callback 和 transaction-owned reservation。
   删除门禁只精确覆盖现有 `asset_references`；企业人物、AvatarSelection、Work 等跨领域历史引用没有统一关系真值，仍是
   后续独立 Product/API + migration gate，不得宣称本轮已全链阻止删除。
-- Assets URL/history、request epoch、scoped error、409 二次确认、Dialog/移动返回焦点与 bfcache 身份重读均已 fail closed；
+- Assets URL/history、list/preview/action epoch、scoped error、409 二次确认、Dialog/移动返回焦点与 bfcache 身份重读均已
+  fail closed；迟到 download grant 在 route/refresh/pagehide 后不能创建 link，rename/upload/danger 旧 intent 只能显式
+  reload/reopen 后重新绑定。390 detail 不为隐藏 list row mint grant，1440 exact detail 缩窄到 390/768 会保持详情 layer。
   390/768 身份重读 503 会撤销旧 authority、切回 list layer 并保留唯一可见且可聚焦的 refresh。
   只有 exact current successful list snapshot 中的 available+verified `avatar_image` 会复用既有 same-origin 短时授权显示真实
   list/detail 预览；到期、授权、decode 或 bytes SHA drift 会清 stale `src`。URL/token/object key/Provider 字段不进入
   history、storage 或日志；`work_video` 零 image grant。
-- 本地证据：focused service/API/ProjectContent 59/59、PostgreSQL 16 Assets 1/1、新 closeout 系统 Chrome 8/8、兼容
-  Assets/V2/A14 12/12、Stage 1–5 + Works 24/24，以及默认 suite 1202 total / 1187 pass / 15 既有环境 skip / 0 fail。
+- 本地证据：focused service/API/ProjectContent 59/59、PostgreSQL 16 Assets 1/1、新 closeout 系统 Chrome 19/19、兼容
+  Assets/V2/A14 12/12（A14 同步修复后 stress 3/3）、Stage 5 committed-503 stress 10/10/full 6/6、Stage 1–5 + Works
+  24/24。review 后本机 default 没有最终绿色：
+  两次 1213-total run 各有一个不同的浏览器时序失败，第三次在 #595 后 0% CPU hang 并显式终止；详见 session 文档，
+  不得把单文件 GREEN 或旧 head CI 写成当前 default GREEN。最终全量证据等待 Draft PR exact-head required CI。
+- A14 test 已先等待公开 queued/running UI 再运行内嵌 worker。Stage 5 committed-503 test 的 `route.fetch()` 同连接重入会让
+  recovery GET 偶发永远 pending；现由测试 server 的公开 POST handler 先正常 commit，再用一次性 flag 直接返回 503，浏览器
+  仍经真实 HTTP 验证自动 authority reload。两者均为 compatibility harness 稳定化，不是 runtime 产品修复。
   精确 1440x900、768x900、390x844 人物详情截图已在 preview ready 后
-  输出到 `/private/tmp/hifly-issue-250-assets-screenshots/`；使用 1x1 黑/白 fixture，只证明授权/bytes/layout，不是生产人物视觉。
+  输出到 `/private/tmp/hifly-issue-250-assets-screenshots/`；1440 使用 reduced-motion/禁用动画并通过同状态双 SHA，三图已
+  人工查看。fixture 使用 1x1 黑/白图，只证明授权/bytes/layout，不是生产人物视觉。
 - 本轮没有访问 Hifly/Provider、启动 Worker/Local Agent、SSH/部署、修改生产数据、创建/执行真实视频或消耗积分；也没有
   开始视觉研究。完整 allowlist、RED/GREEN、截图 hash、验证与 deferred blocker 见
   `docs/status/sessions/2026-08-25-operator-single-workspace-assets-mobile-closeout.md`。

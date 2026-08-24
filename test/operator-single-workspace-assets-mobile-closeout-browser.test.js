@@ -247,10 +247,24 @@ async function withTimeout(promise, message, timeoutMs = 4000) {
   }
 }
 
+async function settleBrowserFrames(page) {
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+
+async function refreshAssetsBehindDialog(page) {
+  const response = page.waitForResponse((candidate) => candidate.request().method() === "GET" &&
+    new URL(candidate.url()).pathname === "/api/assets");
+  await page.evaluate(() => document.querySelector("#refreshAssets").click());
+  await response;
+  await page.waitForFunction(() => !document.querySelector("#refreshAssets")?.disabled);
+  await settleBrowserFrames(page);
+}
+
 test("Assets canonical routes restore exact type and Asset while invalid routes fail closed", async (t) => {
   const world = await createWorld(t);
   if (world.skipped) return t.skip(world.skipped);
   const page = await world.browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await authenticate(page, world.origin);
 
   await page.goto(assetsUrl(world.origin));
@@ -557,7 +571,16 @@ test("Assets preserve desktop and tablet focus, dialog entry, screenshots, and o
   await page.locator(`button.asset-row[data-asset-id="${world.avatarA.asset.id}"]`).click();
   await page.getByRole("heading", { name: world.avatarA.asset.display_name, exact: true }).waitFor();
   await page.locator('#assetDetail [data-preview-state="ready"]').waitFor();
-  assertPngSize(await page.screenshot({ path: path.join(screenshotDir, "assets-avatar-detail-1440.png") }), 1440, 900);
+  await settleBrowserFrames(page);
+  const acceptedDesktopFrame = await page.screenshot({
+    path: path.join(screenshotDir, "assets-avatar-detail-1440.png"),
+    animations: "disabled"
+  });
+  await settleBrowserFrames(page);
+  const repeatedDesktopFrame = await page.screenshot({ animations: "disabled" });
+  assertPngSize(acceptedDesktopFrame, 1440, 900);
+  assertPngSize(repeatedDesktopFrame, 1440, 900);
+  assert.equal(sha256(acceptedDesktopFrame), sha256(repeatedDesktopFrame), "the saved 1440 avatar evidence must be byte stable");
 
   for (const viewport of [{ width: 768, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
@@ -748,6 +771,333 @@ test("work videos expose no mutations and danger 409 requires reload plus a new 
   await page.getByText("素材已停用。", { exact: true }).waitFor();
   assert.deepEqual(bodies.map((body) => body.expected_revision), [1, 2]);
   assert.equal(workVideoMutations, 0);
+});
+
+for (const invalidation of ["route", "refresh", "pagehide"]) {
+  test(`a held exact-version download grant cannot trigger a stale download after ${invalidation}`, async (t) => {
+    const world = await createWorld(t);
+    if (world.skipped) return t.skip(world.skipped);
+    const page = await world.browser.newPage({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+    await authenticate(page, world.origin);
+    await page.goto(assetsUrl(world.origin, "work_video", world.video.asset.id));
+    await page.getByRole("heading", { name: world.video.asset.display_name, exact: true }).waitFor();
+
+    const authorizationStarted = deferred();
+    const releaseAuthorization = deferred();
+    const authorizationFulfilled = deferred();
+    let downloadByteRequests = 0;
+    t.after(() => releaseAuthorization.resolve());
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.startsWith("/api/assets/downloads/")) downloadByteRequests += 1;
+    });
+    await page.evaluate(() => {
+      window.__assetDownloadLinkTriggers = 0;
+      document.addEventListener("click", (event) => {
+        if (event.composedPath().some((node) => node instanceof HTMLAnchorElement && node.hasAttribute("download"))) {
+          window.__assetDownloadLinkTriggers += 1;
+        }
+      }, true);
+    });
+    await page.route("**/api/asset-versions/*/download-authorizations", async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      const versionId = decodeURIComponent(pathname.split("/").at(-2));
+      if (versionId !== world.video.asset_version.id) return route.continue();
+      const response = await route.fetch();
+      authorizationStarted.resolve();
+      await releaseAuthorization.promise;
+      try {
+        await route.fulfill({ response });
+      } catch (error) {
+        if (!/abort|cancel|handled|closed/i.test(error.message)) throw error;
+      } finally {
+        authorizationFulfilled.resolve();
+      }
+    });
+
+    await page.locator(`[data-action="download-version"][data-version-id="${world.video.asset_version.id}"]`).click();
+    await withTimeout(authorizationStarted.promise, "exact work-video download authorization was not held");
+    if (invalidation === "route") {
+      await page.locator('[data-kind="product_image"]').click();
+      await settleBrowserFrames(page);
+    } else if (invalidation === "refresh") {
+      await refreshAssetsBehindDialog(page);
+    } else {
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false })));
+      await settleBrowserFrames(page);
+    }
+
+    releaseAuthorization.resolve();
+    await withTimeout(authorizationFulfilled.promise, "held download authorization was not released");
+    await page.waitForTimeout(150);
+    const staleState = await page.evaluate(() => ({
+      linkTriggers: window.__assetDownloadLinkTriggers,
+      notice: document.querySelector("#assetNotice")?.textContent || ""
+    }));
+    assert.deepEqual({
+      downloadByteRequests,
+      linkTriggers: staleState.linkTriggers,
+      staleNotice: /已失效|状态已变化|重新.*下载|刷新.*重试/.test(staleState.notice)
+    }, {
+      downloadByteRequests: 0,
+      linkTriggers: 0,
+      staleNotice: true
+    }, "a grant resolved outside its exact list/route/page authority must be discarded before link creation");
+  });
+}
+
+async function exerciseStaleDangerIntent(t, invalidation) {
+  const world = await createWorld(t);
+  if (world.skipped) return t.skip(world.skipped);
+  let pending = null;
+  if (invalidation === "automatic refresh") {
+    pending = await world.app.assets.service.createUploadAuthorization({
+      organizationId: ORGANIZATION_ID,
+      actorMemberId: world.actorMemberId,
+      idempotencyKey: "danger-auto-refresh-pending",
+      filename: "触发自动刷新.png",
+      contentType: "image/png",
+      size: PNG_A.length,
+      checksumSha256: sha256(PNG_A),
+      assetKind: "product_image"
+    });
+  }
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await authenticate(page, world.origin);
+  await page.goto(assetsUrl(world.origin, "product_image", world.product.asset.id));
+  await page.getByRole("heading", { name: world.product.asset.display_name, exact: true }).waitFor();
+
+  const mutationPath = `/api/assets/${world.product.asset.id}/disable`;
+  let mutationPosts = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === mutationPath) mutationPosts += 1;
+  });
+  await page.locator('[data-action="disable"]').click();
+  if (invalidation === "manual refresh") {
+    await refreshAssetsBehindDialog(page);
+  } else if (invalidation === "automatic refresh") {
+    const automaticRefresh = page.waitForResponse((candidate) => candidate.request().method() === "GET" &&
+      new URL(candidate.url()).pathname === "/api/assets", { timeout: 5000 });
+    await world.app.assets.service.uploadObject({
+      organizationId: ORGANIZATION_ID,
+      uploadToken: pending.upload.token,
+      body: PNG_A,
+      contentType: "image/png"
+    });
+    await world.app.assets.service.completeUpload({
+      organizationId: ORGANIZATION_ID,
+      actorMemberId: world.actorMemberId,
+      uploadSessionId: pending.upload_session_id,
+      idempotencyKey: "danger-auto-refresh-complete"
+    });
+    await world.app.assets.service.runNextVerificationJob();
+    await automaticRefresh;
+    await page.waitForFunction(() => !document.querySelector("#refreshAssets")?.disabled);
+    await settleBrowserFrames(page);
+  } else {
+    const identityRead = page.waitForResponse((candidate) => candidate.request().method() === "GET" &&
+      new URL(candidate.url()).pathname === "/api/auth/me");
+    const listRead = page.waitForResponse((candidate) => candidate.request().method() === "GET" &&
+      new URL(candidate.url()).pathname === "/api/assets");
+    await page.evaluate(() => {
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    await Promise.all([identityRead, listRead]);
+    await page.waitForFunction(() => !document.querySelector("#refreshAssets")?.disabled);
+    await settleBrowserFrames(page);
+  }
+  await page.evaluate(() => document.querySelector("#confirmDanger").click());
+  await page.waitForTimeout(100);
+  const staleState = await page.evaluate(() => ({
+    confirmDisabled: document.querySelector("#confirmDanger").disabled,
+    reloadVisible: !document.querySelector("#dangerConflictActions").hidden,
+    staleNotice: /状态已变化|已失效/.test(document.querySelector("#dangerError").textContent || "")
+  }));
+  assert.deepEqual({ ...staleState, mutationPosts }, {
+    confirmDisabled: true,
+    reloadVisible: true,
+    staleNotice: true,
+    mutationPosts: 0
+  }, `${invalidation} must revoke the captured destructive revision before any POST`);
+
+  await page.locator("#reloadDanger").click();
+  await page.waitForFunction(() => !document.querySelector("#confirmDanger")?.disabled);
+  const reboundPost = page.waitForRequest((request) => request.method() === "POST" &&
+    new URL(request.url()).pathname === mutationPath);
+  await page.locator("#confirmDanger").click();
+  await reboundPost;
+  assert.equal(mutationPosts, 1, "only the explicit reloadDanger rebind may authorize the POST");
+}
+
+for (const invalidation of ["manual refresh", "automatic refresh", "pagehide"]) {
+  test(`${invalidation} stales a danger intent until reloadDanger explicitly rebinds it`, async (t) => {
+    await exerciseStaleDangerIntent(t, invalidation);
+  });
+}
+
+test("manual refresh stales a rename intent with zero writes until reloadRename rebinds it", async (t) => {
+  const world = await createWorld(t);
+  if (world.skipped) return t.skip(world.skipped);
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await authenticate(page, world.origin);
+  await page.goto(assetsUrl(world.origin, "product_image", world.product.asset.id));
+  await page.getByRole("heading", { name: world.product.asset.display_name, exact: true }).waitFor();
+
+  let renamePatches = 0;
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "PATCH" && pathname === `/api/assets/${world.product.asset.id}`) renamePatches += 1;
+  });
+
+  await page.locator('[data-action="rename"]').click();
+  await page.locator("#assetDisplayName").fill("刷新后仍需确认的名称");
+  await refreshAssetsBehindDialog(page);
+  await page.evaluate(() => document.querySelector("#renameForm").requestSubmit());
+  await page.waitForTimeout(100);
+  const renameState = await page.evaluate(() => ({
+    submitDisabled: document.querySelector("#submitRename").disabled,
+    reloadVisible: !document.querySelector("#renameConflictActions").hidden,
+    draft: document.querySelector("#assetDisplayName").value,
+    staleNotice: /状态已变化|已失效/.test(document.querySelector("#renameError").textContent || "")
+  }));
+  assert.deepEqual({ ...renameState, renamePatches }, {
+    submitDisabled: true,
+    reloadVisible: true,
+    draft: "刷新后仍需确认的名称",
+    staleNotice: true,
+    renamePatches: 0
+  }, "a rename draft may survive refresh but its write authority may not");
+
+  await page.locator("#reloadRename").click();
+  await page.waitForFunction(() => !document.querySelector("#submitRename")?.disabled);
+  const renameRequest = page.waitForRequest((request) => request.method() === "PATCH" &&
+    new URL(request.url()).pathname === `/api/assets/${world.product.asset.id}`);
+  await page.locator("#submitRename").click();
+  await renameRequest;
+  assert.equal(renamePatches, 1);
+  await page.getByText("素材名称已保存。", { exact: true }).waitFor();
+});
+
+test("manual refresh stales an upload intent with zero writes until the dialog is reopened", async (t) => {
+  const world = await createWorld(t);
+  if (world.skipped) return t.skip(world.skipped);
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await authenticate(page, world.origin);
+  await page.goto(assetsUrl(world.origin, "product_image", world.product.asset.id));
+  await page.getByRole("heading", { name: world.product.asset.display_name, exact: true }).waitFor();
+
+  let uploadAuthorizations = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/assets/upload-authorizations") {
+      uploadAuthorizations += 1;
+    }
+  });
+
+  await page.locator("#uploadNewVersion").click();
+  await page.locator("#assetFile").setInputFiles({ name: "stale-upload.png", mimeType: "image/png", buffer: PNG_B });
+  await refreshAssetsBehindDialog(page);
+  const uploadWasClosed = await page.locator("#uploadDialog").evaluate((dialog) => !dialog.open);
+  if (!uploadWasClosed) await page.evaluate(() => document.querySelector("#uploadForm").requestSubmit());
+  await page.waitForTimeout(100);
+  assert.equal(uploadAuthorizations, 0, "refresh must never consume a stale upload intent");
+  if (!uploadWasClosed) {
+    await page.locator('#uploadDialog [data-close-dialog]').first().click();
+    await page.waitForFunction(() => !document.querySelector("#uploadDialog")?.open);
+  }
+  await page.locator("#uploadNewVersion").click();
+  await page.locator("#assetFile").setInputFiles({ name: "reopened-upload.png", mimeType: "image/png", buffer: PNG_B });
+  const uploadRequest = page.waitForRequest((request) => request.method() === "POST" &&
+    new URL(request.url()).pathname === "/api/assets/upload-authorizations");
+  await page.locator("#submitUpload").click();
+  await uploadRequest;
+  assert.equal(uploadAuthorizations, 1, "only a reopened upload dialog may mint a new upload intent");
+});
+
+test("390 exact avatar detail mints only the selected version and never hidden list rows", async (t) => {
+  const world = await createWorld(t);
+  if (world.skipped) return t.skip(world.skipped);
+  const page = await world.browser.newPage({ viewport: { width: 390, height: 844 } });
+  await authenticate(page, world.origin);
+  const grantedVersionIds = [];
+  await page.route("**/api/asset-versions/*/download-authorizations", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    grantedVersionIds.push(decodeURIComponent(pathname.split("/").at(-2)));
+    await route.continue();
+  });
+
+  await page.goto(assetsUrl(world.origin, "avatar_image", world.avatarB.asset.id));
+  await page.getByRole("heading", { name: world.avatarB.asset.display_name, exact: true }).waitFor();
+  assert.equal(await page.locator("#assetList .asset-row").count(), 2, "fixture must contain selected and hidden avatar rows");
+  assert.equal(await page.locator("#assetListPanel").isVisible(), false);
+  await page.waitForFunction(() => document.querySelector("#assetPreviewRegion")?.dataset.previewState === "ready");
+  await page.waitForTimeout(150);
+  assert.deepEqual(grantedVersionIds, [world.avatarB.asset_version.id],
+    "the hidden sequential-layout list must mint zero grants");
+});
+
+test("an exact desktop avatar detail survives 390 and 768 resize layers before returning to both desktop panels", async (t) => {
+  const world = await createWorld(t);
+  if (world.skipped) return t.skip(world.skipped);
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await authenticate(page, world.origin);
+  const exactUrl = assetsUrl(world.origin, "avatar_image", world.avatarB.asset.id);
+  await page.goto(exactUrl);
+  await page.getByRole("heading", { name: world.avatarB.asset.display_name, exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector("#assetPreviewRegion")?.dataset.previewState === "ready");
+  assert.equal(await page.locator("#assetListPanel").isVisible(), true);
+  assert.equal(await page.locator("#assetDetailPanel").isVisible(), true);
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 768, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await settleBrowserFrames(page);
+    const state = await page.evaluate(() => ({
+      url: location.href,
+      listVisible: getComputedStyle(document.querySelector("#assetListPanel")).display !== "none",
+      detailVisible: getComputedStyle(document.querySelector("#assetDetailPanel")).display !== "none",
+      detailFocused: document.activeElement?.id === "assetDetailTitle",
+      noOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    }));
+    assert.deepEqual(state, {
+      url: exactUrl,
+      listVisible: false,
+      detailVisible: true,
+      detailFocused: true,
+      noOverflow: true
+    }, `${viewport.width}px must derive the detail layer from the exact selected route`);
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await settleBrowserFrames(page);
+  assert.deepEqual({
+    url: page.url(),
+    listVisible: await page.locator("#assetListPanel").isVisible(),
+    detailVisible: await page.locator("#assetDetailPanel").isVisible(),
+    noOverflow: await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
+  }, {
+    url: exactUrl,
+    listVisible: true,
+    detailVisible: true,
+    noOverflow: true
+  });
+});
+
+test("reduced-motion selected 1440 avatar screenshots are byte stable", async (t) => {
+  const world = await createWorld(t);
+  if (world.skipped) return t.skip(world.skipped);
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await authenticate(page, world.origin);
+  await page.goto(assetsUrl(world.origin, "avatar_image", world.avatarB.asset.id));
+  await page.getByRole("heading", { name: world.avatarB.asset.display_name, exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector("#assetPreviewRegion")?.dataset.previewState === "ready");
+  assert.equal(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches), true);
+  await settleBrowserFrames(page);
+  const first = await page.screenshot({ animations: "disabled" });
+  await settleBrowserFrames(page);
+  const second = await page.screenshot({ animations: "disabled" });
+  assertPngSize(first, 1440, 900);
+  assertPngSize(second, 1440, 900);
+  assert.equal(sha256(first), sha256(second), "the accepted 1440 avatar evidence frame must be reproducible");
 });
 
 test("enterprise, legacy, history, and direct assets-off routes close out at tablet and mobile widths", async (t) => {

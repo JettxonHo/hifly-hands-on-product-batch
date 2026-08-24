@@ -193,8 +193,14 @@ exact Work/AssetVersion 与已核验 bytes，inspection/delivery 跨代读取必
 Issue #250 是素材中心/移动收口独立 Draft gate：公共目录只承认三种服务端 Asset kind，`work_video` 服务端只读；
 ProductRevision 图片绑定以 memory UoW reservation 与 PostgreSQL parent-Asset-first 行锁关闭 delete/bind 交错。Assets
 人物预览只复用 exact successful list snapshot 的 available+verified `avatar_image` 与既有 same-origin 短时授权；URL/history、
-epoch、503、409、bfcache 和 1440/768/390 焦点/布局均 fail closed。现有删除引用门禁只覆盖 ProductRevision
+list/preview/action epoch、503、409、bfcache 和 1440/768/390 焦点/布局均 fail closed；迟到下载、过期 mutation intent、
+隐藏移动列表 preview 与 desktop-to-mobile resize 均有真实 Chrome 回归。现有删除引用门禁只覆盖 ProductRevision
 `asset_references`，跨领域人物/Work 历史引用仍需独立 Product/API + migration gate，不能过称已全链保护。
+当前 Draft candidate 本地 focused、PostgreSQL、closeout、兼容与 Stage/Works 分文件矩阵已绿，但三次本地 default 没有形成
+最终绿色（两次各一个不同浏览器时序失败，一次 0% CPU hang 后人工终止）；A14 的已证实入队竞态已做 test-only 同步并
+stress 3/3；Stage 5 committed-503 harness 也由测试 server 的公开 POST handler 先 commit、再一次性直接返回 503，取代会
+阻塞 recovery GET 的 Playwright transport re-entry，仍保留真实 commit + 浏览器 503 + 自动重读合同。全量终态只接受 Draft PR exact-head
+required CI，不能用旧 head CI 或单文件 GREEN 代替。
 任何仓库实现均不自动部署。Issue #250 经独立 Review 合并后，才另开独立视觉 refinement/research gate。PC 1440 主工作区与 768 收敛、移动
 390 列表/详情分层须作为并行的一等合同：两端共享业务真值、动作和状态词，但 composition 可以不同；不得描述移动
 高于 PC，也不得把桌面实现为放大的移动布局。两端都必须有真实 Chrome 行为/截图和人工视觉 acceptance 后才能合并

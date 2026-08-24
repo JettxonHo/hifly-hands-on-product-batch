@@ -383,6 +383,7 @@ test("VSA-A14 main path completes from a fresh enterprise login to inspected and
   await operatorPage.locator("#copyBody").waitFor();
   copyVersionId = await operatorPage.evaluate(async () => (await (await fetch(`/api/product-revisions/${new URLSearchParams(location.search).get("revision")}/copy-versions`)).json()).copy_versions.at(-1).id);
   await operatorPage.locator("#startQuality").click();
+  await operatorPage.getByText("质检中，可离开本页", { exact: true }).waitFor();
   await app.copyQuality.worker.runNext();
   await operatorPage.locator("#qualityConclusion").filter({ hasText: "质检通过" }).waitFor({ timeout: 5000 });
   await operatorPage.locator("#reviewTab").click();
@@ -415,6 +416,7 @@ test("VSA-A14 main path completes from a fresh enterprise login to inspected and
   await operatorPage.locator("#planVersionTitle").waitFor();
   planId = await operatorPage.evaluate(async () => (await (await fetch(`/api/products/${new URLSearchParams(location.search).get("product")}/video-plan-workspace`)).json()).current_plan.id);
   await operatorPage.locator("#runPreflight").click();
+  await operatorPage.locator("#preflightBadge").filter({ hasText: "预检中" }).waitFor();
   await app.videoPlanning.worker.runNext();
   await operatorPage.locator("#preflightBadge").filter({ hasText: "存在提醒" }).waitFor({ timeout: 5000 });
   await operatorPage.locator("#showReview").click();

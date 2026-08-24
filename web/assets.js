@@ -36,6 +36,8 @@
   let assetAuthorityValid = false;
   let bootstrapInFlight = false;
   let listEpoch = 0;
+  let actionEpoch = 0;
+  let actionAbortController = new AbortController();
   let previewEpoch = 0;
   let previewEntries = new Map();
   let previewPump = null;
@@ -43,9 +45,12 @@
   let pollTimer = null;
   let tornDown = false;
   let uploadBusy = false;
+  let uploadIntent = null;
   let renameBusy = false;
+  let renameIntent = null;
   let renameConflictAssetId = null;
   let dangerIntent = null;
+  let sequentialLayout = null;
 
   function readRoute() {
     const url = new URL(window.location.href);
@@ -137,6 +142,73 @@
     node.textContent = message;
   }
 
+  function createActionBinding(asset = null, extra = {}) {
+    return {
+      epoch: actionEpoch,
+      route: routeIdentity(),
+      kind: activeKind,
+      assetId: asset?.id || null,
+      revision: asset?.revision_number ?? null,
+      ...extra
+    };
+  }
+
+  function isBaseActionBindingCurrent(binding) {
+    return Boolean(binding) && assetAuthorityValid && !tornDown && binding.epoch === actionEpoch &&
+      binding.route === routeIdentity() && binding.kind === activeKind;
+  }
+
+  function currentBoundAsset(binding) {
+    if (!isBaseActionBindingCurrent(binding) || !binding.assetId || binding.assetId !== selectedAssetId) return null;
+    const asset = assets.find((candidate) => candidate.id === binding.assetId && candidate.kind === binding.kind);
+    return asset?.revision_number === binding.revision ? asset : null;
+  }
+
+  function currentBoundVersion(binding) {
+    const asset = currentBoundAsset(binding);
+    const version = asset?.versions?.find((candidate) => candidate.id === binding?.versionId);
+    return version?.status === "available" ? version : null;
+  }
+
+  function isUploadIntentCurrent(intent) {
+    if (!isBaseActionBindingCurrent(intent) || intent !== uploadIntent || intent.needsReopen) return false;
+    if (!intent.assetId) return readRoute().assetId === null;
+    return Boolean(currentBoundAsset(intent));
+  }
+
+  function markUploadIntentStale() {
+    if (!uploadIntent || !byId("uploadDialog").open) return;
+    uploadIntent.needsReopen = true;
+    byId("submitUpload").disabled = true;
+    byId("uploadError").textContent = "素材状态已变化，本次上传权限已失效。请关闭窗口后重新打开。";
+  }
+
+  function markRenameIntentStale() {
+    if (!renameIntent || !byId("renameDialog").open) return;
+    renameIntent.needsReload = true;
+    renameConflictAssetId = renameIntent.assetId;
+    byId("submitRename").disabled = true;
+    byId("renameConflictActions").hidden = false;
+    byId("renameError").textContent = "素材状态已变化，本次保存权限已失效。名称草稿已保留，请载入最新素材状态。";
+  }
+
+  function markDangerIntentStale() {
+    if (!dangerIntent || !byId("assetDangerDialog").open) return;
+    dangerIntent.needsReload = true;
+    byId("confirmDanger").disabled = true;
+    byId("dangerConflictActions").hidden = false;
+    byId("dangerError").textContent = "素材状态已变化，本次操作权限已失效。请先载入同一素材的最新状态。";
+  }
+
+  function invalidateActionAuthority() {
+    actionEpoch += 1;
+    actionAbortController.abort();
+    actionAbortController = new AbortController();
+    markUploadIntentStale();
+    markRenameIntentStale();
+    markDangerIntentStale();
+  }
+
   function stopPolling() {
     if (pollTimer) clearTimeout(pollTimer);
     pollTimer = null;
@@ -177,11 +249,19 @@
   for (const dialog of dialogs) {
     dialog.addEventListener("close", () => {
       if (dialog === byId("uploadDialog")) {
+        uploadIntent = null;
         byId("uploadForm").reset();
         byId("uploadAssetId").value = "";
         byId("assetKind").disabled = false;
         byId("uploadStatus").textContent = "";
         byId("uploadError").textContent = "";
+        if (!uploadBusy) byId("submitUpload").disabled = false;
+      }
+      if (dialog === byId("renameDialog")) {
+        renameIntent = null;
+        renameConflictAssetId = null;
+        byId("renameConflictActions").hidden = true;
+        if (!renameBusy) byId("submitRename").disabled = false;
       }
       if (dialog === byId("assetDangerDialog")) {
         dangerIntent = null;
@@ -362,8 +442,9 @@
     const selected = selectedAsset();
     const visibleAssetIds = new Set([...document.querySelectorAll(".asset-row[data-asset-id]")]
       .filter((row) => {
+        if (!row.getClientRects().length) return false;
         const rect = row.getBoundingClientRect();
-        return rect.bottom >= 0 && rect.top <= window.innerHeight;
+        return rect.width > 0 && rect.height > 0 && rect.bottom >= 0 && rect.top <= window.innerHeight;
       })
       .map((row) => row.dataset.assetId));
     const visibleAssets = currentAssets().filter((asset) => visibleAssetIds.has(asset.id));
@@ -575,6 +656,7 @@
 
   function invalidateRouteAuthority() {
     listEpoch += 1;
+    invalidateActionAuthority();
     clearPreviewAuthority();
   }
 
@@ -616,6 +698,7 @@
     const desiredAssetId = requestedAssetId === undefined ? (preserveSelection ? (readRoute().assetId || selectedAssetId) : null) : requestedAssetId;
     const requestIdentity = routeIdentity();
     const epoch = ++listEpoch;
+    invalidateActionAuthority();
     clearPreviewAuthority();
     selectedAssetId = null;
     workspace.dataset.layer = "list";
@@ -665,6 +748,7 @@
   async function bootstrap() {
     if (bootstrapInFlight || tornDown) return false;
     bootstrapInFlight = true;
+    invalidateActionAuthority();
     assets = [];
     selectedAssetId = null;
     workspace.dataset.layer = "list";
@@ -693,28 +777,38 @@
   }
 
   function openUploadDialog(trigger, asset = null) {
-    if (asset?.kind === "work_video" || asset?.status === "disabled") return;
+    if (!assetAuthorityValid || tornDown || (asset ? !canWriteAsset(asset) : !["product_image", "avatar_image"].includes(activeKind))) return;
     byId("uploadForm").reset(); byId("uploadError").textContent = ""; byId("uploadStatus").textContent = "";
     byId("uploadAssetId").value = asset?.id || "";
     byId("assetKind").value = asset?.kind || (activeKind === "avatar_image" ? "avatar_image" : "product_image");
     byId("assetKind").disabled = Boolean(asset);
+    byId("submitUpload").disabled = false;
     byId("uploadTitle").textContent = asset ? `上传“${asset.display_name}”的新版本` : "上传图片";
+    uploadIntent = createActionBinding(asset, { needsReopen: false });
     showDialog(byId("uploadDialog"), trigger);
   }
 
   async function submitUpload(event) {
     event.preventDefault();
+    const intent = uploadIntent;
+    if (!isUploadIntentCurrent(intent)) { markUploadIntentStale(); return; }
     const file = byId("assetFile").files[0];
     const kind = byId("assetKind").value;
-    if (!file || !["product_image", "avatar_image"].includes(kind) || uploadBusy) return;
+    const boundAsset = intent.assetId ? currentBoundAsset(intent) : null;
+    if (!file || !["product_image", "avatar_image"].includes(kind) || (boundAsset && boundAsset.kind !== kind) || uploadBusy) return;
+    const signal = actionAbortController.signal;
     uploadBusy = true; byId("submitUpload").disabled = true; byId("uploadError").textContent = ""; byId("uploadStatus").textContent = "正在上传...";
     try {
       const checksum = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()))).map((value) => value.toString(16).padStart(2, "0")).join("");
+      if (!isUploadIntentCurrent(intent)) { markUploadIntentStale(); return; }
       const payload = { filename: file.name, content_type: file.type, size: file.size, checksum_sha256: checksum, kind };
       const assetId = byId("uploadAssetId").value; if (assetId) payload.asset_id = assetId;
-      const authorization = await request("/api/assets/upload-authorizations", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(payload) });
-      await request(authorization.upload.url, { method: "PUT", headers: { "content-type": file.type }, body: file });
-      await request("/api/assets/upload-completions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ upload_session_id: authorization.upload_session_id, idempotency_key: crypto.randomUUID() }) });
+      const authorization = await request("/api/assets/upload-authorizations", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(payload), signal });
+      if (!isUploadIntentCurrent(intent)) { markUploadIntentStale(); return; }
+      await request(authorization.upload.url, { method: "PUT", headers: { "content-type": file.type }, body: file, signal });
+      if (!isUploadIntentCurrent(intent)) { markUploadIntentStale(); return; }
+      await request("/api/assets/upload-completions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ upload_session_id: authorization.upload_session_id, idempotency_key: crypto.randomUUID() }), signal });
+      if (!isUploadIntentCurrent(intent)) { markUploadIntentStale(); return; }
       const targetAssetId = assetId || authorization.asset.id;
       activeKind = kind; selectedAssetId = targetAssetId; byId("uploadStatus").textContent = "上传完成，服务端正在核验。";
       if (readRoute().kind !== kind || readRoute().assetId !== targetAssetId) writeRoute(kind, targetAssetId);
@@ -722,51 +816,63 @@
       await closeDialog(byId("uploadDialog"), refreshed ? { detailAssetId: targetAssetId } : { id: "refreshAssets" });
       setNotice("上传完成，服务端正在核验。可以离开页面，稍后再刷新。", "success");
     } catch (error) {
-      if (error.code !== "AUTH_REQUIRED") byId("uploadError").textContent = error.code === "ASSET_NOT_ACTIVE" ? "该素材已不可写，请关闭后刷新状态。" : "上传未完成，请检查图片后重试。";
-    } finally { uploadBusy = false; byId("submitUpload").disabled = false; }
+      if (!isUploadIntentCurrent(intent)) markUploadIntentStale();
+      else if (error.code !== "AUTH_REQUIRED") byId("uploadError").textContent = error.code === "ASSET_NOT_ACTIVE" ? "该素材已不可写，请关闭后刷新状态。" : "上传未完成，请检查图片后重试。";
+    } finally {
+      uploadBusy = false;
+      byId("submitUpload").disabled = Boolean(uploadIntent?.needsReopen);
+    }
   }
 
   function openRenameDialog(trigger, asset) {
     if (!canWriteAsset(asset)) return;
-    renameConflictAssetId = null; byId("renameConflictActions").hidden = true; byId("renameError").textContent = ""; byId("assetDisplayName").value = asset.display_name;
+    renameIntent = createActionBinding(asset, { needsReload: false });
+    renameConflictAssetId = null; byId("renameConflictActions").hidden = true; byId("renameError").textContent = ""; byId("assetDisplayName").value = asset.display_name; byId("submitRename").disabled = false;
     showDialog(byId("renameDialog"), trigger);
   }
 
   async function submitRename(event) {
     event.preventDefault();
-    const asset = selectedAsset(); if (!canWriteAsset(asset) || renameBusy) return;
+    const intent = renameIntent;
+    const asset = currentBoundAsset(intent);
+    if (!asset || intent?.needsReload) { markRenameIntentStale(); return; }
+    if (!canWriteAsset(asset) || renameBusy) return;
+    const signal = actionAbortController.signal;
     renameBusy = true; byId("submitRename").disabled = true; byId("renameError").textContent = "";
     try {
-      await request(`/api/assets/${encodeURIComponent(asset.id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ display_name: byId("assetDisplayName").value, expected_revision: asset.revision_number }) });
+      await request(`/api/assets/${encodeURIComponent(asset.id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ display_name: byId("assetDisplayName").value, expected_revision: intent.revision }), signal });
+      if (!currentBoundAsset(intent)) { markRenameIntentStale(); return; }
       const refreshed = await refresh({ preserveSelection: true, quiet: true });
       await closeDialog(byId("renameDialog"), refreshed ? { action: "rename", detailAssetId: asset.id } : { id: "refreshAssets" });
       setNotice("素材名称已保存。", "success");
     } catch (error) {
       if (error.status === 409 || error.code === "ASSET_VERSION_CONFLICT") {
-        renameConflictAssetId = asset.id; byId("renameError").textContent = "素材状态已变化。你的名称仍保留，请先载入最新状态。"; byId("renameConflictActions").hidden = false;
-      } else if (error.code !== "AUTH_REQUIRED") byId("renameError").textContent = "名称未保存，请稍后重试。";
-    } finally { renameBusy = false; byId("submitRename").disabled = Boolean(renameConflictAssetId); }
+        intent.needsReload = true; renameConflictAssetId = asset.id; byId("renameError").textContent = "素材状态已变化。你的名称仍保留，请先载入最新状态。"; byId("renameConflictActions").hidden = false;
+      } else if (!currentBoundAsset(intent)) markRenameIntentStale();
+      else if (error.code !== "AUTH_REQUIRED") byId("renameError").textContent = "名称未保存，请稍后重试。";
+    } finally { renameBusy = false; byId("submitRename").disabled = Boolean(renameIntent?.needsReload || renameConflictAssetId); }
   }
 
   async function reloadRenameIntent() {
     const draft = byId("assetDisplayName").value;
-    const targetId = renameConflictAssetId;
+    const targetId = renameIntent?.assetId || renameConflictAssetId;
+    if (!targetId) return;
     byId("reloadRename").disabled = true;
-    const ok = await refresh({ preserveSelection: true, quiet: true });
-    const target = assets.find((asset) => asset.id === targetId);
+    const ok = await refresh({ preserveSelection: true, quiet: true, requestedAssetId: targetId });
+    const target = assets.find((asset) => asset.id === targetId && asset.kind === activeKind);
     byId("assetDisplayName").value = draft;
     if (!ok || !canWriteAsset(target)) {
       byId("renameError").textContent = "无法载入同一素材的可写状态。请保留名称并关闭窗口，重新选择素材。";
       byId("submitRename").disabled = true;
     } else {
-      selectedAssetId = target.id; renameConflictAssetId = null; byId("renameConflictActions").hidden = true; byId("renameError").textContent = "已载入最新状态，你的名称仍保留；请明确再次保存。"; byId("submitRename").disabled = false; render();
+      selectedAssetId = target.id; renameIntent = createActionBinding(target, { needsReload: false }); renameConflictAssetId = null; byId("renameConflictActions").hidden = true; byId("renameError").textContent = "已载入最新状态，你的名称仍保留；请明确再次保存。"; byId("submitRename").disabled = false; render();
     }
     byId("reloadRename").disabled = false;
   }
 
   function openDangerDialog(trigger, asset, action) {
     if (!isAdmin() || !canWriteAsset(asset)) return;
-    dangerIntent = { assetId: asset.id, revision: asset.revision_number, action, needsReload: false };
+    dangerIntent = createActionBinding(asset, { action, needsReload: false });
     byId("dangerTitle").textContent = action === "delete" ? "删除素材" : "停用素材";
     byId("dangerMessage").textContent = action === "delete" ? `删除“${asset.display_name}”后，该素材不会再出现在目录中。` : `停用“${asset.display_name}”后，它不能再被新内容引用。`;
     byId("dangerError").textContent = ""; byId("dangerConflictActions").hidden = true;
@@ -775,11 +881,15 @@
   }
 
   async function confirmDanger() {
-    if (!dangerIntent || dangerIntent.needsReload) return;
+    const intent = dangerIntent;
+    const asset = currentBoundAsset(intent);
+    if (!intent || intent.needsReload || !asset || !isAdmin() || !canWriteAsset(asset)) { markDangerIntentStale(); return; }
+    const signal = actionAbortController.signal;
     byId("confirmDanger").disabled = true; byId("dangerError").textContent = "";
     try {
-      const { assetId, revision, action } = dangerIntent;
-      await request(`/api/assets/${encodeURIComponent(assetId)}${action === "disable" ? "/disable" : ""}`, { method: action === "delete" ? "DELETE" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expected_revision: revision }) });
+      const { assetId, revision, action } = intent;
+      await request(`/api/assets/${encodeURIComponent(assetId)}${action === "disable" ? "/disable" : ""}`, { method: action === "delete" ? "DELETE" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expected_revision: revision }), signal });
+      if (!currentBoundAsset(intent)) { markDangerIntentStale(); return; }
       dangerIntent = null;
       const refreshed = await refresh({ preserveSelection: true, quiet: true });
       await closeDialog(byId("assetDangerDialog"), refreshed
@@ -788,10 +898,11 @@
       setNotice(action === "delete" ? "素材已删除。" : "素材已停用。", "success");
     } catch (error) {
       if (error.status === 409 || error.code === "ASSET_VERSION_CONFLICT") {
-        dangerIntent.needsReload = true;
+        intent.needsReload = true;
         byId("dangerError").textContent = "素材状态已变化，本次操作未执行。请先载入同一素材的最新状态。";
         byId("dangerConflictActions").hidden = false;
       }
+      else if (!currentBoundAsset(intent)) markDangerIntentStale();
       else if (error.code !== "AUTH_REQUIRED") byId("dangerError").textContent = "操作未完成，请稍后重试。";
     } finally { byId("confirmDanger").disabled = Boolean(dangerIntent?.needsReload); }
   }
@@ -806,7 +917,7 @@
       byId("dangerError").textContent = "无法载入同一素材的可写状态。本次操作已取消，请关闭窗口。";
       byId("confirmDanger").disabled = true;
     } else {
-      dangerIntent = { assetId, action, revision: target.revision_number, needsReload: false };
+      dangerIntent = createActionBinding(target, { action, needsReload: false });
       byId("dangerConflictActions").hidden = true;
       byId("dangerError").textContent = "已载入最新状态；请重新核对并再次明确确认。";
       byId("confirmDanger").disabled = false;
@@ -815,14 +926,30 @@
   }
 
   async function downloadVersion(version, button) {
+    const asset = selectedAsset();
+    const intent = createActionBinding(asset, { versionId: version.id });
+    if (!currentBoundVersion(intent)) {
+      setNotice("素材状态已变化，下载权限已失效。请刷新后重试。", "error");
+      return;
+    }
+    const signal = actionAbortController.signal;
     button.disabled = true; setNotice("正在获取临时下载权限...");
     try {
-      const result = await request(`/api/asset-versions/${encodeURIComponent(version.id)}/download-authorizations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      const link = document.createElement("a"); link.href = result.download.url; link.download = version.original_filename; link.hidden = true; document.body.append(link); link.click(); setTimeout(() => link.remove(), 1000);
-      setNotice(`已获取临时下载权限，有效期至 ${new Date(result.download.expires_at).toLocaleString("zh-CN")}。`, "success");
+      const result = await request(`/api/asset-versions/${encodeURIComponent(version.id)}/download-authorizations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal });
+      const currentVersion = currentBoundVersion(intent);
+      if (!currentVersion) {
+        setNotice("素材状态已变化，下载权限已失效。请刷新后重试。", "error");
+        return;
+      }
+      const url = normalizedDownloadUrl(result?.download?.url);
+      const expiresAt = Date.parse(result?.download?.expires_at || "");
+      if (!url || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error("DOWNLOAD_AUTHORIZATION_INVALID");
+      const link = document.createElement("a"); link.href = url; link.download = currentVersion.original_filename; link.hidden = true; document.body.append(link); link.click(); setTimeout(() => link.remove(), 1000);
+      setNotice(`已获取临时下载权限，有效期至 ${new Date(expiresAt).toLocaleString("zh-CN")}。`, "success");
     } catch (error) {
-      if (error.code !== "AUTH_REQUIRED") setNotice("下载权限获取失败，请刷新素材状态后重试。", "error");
-    } finally { button.disabled = false; }
+      if (!currentBoundVersion(intent)) setNotice("素材状态已变化，下载权限已失效。请刷新后重试。", "error");
+      else if (error.code !== "AUTH_REQUIRED") setNotice("下载权限获取失败，请刷新素材状态后重试。", "error");
+    } finally { if (button.isConnected && currentBoundVersion(intent)) button.disabled = false; }
   }
 
   function initializeRoute() {
@@ -837,7 +964,26 @@
     }
     activeKind = route.kind;
     selectedAssetId = route.assetId;
-    workspace.dataset.layer = selectedAssetId && usesSequentialLayout() ? "detail" : "list";
+    sequentialLayout = usesSequentialLayout();
+    workspace.dataset.layer = selectedAssetId && sequentialLayout ? "detail" : "list";
+  }
+
+  function syncResponsiveLayout() {
+    const nextSequentialLayout = usesSequentialLayout();
+    const layoutChanged = sequentialLayout !== nextSequentialLayout;
+    sequentialLayout = nextSequentialLayout;
+    const route = readRoute();
+    const asset = selectedAsset();
+    const hasExactSelection = Boolean(asset && asset.kind === route.kind && asset.id === route.assetId && assetAuthorityValid);
+    workspace.dataset.layer = nextSequentialLayout && hasExactSelection ? "detail" : "list";
+    renderSummary();
+    ensurePreviews();
+    if (layoutChanged && hasExactSelection) queueMicrotask(() => {
+      const target = nextSequentialLayout
+        ? byId("assetDetailTitle")
+        : document.querySelector(`[data-asset-id="${CSS.escape(asset.id)}"]`);
+      target?.focus({ preventScroll: true });
+    });
   }
 
   function changeKind(kind) {
@@ -884,7 +1030,12 @@
   initializeRoute();
   for (const button of document.querySelectorAll("[data-kind]")) button.addEventListener("click", () => changeKind(button.dataset.kind));
   byId("openUpload").addEventListener("click", (event) => {
-    if (byId("assetFile").files[0]) byId("uploadForm").requestSubmit();
+    if (byId("assetFile").files[0]) {
+      if (!uploadIntent && assetAuthorityValid && !tornDown && ["product_image", "avatar_image"].includes(activeKind)) {
+        uploadIntent = createActionBinding(null, { needsReopen: false });
+      }
+      byId("uploadForm").requestSubmit();
+    }
     else openUploadDialog(event.currentTarget);
   });
   byId("uploadForm").addEventListener("submit", submitUpload);
@@ -895,11 +1046,13 @@
   byId("refreshAssets").addEventListener("click", () => identity ? refresh({ preserveSelection: true, requestedAssetId: readRoute().assetId }) : bootstrap());
   byId("backToAssets").addEventListener("click", backToList);
   window.addEventListener("scroll", ensurePreviews, { passive: true });
-  window.addEventListener("resize", ensurePreviews);
+  window.addEventListener("resize", syncResponsiveLayout);
   window.addEventListener("popstate", () => { void restoreRouteFromHistory(); });
   window.addEventListener("pagehide", () => {
     tornDown = true;
+    assetAuthorityValid = false;
     listEpoch += 1;
+    invalidateActionAuthority();
     clearPreviewAuthority();
     stopPolling();
   });

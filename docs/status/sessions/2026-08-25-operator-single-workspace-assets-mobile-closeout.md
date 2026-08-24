@@ -29,8 +29,10 @@
 - canonical URL 为 `/assets.html?kind=<product_image|avatar_image|work_video>&asset=<visible-id>`；无 query 保留旧商品图片列表，
   missing/foreign/wrong-kind Asset 会清除 `asset`，不会回落到另一可写素材。分类、选择、返回与 Back/Forward 使用真实
   history；同一分类或同一行重复点击不制造重复 history。
-- list 与 preview 使用独立 epoch。每次 route、refresh、popstate、pagehide/pageshow 或权限重读都会先撤销旧 selection、
-  mutation、download 与 `src`；503 只保留当前分类的唯一 refresh。bfcache 恢复重新读取 `/api/auth/me`，鉴权完成前不会
+- list、preview 与 action 使用独立 epoch；download 还绑定 exact route/Asset/AssetVersion，rename/upload/danger intent
+  绑定 exact authority epoch、Asset 与 revision。每次 route、refresh、popstate、pagehide/pageshow 或权限重读都会先 abort
+  迟到授权并撤销旧 selection、mutation、download 与 `src`；旧 intent 只能显式 reload/reopen 后重新绑定，503 只保留当前分类
+  的唯一 refresh。bfcache 恢复重新读取 `/api/auth/me`，鉴权完成前不会
   暴露旧详情或下载动作；390/768 的身份重读失败会切回 list layer，保持唯一 refresh 可见、可聚焦且可恢复 exact route。
 - 本 Goal 只为 Assets 目录中的 exact `avatar_image` 新增真实图片预览：取最新一次成功 `/api/assets` snapshot 的
   `versions[0]`，要求 `available` 且具有已验证 image media/size/SHA-256，复用既有通用短时授权。list/detail 对同一
@@ -68,11 +70,13 @@
 19. `test/assets-browser.test.js`
 20. `test/vsa-a14-acceptance-browser.test.js`
 21. `test/operator-workbench-v2-assets-browser.test.js`
+22. `test/operator-single-workspace-stage-5-browser.test.js`
 
 第 17–18 项在编辑前通过 Issue checkpoint 加入，只用于 memory UoW `onRollback` 与实际 ProjectContent outer transaction
 并发回归，不扩大 public API/domain。第 19–21 项随后按兼容 RED checkpoint 加入：前两项只把双面板中“核验中/核验通过”
-定位限定到既有 `#assetList`；第 21 项已有上传/停用/删除焦点断言直接锁定产品修复，无需放宽断言。总 scope 固定为 21
-个文件；其中第 21 项若无需修改可以保持工作树无 diff。
+定位限定到既有 `#assetList`；第 21 项已有上传/停用/删除焦点断言直接锁定产品修复，无需放宽断言。总 scope 固定为 22
+个文件；其中第 21 项若无需修改可以保持工作树无 diff。第 22 项在第二次 default 的同名 Stage 5 committed-503 用例再次
+超时后另行 checkpoint，只稳定既有 compatibility harness 的公开 HTTP/UI readiness，不修改 runtime。
 
 ## RED -> GREEN
 
@@ -92,22 +96,46 @@
 7. 基线 pageshow 复用旧 identity/detail，且 390 exact detail 上身份 503 会把唯一 refresh 留在隐藏的 detail layer。
    held `/api/auth/me` 与 fail-once 503 回归证明恢复时立即清空旧详情、动作和 preview；失败时切回 list 并聚焦唯一 refresh，
    释放或显式刷新成功后才恢复 exact URL/Asset。
+8. 第一版 fixed head `a8119f0` 的独立 review 复现出迟到 download grant 仍创建 link、danger/rename/upload 旧 intent 在
+   refresh/pagehide 后仍能写、390 detail 为隐藏人物行额外 mint grant，以及 1440 exact detail 缩窄后落在隐藏 list layer。
+   真实 Chrome RED 的旧值分别为 link trigger `1`、旧 mutation POST/PATCH `1`、selected+hidden 两个 grant，以及 390 下
+   `listVisible=true/detailVisible=false`。action epoch/Abort、显式 reload/reopen、严格 rect 可见性与 resize layer 同步后，新增
+   11 项回归全部 GREEN；reduced-motion 双截图在旧实现即通过，未冒充 RED。
+9. 默认并发 suite 暴露 A14 acceptance test 在 click 后立即运行内嵌 worker 的竞态：首次 run 在等待“质检通过”时超时，
+   单文件复现证明 worker 可能早于浏览器 listener 完成入队。测试现先等待公开“质检中，可离开本页”与 plan route 的
+   `#preflightBadge=预检中` 再运行 worker；修复后 A14 串行 stress 3/3。这里只修测试同步，不改变业务 UI/API。
+10. Stage 5 committed-hidden compatibility test 原用 Playwright `route.fetch()` 在浏览器拦截连接内完成真实 POST，再从同一
+    handler 向浏览器伪装 503；跨日复现时服务端已 commit、客户端也进入 authority reload，但恢复 GET 偶发永远无 response。
+    DOM 证据为 dialog 仍 open、title=`正在读取生产状态`、loading visible、body hidden、create count/order count 均为 1。
+    这属于测试 transport re-entry flake，不是已证实产品 bug。最终 test-only seam 完全移除 Playwright interception：测试
+    server 的公开 POST handler 仍按真实请求先 commit state/receipt/object，再由一次性 flag 直接向浏览器返回 503；客户端
+    随后必须经真实 HTTP 自动重读并达到 exact task/action/summary。server call counter 与 committed objects 都保持恰好 1。
 
 ## 验证、截图与后继门禁
 
-- focused service/API/ProjectContent：59/59 pass；PostgreSQL 16 Assets integration：1/1 pass、0 skip。默认 `npm test`
-  自然完成：1202 tests / 1187 pass / 15 个既有环境门禁 skip / 0 fail。`npm run check` 检查 248 个 JavaScript 文件，
-  `npm run validate` 验证 3 条商品，`git diff --check` 通过；CI 仍以 Draft PR/Issue exact-head 记录为准。
-- 新 Assets 系统 Chrome closeout：8/8 pass；既有兼容按文件隔离为 Assets browser 3/3、V2 Assets 8/8、A14 1/1，合计
-  12/12 pass。Stage 1–5 + Works 独立矩阵 24/24 pass、0 fail/skip。一次把三份兼容文件放入同一 Node runner 的尝试在
-  Chrome 启动阶段长期无输出后被明确中止，不计为绿色；单文件均自然退出。
+- focused service/API/ProjectContent：59/59 pass；PostgreSQL 16 Assets integration：1/1 pass、0 skip。`npm run check`
+  检查 248 个 JavaScript 文件，`npm run validate` 验证 3 条商品，`git diff --check` 通过。新 Assets 系统 Chrome
+  closeout 19/19 pass；其中 review 后新增 action/download/visibility/resize/稳定截图回归 11/11 pass。
+- 既有兼容按文件隔离为 Assets browser 3/3、V2 Assets 8/8、A14 1/1，合计 12/12；A14 同步修复后另做 stress 3/3。
+  Stage 5 server-direct committed-503 seam 独立进程 stress 10/10（单轮 1.42–1.52 秒）且全文件 6/6；Stage 1–5 + Works
+  最终按独立 Node 进程串行复跑为 24/24 pass、0 fail/skip：Stage 1 2/2（5.92 秒）、Stage 2 3/3（9.57 秒）、
+  Stage 3 3/3（11.87 秒）、Stage 4 9/9（20.21 秒）、Stage 5 6/6（10.14 秒）、Works 1/1（7.83 秒），均自然退出。
+  组合兼容 runner 曾在 V2 中 0% CPU hang，Stage 组合 runner
+  曾在 Stage 2 中 hang；均显式终止且不计绿色/产品失败，随后相应文件单跑自然 GREEN。
+- review 后本机 default `npm test` 没有形成最终绿色证据：第一次自然结束为 1213 total / 1197 pass / 15 skip / 1 fail
+  （A14 入队竞态）；第二次相同总数与单一失败，但失败换成已独立 6/6 的 Stage 5 HTTP 503 浏览器用例；第三次在
+  `manual-execution-api` #595 已通过后、`manual-execution-browser` #596 输出前 0% CPU hang，2 分 21 秒后以 Ctrl-C
+  明确终止（exit 130）。A14 已按上述公开 seam 修复并 stress GREEN；没有为 Stage 5 或 A11 无证据改产品。本 fixed
+  candidate 的全量终态以 Draft PR exact-head required CI 为准，CI 未完成前不得写成本地 default GREEN。旧
+  `a8119f0` 的 required CI 虽成功，但已被 REQUEST CHANGES 与后续 diff 取代，不是当前 head 证据。
 - preview `ready` 后生成的 viewport-only 人物详情 PNG 保存在临时目录且不入 Git：
   `/private/tmp/hifly-issue-250-assets-screenshots/assets-avatar-detail-1440.png`（1440x900）、
   `assets-avatar-detail-768.png`（768x900）、`assets-avatar-detail-390.png`（390x844）。SHA-256 依次为
   `2af71e31ed8e648ab8803d89ae540f6afb0dd2ebdb1e55794ceae88d2eb4b23e`、
   `e2dea358aee0d22c8c7dd2fb49597440f276c7c34eec5c4845102e18a533658d`、
   `eeb3bef9b69656d0411362df87fbec2c16d8678fa72df292b56ac0b08163a782`。fixture 只是 1x1 黑/白 PNG，截图只证明授权、
-  bytes 与响应式布局，不是生产人物视觉或视觉品质验收。
+  bytes 与响应式布局，不是生产人物视觉或视觉品质验收。1440 evidence 使用 reduced-motion、禁用动画并对落盘帧与同状态
+  第二帧做 byte-identical SHA 断言；三张 exact viewport 图均已人工查看，没有把 full-page 拼接图冒充 viewport 证据。
 - 本轮未开始视觉研究。只有本 Goal 经独立 Review 合并后，才可另开视觉 refinement/research Goal；不能把本轮黑白 fixture
   截图当作该后继 Goal 的设计输入结论。
 - 未访问 Hifly/Provider，未启动 Worker/Local Agent，未 SSH/部署，未修改生产数据，未创建、领取、运行或重试真实工单/
