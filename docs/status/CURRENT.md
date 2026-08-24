@@ -107,7 +107,10 @@
   独立 Review 后才成立。第六轮纠偏还把审核决定绑定 URL 中的 exact product、让提交审核的幂等 receipt 在投影写回窗口及
   后续 head 变化后重建当前服务端投影、统一 memory 与 PostgreSQL 的 preflight `(created_at,id)` 顺序并失效同方案全部适用
   result。409 载入最新只在冲突前确有本地 dirty 时保留输入；clean stale approval 遇到并发 derive 后采用 authoritative 新
-  head，保持 clean next action 并恢复任务标题焦点。这些修复仍须对应 fixed head 独立 Review/合并后才计入仓库真值。
+  head，保持 clean next action 并恢复任务标题焦点。最新纠偏把 wrong-product review 的归属隐藏置于 reason、状态、revision
+  与 receipt replay 之前，所有此类请求恒定安全 404 且零写；create/derive/preflight 的 raw 或完整幂等 receipt 只用于定位
+  exact plan/run，响应始终重建当前服务端投影，不回放 commit 后过期的 draft/queued 快照。这些修复仍须对应 fixed head
+  独立 Review/合并后才计入仓库真值。
   Stage 1/2/3 保持稳定，`production` 继续 `legacy/not_loaded` 且不读取 Production service；进入生产只保持旧页导航，
   不创建工单、不推断 eligible/attempt/Worker。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 4 仓库实现成立；
   不表示部署或生产验收，也不授权 Stage 5。

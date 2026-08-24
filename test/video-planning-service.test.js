@@ -60,6 +60,60 @@ test("creates a plan with the canonical Hifly presentation size", async () => {
   assert.equal(created.current_plan.presentation_size_code, "small");
 });
 
+test("create and derive replay committed receipts as current server projections", async () => {
+  const state = world();
+  const createInput = { ...actor, outputInstructions: "首版制作说明", expectedHeadRevision: 0,
+    idempotencyKey: "create-current-projection" };
+  const createPause = pauseNextRepositoryMutation(state.repository, "updateReceiptResult");
+  const creating = state.service.createPlan(createInput);
+  await createPause.waiting;
+  const createReplay = await state.service.createPlan(createInput);
+  createPause.release();
+  const created = await creating;
+  assert.equal(createReplay.current_plan.id, created.current_plan.id);
+  assert.equal(createReplay.current_plan.status, "draft");
+  assert.equal((await state.repository.listPlans(actor.organizationId, actor.productId)).length, 1);
+
+  await state.service.requestPreflight({ ...actor, planId: created.current_plan.id,
+    expectedRevision: created.current_plan.row_version, idempotencyKey: "create-current-projection-preflight" });
+  await state.worker.runNext();
+  const deriveInput = { ...actor, planId: created.current_plan.id, outputInstructions: "第二版制作说明",
+    expectedHeadRevision: 1, idempotencyKey: "derive-current-projection" };
+  const derivePause = pauseNextRepositoryMutation(state.repository, "updateReceiptResult");
+  const deriving = state.service.deriveDraft(deriveInput);
+  await derivePause.waiting;
+  const deriveReplay = await state.service.deriveDraft(deriveInput);
+  derivePause.release();
+  const derived = await deriving;
+  assert.equal(deriveReplay.current_plan.id, derived.current_plan.id);
+  assert.equal(deriveReplay.head_revision, 2);
+  assert.equal((await state.repository.listPlans(actor.organizationId, actor.productId)).length, 2);
+
+  const createAfterDerive = await state.service.createPlan(createInput);
+  assert.equal(createAfterDerive.current_plan.id, created.current_plan.id);
+  assert.equal(createAfterDerive.current_plan.status, "superseded");
+  assert.equal(createAfterDerive.head_revision, 2);
+  await assert.rejects(state.service.deriveDraft({ ...deriveInput, outputInstructions: "不同的第二版" }),
+    { code: "IDEMPOTENCY_CONFLICT" });
+});
+
+test("preflight replay returns the exact current run after asynchronous completion", async () => {
+  const state = world();
+  const created = await state.service.createPlan({ ...actor, outputInstructions: "首版制作说明",
+    expectedHeadRevision: 0, idempotencyKey: "preflight-current-create" });
+  const input = { ...actor, planId: created.current_plan.id, expectedRevision: created.current_plan.row_version,
+    idempotencyKey: "preflight-current-run" };
+  const queued = await state.service.requestPreflight(input);
+  assert.equal(queued.preflight.current_run.status, "queued");
+  await state.worker.runNext();
+  const replay = await state.service.requestPreflight(input);
+  assert.equal(replay.preflight.current_run.id, queued.preflight.current_run.id);
+  assert.equal(replay.preflight.current_run.status, "succeeded");
+  assert.equal(replay.preflight.current_result.preflight_run_id, queued.preflight.current_run.id);
+  await assert.rejects(state.service.requestPreflight({ ...input, expectedRevision: input.expectedRevision + 1 }),
+    { code: "IDEMPOTENCY_CONFLICT" });
+});
+
 test("creates an immutable draft snapshot and derives edits from frozen plans", async () => {
   const state = world();
   const first = await state.service.createPlan({ ...actor, outputInstructions: "首版制作说明", expectedHeadRevision: 0,

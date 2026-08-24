@@ -80,6 +80,14 @@
     并以 `VIDEO_PLAN_REVIEW_NOT_FOUND` 零写入失败关闭；submit replay 从 raw `review_id` 重建当前服务端投影，head 变化后不回放
     旧 frozen 快照；memory 与 PostgreSQL 统一 `(created_at,id)` 顺序，并把同方案全部 passed/warning/blocked result 失效；
     load-latest 冻结冲突前 `hadDirty`，clean 路径采用新 head 正文/呈现大小、保持 clean next action 并恢复 exact heading focus。
+15. 第七轮资源隐藏/命令回放 RED：wrong-product review 在归属校验前验证 reason/status/revision，因而缺理由泄露 400、错
+    revision 或 terminal review 泄露 409；create/derive 在 repository 已提交 raw plan receipt 而完整 projection 尚未写回时
+    返回 `VIDEO_PLAN_NOT_FOUND`，preflight 完成后同 key 又回放旧 queued 投影。GREEN 后 review decision 先读取 exact review
+    与 plan 并核对 URL product，失败恒定 `VIDEO_PLAN_REVIEW_NOT_FOUND`，随后才允许 reason、revision、fingerprint/replay 与
+    mutation；approve/request-changes 的 pending、terminal、错 revision、缺理由和既有 receipt 均为 404/零写。create/derive
+    从 raw/full receipt 的 exact `plan_id` 重建当前 workspace，preflight 对 exact input plan 重读当前 run/result；因此投影写回
+    窗口可安全回放，derive 后旧 create receipt 显示 superseded/current head revision，worker 完成后 preflight replay 显示
+    succeeded。fingerprint 不同仍为 `IDEMPOTENCY_CONFLICT`。
 
 ## 实现边界
 
@@ -154,6 +162,14 @@
   本轮默认 `npm test` 在另一个 worktree 已持续约 10 小时的同套全量进程并存时超过 4 分钟无新增输出，作者只终止本轮
   自己启动的命令，未触碰外部进程，也未把本地全量写成通过。fixed-head `identity-postgres` 必须自然执行 PG 1/1，
   Ubuntu/Windows/default suite 与最终 CI 结果以 PR 元数据和结果评论为准。
+- 第七轮在被审 head 持久复现 service/API RED：create/derive raw receipt window 为 `VIDEO_PLAN_NOT_FOUND`，preflight worker
+  完成后同 key仍为 queued，wrong-product 错 revision 为 HTTP 409。GREEN 后 service/API 非数据库组 26/26 pass；新增
+  PostgreSQL integration 以真实 repository + service 覆盖 create raw receipt replay 与 completed preflight replay。本机未配置
+  PostgreSQL test URL，该文件本地明确 1 个 environment-gated skip，不冒充 PG 通过。受影响总组为 62 pass / 1 PG skip，
+  Stage 4 真实 Chrome 9/9，`npm run check` 246，diff-check 与 21 文件 allowlist 均通过。默认 `npm test` 推进至 658 个通过项后
+  停在未改动的 `operator-workbench-v2-foundation-browser`；同机另一个旧 worktree 的同一默认套件也已在该测试停留约 10
+  小时，作者只终止本轮自己启动的进程，未触碰外部进程，也不把本地全量写成通过。fixed-head Ubuntu/Windows 必须自然
+  完成 default suite，`identity-postgres` 必须自然执行新增 PG 断言，三组结果以 PR 元数据和结果评论为准。
 - `main` 分支保护已保留 `strict=true` 与原 `test (ubuntu-latest, 22)`、`test (windows-latest, 22)`，仅新增
   `identity-postgres` 为 required context；该设置变更不扩仓库文件 allowlist。
 - 首轮实现 head 的默认 `npm test` 曾自然完成 1148 total / 1133 pass / 15 existing environment-gated skips / 0 fail；首轮

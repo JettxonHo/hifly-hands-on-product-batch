@@ -186,7 +186,9 @@ run/result、人工审核与历史；方案创建、保存、派生、预检、�
   product head、frozen plan revision、最新 passed/warning result 与 pending review revision；derive 胜出后旧审核只能安全冲突，
   不得产生 terminal review/event/audit。后续纠偏还要求审核决定精确绑定 URL product、review-submit receipt 在投影写回
   空窗与 head 变化后重建当前投影、memory/PG 使用同一 preflight 排序与全结果失效语义；clean 409 恢复采用 authoritative
-  新 head，只有冲突前 dirty 才保留本地输入。三视口确定性 preflight/focus matrix 持续验证。`main` 分支保护在
+  新 head，只有冲突前 dirty 才保留本地输入。最新纠偏要求 wrong-product review 在 reason/state/revision/receipt 之前恒定
+  隐藏为 404，并要求 create/derive/preflight 的幂等回放从 exact receipt identity 重建当前服务端投影，不复用旧 draft/queued
+  projection。三视口确定性 preflight/focus matrix 持续验证。`main` 分支保护在
   保留 strict 与既有 Ubuntu/Windows context 的同时 additive 要求 `identity-postgres`。只有 fixed head 独立 Review 合并后
   才计为实现。Stage 1/2/3 保持稳定，Stage 5 Production 继续
 `legacy/not_loaded` 和零读取；对应 Draft PR 合并前不计为完成，也不授权 Stage 5。后续实现严格串行：Stage 5

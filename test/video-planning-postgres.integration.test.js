@@ -13,6 +13,7 @@ import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { runProjectContentMigrations } from "../src/project-content/postgres.js";
 import { createPostgresVideoPlanningRepository } from "../src/video-planning/postgres-video-planning-repository.js";
 import { runVideoPlanningMigrations } from "../src/video-planning/postgres.js";
+import { createVideoPlanningService } from "../src/video-planning/video-planning-service.js";
 
 const connectionString = process.env.TEST_DATABASE_URL || process.env.IDENTITY_TEST_DATABASE_URL;
 const isolatedUrl = (value, schema) => { const url = new URL(value); url.searchParams.set("options", `-c search_path=${schema}`); return url.toString(); };
@@ -25,6 +26,24 @@ async function holdReceiptLock(pool, receiptKey) {
     await client.query("COMMIT");
     client.release();
   };
+}
+
+function pauseNextRepositoryMutation(repository, method) {
+  const original = repository[method].bind(repository);
+  let release;
+  let entered;
+  let paused = false;
+  const waiting = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  repository[method] = async (...args) => {
+    if (!paused) {
+      paused = true;
+      entered();
+      await gate;
+    }
+    return original(...args);
+  };
+  return { waiting, release };
 }
 
 test("clean PostgreSQL video planning migration preserves versions and serializes heads/reviews", { skip: !connectionString }, async (t) => {
@@ -144,5 +163,40 @@ test("clean PostgreSQL video planning migration preserves versions and serialize
   await releaseSubmit();
   await staleSubmit;
   assert.equal((await repository.listReviews("org-plan-pg", plan2.id)).length, 0);
+
+  const replayProductId = randomUUID();
+  await pool.query("INSERT INTO project_content_products(id,organization_id,project_id,created_by_member_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$5)",
+    [replayProductId,"org-plan-pg",ids.project,seeded.member.id,at]);
+  const replayActor = { organizationId: "org-plan-pg", actorMemberId: seeded.member.id,
+    actorRole: "admin", productId: replayProductId };
+  const replayUpstream = { product_revision_id: randomUUID(), copy_version_id: randomUUID(),
+    avatar_selection_id: randomUUID(), avatar_asset_version_id: randomUUID(), current_valid: true };
+  const replayService = createVideoPlanningService({ repository,
+    upstreamPort: { async resolveCurrent() { return structuredClone(replayUpstream); } },
+    capabilitySnapshotPort: { async resolve() { return { snapshot_version: "pg-replay-v1",
+      verified_capabilities: [{ code: "speech", evidence_reference: "seed:pg-replay" }] }; } },
+    agentReadinessPort: { async isOnline() { return false; } }, now: () => Date.parse(at) });
+  const createInput = { ...replayActor, outputInstructions: "PG receipt 当前投影", expectedHeadRevision: 0,
+    idempotencyKey: "pg-service-create-replay" };
+  const receiptPause = pauseNextRepositoryMutation(repository, "updateReceiptResult");
+  const creating = replayService.createPlan(createInput);
+  await receiptPause.waiting;
+  const rawReceiptReplay = await replayService.createPlan(createInput);
+  receiptPause.release();
+  const serviceCreated = await creating;
+  assert.equal(rawReceiptReplay.current_plan.id, serviceCreated.current_plan.id);
+  const preflightInput = { ...replayActor, planId: serviceCreated.current_plan.id,
+    expectedRevision: serviceCreated.current_plan.row_version, idempotencyKey: "pg-service-preflight-replay" };
+  const queued = await replayService.requestPreflight(preflightInput);
+  const claimed = await replayService.claimNextPreflight();
+  assert.equal(claimed.run.id, queued.preflight.current_run.id);
+  await replayService.completePreflight({ run: claimed.run, evaluation: { groups: {
+    upstream_validity: { status: "passed", checks: [] },
+    plan_completeness: { status: "passed", checks: [] },
+    production_readiness: { status: "warning", checks: [] }
+  } } });
+  const completedReplay = await replayService.requestPreflight(preflightInput);
+  assert.equal(completedReplay.preflight.current_run.status, "succeeded");
+  assert.equal(completedReplay.preflight.current_result.preflight_run_id, claimed.run.id);
   assert.ok((await repository.listAuditEvents()).length >= 3);
 });
