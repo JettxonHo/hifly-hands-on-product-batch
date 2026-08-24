@@ -99,7 +99,9 @@
   同一方案冲突恢复中保留，载入最新后所有 busy-dependent 控件重新按服务端真值启用；正式 head 只由 `versions` 中唯一
   非 superseded 版本确定，非合同 head 字段不能改变 current/history/action，selected plan 必须与同 ID canonical version
   的完整快照一致。无 current plan 时只允许空版本或全 superseded 历史，原生 Escape 则结束要求修改意图、清空理由并恢复
-  exact trigger 焦点。这些只在对应 fixed head 经独立 Review 合并后计入仓库实现。
+  exact trigger 焦点。并发读取若混合 draft head 与后来产生的 preflight/review 子真值，会作为可恢复读取错误 fail-visible，
+  不暴露批准/提交动作；仅 superseded 历史且无 active head 时，“回到当前方案”会清除 plan 深链并进入首版创建态。这些只在
+  对应 fixed head 经独立 Review 合并后计入仓库实现。
   Stage 1/2/3 保持稳定，`production` 继续 `legacy/not_loaded` 且不读取 Production service；进入生产只保持旧页导航，
   不创建工单、不推断 eligible/attempt/Worker。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 4 仓库实现成立；
   不表示部署或生产验收，也不授权 Stage 5。

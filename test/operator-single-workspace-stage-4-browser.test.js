@@ -599,6 +599,45 @@ test("Stage 4 rejects stale same-product plan responses and closes version selec
   assert.equal(new URL(page.url()).searchParams.get("plan"), versions.second.id);
 });
 
+test("Stage 4 returns from an only-superseded history deep link to the empty current head", async (t) => {
+  const setup = await startWorld(t, 59690);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { app, browser, origin, project, first, actor } = setup;
+  const versions = await createPlanVersions(app, actor, first.product.id, "stage-4-empty-head");
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await authenticate(page, origin);
+  await page.route("**/api/projects/*/products/*/operator-workspace**", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    const requestedPlanId = new URL(route.request().url()).searchParams.get("plan");
+    const stage = body.workspace.stages.find((item) => item.code === "video_plan");
+    const historical = stage.video_plan_workspace.versions.find((item) => item.id === versions.first.id);
+    stage.video_plan_workspace.versions = [historical];
+    if (!requestedPlanId) {
+      stage.current_object = null;
+      stage.navigation_state = "current";
+      stage.business_status = "视频方案待创建";
+      stage.blocker_codes = ["VIDEO_PLAN_REQUIRED"];
+      stage.video_plan_workspace.current_plan = null;
+      stage.video_plan_workspace.preflight = { current_run: null, current_result: null, history: [] };
+      stage.video_plan_workspace.human_review = { current_review: null, history: [],
+        gate: { can_submit: false, can_decide: false, reasons: ["plan_missing"] } };
+      body.workspace.recommended_action = { code: "create_video_plan", stage: "video_plan", kind: "command" };
+    }
+    return route.fulfill({ response, json: body });
+  });
+
+  await page.goto(workspaceUrl(origin, project.id, first.product.id, versions.first.id));
+  await page.locator("#taskSummaryTitle").filter({ hasText: "正在查看历史方案" }).waitFor();
+  assert.equal(await page.locator("#outputInstructions").isEditable(), false);
+  await expectAction(page, "return_to_current_video_plan", "回到当前方案");
+  await page.locator("#workspacePrimaryAction").click();
+  await page.waitForFunction(() => !new URL(location.href).searchParams.has("plan"));
+  await page.locator("#firstInstructions").waitFor();
+  await expectAction(page, "create_video_plan", "创建视频方案");
+  assert.equal(new URL(page.url()).searchParams.get("plan"), null);
+});
+
 test("Stage 4 saves the first plan and restores editable controls plus review reason after 409", async (t) => {
   const setup = await startWorld(t, 59700);
   if (!setup) return t.skip("local Chrome or TCP listening is unavailable");

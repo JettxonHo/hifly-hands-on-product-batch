@@ -61,6 +61,12 @@
     关闭修改 Dialog 后会复活已取消理由。GREEN 后服务端只接受 versions 中至多一个非 superseded head，selected plan 与
     canonical same-ID version 必须 exact deep-equal，null current 只接受空版本或全 superseded 历史；客户端忽略额外 head
     字段。Dialog `cancel` 与按钮取消统一清理意图并恢复 exact trigger 焦点。
+12. 第四轮读取世代/空 head RED：真实 memory repository 在 `getPreflightState` 暂停期间可把 draft 冻结、完成 warning 并提交
+    pending review，旧读取恢复后会混合 draft plan/versions 与新 run/result/review 并错误开放批准；仅 superseded 历史被服务端
+    合法接受时，客户端又把它标为 current，返回动作因 `navigatePlan(null)` 无操作而卡死。GREEN 后 draft 携带任何 preflight/
+    review child truth 都抛出专用 generation mismatch，并由当前 stage 映射为可恢复 503/零动作；approve/submit 还显式要求
+    frozen 且拒绝 `plan_not_frozen`。客户端以 superseded status 判定历史，并允许 null head 导航清除 plan query、重载空 head
+    后进入第一版创建态。
 
 ## 实现边界
 
@@ -113,6 +119,10 @@
   15 skips / 2 browser failures；其中可见失败是未改动 `frontend-foundation-browser` 的等待超时，该文件随后单跑 1/1 pass。
   第二次默认命令在同一外部进程仍存在时超过 4 分钟无新输出，作者只终止自己启动的命令，未触碰外部进程，也未把本地
   默认全量写成通过。fixed-head 三组 CI 与其完整默认测试结果必须作为合并前独立硬门禁，并在 PR 结果评论如实记录。
+- 第四轮新增真实 memory interleaving 与 only-superseded browser RED；GREEN 后 service/API/VideoPlanning 非数据库组
+  53/53 pass、Stage 4 Chrome 8/8 pass、Stage 1/2/3/4 + legacy Plan Chrome 17/17 pass，`npm run check` 仍为 246 files。
+  前述另一个 worktree 的全量进程在本轮仍持续运行超过 9 小时，因此没有再次启动本地 default suite 制造第三次资源争用；
+  新 fixed-head Ubuntu/Windows 的自然 default suite 与 identity-postgres 必须全部 SUCCESS 才交付独立复审。
 - `main` 分支保护已保留 `strict=true` 与原 `test (ubuntu-latest, 22)`、`test (windows-latest, 22)`，仅新增
   `identity-postgres` 为 required context；该设置变更不扩仓库文件 allowlist。
 - 首轮实现 head 的默认 `npm test` 曾自然完成 1148 total / 1133 pass / 15 existing environment-gated skips / 0 fail；首轮

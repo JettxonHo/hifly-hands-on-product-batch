@@ -33,6 +33,10 @@ function unavailable(cause) {
   return failure("OPERATOR_WORKSPACE_UNAVAILABLE", { cause });
 }
 
+function generationMismatch() {
+  return failure("VIDEO_PLAN_WORKSPACE_GENERATION_MISMATCH");
+}
+
 function legacyStage(code, _readPort = null) {
   // A later-stage port may be injected for zero-read tests, but is intentionally untouched until that Stage migrates.
   void _readPort;
@@ -312,6 +316,9 @@ function assertExactVideoPlanWorkspace(value, { organizationId, projectId, produ
   const canonicalPlan = versions.find((version) => version.id === planId);
   if (!canonicalPlan || !isDeepStrictEqual(plan, canonicalPlan)) throw notFound();
   if (!requestedPlanId && (activeVersions.length !== 1 || activeVersions[0].id !== planId)) throw notFound();
+  const hasPreflightTruth = Boolean(preflight.current_run || preflight.current_result || (preflight.history || []).length);
+  const hasReviewTruth = Boolean(review.current_review || (review.history || []).length);
+  if (plan.status === "draft" && (hasPreflightTruth || hasReviewTruth)) throw generationMismatch();
   const assertRunResultPair = (run, result) => {
     if (run) assertPlanChildIdentity(run, { organizationId, planId });
     if (result) {
@@ -435,12 +442,13 @@ function videoPlanStage({ workspace, avatarProjection, revision, requestedStage 
       blockerCodes = ["VIDEO_PLAN_PREFLIGHT_REQUIRED"];
       action = videoPlanAction("derive_video_plan_draft");
     }
-  } else if (currentReview?.status === "pending" && reviewable && reviewGate.can_decide === true &&
-      !reviewReasons.includes("preflight_not_reviewable")) {
+  } else if (currentReview?.status === "pending" && plan.status === "frozen" && reviewable && reviewGate.can_decide === true &&
+      !reviewReasons.includes("preflight_not_reviewable") && !reviewReasons.includes("plan_not_frozen")) {
     businessStatus = "视频方案待人工审核";
     blockerCodes = ["VIDEO_PLAN_HUMAN_REVIEW_REQUIRED"];
     action = videoPlanAction("approve_video_plan_review");
-  } else if (reviewable && reviewGate.can_submit === true) {
+  } else if (plan.status === "frozen" && reviewable && reviewGate.can_submit === true &&
+      !reviewReasons.includes("plan_not_frozen")) {
     businessStatus = "预检已通过，待提交人工审核";
     blockerCodes = ["VIDEO_PLAN_HUMAN_REVIEW_REQUIRED"];
     action = videoPlanAction("submit_video_plan_review");

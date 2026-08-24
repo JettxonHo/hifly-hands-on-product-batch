@@ -167,7 +167,7 @@
     function selectedPlanId() { return currentPlan()?.id || null; }
     function selectedPlanIsHistorical() {
       const plan = currentPlan();
-      return Boolean(plan && currentPlanId() && plan.id !== currentPlanId());
+      return Boolean(plan && (plan.status === "superseded" || (currentPlanId() && plan.id !== currentPlanId())));
     }
     function currentProduct() { return project?.products?.find((item) => item.id === productId) || null; }
     function currentRun() { return planWorkspace?.preflight?.current_run || null; }
@@ -787,10 +787,9 @@
     }
 
     async function navigatePlan(nextPlanId) {
-      if (!nextPlanId) return false;
-      planId = nextPlanId;
+      planId = text(nextPlanId) || null;
       acceptedHistoryIndex += 1;
-      history.pushState({ ...(history.state || {}), planWorkspaceHistoryIndex: acceptedHistoryIndex, productId, planId }, "", workspaceUrl(projectId, productId, STAGE, nextPlanId));
+      history.pushState({ ...(history.state || {}), planWorkspaceHistoryIndex: acceptedHistoryIndex, productId, planId }, "", workspaceUrl(projectId, productId, STAGE, planId));
       return bootstrap();
     }
 

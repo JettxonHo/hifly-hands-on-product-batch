@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createOperatorWorkspaceService } from "../src/operator-workspace/operator-workspace-service.js";
+import { createControlledPreflightEvaluator } from "../src/video-planning/controlled-preflight-evaluator.js";
+import { createMemoryVideoPlanningRepository } from "../src/video-planning/memory-video-planning-repository.js";
+import { createPreflightWorker } from "../src/video-planning/preflight-worker.js";
+import { createVideoPlanningService } from "../src/video-planning/video-planning-service.js";
 
 test("projects the exact current Product Content revision and leaves later stages unloaded", async () => {
   const calls = [];
@@ -723,6 +727,71 @@ test("projects exact VideoPlan preflight truth without treating it as human appr
   assert.equal(productionReads, 0);
 });
 
+test("fails visible when a concurrent VideoPlan read mixes a draft head with newer preflight and review truth", async () => {
+  const revision = { id: "revision-generation", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    status: "ready", product_name: "并发商品", asset_version_ids: ["product-image"], selling_points: [{ text: "卖点", confirmed: true }] };
+  const copy = { id: "copy-generation", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    product_revision_id: revision.id, status: "frozen", version_number: 1, row_version: 1, body: "已批准文案" };
+  const selection = { id: "selection-generation", product_id: "product-a", copy_version_id: copy.id,
+    asset_version_id: "avatar-version", status: "confirmed", row_version: 1 };
+  const upstream = { product_revision_id: revision.id, copy_version_id: copy.id, avatar_selection_id: selection.id,
+    avatar_asset_version_id: selection.asset_version_id, current_valid: true };
+  const repository = createMemoryVideoPlanningRepository();
+  const videoPlanningService = createVideoPlanningService({ repository,
+    upstreamPort: { async resolveCurrent() { return structuredClone(upstream); } },
+    capabilitySnapshotPort: { async resolve() { return { snapshot_version: "cap-v1",
+      verified_capabilities: [{ code: "mandarin", evidence_reference: "evidence-a" }] }; } },
+    agentReadinessPort: { async isOnline() { return false; } },
+    now: () => Date.parse("2026-08-24T05:00:00.000Z") });
+  const worker = createPreflightWorker({ service: videoPlanningService, evaluator: createControlledPreflightEvaluator() });
+  const actor = { organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin", productId: "product-a" };
+  const created = await videoPlanningService.createPlan({ ...actor, outputInstructions: "竖版商品口播",
+    expectedHeadRevision: 0, idempotencyKey: "mixed-create" });
+
+  let releaseRead;
+  let markPaused;
+  let pauseOnce = true;
+  const paused = new Promise((resolve) => { markPaused = resolve; });
+  const release = new Promise((resolve) => { releaseRead = resolve; });
+  const readPreflight = repository.getPreflightState.bind(repository);
+  repository.getPreflightState = async (...args) => {
+    if (pauseOnce) {
+      pauseOnce = false;
+      markPaused();
+      await release;
+    }
+    return readPreflight(...args);
+  };
+  const operator = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", name: "并发计划",
+      products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: { async listCopyVersions() { return [copy]; } },
+    reviewService: { async getReviewState() { return { current_review: { id: "copy-review", status: "approved",
+      copy_version_id: copy.id }, gate: { reasons: [] } }; } },
+    avatarService: { async getWorkspace() { return { resolved_copy_version_id: copy.id,
+      copy_gate: { approved: true, reasons: [], copy_version_id: copy.id }, catalog: [],
+      selection: { current_selection: selection, selection_revision: 1, current_valid: true,
+        invalidation_reasons: [], history: [selection] } }; } },
+    videoPlanningService
+  });
+  const mixedRead = operator.getWorkspace({ ...actor, projectId: "project-a", stage: "video_plan" });
+  await paused;
+  await videoPlanningService.requestPreflight({ ...actor, planId: created.current_plan.id,
+    expectedRevision: created.current_plan.row_version, idempotencyKey: "mixed-preflight" });
+  await worker.runNext();
+  const completed = await videoPlanningService.getWorkspace({ ...actor, planId: created.current_plan.id });
+  assert.equal(completed.preflight.current_result.status, "warning");
+  await videoPlanningService.submitReview({ ...actor, planId: created.current_plan.id, idempotencyKey: "mixed-review" });
+  releaseRead();
+
+  await assert.rejects(mixedRead, (error) => {
+    assert.equal(error.code, "OPERATOR_WORKSPACE_UNAVAILABLE");
+    assert.equal(error.cause?.code, "VIDEO_PLAN_WORKSPACE_GENERATION_MISMATCH");
+    assert.equal(error.recommended_action, undefined);
+    return true;
+  });
+});
+
 test("orders VideoPlan recommendations from exact plan, preflight, review, and history truth", async () => {
   const revision = {
     id: "revision-plan", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",
@@ -764,14 +833,14 @@ test("orders VideoPlan recommendations from exact plan, preflight, review, and h
 
   assert.equal((await read()).recommended_action.code, "run_video_plan_preflight");
 
+  videoWorkspace.current_plan = { ...plan, status: "frozen", row_version: 2 };
+  videoWorkspace.versions[1] = videoWorkspace.current_plan;
   videoWorkspace.preflight.current_run = { id: "run-a", organization_id: "org-a", status: "queued", video_plan_version_id: plan.id };
   assert.equal((await read()).recommended_action, null);
 
   videoWorkspace.preflight.current_run = { id: "run-a", organization_id: "org-a", status: "failed", video_plan_version_id: plan.id, failure_code: "TEMPORARY" };
   assert.equal((await read()).recommended_action.code, "retry_video_plan_preflight");
 
-  videoWorkspace.current_plan = { ...plan, status: "frozen", row_version: 2 };
-  videoWorkspace.versions[1] = videoWorkspace.current_plan;
   videoWorkspace.preflight.current_run = { id: "run-b", organization_id: "org-a", status: "succeeded",
     video_plan_version_id: plan.id, preflight_result_id: "result-a" };
   videoWorkspace.preflight.current_result = { id: "result-a", organization_id: "org-a", status: "warning", video_plan_version_id: plan.id,
