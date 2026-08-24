@@ -800,18 +800,27 @@
 
     async function loadLatest() {
       if (busy) return false;
-      const local = captureDraft();
+      const hadDirty = dirty;
+      const local = hadDirty ? captureDraft() : null;
+      let loaded = false;
       busy = true;
       renderTaskSummary();
       try {
-        await loadProjection({ planId: null, focus: false, preserveDraft: true });
-        draftBuffer = local;
-        dirty = draftDiffersFromServer(local);
+        const applied = await loadProjection({ planId: null, focus: false, preserveDraft: hadDirty });
+        if (!applied) return false;
         conflict = false;
-        restoreDraft(local);
-        setNotice(node("#videoPlanEditorNotice"), "已载入服务端最新状态；本地文字和呈现大小仍保留，请核对后再保存。", "blocked");
+        if (hadDirty) {
+          draftBuffer = local;
+          dirty = draftDiffersFromServer(local);
+          restoreDraft(local);
+          setNotice(node("#videoPlanEditorNotice"), "已载入服务端最新状态；本地文字和呈现大小仍保留，请核对后再保存。", "blocked");
+        } else {
+          setDraftFromServer();
+          setNotice(node("#videoPlanEditorNotice"), "已载入服务端最新方案状态。", "success");
+        }
         renderPlanEditor();
         renderTaskSummary();
+        loaded = true;
         return true;
       } catch (_error) {
         return false;
@@ -823,6 +832,7 @@
           renderReview();
         }
         renderTaskSummary();
+        if (loaded) node("#videoPlanWorkspaceHeading").focus();
       }
     }
 

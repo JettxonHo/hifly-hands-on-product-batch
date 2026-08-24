@@ -717,6 +717,43 @@ test("Stage 4 saves the first plan and restores editable controls plus review re
   await page.locator("#taskSummaryTitle").filter({ hasText: "审核要求修改方案" }).waitFor();
 });
 
+test("Stage 4 clean stale approval loads the authoritative derived head without restoring old text", async (t) => {
+  const setup = await startWorld(t, 59710);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { app, browser, origin, project, first, actor } = setup;
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await authenticate(page, origin);
+  await page.goto(workspaceUrl(origin, project.id, first.product.id));
+  const oldText = "旧方案原文";
+  const planId = await createPlanInBrowser(page, { instructions: oldText, size: "small" });
+  await page.locator("#workspacePrimaryAction").click();
+  await expectAction(page, "submit_video_plan_review", "提交方案审核");
+  await page.locator("#workspacePrimaryAction").click();
+  await page.locator("#confirmReviewAction").click();
+  await expectAction(page, "approve_video_plan_review", "批准方案");
+  await page.locator("#workspacePrimaryAction").click();
+
+  const before = await app.videoPlanning.service.getWorkspace({ ...actor, productId: first.product.id, planId });
+  const authoritativeText = "并发创建的新方案原文";
+  const derived = await app.videoPlanning.service.deriveDraft({ ...actor, productId: first.product.id, planId,
+    outputInstructions: authoritativeText, presentationSizeCode: "medium",
+    expectedHeadRevision: before.head_revision, idempotencyKey: "browser-stale-approval-derive" });
+  await page.locator("#confirmReviewAction").click();
+  await expectAction(page, "load_latest_video_plan", "载入最新方案状态");
+  assert.equal(await page.locator("#reviewDialog").evaluate((dialog) => dialog.open), false);
+
+  await page.locator("#workspacePrimaryAction").click();
+  await page.waitForFunction((expectedPlanId) => new URL(location.href).searchParams.get("plan") === expectedPlanId,
+    derived.current_plan.id);
+  assert.equal(await page.locator("#outputInstructions").inputValue(), authoritativeText);
+  assert.equal(await page.locator("#presentationSize").inputValue(), "medium");
+  assert.equal(await page.locator("#saveVideoPlanDraft").isDisabled(), true);
+  assert.match(await page.locator("#dirtyState").textContent(), /所有修改需要显式保存/);
+  await expectAction(page, "run_video_plan_preflight", "开始预检");
+  assert.equal(await page.locator("#reviewDialog").evaluate((dialog) => dialog.open), false);
+  await expectVisibleFocus(page, "#videoPlanWorkspaceHeading");
+});
+
 test("Stage 4 renders every preflight state and restores visible dialog focus at all accepted viewports", async (t) => {
   const setup = await startWorld(t, 59720);
   if (!setup) return t.skip("local Chrome or TCP listening is unavailable");

@@ -184,7 +184,9 @@ run/result、人工审核与历史；方案创建、保存、派生、预检、�
   Escape 会结束并清空修改意图。并发混合 draft 与后续 preflight/review 世代会 fail-visible 且零推荐动作；无 active head
   的历史返回动作会移除 plan query 并落到首版创建态。审核 create/transition 还必须在同一原子门禁复核 exact current
   product head、frozen plan revision、最新 passed/warning result 与 pending review revision；derive 胜出后旧审核只能安全冲突，
-  不得产生 terminal review/event/audit。三视口确定性 preflight/focus matrix 持续验证。`main` 分支保护在
+  不得产生 terminal review/event/audit。后续纠偏还要求审核决定精确绑定 URL product、review-submit receipt 在投影写回
+  空窗与 head 变化后重建当前投影、memory/PG 使用同一 preflight 排序与全结果失效语义；clean 409 恢复采用 authoritative
+  新 head，只有冲突前 dirty 才保留本地输入。三视口确定性 preflight/focus matrix 持续验证。`main` 分支保护在
   保留 strict 与既有 Ubuntu/Windows context 的同时 additive 要求 `identity-postgres`。只有 fixed head 独立 Review 合并后
   才计为实现。Stage 1/2/3 保持稳定，Stage 5 Production 继续
 `legacy/not_loaded` 和零读取；对应 Draft PR 合并前不计为完成，也不授权 Stage 5。后续实现严格串行：Stage 5

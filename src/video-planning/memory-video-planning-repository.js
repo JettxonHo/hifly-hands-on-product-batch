@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const failure = (code) => Object.assign(new Error(code), { code });
+const compareCreatedAndId = (left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id);
 
 export function createMemoryVideoPlanningRepository() {
   const plans = new Map(), heads = new Map(), runs = new Map(), results = new Map(), reviews = new Map(), reviewHeads = new Map();
@@ -29,8 +30,7 @@ export function createMemoryVideoPlanningRepository() {
       throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
     }
     const latestRun = [...runs.values()].filter((item) => item.organization_id === organizationId &&
-      item.video_plan_version_id === gate.planId).sort((a, b) =>
-      a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)).at(-1);
+      item.video_plan_version_id === gate.planId).sort(compareCreatedAndId).at(-1);
     const latestResult = latestRun?.preflight_result_id ? results.get(latestRun.preflight_result_id) : null;
     if (!latestRun || latestRun.id !== gate.expectedPreflightRunId || latestRun.status !== "succeeded" ||
         latestRun.preflight_result_id !== gate.expectedPreflightResultId || !latestResult ||
@@ -133,7 +133,7 @@ export function createMemoryVideoPlanningRepository() {
     },
     async getPreflightState(organizationId, planId) {
       const history = [...runs.values()].filter((run) => run.organization_id === organizationId && run.video_plan_version_id === planId)
-        .sort((a, b) => a.created_at.localeCompare(b.created_at)).map((run) => ({ ...clone(run), result: clone(results.get(run.preflight_result_id) || null) }));
+        .sort(compareCreatedAndId).map((run) => ({ ...clone(run), result: clone(results.get(run.preflight_result_id) || null) }));
       const current = history.at(-1) || null;
       return { current_run: current ? Object.fromEntries(Object.entries(current).filter(([key]) => key !== "result")) : null,
         current_result: current?.result || null, history };
@@ -180,9 +180,12 @@ export function createMemoryVideoPlanningRepository() {
       return clone({ ...review, ...reviewHead });
     },
     async invalidate({ organizationId, planId, reasonCode, actorMemberId, now, audit }) {
-      const currentRun = [...runs.values()].filter((run) => run.organization_id === organizationId && run.video_plan_version_id === planId).at(-1);
-      const result = currentRun?.preflight_result_id ? results.get(currentRun.preflight_result_id) : null;
-      if (result && result.status !== "invalidated") Object.assign(result, { status: "invalidated", invalidated_at: now, invalidation_reason: reasonCode });
+      for (const result of results.values()) {
+        if (result.organization_id === organizationId && result.video_plan_version_id === planId &&
+            ["passed", "warning", "blocked"].includes(result.status)) {
+          Object.assign(result, { status: "invalidated", invalidated_at: now, invalidation_reason: reasonCode });
+        }
+      }
       for (const review of reviews.values()) {
         const reviewHead = reviewHeads.get(review.id);
         if (review.organization_id === organizationId && review.video_plan_version_id === planId && reviewHead.status === "approved") {

@@ -164,3 +164,37 @@ test("video planning API rejects a stale review decision after the exact plan he
   assert.equal(historical.current_plan.status, "superseded");
   assert.equal(historical.review.current_review.status, "pending");
 });
+
+test("video planning API binds both review decisions to the URL product with zero wrong-product writes", async (t) => {
+  const videoPlanning = options({ agentOnline: true });
+  const { app } = await identityApp(t, { videoPlanning });
+  const auth = await activateAdmin(app);
+  const mutation = identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true });
+  const created = (await app.inject({ method: "POST", url: "/api/products/product-a/video-plans",
+    headers: { ...mutation, "idempotency-key": "wrong-product-create" },
+    payload: { output_instructions: "严格绑定商品的方案", expected_head_revision: 0 } })).json();
+  await app.inject({ method: "POST", url: `/api/products/product-a/video-plans/${created.current_plan.id}/preflight`,
+    headers: { ...mutation, "idempotency-key": "wrong-product-preflight" },
+    payload: { expected_revision: created.current_plan.row_version } });
+  await app.videoPlanning.worker.runNext();
+  const submitted = (await app.inject({ method: "POST",
+    url: `/api/products/product-a/video-plans/${created.current_plan.id}/reviews`,
+    headers: { ...mutation, "idempotency-key": "wrong-product-submit" }, payload: {} })).json();
+  const reviewId = submitted.review.current_review.id;
+  const beforeReview = await videoPlanning.repository.getReview("org_test", reviewId);
+  const beforeEvents = await videoPlanning.repository.listReviewEvents();
+  const beforeAudits = await videoPlanning.repository.listAuditEvents();
+
+  const approve = await app.inject({ method: "POST", url: `/api/products/product-b/plan-reviews/${reviewId}/approve`,
+    headers: { ...mutation, "idempotency-key": "wrong-product-approve" }, payload: { expected_revision: 1 } });
+  assert.equal(approve.statusCode, 404);
+  assert.deepEqual(approve.json(), { error: "VIDEO_PLAN_REVIEW_NOT_FOUND" });
+  const changes = await app.inject({ method: "POST", url: `/api/products/product-b/plan-reviews/${reviewId}/request-changes`,
+    headers: { ...mutation, "idempotency-key": "wrong-product-changes" },
+    payload: { expected_revision: 1, reason: "不应写入" } });
+  assert.equal(changes.statusCode, 404);
+  assert.deepEqual(changes.json(), { error: "VIDEO_PLAN_REVIEW_NOT_FOUND" });
+  assert.deepEqual(await videoPlanning.repository.getReview("org_test", reviewId), beforeReview);
+  assert.deepEqual(await videoPlanning.repository.listReviewEvents(), beforeEvents);
+  assert.deepEqual(await videoPlanning.repository.listAuditEvents(), beforeAudits);
+});

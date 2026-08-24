@@ -226,6 +226,10 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
   async function reviewProjection(input, receipt = null) {
     const reviewId = receipt?.review_id || receipt?.review?.current_review?.id || input.reviewId;
     const review = reviewId ? await repository.getReview(input.organizationId, reviewId) : null;
+    if (reviewId) {
+      const plan = review ? await repository.getPlan(input.organizationId, review.video_plan_version_id) : null;
+      if (!review || !plan || plan.product_id !== input.productId) throw failure("VIDEO_PLAN_REVIEW_NOT_FOUND");
+    }
     return workspace(input, review?.video_plan_version_id || input.planId, { reconcile: true });
   }
 
@@ -243,7 +247,8 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
   async function submitReview(input) {
     context(input); key(input.idempotencyKey);
     const plan = await requirePlan(input, input.planId), fingerprint = stableJson({ plan_id: plan.id });
-    const prior = await replay(input, "review-submit", fingerprint); if (prior) return prior;
+    const rKey = receiptKey(input, "review-submit");
+    const prior = await repository.getReceipt(rKey, fingerprint); if (prior) return reviewProjection(input, prior);
     const current = await workspace(input, plan.id);
     if (current.review.current_review?.status === "pending") throw failure("VIDEO_PLAN_REVIEW_ACTIVE_EXISTS");
     if (!current.review.gate.can_submit) throw failure("VIDEO_PLAN_REVIEW_GATE_BLOCKED", current.review.gate.reasons);
@@ -252,7 +257,6 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
       author_member_id: input.actorMemberId, reviewer_member_id: null, review_mode: null,
       decision_reason: null, created_at: at, updated_at: at, decided_at: null, revoked_at: null,
       revoke_reason_code: null };
-    const rKey = receiptKey(input, "review-submit");
     await repository.createReview({ receiptKey: rKey, fingerprint, review, gate: reviewMutationGate(current),
       audit: audit({ input, type: "video_plan.review_submitted", planId: plan.id, reviewId: review.id, at }) });
     const result = await workspace(input, plan.id, { reconcile: false }); await repository.updateReceiptResult(rKey, result); return result;
@@ -269,8 +273,8 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
     if (!review) throw failure("VIDEO_PLAN_REVIEW_NOT_FOUND");
     if (review.status !== "pending" || review.row_version !== input.expectedRevision) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
     const plan = await repository.getPlan(input.organizationId, review.video_plan_version_id);
-    const effectiveInput = { ...input, productId: plan?.product_id };
-    const current = await workspace(effectiveInput, review.video_plan_version_id);
+    if (!plan || plan.product_id !== input.productId) throw failure("VIDEO_PLAN_REVIEW_NOT_FOUND");
+    const current = await workspace(input, review.video_plan_version_id);
     if (status === "approved") {
       if (!current.review.gate.can_decide || !["passed", "warning"].includes(current.preflight.current_result?.status)) {
         throw failure("VIDEO_PLAN_REVIEW_GATE_BLOCKED", current.review.gate.reasons);
@@ -282,10 +286,10 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
       fromStatuses: ["pending"], gate: reviewMutationGate(current), patch: { status, reviewer_member_id: input.actorMemberId,
         review_mode: input.actorMemberId === review.author_member_id ? "self_review" : "standard",
         decision_reason: reason || null, decided_at: at, updated_at: at },
-      audit: audit({ input: effectiveInput, type: status === "approved" ? "video_plan.review_approved" :
+      audit: audit({ input, type: status === "approved" ? "video_plan.review_approved" :
         "video_plan.review_changes_requested", planId: review.video_plan_version_id, reviewId: review.id, at }) });
     if (!changed) throw failure("VIDEO_PLAN_REVIEW_NOT_FOUND");
-    const result = await workspace(effectiveInput, review.video_plan_version_id);
+    const result = await workspace(input, review.video_plan_version_id);
     await repository.updateReceiptResult(rKey, result); return result;
   }
 

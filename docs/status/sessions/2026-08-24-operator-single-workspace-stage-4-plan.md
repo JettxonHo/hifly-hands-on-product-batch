@@ -73,6 +73,13 @@
     在单事件写入边界复核，PostgreSQL 统一按 receipt -> product head -> plan -> latest run/result -> review head 的事务锁序复核。
     derive 先完成时 create/transition 均返回 `VIDEO_PLAN_REVIEW_CONFLICT`，不写 terminal review、event、audit；API 只返回安全
     409 envelope。该修复不新增状态、migration 或公共接口。
+14. 第六轮精确绑定/回放/恢复 RED：public API 曾允许 product B 路径批准或要求修改 product A review；review-submit receipt
+    已提交但完整 projection 尚未写回时，同 key 重试曾错误返回 active review conflict；memory 的 public preflight head 与
+    原子 review gate 曾在同时间戳按不同 tie-break 选择 run，且 upstream invalidation 只改写一个 result；clean stale approval
+    在并发 derive 后载入最新曾把旧方案正文恢复到 authoritative 新 head。GREEN 后两种 review decision 都先核对 URL product
+    并以 `VIDEO_PLAN_REVIEW_NOT_FOUND` 零写入失败关闭；submit replay 从 raw `review_id` 重建当前服务端投影，head 变化后不回放
+    旧 frozen 快照；memory 与 PostgreSQL 统一 `(created_at,id)` 顺序，并把同方案全部 passed/warning/blocked result 失效；
+    load-latest 冻结冲突前 `hadDirty`，clean 路径采用新 head 正文/呈现大小、保持 clean next action 并恢复 exact heading focus。
 
 ## 实现边界
 
@@ -139,6 +146,14 @@
   HTTP 200；GREEN 后 service/API/operator workspace 非数据库聚焦组 56/56 pass。PostgreSQL 同一 integration seam 新增
   derive 胜出后的 stale transition/create 断言；本机无可用 PostgreSQL daemon，不能冒充本地 PG 通过，必须由 fixed-head
   `identity-postgres` 自然执行并记录。受影响 Chrome、check、diff-check 与 fixed-head CI 结果在提交前继续补齐。
+- 第六轮新增 5 个确定性 RED：wrong-product approve 为 HTTP 200、submit receipt 窗口返回
+  `VIDEO_PLAN_REVIEW_ACTIVE_EXISTS`、同时间戳 memory public head 选择与 PG tie-break 不同、两个适用 preflight result 仅一个
+  invalidated、390 clean stale approval 载入 v2 后仍显示 v1 正文。GREEN 后新增/受影响 service/API/Chrome 聚焦命令 33/33，
+  Stage 1/2/3/4 + legacy Plan 与 VideoPlanning 受影响组 42/42，Stage 4 真实 Chrome 9/9、组合 Chrome 17/17，
+  `npm run check` 为 246 files。本机未配置 PostgreSQL test URL，单跑 integration 为 1 个明确 environment-gated skip；
+  本轮默认 `npm test` 在另一个 worktree 已持续约 10 小时的同套全量进程并存时超过 4 分钟无新增输出，作者只终止本轮
+  自己启动的命令，未触碰外部进程，也未把本地全量写成通过。fixed-head `identity-postgres` 必须自然执行 PG 1/1，
+  Ubuntu/Windows/default suite 与最终 CI 结果以 PR 元数据和结果评论为准。
 - `main` 分支保护已保留 `strict=true` 与原 `test (ubuntu-latest, 22)`、`test (windows-latest, 22)`，仅新增
   `identity-postgres` 为 required context；该设置变更不扩仓库文件 allowlist。
 - 首轮实现 head 的默认 `npm test` 曾自然完成 1148 total / 1133 pass / 15 existing environment-gated skips / 0 fail；首轮
