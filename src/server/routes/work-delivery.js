@@ -19,6 +19,8 @@ function precondition(body) {
 
 function commandStatus(result) { return result.replayed ? 200 : 201; }
 
+function owns(value, key) { return Object.prototype.hasOwnProperty.call(value || {}, key); }
+
 function attachmentDisposition(filename) {
   const cleaned = String(filename || "download")
     .replace(/[\u0000-\u001f\u007f]/g, "")
@@ -30,9 +32,18 @@ function attachmentDisposition(filename) {
 }
 
 export async function registerWorkDeliveryRoutes(app, { service }) {
-  app.get("/api/works", async (request) => ({ works: await service.listWorks({ ...actor(request),
-    projectId: request.query?.projectId || request.query?.project_id || null,
-    deliveryStatus: request.query?.deliveryStatus || request.query?.delivery_status || null }) }));
+  app.get("/api/works", async (request) => {
+    const query = request.query || {};
+    const input = { ...actor(request),
+      projectId: query.projectId ?? query.project_id ?? null,
+      deliveryStatus: query.deliveryStatus ?? query.delivery_status ?? null };
+    const paged = ["page", "pageSize", "page_size", "anchorWorkId", "anchor_work_id"].some((key) => owns(query, key));
+    if (paged) return service.listWorksPage({ ...input,
+      page: query.page,
+      pageSize: query.pageSize ?? query.page_size,
+      anchorWorkId: query.anchorWorkId ?? query.anchor_work_id ?? null });
+    return { works: await service.listWorks(input) };
+  });
 
   app.get("/api/works/:workId", async (request) => ({ work: await service.getWork({ ...actor(request), workId: request.params.workId }) }));
 

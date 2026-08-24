@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-24
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5 合同、synthetic harness 与 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`，但没有建立 accepted environment lane；六项 blocker 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同与 Stage 1 至 Stage 4 仓库实现已进入 `main@334a88198192121694ded34844f247c0ed983bbf`；Issue #246 是 Stage 5 生产仓库实现的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为实现，不代表部署或生产验收。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 最后更新：2026-08-25
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5/C5a 仍无 accepted environment lane，六项 blocker 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同与 Stage 1 至 Stage 5 仓库实现已进入 `main@0b0d1d94df4a06b9209e7385f7082e3cad53a742`；Issue #248 是 Post-stage 作品库方案 A 的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为仓库实现，不代表部署、生产数据或客户验收。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -43,7 +43,7 @@ P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
 P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228/#229 synthetic harness implemented → #230/#231 C5a 首轮 Evidence accepted（lane blocked）→ #232/#233 archive/license/security blocker Evidence accepted → #234/#235 patched lane/fixed model successor Evidence accepted（lane blocked）→ Owner/upstream inputs → C5b 未授权 → 受控 benchmark 未授权 → Fidelity-C～E 未开始
-P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product API gate（已完成）→ #238/#239 Stage 1 商品资料（已完成）→ #240/#241 Stage 2 文案（已完成）→ #242/#243 Stage 3 人物（已完成）→ #244/#245 Stage 4 视频方案（已完成）→ #246 Stage 5 生产（独立 Draft gate）→ Post-stage 作品库 → 素材中心/移动收口（后续 Goals 均待独立 gate）
+P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product API gate（已完成）→ #238/#239 Stage 1 商品资料（已完成）→ #240/#241 Stage 2 文案（已完成）→ #242/#243 Stage 3 人物（已完成）→ #244/#245 Stage 4 视频方案（已完成）→ #246/#247 Stage 5 生产（已完成）→ #248 Post-stage 作品库（独立 Draft gate）→ 素材中心/移动收口（后续 Goal 待独立 gate）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -179,12 +179,17 @@ interleaving，并消除预览与企业目录登记的相反锁序；bytes 响�
 VideoPlan、preflight run/result、人工审核与历史，既有 VideoPlanning API/状态机继续持有写入真值；preflight
 passed/warning 不等于人工批准。current head、canonical snapshot、run/result 双向绑定、审核原子门禁、幂等回放、
 dirty/409、异步读取与三视口恢复均 fail closed。`main` 分支保护保留 strict 并要求 Ubuntu、Windows 与
-`identity-postgres` 三项 context。Issue #246 是 Stage 5 生产独立 acceptance gate：只 additive 组织既有
+`identity-postgres` 三项 context。Issue #246 / PR #247 已把 Stage 5 合并进入 `main@0b0d1d94`：只 additive 组织既有
 ProductionOrder、handoff、ManualExecution、A12 与 Work/delivery 真值；不读取或推断 eligible/active attempts/Worker，
-不提供 Worker 命令、自动重试、重新领取或自动创建下一单。对应 Draft PR 合并前不计为 Stage 5 实现，也不授权
-Post-stage 作品库或素材中心。后续实现严格串行：Post-stage 作品库、素材中心/移动收口。
-作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实
-服务端集合真值，不得前端伪造。原型只是设计输入，不得直接合并；任何实现均不自动部署。
+不提供 Worker 命令、自动重试、重新领取或自动创建下一单。Issue #248 是 Post-stage 作品库独立 Draft gate：专用
+PostgreSQL read port 在单个 `REPEATABLE READ` 事务内完成有界六项分页、total/anchor 与 exact selection，只读取并初始化
+当前页最多 6 个 Work，页外零写；并发首次 GET 竞争同一 Work 初始化时只产生一组记录，败者走受控 projection-invalid
+而不泄漏 raw SQL code。桌面 9 项为第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回。不可见 anchor
+不得回落到另一 Work。分页使用真实服务端集合真值，不由前端伪造。模糊写结果只能以原 idempotency key 精确重放确认
+receipt，未收口前阻止跨作品/分页/筛选/Back；确定性 409 才换最新 binding/new key。390/768 每态最多一个可见可执行
+主操作，不可用/已撤回 Work 零写。下载 token 必须绑定
+exact Work/AssetVersion 与已核验 bytes，inspection/delivery 跨代读取必须 fail closed。
+后续仍严格串行到素材中心/移动收口，任何仓库实现均不自动部署。
 全部功能 Stage 完成并分别 Review 后，才另开独立视觉 refinement/research gate。PC 1440 主工作区与 768 收敛、移动
 390 列表/详情分层须作为并行的一等合同：两端共享业务真值、动作和状态词，但 composition 可以不同；不得描述移动
 高于 PC，也不得把桌面实现为放大的移动布局。两端都必须有真实 Chrome 行为/截图和人工视觉 acceptance 后才能合并

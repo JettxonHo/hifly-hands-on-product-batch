@@ -14,6 +14,9 @@ function serviceDouble() {
   const service = {
     calls,
     async listWorks(input) { calls.push({ method: "listWorks", input }); return [work]; },
+    async listWorksPage(input) { calls.push({ method: "listWorksPage", input }); return {
+      works: [work], pagination: { page: 1, page_size: 6, total_items: 1, total_pages: 1 }, selected_work_id: input.anchorWorkId === work.id ? work.id : null
+    }; },
     async getWork(input) { calls.push({ method: "getWork", input }); return work; },
     async markDeliverable(input) { calls.push({ method: "markDeliverable", input }); return { inspection: { id: "inspection-passed", status: "passed" }, work, replayed: false }; },
     async requestRework(input) { calls.push({ method: "requestRework", input }); return { inspection: { id: "inspection-rework", status: "rework_required" }, work, replayed: false }; },
@@ -51,6 +54,19 @@ test("works routes are unavailable by default and enabled routes pass only serve
   assert.equal(list.statusCode, 200);
   assert.equal(list.json().works[0].id, "work-api");
   assert.equal(service.calls[0].input.organizationId, "org_test");
+
+  const page = await enabled.app.inject({ method: "GET", url: "/api/works?page=1&pageSize=6&projectId=project-a&deliveryStatus=pending_review&anchorWorkId=work-api", headers: read });
+  assert.equal(page.statusCode, 200);
+  assert.deepEqual(page.json().pagination, { page: 1, page_size: 6, total_items: 1, total_pages: 1 });
+  assert.equal(page.json().selected_work_id, "work-api");
+  assert.equal(service.calls.at(-1).method, "listWorksPage");
+  assert.deepEqual({
+    page: service.calls.at(-1).input.page,
+    pageSize: service.calls.at(-1).input.pageSize,
+    projectId: service.calls.at(-1).input.projectId,
+    deliveryStatus: service.calls.at(-1).input.deliveryStatus,
+    anchorWorkId: service.calls.at(-1).input.anchorWorkId
+  }, { page: "1", pageSize: "6", projectId: "project-a", deliveryStatus: "pending_review", anchorWorkId: "work-api" });
 
   const missingPrecondition = await enabled.app.inject({ method: "POST", url: "/api/works/work-api/inspections/pass",
     headers: { ...mutation, "idempotency-key": "missing-precondition-api" }, payload: {} });
@@ -115,6 +131,55 @@ test("works download content disposition cannot inject headers through a verifie
   assert.match(response.headers["content-disposition"], /filename\*=UTF-8''%E5%AD%A3%E5%BA%A6X-Injected%3A%20yes_%22%27%28%29%2A\.mp4$/);
 });
 
+test("a work download URL cannot consume another work's authorization token", async (t) => {
+  const body = Buffer.from("exact-work-download");
+  const checksum = createHash("sha256").update(body).digest("hex");
+  const works = ["a", "b"].map((suffix) => ({ id: `work-download-${suffix}`, organization_id: "org_test",
+    production_order_id: `order-download-${suffix}`, product_id: `product-download-${suffix}`, status: "available",
+    primary_asset_version_id: `asset-download-${suffix}`, primary_output_media_type: "video/mp4",
+    primary_output_size: body.length, primary_output_checksum: checksum,
+    created_at: "2026-08-09T00:00:00.000Z", updated_at: "2026-08-09T00:00:00.000Z" }));
+  let downloadCalls = 0;
+  const service = createWorkDeliveryService({
+    repository: createMemoryWorkDeliveryRepository(),
+    workPort: {
+      async listWorks() { return works.map((work) => structuredClone(work)); },
+      async getWork(organizationId, workId) {
+        return structuredClone(works.find((work) => work.organization_id === organizationId && work.id === workId) || null);
+      }
+    },
+    assetPort: {
+      async createDownloadAuthorization({ assetVersionId }) {
+        return { token: `token-${assetVersionId}`, expires_at: "2026-08-09T02:00:00.000Z", asset_version_id: assetVersionId,
+          original_filename: "video.mp4", verified_content_type: "video/mp4", verified_size: body.length,
+          verified_checksum_sha256: checksum };
+      },
+      async downloadObject() {
+        downloadCalls += 1;
+        return { body, original_filename: "video.mp4", verified_content_type: "video/mp4",
+          verified_size: body.length, verified_checksum_sha256: checksum };
+      }
+    },
+    now: () => Date.parse("2026-08-09T01:00:00.000Z")
+  });
+  const enabled = await identityApp(t, { workDelivery: { enabled: true, service } });
+  const auth = await activateAdmin(enabled.app);
+  const read = identityHeaders({ cookies: auth.cookies });
+  const mutation = identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true });
+  const authorization = await enabled.app.inject({ method: "POST", url: "/api/works/work-download-a/download-authorizations",
+    headers: mutation, payload: {} });
+  assert.equal(authorization.statusCode, 201);
+  const token = authorization.json().download.url.split("/").at(-1);
+
+  const crossed = await enabled.app.inject({ method: "GET", url: `/api/works/work-download-b/downloads/${token}`, headers: read });
+  assert.equal(crossed.statusCode, 404);
+  assert.equal(crossed.json().error, "DOWNLOAD_AUTHORIZATION_NOT_FOUND");
+  assert.equal(downloadCalls, 0);
+  const exact = await enabled.app.inject({ method: "GET", url: `/api/works/work-download-a/downloads/${token}`, headers: read });
+  assert.equal(exact.statusCode, 200);
+  assert.equal(downloadCalls, 1);
+});
+
 test("works routes keep validation and conflict errors distinguishable", async (t) => {
   const service = serviceDouble();
   service.requestRework = async () => { throw Object.assign(new Error("WORK_DELIVERY_REWORK_REASON_REQUIRED"), { code: "WORK_DELIVERY_REWORK_REASON_REQUIRED" }); };
@@ -162,4 +227,14 @@ test("works API enforces stale inspection preconditions and replays the same com
     payload: { category: "visual_quality", reason: "过期检查", target_upstream_stage: "video_plan", expected_inspection_id: pending.id, expected_revision: pending.revision } });
   assert.equal(stale.statusCode, 409);
   assert.equal(stale.json().error, "WORK_DELIVERY_INSPECTION_CONFLICT");
+
+  for (const url of [
+    "/api/works?page=0&pageSize=6",
+    "/api/works?page=1&pageSize=5",
+    "/api/works?page=1&pageSize=6&deliveryStatus=surprise"
+  ]) {
+    const invalid = await enabled.app.inject({ method: "GET", url, headers: read });
+    assert.equal(invalid.statusCode, 400, url);
+    assert.equal(["WORK_DELIVERY_PAGINATION_INVALID", "WORK_DELIVERY_FILTER_INVALID"].includes(invalid.json().error), true, url);
+  }
 });

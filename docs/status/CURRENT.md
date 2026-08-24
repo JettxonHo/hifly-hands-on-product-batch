@@ -1,8 +1,8 @@
 # 项目当前状态
 
-> 最后更新：2026-08-24
+> 最后更新：2026-08-25
 > 当前 Goal：下一代运营单任务工作区严格串行 Stage Goals
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。最新固定 PaddleX `v3.7.2` 仍精确要求 vulnerable contrib 4.10；OpenCV 4.14 patched artifacts 不能在违反 metadata 的情况下替换，fixed model tree 也未形成完整 SHA-256/许可/替代 BOS 的官方路线。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`；没有安装或运行模型/accepted benchmark，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同与 Stage 1 至 Stage 4 仓库实现已严格串行进入精确 `main@334a88198192121694ded34844f247c0ed983bbf`；Issue #246 是 Stage 5 生产仓库实现的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为实现，不代表部署、运行时或生产验收。可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同与 Stage 1 至 Stage 5 仓库实现已严格串行进入精确 `main@0b0d1d94df4a06b9209e7385f7082e3cad53a742`；Issue #248 是 Post-stage 作品库方案 A 的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为仓库实现，不代表部署、运行时、生产数据或客户验收。可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -95,12 +95,21 @@
   严格分离；既有 VideoPlanning API/状态机继续持有创建、保存、派生、预检与审核写入真值。计划链 identity、current head、
   run/result 双向绑定、幂等回放、审核原子门禁、dirty/409、异步读取与三视口恢复均 fail closed。该合并只表示 Stage 4
   仓库实现成立，不表示部署或生产验收。
-- Issue #246 是 Stage 5 生产独立 acceptance gate：只 additive 读取 selected ProductionOrder、handoff package、
-  ManualExecution attempt/report、A12 verification 与 Work/delivery，并复用现有 Production 写命令。激活前、执行中、
-  failed/requires_action/cancelled、succeeded+A12 与四种 Work 状态必须由 exact 服务端真值产生最多一个安全动作；错组织、
-  错工单/attempt/report/A12/Work、stale async、409 或读取失败均 fail-visible。浏览器不读取或推断 eligible、active attempts
-  或 Worker 状态，不提供 Worker 启停、自动重试、重新领取或自动创建下一单。只有对应 Draft PR 经独立 Review 合并后才
-  计为 Stage 5 仓库实现；不表示部署、运行时或生产验收，也不授权 Post-stage 作品库或素材中心实现。
+- Issue #246 / PR #247 已把 Stage 5 生产仓库实现合并进入 `main@0b0d1d94df4a06b9209e7385f7082e3cad53a742`：
+  additive 读取 selected ProductionOrder、handoff package、ManualExecution attempt/report、A12 verification 与
+  Work/delivery，并继续由既有服务持有写入真值；不读取或推断 eligible、active attempts 或 Worker 状态，也不提供
+  Worker 启停、自动重试、重新领取或自动创建下一单。该合并不表示部署、运行时或生产验收。
+- Issue #248 是 Post-stage 作品库方案 A 的独立 acceptance gate。新增分页模式固定 page size 6，以专用 PostgreSQL
+  read port 在单个 `REPEATABLE READ` 事务内计算 `(created_at DESC, id DESC)`、filter、6+3、total、anchor 与 exact
+  selected Work；只锁定/读取当前页最多 6 个 Work，也只为当前页缺 inspection 的 Work 初始化 pending
+  inspection/audit/ledger，页外保持零写；两个首次 GET 竞争同一 Work 初始化时不泄漏 raw PostgreSQL unique code，且
+  最终只产生一组初始化记录。不可见/过滤外/本页外 anchor 统一为 null selection，不回落到另一作品形成
+  写目标；本片不新增 DB、migration、领域状态或写命令。1440 使用列表/详情/操作三栏，768/390 使用列表 -> 详情 ->
+  返回；读取失败、stale async、409 与模糊写响应均 fail-visible。模糊结果必须以原 idempotency key 显式重放确认，
+  不能用状态/数量猜测；未收口前阻止跨作品/分页/筛选/Back，确定性 409 才使用最新 inspection binding 与新 key。
+  390/768 每态最多一个可见可执行主操作，不可用/已撤回 Work 零 Dialog、零 POST。
+  下载授权精确绑定 Work、AssetVersion、期限与已核验 media/size/SHA-256，跨 Work URL fail closed。
+  只有 Draft PR 经独立 Review 合并后才计为仓库实现；不表示部署、生产数据或客户验收，也不授权素材中心实现。
 - `main` 分支保护的 required status checks 已在不改变 strict 与既有 Ubuntu/Windows context 的前提下 additive 加入
   `identity-postgres`；此后 PostgreSQL required check 失败会阻止 merge，不再只依赖人工门禁。
 
@@ -604,12 +613,13 @@
    C5b 离线环境 materialization + synthetic smoke。不得以 headless 4.13/4.14、手工 contrib 4.14、
    `--no-deps`、metadata override 或 resolver report 绕过；C5b Review 前不得运行 accepted benchmark。capability、policy/model version、阈值、误判、unknown、费用与数据治理仍需 Owner 接受；真实 Provider Observation 的合理
    有效期与 claim-side 无副作用再观察仍未证明，Fidelity-D 继续保持 stop condition。
-3. Issue #236 / PR #237 的单任务工作区合同已进入 `main@b7716acf` 并计为 designed；Stage 1 商品资料、Stage 2 文案、
-   Stage 3 人物与 Stage 4 视频方案已随 Issues #238/#240/#242/#244 和 PRs #239/#241/#243/#245 严格串行进入
-   `main@334a8819`。Issue #246 是 Stage 5 生产独立 Draft gate：只 additive 读取并组织既有 ProductionOrder、handoff、
-   ManualExecution、A12 与 Work/delivery 真值，不读取或推断 eligible/active attempts/Worker，不自动重试、重新领取或
-   创建下一单。只有独立 Review 合并后才计为实现，且不表示部署或生产验收。合并前不得开始 Post-stage 作品库或素材中心。
-   后续继续按 Post-stage 作品库、素材中心/移动收口串行，
+3. Issue #236 / PR #237 的单任务工作区合同已进入 `main@b7716acf` 并计为 designed；Stage 1 至 Stage 5 已随
+   Issues #238/#240/#242/#244/#246 和 PRs #239/#241/#243/#245/#247 严格串行进入 `main@0b0d1d94`。Stage 5
+   只 additive 读取并组织既有 ProductionOrder、handoff、ManualExecution、A12 与 Work/delivery 真值，不读取或推断
+   eligible/active attempts/Worker，不自动重试、重新领取或创建下一单；合并不表示部署或生产验收。Issue #248 是
+   Post-stage 作品库独立 Draft gate，固定有界服务端六项分页、页外零初始化、strict null anchor、模糊 intent
+   跨上下文阻断与 1440/768/390 composition；只有独立
+   Review 合并后才计为仓库实现。后续继续按素材中心/移动收口串行，
    且任何仓库实现均不自动成为部署或生产验收事实。全部功能 Stage 完成并分别验收后，另开独立视觉 refinement/research
    gate：PC 的 1440 主工作区与 768 收敛、移动 390 的列表/详情分层是并行的一等合同，不设 PC/移动优先级，也不把
    桌面当作移动布局放大。两端共享业务真值、动作和状态词，但可采用不同响应式 composition；实现合并前均须真实
