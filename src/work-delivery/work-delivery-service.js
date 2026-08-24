@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const failure = (code, details = null) => Object.assign(new Error(code), { code, details });
@@ -8,6 +8,8 @@ const stableJson = (value) => Array.isArray(value) ? `[${value.map(stableJson).j
 export const REWORK_CATEGORIES = ["content_not_as_planned", "visual_quality", "audio_or_avatar", "file_or_format", "other"];
 export const REWORK_TARGET_STAGES = ["video_plan", "copy_review", "avatar_selection", "project_content"];
 export const DELIVERY_METHODS = ["manual_transfer", "email", "enterprise_drive", "other"];
+export const WORK_LIBRARY_PAGE_SIZE = 6;
+export const WORK_LIBRARY_DELIVERY_STATUSES = ["all", "pending_review", "deliverable", "rework_required", "delivered"];
 
 function validateActor(input) {
   if (!clean(input.organizationId) || !clean(input.actorMemberId)) throw failure("WORK_DELIVERY_CONTEXT_REQUIRED");
@@ -39,6 +41,51 @@ function publicDelivery(value) {
   return safe;
 }
 
+function publicLibraryInspection(value) {
+  if (!value) return null;
+  return {
+    id: value.id,
+    status: value.status,
+    revision: value.revision,
+    category: value.category || null,
+    reason: value.reason || null,
+    target_upstream_stage: value.target_upstream_stage || null,
+    inspected_at: value.inspected_at || null,
+    created_at: value.created_at || null,
+    updated_at: value.updated_at || null
+  };
+}
+
+function publicLibraryDelivery(value) {
+  return {
+    id: value.id,
+    delivered_at: value.delivered_at,
+    delivery_method: value.delivery_method,
+    note: value.note || null,
+    recipient_reference: value.recipient_reference || null,
+    created_at: value.created_at || null
+  };
+}
+
+function publicLibraryWork(value) {
+  return {
+    id: value.id,
+    status: value.status,
+    created_at: value.created_at,
+    updated_at: value.updated_at,
+    project_id: value.project_id || null,
+    product_id: value.product_id || null,
+    product_name: value.product_name || null,
+    primary_output_media_type: value.primary_output_media_type || null,
+    primary_output_size: value.primary_output_size ?? null,
+    current_inspection: publicLibraryInspection(value.current_inspection),
+    inspection_history: (value.inspection_history || []).map(publicLibraryInspection),
+    deliveries: (value.deliveries || []).map(publicLibraryDelivery),
+    delivery_count: Number(value.delivery_count || 0),
+    delivery_status: value.delivery_status
+  };
+}
+
 function publicWork(value, state) {
   if (!value) return null;
   const { organization_id: _organizationId, ...safe } = value;
@@ -47,7 +94,7 @@ function publicWork(value, state) {
     inspection_history: state.history.map(publicInspection),
     deliveries: state.deliveries.map(publicDelivery),
     delivery_count: state.deliveries.length,
-    delivery_status: state.deliveries.length ? "delivered" : state.current?.status === "passed" ? "deliverable" : state.current?.status === "rework_required" ? "rework_required" : "pending_review" };
+    delivery_status: state.current?.status === "rework_required" ? "rework_required" : state.deliveries.length ? "delivered" : state.current?.status === "passed" ? "deliverable" : "pending_review" };
 }
 
 function timestamp(now) { return new Date(now()).toISOString(); }
@@ -59,10 +106,23 @@ function validateDate(value, fallback) {
   return normalized.toISOString();
 }
 
+function positiveInteger(value) {
+  if (typeof value === "number") return Number.isInteger(value) && value > 0 ? value : null;
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value.trim())) return null;
+  const parsed = Number(value.trim());
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function compareWorksNewestFirst(left, right) {
+  const byCreatedAt = String(right.created_at || "").localeCompare(String(left.created_at || ""));
+  return byCreatedAt || String(right.id || "").localeCompare(String(left.id || ""));
+}
+
 export function createWorkDeliveryService({ repository, workPort, orderPort = null, assetPort = null, now = Date.now } = {}) {
   if (!repository?.ensurePendingInspection || !repository?.createInspection || !repository?.createDelivery) throw new TypeError("work delivery repository is required");
   if (!workPort?.listWorks || !workPort?.getWork) throw new TypeError("formal work port is required");
   const at = () => timestamp(now);
+  const downloadBindings = new Map();
 
   async function getWorkOrThrow(input) {
     validateActor(input);
@@ -72,22 +132,38 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
     return work;
   }
 
-  async function projectWork(work, input, { ensureInspection = false } = {}) {
+  async function resolveWorkMetadata(work, input, { strict = false } = {}) {
+    if (strict && (!clean(work?.id) || work?.organization_id !== input.organizationId || !clean(work?.production_order_id))) {
+      throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+    }
     let enriched = { ...work };
     if (orderPort?.getOrder && work.production_order_id) {
       const order = await orderPort.getOrder({ organizationId: input.organizationId, actorMemberId: input.actorMemberId, actorRole: input.actorRole, orderId: work.production_order_id });
       const snapshot = order?.input_snapshot?.product_revision_snapshot || {};
+      if (strict && (order?.id !== work.production_order_id || order?.organization_id !== input.organizationId ||
+        (work.product_id && order.product_id && work.product_id !== order.product_id) ||
+        (snapshot.organization_id && snapshot.organization_id !== input.organizationId) ||
+        (snapshot.product_id && order.product_id && snapshot.product_id !== order.product_id))) {
+        throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+      }
       enriched = { ...enriched, product_name: enriched.product_name || snapshot.product_name || null,
         project_id: enriched.project_id || snapshot.project_id || null, product_id: enriched.product_id || order?.product_id || null };
     }
+    return enriched;
+  }
+
+  async function projectWork(work, input, { ensureInspection = false, metadataResolved = false } = {}) {
+    const enriched = metadataResolved ? { ...work } : await resolveWorkMetadata(work, input);
     const inspection = ensureInspection
       ? await repository.ensurePendingInspection({ organizationId: input.organizationId, workId: work.id, now: at() })
       : null;
-    const state = await repository.getInspectionState(input.organizationId, work.id);
+    const stateBeforeDeliveries = await repository.getInspectionState(input.organizationId, work.id);
     const deliveries = await repository.listDeliveries(input.organizationId, work.id);
+    const stateAfterDeliveries = await repository.getInspectionState(input.organizationId, work.id);
+    if (stableJson(stateBeforeDeliveries) !== stableJson(stateAfterDeliveries)) throw failure("WORK_DELIVERY_PROJECTION_INVALID");
     return publicWork(enriched, {
-      current: state.current || inspection,
-      history: state.history.length ? state.history : inspection ? [inspection] : [],
+      current: stateAfterDeliveries.current || inspection,
+      history: stateAfterDeliveries.history.length ? stateAfterDeliveries.history : inspection ? [inspection] : [],
       deliveries
     });
   }
@@ -102,6 +178,43 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
     const projectId = clean(input.projectId);
     const deliveryStatus = clean(input.deliveryStatus);
     return result.filter((work) => (!projectId || work.project_id === projectId) && (!deliveryStatus || deliveryStatus === "all" || work.delivery_status === deliveryStatus));
+  }
+
+  async function listWorksPage(input) {
+    validateActor(input);
+    const pageSize = positiveInteger(input.pageSize);
+    const explicitPage = input.page !== undefined && input.page !== null && input.page !== "";
+    const requestedPage = explicitPage ? positiveInteger(input.page) : 1;
+    if (pageSize !== WORK_LIBRARY_PAGE_SIZE || requestedPage === null) throw failure("WORK_DELIVERY_PAGINATION_INVALID");
+    const deliveryStatus = clean(input.deliveryStatus);
+    if (deliveryStatus && !WORK_LIBRARY_DELIVERY_STATUSES.includes(deliveryStatus)) throw failure("WORK_DELIVERY_FILTER_INVALID");
+
+    const values = await workPort.listWorks(input.organizationId);
+    const projectId = clean(input.projectId);
+    const metadata = [];
+    for (const value of values.filter((work) => work?.organization_id === input.organizationId)) {
+      const resolved = await resolveWorkMetadata(value, input, { strict: true });
+      if (!projectId || resolved.project_id === projectId) metadata.push(resolved);
+    }
+    const projected = [];
+    for (const value of metadata) projected.push(await projectWork(value, input, { ensureInspection: true, metadataResolved: true }));
+    const filtered = projected
+      .filter((work) => !deliveryStatus || deliveryStatus === "all" || work.delivery_status === deliveryStatus)
+      .sort(compareWorksNewestFirst);
+    const totalItems = filtered.length;
+    const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
+    const anchorWorkId = clean(input.anchorWorkId);
+    const anchorIndex = anchorWorkId ? filtered.findIndex((work) => work.id === anchorWorkId) : -1;
+    const resolvedPage = !explicitPage && anchorIndex >= 0 ? Math.floor(anchorIndex / pageSize) + 1 : requestedPage;
+    const page = totalPages === 0 ? 1 : Math.min(resolvedPage, totalPages);
+    const pageWorks = filtered.slice((page - 1) * pageSize, page * pageSize);
+    const selectedWorkId = anchorWorkId && pageWorks.some((work) => work.id === anchorWorkId) ? anchorWorkId : null;
+
+    return {
+      works: pageWorks.map(publicLibraryWork),
+      pagination: { page, page_size: pageSize, total_items: totalItems, total_pages: totalPages },
+      selected_work_id: selectedWorkId
+    };
   }
 
   async function getWork(input) {
@@ -173,15 +286,44 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
   async function createDownloadAuthorization(input) {
     const work = await getWorkOrThrow(input);
     if (!assetPort?.createDownloadAuthorization) throw failure("WORK_DELIVERY_DOWNLOAD_UNAVAILABLE");
-    return assetPort.createDownloadAuthorization({ organizationId: input.organizationId, assetVersionId: work.primary_asset_version_id });
+    const result = await assetPort.createDownloadAuthorization({ organizationId: input.organizationId, assetVersionId: work.primary_asset_version_id });
+    const expiresAt = Date.parse(result?.expires_at || "");
+    if (!clean(result?.token) || result.asset_version_id !== work.primary_asset_version_id || !Number.isFinite(expiresAt) || expiresAt <= now() ||
+        (work.primary_output_media_type && result.verified_content_type !== work.primary_output_media_type) ||
+        (work.primary_output_size != null && Number(result.verified_size) !== Number(work.primary_output_size)) ||
+        (work.primary_output_checksum && result.verified_checksum_sha256 !== work.primary_output_checksum)) {
+      throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+    }
+    downloadBindings.set(result.token, {
+      organizationId: input.organizationId,
+      workId: work.id,
+      assetVersionId: work.primary_asset_version_id,
+      mediaType: result.verified_content_type,
+      size: Number(result.verified_size),
+      checksumSha256: result.verified_checksum_sha256,
+      expiresAt
+    });
+    return result;
   }
 
   async function downloadObject(input) {
-    await getWorkOrThrow(input);
+    const work = await getWorkOrThrow(input);
     if (!assetPort?.downloadObject) throw failure("WORK_DELIVERY_DOWNLOAD_UNAVAILABLE");
-    return assetPort.downloadObject({ organizationId: input.organizationId, token: input.token });
+    const binding = downloadBindings.get(input.token);
+    if (!binding || binding.organizationId !== input.organizationId || binding.workId !== work.id ||
+        binding.assetVersionId !== work.primary_asset_version_id || binding.expiresAt <= now()) {
+      throw failure("DOWNLOAD_AUTHORIZATION_NOT_FOUND");
+    }
+    const result = await assetPort.downloadObject({ organizationId: input.organizationId, token: input.token });
+    if (!Buffer.isBuffer(result?.body) || result.verified_content_type !== binding.mediaType ||
+        Number(result.verified_size) !== binding.size || result.body.length !== binding.size ||
+        result.verified_checksum_sha256 !== binding.checksumSha256 ||
+        createHash("sha256").update(result.body).digest("hex") !== binding.checksumSha256) {
+      throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+    }
+    return result;
   }
 
-  return { listWorks, getWork, getWorkProjection, markDeliverable, requestRework, createDelivery, createDownloadAuthorization, downloadObject,
-    publicWork, publicInspection, publicDelivery };
+  return { listWorks, listWorksPage, getWork, getWorkProjection, markDeliverable, requestRework, createDelivery, createDownloadAuthorization, downloadObject,
+    publicWork, publicInspection, publicDelivery, publicLibraryWork };
 }

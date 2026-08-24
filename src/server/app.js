@@ -260,11 +260,11 @@ function apiError(error, request = null) {
   if (error?.code === "WORK_DELIVERY_WORK_NOT_FOUND") return { statusCode: 404, code: error.code };
   if (["WORK_DELIVERY_CONTEXT_REQUIRED", "WORK_DELIVERY_INSPECTION_PRECONDITION_REQUIRED", "WORK_DELIVERY_DATE_INVALID", "WORK_DELIVERY_REWORK_CATEGORY_INVALID", "WORK_DELIVERY_REWORK_REASON_REQUIRED",
     "WORK_DELIVERY_REWORK_REASON_INVALID", "WORK_DELIVERY_REWORK_TARGET_INVALID", "WORK_DELIVERY_METHOD_INVALID", "WORK_DELIVERY_NOTE_INVALID",
-    "WORK_DELIVERY_RECIPIENT_INVALID", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) return { statusCode: 400, code: error.code };
+    "WORK_DELIVERY_RECIPIENT_INVALID", "WORK_DELIVERY_PAGINATION_INVALID", "WORK_DELIVERY_FILTER_INVALID", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (error?.code === "WORK_DELIVERY_FORBIDDEN") return { statusCode: 403, code: error.code };
   if (["WORK_DELIVERY_INSPECTION_CONFLICT", "WORK_DELIVERY_WORK_CONFLICT", "IDEMPOTENCY_CONFLICT"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (["WORK_DELIVERY_WORK_UNAVAILABLE", "WORK_DELIVERY_INSPECTION_REQUIRED", "WORK_DELIVERY_REWORK_BLOCKED", "WORK_DELIVERY_DOWNLOAD_UNAVAILABLE"].includes(error?.code)) return { statusCode: 422, code: error.code };
-  if (error?.code === "WORK_DELIVERY_SCHEMA_NOT_READY") return { statusCode: 503, code: error.code };
+  if (["WORK_DELIVERY_SCHEMA_NOT_READY", "WORK_DELIVERY_PROJECTION_INVALID"].includes(error?.code)) return { statusCode: 503, code: error.code };
   if (error?.code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT") return { statusCode: 422, code: error.code };
   if (error?.code === "COPY_QUALITY_POLICY_CHANGED") return { statusCode: 409, code: error.code };
   if (["PRODUCT_REVISION_CONFLICT", "PRODUCT_REVISION_IMMUTABLE"].includes(error?.code)) {

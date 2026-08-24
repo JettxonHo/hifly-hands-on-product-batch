@@ -57,9 +57,14 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
   };
   const downloadBody = Buffer.from("verified-v2-c-video");
   const downloadChecksum = createHash("sha256").update(downloadBody).digest("hex");
+  for (const item of works) {
+    item.primary_output_size = downloadBody.length;
+    item.primary_output_checksum = downloadChecksum;
+  }
   const assetPort = {
     async createDownloadAuthorization({ assetVersionId }) { return {
       token: `token-${assetVersionId}`, expires_at: "2026-08-17T02:00:00.000Z", original_filename: "已核验成片.mp4",
+      asset_version_id: assetVersionId,
       verified_content_type: "video/mp4", verified_size: downloadBody.length, verified_checksum_sha256: downloadChecksum
     }; },
     async downloadObject() { return { body: downloadBody, original_filename: "已核验成片.mp4", verified_content_type: "video/mp4",
@@ -152,7 +157,7 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
   assert.equal(await secondary.count(), 1);
   assert.equal(await secondary.isVisible(), true);
   assert.equal(await page.getByRole("button", { name: "标记为通过", exact: true }).isVisible(), false);
-  assert.equal(await page.getByRole("button", { name: "登记返工", exact: true }).isVisible(), false);
+  assert.equal(await page.getByRole("button", { name: "登记返工", exact: true }).isVisible(), true);
   assert.equal(await page.locator('#mainContent [data-recommended-action="true"]').count(), 1);
   assert.equal(await primary.getAttribute("data-recommended-action"), "true");
 
@@ -165,12 +170,14 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
   assert.equal((await page.locator("#downloadBoundary").textContent()).includes("真实字节下载验收"), true);
 
   await page.goto(`${origin}/works.html?work=${hiddenWork.id}`);
-  await page.locator("#selectedWorkName").filter({ hasText: "待检查测试商品" }).waitFor();
+  await page.getByText("指定作品不可查看，未选择其他作品。", { exact: true }).waitFor();
+  assert.equal(await page.locator("#workDetail").isVisible(), false);
+  assert.equal(await page.locator('#mainContent [data-recommended-action="true"]').count(), 0);
   assert.equal((await page.locator("body").innerText()).includes(hiddenWork.product_name), false);
-  assert.equal(new URL(page.url()).searchParams.get("work"), pendingWork.id);
+  assert.equal(new URL(page.url()).searchParams.has("work"), false);
 
   let worksAttempts = 0;
-  await page.route("**/api/works", async (route) => {
+  await page.route("**/api/works?*", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/works" && worksAttempts++ === 0) {
       await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "TEMPORARY_FAILURE" }) });
       return;
@@ -183,13 +190,13 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
   await page.getByRole("button", { name: "刷新", exact: true }).click();
   await page.locator("#selectedWorkName").filter({ hasText: "终态动作测试商品" }).waitFor();
   assert.equal(worksAttempts >= 2, true);
-  await page.unroute("**/api/works");
+  await page.unroute("**/api/works?*");
 
   const screenshotDir = "/private/tmp/hifly-v2-c-screenshots-20260817";
   await mkdir(screenshotDir, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
   assert.equal(await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).display), "grid");
-  assert.equal((await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length)), 2);
+  assert.equal((await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length)), 3);
 
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
@@ -238,7 +245,10 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
     await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ delivery: { id: "delivery-replayed" } }) });
   });
   await page.locator("#deliveryForm").evaluate((form) => form.requestSubmit());
-  await deliveryDialog.getByText("交付登记未完成", { exact: false }).waitFor();
+  await deliveryDialog.getByText("交付登记结果待确认", { exact: false }).waitFor();
+  assert.equal(await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).isDisabled(), true);
+  await deliveryDialog.getByRole("button", { name: "载入最新作品状态", exact: true }).click();
+  await deliveryDialog.getByText("可使用同一操作标识显式重放", { exact: false }).waitFor();
   await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
   await deliveryDialog.waitFor({ state: "hidden" });
   assert.equal(retryBodies.length, 2);
@@ -258,16 +268,24 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
     await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ delivery: { id: "delivery-after-refresh" } }) });
   });
   let exactReloadAttempts = 0;
-  await page.route(`**/api/works/${work.id}`, async (route) => {
+  await page.route("**/api/works?*", async (route) => {
     exactReloadAttempts += 1;
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ work: refreshedDeliveredWork }) });
+    if (exactReloadAttempts === 1) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        works: [refreshedDeliveredWork],
+        pagination: { page: 1, page_size: 6, total_items: 1, total_pages: 1 },
+        selected_work_id: work.id
+      }) });
+      return;
+    }
+    await route.continue();
   });
   await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
-  await deliveryDialog.getByText("作品状态已被更新", { exact: false }).waitFor();
+  await deliveryDialog.getByText("作品状态已变化", { exact: false }).waitFor();
   assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "保留冲突输入");
   await deliveryDialog.getByRole("button", { name: "载入最新作品状态", exact: true }).click();
   await deliveryDialog.getByText("最新作品状态已载入", { exact: false }).waitFor();
-  assert.equal(exactReloadAttempts, 1);
+  assert.equal(exactReloadAttempts >= 1, true);
   assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "保留冲突输入");
   await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
   await deliveryDialog.waitFor({ state: "hidden" });
@@ -275,7 +293,7 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
   assert.notEqual(conflictBodies[0].idempotency_key, conflictBodies[1].idempotency_key);
   assert.equal(conflictBodies[1].expected_inspection_id, "inspection-v2-c-refreshed");
   assert.equal(conflictBodies[1].expected_revision, refreshedDeliveredWork.current_inspection.revision);
-  await page.unroute(`**/api/works/${work.id}`);
+  await page.unroute("**/api/works?*");
 
   await addDelivery.click();
   await deliveryDialog.getByLabel("接收方（可选）").fill("原作品 A 的交付信息");
@@ -286,18 +304,21 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
     missingWorkBodies.push(route.request().postDataJSON());
     await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "WORK_DELIVERY_INSPECTION_CONFLICT" }) });
   });
-  await page.route(`**/api/works/${work.id}`, async (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "WORK_DELIVERY_WORK_NOT_FOUND" }) }));
+  await page.route("**/api/works?*", async (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "WORK_DELIVERY_WORK_NOT_FOUND" }) }));
   await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
   await deliveryDialog.getByRole("button", { name: "载入最新作品状态", exact: true }).click();
-  await deliveryDialog.getByText("关闭并重新选择作品", { exact: false }).waitFor();
+  await deliveryDialog.getByText("最新状态仍无法读取", { exact: false }).waitFor();
   assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "原作品 A 的交付信息");
   assert.equal(await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).isDisabled(), true);
-  assert.equal((await page.locator("#worksList").innerText()).includes(pendingWork.product_name), true);
+  assert.equal((await page.locator("#worksList").innerText()).includes(pendingWork.product_name), false);
   await page.locator("#deliveryForm").evaluate((form) => form.requestSubmit());
   assert.equal(missingWorkBodies.length, 1);
   assert.deepEqual(deliveryRequestUrls.slice(missingRequestOffset).map((url) => new URL(url).pathname), [`/api/works/${work.id}/deliveries`]);
   await deliveryDialog.getByRole("button", { name: "取消", exact: true }).click();
-  await page.unroute(`**/api/works/${work.id}`);
+  await page.unroute("**/api/works?*");
+
+  await page.goto(`${origin}/works.html?work=${work.id}`);
+  await page.locator("#selectedDeliveryStatus").filter({ hasText: "已交付" }).waitFor();
 
   await addDelivery.click();
   await deliveryDialog.getByLabel("接收方（可选）").fill("返工前保留的交付信息");
@@ -307,21 +328,27 @@ test("V2-C delivered work exposes one terminal primary action and an audited sec
     reworkBodies.push(route.request().postDataJSON());
     await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "WORK_DELIVERY_INSPECTION_CONFLICT" }) });
   });
-  await page.route(`**/api/works/${work.id}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ work: refreshedReworkWork }) }));
+  await page.route("**/api/works?*", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    works: [refreshedReworkWork],
+    pagination: { page: 1, page_size: 6, total_items: 1, total_pages: 1 },
+    selected_work_id: work.id
+  }) }));
   await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).click();
   await deliveryDialog.getByRole("button", { name: "载入最新作品状态", exact: true }).click();
-  await deliveryDialog.getByText("当前已不可交付", { exact: false }).waitFor();
+  await deliveryDialog.getByText("当前已不能执行该操作", { exact: false }).waitFor();
   assert.equal(await deliveryDialog.getByLabel("接收方（可选）").inputValue(), "返工前保留的交付信息");
   assert.equal(await deliveryDialog.getByRole("button", { name: "确认登记交付", exact: true }).isDisabled(), true);
   assert.equal((await page.locator("#selectedDeliveryStatus").textContent()).trim(), "需要返工");
   await page.locator("#deliveryForm").evaluate((form) => form.requestSubmit());
   assert.equal(reworkBodies.length, 1);
   await deliveryDialog.getByRole("button", { name: "取消", exact: true }).click();
-  await page.unroute(`**/api/works/${work.id}`);
+  await page.unroute("**/api/works?*");
 
-  await page.unroute("**/api/works");
+  await page.unroute("**/api/works?*");
   await page.unroute(`**/api/works/${work.id}/deliveries`);
-  await page.route("**/api/works", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ works: [] }) }));
+  await page.route("**/api/works?*", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    works: [], pagination: { page: 1, page_size: 6, total_items: 0, total_pages: 0 }, selected_work_id: null
+  }) }));
   await page.goto(`${origin}/works.html`);
   await page.getByText("还没有已登记作品", { exact: true }).waitFor();
   assert.equal((await page.locator("#worksTaskStatus").textContent()).trim(), "暂无作品");

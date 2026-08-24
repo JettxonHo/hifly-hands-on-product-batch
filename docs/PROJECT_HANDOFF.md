@@ -3,6 +3,15 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-25 Post-stage 作品库方案 A 实现门禁
+
+- Stage 5 已通过 Issue #246 / PR #247 合并进入精确 `main@0b0d1d94df4a06b9209e7385f7082e3cad53a742`；该事实仅表示仓库实现，不表示已部署、已运行或已完成生产验收。
+- Issue #248 在独立分支实现 Post-stage 作品库：新增显式 opt-in 的服务端六项分页投影，桌面 9 条验收 fixture 固定为第 1 页 6 项、第 2 页 3 项；1440 使用列表/详情/操作三栏，768 与 390 使用列表 -> 详情 -> 返回的顺序布局。
+- 分页响应只显式投影公开字段，使用 `(created_at DESC, id DESC)` 稳定排序，服务端返回 page/total/total_pages 与精确 selected Work。显式 page 优先于 anchor；越权、过滤外或本页外 anchor 保持 `selected_work_id=null`，不会回落到另一作品形成写目标。
+- paged GET 有意保留既有作品库的 lazy pending-inspection 初始化语义，不得称为纯读 BFF；project filter 在初始化前执行，交付状态 filter 在服务端 enrichment 后执行。没有新增 DB、migration、领域状态或写命令。
+- 页面保留 passed 不等于 delivered、download 不等于 delivery；最新 rework 状态优先于历史 delivery，同时保留完整交付历史。读取失败清除旧 detail/action。模糊网络/408/5xx 只允许显式载入权威状态，并以原 idempotency key 精确重放确认 receipt；不得凭状态或交付数量推断本次成功。确定性 409 则换用最新 inspection binding 与新 key。下载 token 精确绑定 Work、AssetVersion 和已核验字节，跨 Work URL 不能消费。
+- 本轮只使用 synthetic/memory fixture 和本地 Chrome，没有访问 Hifly/Provider、启动 Worker/Local Agent、修改生产数据、创建真实工单/作品、部署或消耗积分。完整验证与 fixed-head 生命周期记录见 `docs/status/sessions/2026-08-25-operator-single-workspace-works.md`。
+
 ## 2026-08-12 P0 Cloud Executor 架构纠偏
 
 - Owner 已正式改变 P0：个人电脑 Local Agent 不再是生产主路径；目标改为阿里云独立 Cloud Executor Worker 使用持久 Chrome Profile 和现有 Hifly Playwright 核心，严格串行完成纯云端出片。

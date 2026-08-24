@@ -45,12 +45,17 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   await page.locator("#selectedWorkName").filter({ hasText: "返工测试商品" }).waitFor();
   assert.equal((await page.locator("#selectedWorkName").textContent()).trim(), "返工测试商品");
   await page.goto(`${origin}/works.html?work=work-other-organization`);
-  await page.locator("#selectedWorkName").filter({ hasText: "云感保湿乳" }).waitFor();
+  await page.getByText("指定作品不可查看，未选择其他作品。", { exact: true }).waitFor();
+  assert.equal(await page.locator("#workDetail").isVisible(), false);
+  assert.equal(await page.locator('#mainContent [data-recommended-action="true"]').count(), 0);
+  assert.equal(new URL(page.url()).searchParams.has("work"), false);
   assert.equal((await page.locator("body").innerText()).includes("其他组织秘密商品"), false);
+  await page.goto(`${origin}/works.html?work=work-a13-browser`);
+  await page.locator("#selectedWorkName").filter({ hasText: "云感保湿乳" }).waitFor();
   const worksLink = page.locator('a[data-feature="works"]'); await worksLink.waitFor();
   assert.deepEqual(await page.locator(".app-nav [data-page]").evaluateAll((links) => links.map((link) => link.dataset.page)), ["projects", "works", "assets", "members"]);
   assert.equal(await worksLink.getAttribute("aria-current"), "page"); assert.equal(await worksLink.isVisible(), true);
-  assert.equal(await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length), 2);
+  assert.equal(await page.locator(".works-layout").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length), 3);
   assert.equal(await page.locator('#mainContent [data-recommended-action="true"]').count(), 1);
   assert.equal(await page.locator("#passInspection").getAttribute("data-recommended-action"), "true");
   await page.getByRole("button", { name: "标记为通过", exact: true }).click();
@@ -78,7 +83,7 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   await page.locator("#selectedDeliveryStatus").filter({ hasText: "需要返工" }).waitFor(); await page.locator("#inspectionHistoryList").getByText("画面主体需要重新检查", { exact: false }).waitFor();
   assert.equal(await page.locator("#passInspection").isDisabled(), true); assert.equal(await page.locator("#requestRework").isDisabled(), true);
   assert.equal((await page.locator("#actionExplanation").textContent()).includes("新的上游生产周期和新工单"), true);
-  assert.equal((await page.locator("#actionExplanation").textContent()).includes("原作品与检查历史会保留"), true);
+  assert.equal((await page.locator("#actionExplanation").textContent()).includes("原作品与检查、交付历史会保留"), true);
   assert.equal(await page.locator("#upstreamActionLink").isVisible(), true);
   assert.equal(await page.locator("#upstreamActionLink").getAttribute("href"), "/plan.html?project=project-a13-browser&product=product-a13-rework");
   assert.equal(await page.locator('#mainContent [data-recommended-action="true"]').count(), 1);
