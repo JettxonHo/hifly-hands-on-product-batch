@@ -44,7 +44,16 @@
     return `${url.pathname}${url.search}`;
   }
 
-  function setStageLinks({ projectId, productId, copyVersionId, failed = false }) {
+  function isLegacyStage(stage) {
+    return stage?.implementation_status === "legacy" && stage.read_status === "not_loaded" &&
+      stage.current_object === null && Array.isArray(stage.blocker_codes) && stage.blocker_codes.length === 0;
+  }
+
+  function isMigratedStage(stage) {
+    return stage?.implementation_status === "workspace" && ["ok", "error"].includes(stage.read_status);
+  }
+
+  function setStageLinks({ projectId, productId, copyVersionId, workspace, failed = false }) {
     for (const link of document.querySelectorAll("[data-stage-code]")) {
       const state = link.closest("li") || link;
       if (failed) {
@@ -55,11 +64,22 @@
         continue;
       }
       const stage = link.dataset.stageCode;
+      const projection = workspace?.stages?.find((value) => value.code === stage);
+      const workspaceStage = isMigratedStage(projection);
+      const legacyStage = isLegacyStage(projection);
+      if (!workspaceStage && !legacyStage) {
+        link.removeAttribute("href");
+        link.setAttribute("aria-disabled", "true");
+        state.dataset.stageState = "error";
+        state.removeAttribute("aria-current");
+        continue;
+      }
       link.removeAttribute("aria-disabled");
-      link.href = ["product_content", "copy", "avatar"].includes(stage)
+      link.href = workspaceStage
         ? workspaceUrl(projectId, productId, stage, copyVersionId)
         : legacyUrl(stage, projectId, productId);
-      state.dataset.stageState = stage === "avatar" ? "current" : ["product_content", "copy"].includes(stage) ? "completed" : "available";
+      state.dataset.stageState = projection.read_status === "error" ? "error" :
+        stage === "avatar" ? "current" : ["product_content", "copy"].includes(stage) ? "completed" : "available";
       if (stage === "avatar") state.setAttribute("aria-current", "step");
       else state.removeAttribute("aria-current");
     }
@@ -77,11 +97,9 @@
         !copyStage || copyStage.implementation_status !== "workspace" || copyStage.read_status !== "ok" ||
         !avatarStage || avatarStage.implementation_status !== "workspace" || avatarStage.read_status !== "ok" ||
         !Array.isArray(avatarStage.avatar_workspace?.catalog) || !avatarStage.avatar_workspace?.selection) return false;
-    for (const code of ["video_plan", "production"]) {
-      const stage = workspace.stages.find((value) => value.code === code);
-      if (!stage || stage.implementation_status !== "legacy" || stage.read_status !== "not_loaded" ||
-          stage.current_object !== null || stage.blocker_codes?.length) return false;
-    }
+    const videoPlanStage = workspace.stages.find((value) => value.code === "video_plan");
+    const productionStage = workspace.stages.find((value) => value.code === "production");
+    if ((!isLegacyStage(videoPlanStage) && !isMigratedStage(videoPlanStage)) || !isLegacyStage(productionStage)) return false;
     if (JSON.stringify(avatarStage).includes("material_asset_version_id")) return false;
     const action = workspace.recommended_action;
     if (!action) return true;
@@ -491,7 +509,7 @@
       node("#copyWorkspacePanel").hidden = true;
       node("#avatarWorkspacePanel").hidden = false;
       renderProducts();
-      setStageLinks({ projectId, productId, copyVersionId });
+      setStageLinks({ projectId, productId, copyVersionId, workspace });
       renderAvatar();
       if (focus) node("#avatarWorkspaceHeading").focus();
     }
@@ -628,7 +646,12 @@
         renderSummary();
         return;
       }
-      if (code === "continue_to_video_plan") return location.assign(legacyUrl("video_plan", projectId, productId));
+      if (code === "continue_to_video_plan") {
+        const workspaceStage = workspace?.stages?.find((value) => value.code === "video_plan")?.implementation_status === "workspace";
+        return location.assign(workspaceStage
+          ? workspaceUrl(projectId, productId, "video_plan")
+          : legacyUrl("video_plan", projectId, productId));
+      }
     }
 
     function bind() {

@@ -13,9 +13,38 @@ import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { runProjectContentMigrations } from "../src/project-content/postgres.js";
 import { createPostgresVideoPlanningRepository } from "../src/video-planning/postgres-video-planning-repository.js";
 import { runVideoPlanningMigrations } from "../src/video-planning/postgres.js";
+import { createVideoPlanningService } from "../src/video-planning/video-planning-service.js";
 
 const connectionString = process.env.TEST_DATABASE_URL || process.env.IDENTITY_TEST_DATABASE_URL;
 const isolatedUrl = (value, schema) => { const url = new URL(value); url.searchParams.set("options", `-c search_path=${schema}`); return url.toString(); };
+
+async function holdReceiptLock(pool, receiptKey) {
+  const client = await pool.connect();
+  await client.query("BEGIN");
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`video-receipt:${receiptKey}`]);
+  return async () => {
+    await client.query("COMMIT");
+    client.release();
+  };
+}
+
+function pauseNextRepositoryMutation(repository, method) {
+  const original = repository[method].bind(repository);
+  let release;
+  let entered;
+  let paused = false;
+  const waiting = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  repository[method] = async (...args) => {
+    if (!paused) {
+      paused = true;
+      entered();
+      await gate;
+    }
+    return original(...args);
+  };
+  return { waiting, release };
+}
 
 test("clean PostgreSQL video planning migration preserves versions and serializes heads/reviews", { skip: !connectionString }, async (t) => {
   const schema = `video_planning_${randomUUID().replaceAll("-", "")}`;
@@ -60,6 +89,14 @@ test("clean PostgreSQL video planning migration preserves versions and serialize
       created_by_member_id: seeded.member.id, started_at: null, completed_at: null, created_at: at, updated_at: at },
     audit: { ...audit, id: randomUUID(), event_type: "video_plan.preflight_requested", preflight_run_id: runId } });
   assert.equal((await repository.getPlan("org-plan-pg", planId)).status, "frozen");
+  const leaseToken = randomUUID();
+  await repository.claimNextRun({ now: at, leaseToken });
+  const resultId = randomUUID();
+  await repository.completeRun({ runId, leaseToken, now: at,
+    result: { id: resultId, organization_id: "org-plan-pg", video_plan_version_id: planId,
+      preflight_run_id: runId, status: "warning", groups: { production_readiness: { status: "warning", checks: [] } },
+      created_at: at, invalidated_at: null, invalidation_reason: null },
+    audit: { ...audit, id: randomUUID(), event_type: "video_plan.preflight_completed", preflight_run_id: runId } });
   await assert.rejects(repository.saveDraft({ organizationId: "org-plan-pg", planId, expectedRevision: 2,
     outputInstructions: "不可覆盖", updatedAt: at, audit }), { code: "VIDEO_PLAN_IMMUTABLE" });
 
@@ -68,8 +105,98 @@ test("clean PostgreSQL video planning migration preserves versions and serialize
     created_at: at, updated_at: at, decided_at: null, revoked_at: null, revoke_reason_code: null };
   const outcomes = await Promise.allSettled([1,2].map((index) => repository.createReview({
     receiptKey: `pg-review-${index}`, fingerprint: `review-${index}`, review: { ...reviewBase, id: randomUUID() },
+    gate: { productId: ids.product, planId, expectedPlanRevision: 2,
+      expectedPreflightRunId: runId, expectedPreflightResultId: resultId },
     audit: { ...audit, id: randomUUID(), event_type: "video_plan.review_submitted" } })));
   assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
   assert.equal(outcomes.find((item) => item.status === "rejected").reason.code, "VIDEO_PLAN_REVIEW_ACTIVE_EXISTS");
+
+  const pendingReview = (await repository.listReviews("org-plan-pg", planId))[0];
+  const plan2 = { ...plan, id: randomUUID(), version_number: 2, status: "draft", row_version: 1,
+    parent_plan_version_id: planId, output_instructions: "第二版", created_at: at, updated_at: at, frozen_at: null };
+  const releaseApprove = await holdReceiptLock(pool, "pg-stale-approve");
+  const staleApprove = assert.rejects(repository.transitionReview({ receiptKey: "pg-stale-approve", fingerprint: "stale-approve",
+    organizationId: "org-plan-pg", reviewId: pendingReview.id, expectedRevision: 1, fromStatuses: ["pending"],
+    gate: { productId: ids.product, planId, expectedPlanRevision: 2,
+      expectedPreflightRunId: runId, expectedPreflightResultId: resultId },
+    patch: { status: "approved", reviewer_member_id: seeded.member.id, review_mode: "self_review",
+      decision_reason: null, decided_at: at, updated_at: at },
+    audit: { ...audit, id: randomUUID(), event_type: "video_plan.review_approved", plan_review_id: pendingReview.id }
+  }), { code: "VIDEO_PLAN_REVIEW_CONFLICT" });
+  await repository.deriveDraft({ receiptKey: "pg-derive-two", fingerprint: "derive-two", sourcePlanId: planId,
+    expectedHeadRevision: 1, plan: plan2,
+    audit: { ...audit, id: randomUUID(), event_type: "video_plan.derived", video_plan_version_id: plan2.id } });
+  await releaseApprove();
+  await staleApprove;
+  assert.equal((await repository.getReview("org-plan-pg", pendingReview.id)).status, "pending");
+
+  const run2Id = randomUUID();
+  await repository.createRun({ receiptKey: "pg-run-two", fingerprint: "run-two", planId: plan2.id, expectedRevision: 1,
+    run: { id: run2Id, organization_id: "org-plan-pg", video_plan_version_id: plan2.id, status: "queued",
+      input_snapshot: { upstream_snapshot: plan2.upstream_snapshot, capability_config_snapshot: plan2.capability_config_snapshot,
+        output_instructions: plan2.output_instructions, presentation_size_code: plan2.presentation_size_code },
+      preflight_result_id: null, failure_code: null, lease_token: null, created_by_member_id: seeded.member.id,
+      started_at: null, completed_at: null, created_at: at, updated_at: at },
+    audit: { ...audit, id: randomUUID(), event_type: "video_plan.preflight_requested", video_plan_version_id: plan2.id,
+      preflight_run_id: run2Id } });
+  const lease2 = randomUUID();
+  await repository.claimNextRun({ now: at, leaseToken: lease2 });
+  const result2Id = randomUUID();
+  await repository.completeRun({ runId: run2Id, leaseToken: lease2, now: at,
+    result: { id: result2Id, organization_id: "org-plan-pg", video_plan_version_id: plan2.id,
+      preflight_run_id: run2Id, status: "passed", groups: { production_readiness: { status: "passed", checks: [] } },
+      created_at: at, invalidated_at: null, invalidation_reason: null },
+    audit: { ...audit, id: randomUUID(), event_type: "video_plan.preflight_completed", video_plan_version_id: plan2.id,
+      preflight_run_id: run2Id } });
+  const plan3 = { ...plan2, id: randomUUID(), version_number: 3, status: "draft", row_version: 1,
+    parent_plan_version_id: plan2.id, output_instructions: "第三版", created_at: at, updated_at: at, frozen_at: null };
+  const releaseSubmit = await holdReceiptLock(pool, "pg-stale-submit");
+  const staleSubmit = assert.rejects(repository.createReview({ receiptKey: "pg-stale-submit", fingerprint: "stale-submit",
+    review: { ...reviewBase, id: randomUUID(), video_plan_version_id: plan2.id },
+    gate: { productId: ids.product, planId: plan2.id, expectedPlanRevision: 2,
+      expectedPreflightRunId: run2Id, expectedPreflightResultId: result2Id },
+    audit: { ...audit, id: randomUUID(), event_type: "video_plan.review_submitted", video_plan_version_id: plan2.id }
+  }), { code: "VIDEO_PLAN_REVIEW_CONFLICT" });
+  await repository.deriveDraft({ receiptKey: "pg-derive-three", fingerprint: "derive-three", sourcePlanId: plan2.id,
+    expectedHeadRevision: 2, plan: plan3,
+    audit: { ...audit, id: randomUUID(), event_type: "video_plan.derived", video_plan_version_id: plan3.id } });
+  await releaseSubmit();
+  await staleSubmit;
+  assert.equal((await repository.listReviews("org-plan-pg", plan2.id)).length, 0);
+
+  const replayProductId = randomUUID();
+  await pool.query("INSERT INTO project_content_products(id,organization_id,project_id,created_by_member_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$5)",
+    [replayProductId,"org-plan-pg",ids.project,seeded.member.id,at]);
+  const replayActor = { organizationId: "org-plan-pg", actorMemberId: seeded.member.id,
+    actorRole: "admin", productId: replayProductId };
+  const replayUpstream = { product_revision_id: randomUUID(), copy_version_id: randomUUID(),
+    avatar_selection_id: randomUUID(), avatar_asset_version_id: randomUUID(), current_valid: true };
+  const replayService = createVideoPlanningService({ repository,
+    upstreamPort: { async resolveCurrent() { return structuredClone(replayUpstream); } },
+    capabilitySnapshotPort: { async resolve() { return { snapshot_version: "pg-replay-v1",
+      verified_capabilities: [{ code: "speech", evidence_reference: "seed:pg-replay" }] }; } },
+    agentReadinessPort: { async isOnline() { return false; } }, now: () => Date.parse(at) });
+  const createInput = { ...replayActor, outputInstructions: "PG receipt 当前投影", expectedHeadRevision: 0,
+    idempotencyKey: "pg-service-create-replay" };
+  const receiptPause = pauseNextRepositoryMutation(repository, "updateReceiptResult");
+  const creating = replayService.createPlan(createInput);
+  await receiptPause.waiting;
+  const rawReceiptReplay = await replayService.createPlan(createInput);
+  receiptPause.release();
+  const serviceCreated = await creating;
+  assert.equal(rawReceiptReplay.current_plan.id, serviceCreated.current_plan.id);
+  const preflightInput = { ...replayActor, planId: serviceCreated.current_plan.id,
+    expectedRevision: serviceCreated.current_plan.row_version, idempotencyKey: "pg-service-preflight-replay" };
+  const queued = await replayService.requestPreflight(preflightInput);
+  const claimed = await replayService.claimNextPreflight();
+  assert.equal(claimed.run.id, queued.preflight.current_run.id);
+  await replayService.completePreflight({ run: claimed.run, evaluation: { groups: {
+    upstream_validity: { status: "passed", checks: [] },
+    plan_completeness: { status: "passed", checks: [] },
+    production_readiness: { status: "warning", checks: [] }
+  } } });
+  const completedReplay = await replayService.requestPreflight(preflightInput);
+  assert.equal(completedReplay.preflight.current_run.status, "succeeded");
+  assert.equal(completedReplay.preflight.current_result.preflight_run_id, claimed.run.id);
   assert.ok((await repository.listAuditEvents()).length >= 3);
 });

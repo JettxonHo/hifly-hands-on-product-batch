@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const failure = (code) => Object.assign(new Error(code), { code });
+const compareCreatedAndId = (left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id);
 
 export function createMemoryVideoPlanningRepository() {
   const plans = new Map(), heads = new Map(), runs = new Map(), results = new Map(), reviews = new Map(), reviewHeads = new Map();
@@ -17,6 +18,26 @@ export function createMemoryVideoPlanningRepository() {
   }
 
   function appendAudit(event) { audits.push(clone(event)); }
+
+  function assertReviewMutationGate(organizationId, gate) {
+    if (!gate || !gate.productId || !gate.planId || !Number.isInteger(gate.expectedPlanRevision) ||
+        !gate.expectedPreflightRunId || !gate.expectedPreflightResultId) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+    const currentHead = heads.get(headKey(organizationId, gate.productId));
+    const currentPlan = plans.get(gate.planId);
+    if (!currentHead || currentHead.current_plan_id !== gate.planId || !currentPlan ||
+        currentPlan.organization_id !== organizationId || currentPlan.product_id !== gate.productId ||
+        currentPlan.status !== "frozen" || currentPlan.row_version !== gate.expectedPlanRevision) {
+      throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+    }
+    const latestRun = [...runs.values()].filter((item) => item.organization_id === organizationId &&
+      item.video_plan_version_id === gate.planId).sort(compareCreatedAndId).at(-1);
+    const latestResult = latestRun?.preflight_result_id ? results.get(latestRun.preflight_result_id) : null;
+    if (!latestRun || latestRun.id !== gate.expectedPreflightRunId || latestRun.status !== "succeeded" ||
+        latestRun.preflight_result_id !== gate.expectedPreflightResultId || !latestResult ||
+        latestResult.id !== gate.expectedPreflightResultId || latestResult.organization_id !== organizationId ||
+        latestResult.video_plan_version_id !== gate.planId || latestResult.preflight_run_id !== latestRun.id ||
+        !["passed", "warning"].includes(latestResult.status)) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+  }
 
   return {
     async initialize() {}, async close() {},
@@ -112,7 +133,7 @@ export function createMemoryVideoPlanningRepository() {
     },
     async getPreflightState(organizationId, planId) {
       const history = [...runs.values()].filter((run) => run.organization_id === organizationId && run.video_plan_version_id === planId)
-        .sort((a, b) => a.created_at.localeCompare(b.created_at)).map((run) => ({ ...clone(run), result: clone(results.get(run.preflight_result_id) || null) }));
+        .sort(compareCreatedAndId).map((run) => ({ ...clone(run), result: clone(results.get(run.preflight_result_id) || null) }));
       const current = history.at(-1) || null;
       return { current_run: current ? Object.fromEntries(Object.entries(current).filter(([key]) => key !== "result")) : null,
         current_result: current?.result || null, history };
@@ -124,9 +145,10 @@ export function createMemoryVideoPlanningRepository() {
     async getReview(organizationId, reviewId) {
       const review = reviews.get(reviewId); return clone(review?.organization_id === organizationId ? { ...review, ...reviewHeads.get(reviewId) } : null);
     },
-    async createReview({ receiptKey, fingerprint, review, audit }) {
+    async createReview({ receiptKey, fingerprint, review, gate, audit }) {
       const replay = receipt(receiptKey, fingerprint);
       if (replay) return replay;
+      assertReviewMutationGate(review.organization_id, gate);
       const active = [...reviews.values()].find((item) => item.organization_id === review.organization_id &&
         item.video_plan_version_id === review.video_plan_version_id && reviewHeads.get(item.id)?.status === "pending");
       if (active) throw failure("VIDEO_PLAN_REVIEW_ACTIVE_EXISTS");
@@ -141,11 +163,13 @@ export function createMemoryVideoPlanningRepository() {
       appendAudit(audit); return clone(review);
     },
     async transitionReview({ receiptKey, fingerprint, organizationId, reviewId, expectedRevision,
-      fromStatuses, patch, audit }) {
+      fromStatuses, gate, patch, audit }) {
       const replay = receipt(receiptKey, fingerprint);
       if (replay) return replay;
+      assertReviewMutationGate(organizationId, gate);
       const review = reviews.get(reviewId), reviewHead = reviewHeads.get(reviewId);
       if (!review || review.organization_id !== organizationId) return null;
+      if (review.video_plan_version_id !== gate.planId) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
       if (reviewHead.row_version !== expectedRevision || !fromStatuses.includes(reviewHead.status)) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
       const fromStatus = reviewHead.status;
       Object.assign(reviewHead, patch, { row_version: reviewHead.row_version + 1, updated_at: patch.updated_at });
@@ -156,9 +180,12 @@ export function createMemoryVideoPlanningRepository() {
       return clone({ ...review, ...reviewHead });
     },
     async invalidate({ organizationId, planId, reasonCode, actorMemberId, now, audit }) {
-      const currentRun = [...runs.values()].filter((run) => run.organization_id === organizationId && run.video_plan_version_id === planId).at(-1);
-      const result = currentRun?.preflight_result_id ? results.get(currentRun.preflight_result_id) : null;
-      if (result && result.status !== "invalidated") Object.assign(result, { status: "invalidated", invalidated_at: now, invalidation_reason: reasonCode });
+      for (const result of results.values()) {
+        if (result.organization_id === organizationId && result.video_plan_version_id === planId &&
+            ["passed", "warning", "blocked"].includes(result.status)) {
+          Object.assign(result, { status: "invalidated", invalidated_at: now, invalidation_reason: reasonCode });
+        }
+      }
       for (const review of reviews.values()) {
         const reviewHead = reviewHeads.get(review.id);
         if (review.organization_id === organizationId && review.video_plan_version_id === planId && reviewHead.status === "approved") {

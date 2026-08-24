@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-24
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5 合同、synthetic harness 与 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`，但没有建立 accepted environment lane；六项 blocker 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同、Stage 1 商品资料与 Stage 2 文案实现已进入 `main@c6ce40166a9b68da58dfb91c77682148f9876c60`；Issue #242 是 Stage 3 人物仓库实现的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为实现，也不授权 Stage 4。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5 合同、synthetic harness 与 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`，但没有建立 accepted environment lane；六项 blocker 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同、Stage 1 商品资料、Stage 2 文案与 Stage 3 人物已进入 `main@4293be0e80deafc0d844f596239626be4bcdead4`；Issue #244 是 Stage 4 视频方案仓库实现的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为实现，也不授权 Stage 5。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
 
 ## 1. 已完成基线
 
@@ -43,7 +43,7 @@ P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
 P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228/#229 synthetic harness implemented → #230/#231 C5a 首轮 Evidence accepted（lane blocked）→ #232/#233 archive/license/security blocker Evidence accepted → #234/#235 patched lane/fixed model successor Evidence accepted（lane blocked）→ Owner/upstream inputs → C5b 未授权 → 受控 benchmark 未授权 → Fidelity-C～E 未开始
-P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product API gate（已完成）→ #238/#239 Stage 1 商品资料（已完成）→ #240/#241 Stage 2 文案（已完成）→ #242 Stage 3 人物（secure real preview，独立 Draft gate）→ Stage 4 视频方案 → Stage 5 生产 → Post-stage 作品库 → 素材中心/移动收口（后续 Goals 均待独立 gate）
+P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product API gate（已完成）→ #238/#239 Stage 1 商品资料（已完成）→ #240/#241 Stage 2 文案（已完成）→ #242/#243 Stage 3 人物（已完成）→ #244 Stage 4 视频方案（独立 Draft gate）→ Stage 5 生产 → Post-stage 作品库 → 素材中心/移动收口（后续 Goals 均待独立 gate）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -169,16 +169,30 @@ foundation、只读 Product Content 投影和商品资料 workspace 合并进入
 fail-visible 恢复。Issue #240 / PR #241 已把 Stage 2 文案实现合并进入 `main@c6ce4016`：只 additive 投影 exact
 CopyVersion、生成、QC 与人工审核，并保持后续阶段 `legacy/not_loaded`。其投影固定使用 CopyGeneration newest-first
 任务头；`needs_review` 仅复用既有 resolution API 提供接受理由、返回商品资料与人工修改，hard block 不可接受，AI
-改写暂留既有 Copy 页面。Issue #242 是 Stage 3 人物独立 acceptance gate：只 additive 投影 exact AvatarSelection、
-组织可见目录、授权/素材/能力门禁，并通过人物专用短时授权提供同一受控 `avatar_image` 版本的缩略图与大图；memory
-串行门禁与 PostgreSQL 组织级跨表事务锁 + 同事务行锁关闭目录、私有绑定、父 Asset/Version 和 grant 之间的
+改写暂留既有 Copy 页面。Issue #242 / PR #243 已把 Stage 3 人物实现合并进入 `main@4293be0e`：只 additive 投影 exact
+AvatarSelection、组织可见目录、授权/素材/能力门禁，并通过人物专用短时授权提供同一受控 `avatar_image` 版本的缩略图
+与大图；memory 串行门禁与 PostgreSQL 组织级事务锁 + 同事务行锁关闭目录、私有绑定、父 Asset/Version 和 grant 之间的
 interleaving，并消除预览与企业目录登记的相反锁序；bytes 响应还会按 grant 的 exact size/SHA-256 fail closed 复核。
-公共响应不暴露
-私有素材绑定、object key 或 Provider/凭据数据；权威 refresh 与自然到期会撤下旧 `src`，授权/解码失败使用带原因的
-首字 fallback；同商品 approved Copy 替换时保留旧人物选择为 `copy_version_changed` 失效历史，不把它误作 404 或有效确认。
-Stage 1/2 保持稳定，Stage 4/5 继续 `legacy/not_loaded` 且由 counted/throwing 端口证明零读取。对应 Draft PR 合并前不计为
-完成，也不授权 Stage 4。后续实现严格串行：
-Stage 4 视频方案、Stage 5 Production、Post-stage 作品库、素材中心/移动收口。
+公共响应不暴露私有素材绑定、object key 或 Provider/凭据数据；权威 refresh 与自然到期会撤下旧 `src`，授权/解码失败
+使用带原因的首字 fallback；同商品 approved Copy 替换时保留旧人物选择为 `copy_version_changed` 失效历史，不把它误作
+404 或有效确认。Issue #244 是 Stage 4 视频方案独立 acceptance gate：只 additive 投影 exact VideoPlan、preflight
+run/result、人工审核与历史；方案创建、保存、派生、预检、提交审核、批准或要求修改仍使用既有 VideoPlanning API 与
+  状态机，且 preflight passed/warning 不等于人工批准。当前 Draft 的复审纠偏进一步锁定 preflight 真值优先级、无 current
+  plan 时的 exact versions/empty children gate、run/result 双向绑定、由核验真值重算推荐动作、同商品请求世代、首版保存、
+  版本 Dialog 焦点、统一 409 恢复及要求修改理由保留；current head 只来自正式 versions contract 的唯一 active version，
+  selected plan 与同 ID canonical version 必须是 exact snapshot，无 current plan 仅允许空版本或全 superseded 历史，原生
+  Escape 会结束并清空修改意图。并发混合 draft 与后续 preflight/review 世代会 fail-visible 且零推荐动作；无 active head
+  的历史返回动作会移除 plan query 并落到首版创建态。审核 create/transition 还必须在同一原子门禁复核 exact current
+  product head、frozen plan revision、最新 passed/warning result 与 pending review revision；derive 胜出后旧审核只能安全冲突，
+  不得产生 terminal review/event/audit。后续纠偏还要求审核决定精确绑定 URL product、review-submit receipt 在投影写回
+  空窗与 head 变化后重建当前投影、memory/PG 使用同一 preflight 排序与全结果失效语义；clean 409 恢复采用 authoritative
+  新 head，只有冲突前 dirty 才保留本地输入。最新纠偏要求 wrong-product review 在 reason/state/revision/receipt 之前恒定
+  隐藏为 404，并要求 create/derive/preflight 的幂等回放从 exact receipt identity 重建当前服务端投影，不复用旧 draft/queued
+  projection。三视口确定性 preflight/focus matrix 持续验证。`main` 分支保护在
+  保留 strict 与既有 Ubuntu/Windows context 的同时 additive 要求 `identity-postgres`。只有 fixed head 独立 Review 合并后
+  才计为实现。Stage 1/2/3 保持稳定，Stage 5 Production 继续
+`legacy/not_loaded` 和零读取；对应 Draft PR 合并前不计为完成，也不授权 Stage 5。后续实现严格串行：Stage 5
+Production、Post-stage 作品库、素材中心/移动收口。
 作品库后续桌面验收固定为 9 项原型数据第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；分页必须使用真实
 服务端集合真值，不得前端伪造。原型只是设计输入，不得直接合并；任何实现均不自动部署。
 全部功能 Stage 完成并分别 Review 后，才另开独立视觉 refinement/research gate。PC 1440 主工作区与 768 收敛、移动

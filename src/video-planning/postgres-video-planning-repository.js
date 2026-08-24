@@ -32,6 +32,33 @@ async function readReceipt(client, receiptKey, fingerprint) {
   return found.result;
 }
 
+async function lockReviewMutationGate(client, organizationId, gate) {
+  if (!gate || !gate.productId || !gate.planId || !Number.isInteger(gate.expectedPlanRevision) ||
+      !gate.expectedPreflightRunId || !gate.expectedPreflightResultId) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+  // Review writes share derive's receipt -> product head -> plan order, then lock the exact result before review head.
+  const currentHead = head(one(await client.query(
+    "SELECT * FROM video_plan_heads WHERE organization_id=$1 AND product_id=$2 FOR UPDATE",
+    [organizationId,gate.productId])));
+  if (!currentHead || currentHead.current_plan_id !== gate.planId) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+  const currentPlan = plan(one(await client.query(
+    "SELECT * FROM video_plan_versions WHERE organization_id=$1 AND id=$2 FOR UPDATE",
+    [organizationId,gate.planId])));
+  if (!currentPlan || currentPlan.product_id !== gate.productId || currentPlan.status !== "frozen" ||
+      currentPlan.row_version !== gate.expectedPlanRevision) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+  const latestRun = run(one(await client.query(`SELECT * FROM video_preflight_runs
+    WHERE organization_id=$1 AND video_plan_version_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE`,
+  [organizationId,gate.planId])));
+  if (!latestRun || latestRun.id !== gate.expectedPreflightRunId || latestRun.status !== "succeeded" ||
+      latestRun.preflight_result_id !== gate.expectedPreflightResultId) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+  const latestResult = result(one(await client.query(
+    "SELECT * FROM video_preflight_results WHERE organization_id=$1 AND id=$2 FOR UPDATE",
+    [organizationId,gate.expectedPreflightResultId])));
+  if (!latestResult || latestResult.video_plan_version_id !== gate.planId ||
+      latestResult.preflight_run_id !== latestRun.id || !["passed", "warning"].includes(latestResult.status)) {
+    throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+  }
+}
+
 export function createPostgresVideoPlanningRepository({ pool, ownsPool = false } = {}) {
   if (!pool?.connect) throw new TypeError("pool is required");
   return {
@@ -172,11 +199,12 @@ export function createPostgresVideoPlanningRepository({ pool, ownsPool = false }
     async getReview(organizationId, reviewId) {
       return review(one(await pool.query(`${REVIEW_SELECT} WHERE r.organization_id=$1 AND r.id=$2`, [organizationId,reviewId])));
     },
-    async createReview({ receiptKey, fingerprint, review: value, audit }) {
+    async createReview({ receiptKey, fingerprint, review: value, gate, audit }) {
       return withTransaction(pool, async (client) => {
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`video-receipt:${receiptKey}`]);
         const replay = await readReceipt(client, receiptKey, fingerprint); if (replay) return replay;
-        const active = one(await client.query("SELECT plan_review_id FROM video_plan_review_heads WHERE organization_id=$1 AND video_plan_version_id=$2 AND status='pending'",
+        await lockReviewMutationGate(client, value.organization_id, gate);
+        const active = one(await client.query("SELECT plan_review_id FROM video_plan_review_heads WHERE organization_id=$1 AND video_plan_version_id=$2 AND status='pending' FOR UPDATE",
           [value.organization_id,value.video_plan_version_id])); if (active) throw failure("VIDEO_PLAN_REVIEW_ACTIVE_EXISTS");
         await client.query(`INSERT INTO video_plan_reviews(id,organization_id,video_plan_version_id,author_member_id,created_at)
           VALUES ($1,$2,$3,$4,$5)`, [value.id,value.organization_id,value.video_plan_version_id,value.author_member_id,value.created_at]);
@@ -190,12 +218,14 @@ export function createPostgresVideoPlanningRepository({ pool, ownsPool = false }
           [receiptKey,fingerprint,JSON.stringify({ review_id: saved.id }),value.created_at]); await appendAudit(client,audit); return saved;
       });
     },
-    async transitionReview({ receiptKey, fingerprint, organizationId, reviewId, expectedRevision, fromStatuses, patch, audit }) {
+    async transitionReview({ receiptKey, fingerprint, organizationId, reviewId, expectedRevision, fromStatuses, gate, patch, audit }) {
       return withTransaction(pool, async (client) => {
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`video-receipt:${receiptKey}`]);
         const replay = await readReceipt(client, receiptKey, fingerprint); if (replay) return replay;
+        await lockReviewMutationGate(client, organizationId, gate);
         const current = review(one(await client.query(`${REVIEW_SELECT} WHERE r.organization_id=$1 AND r.id=$2 FOR UPDATE OF h`, [organizationId,reviewId])));
         if (!current) return null;
+        if (current.video_plan_version_id !== gate.planId) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
         if (current.row_version !== expectedRevision || !fromStatuses.includes(current.status)) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
         await client.query(`UPDATE video_plan_review_heads SET status=$3,row_version=row_version+1,reviewer_member_id=$4,review_mode=$5,decision_reason=$6,decided_at=$7,updated_at=$8
           WHERE organization_id=$1 AND plan_review_id=$2`, [organizationId,reviewId,patch.status,patch.reviewer_member_id,patch.review_mode,

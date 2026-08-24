@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 const STAGES = Object.freeze(["product_content", "copy", "avatar", "video_plan", "production"]);
 const STAGE_SET = new Set(STAGES);
 const PROJECTION_VERSION = 1;
@@ -7,6 +9,17 @@ const AVATAR_ACTIONS = Object.freeze({
   select_avatar: Object.freeze({ stage: "avatar", kind: "focus" }),
   continue_to_video_plan: Object.freeze({ stage: "avatar", kind: "navigate" }),
   retry_avatar_read: Object.freeze({ stage: "avatar", kind: "refresh" })
+});
+const VIDEO_PLAN_ACTIONS = Object.freeze({
+  return_to_avatar: Object.freeze({ stage: "video_plan", kind: "navigate" }),
+  create_video_plan: Object.freeze({ stage: "video_plan", kind: "command" }),
+  return_to_current_video_plan: Object.freeze({ stage: "video_plan", kind: "navigate" }),
+  run_video_plan_preflight: Object.freeze({ stage: "video_plan", kind: "command" }),
+  retry_video_plan_preflight: Object.freeze({ stage: "video_plan", kind: "command" }),
+  derive_video_plan_draft: Object.freeze({ stage: "video_plan", kind: "command" }),
+  submit_video_plan_review: Object.freeze({ stage: "video_plan", kind: "command" }),
+  approve_video_plan_review: Object.freeze({ stage: "video_plan", kind: "command" }),
+  continue_to_production: Object.freeze({ stage: "video_plan", kind: "navigate" })
 });
 
 const failure = (code, details = {}) => Object.assign(new Error(code), { code, ...details });
@@ -18,6 +31,10 @@ function notFound() {
 
 function unavailable(cause) {
   return failure("OPERATOR_WORKSPACE_UNAVAILABLE", { cause });
+}
+
+function generationMismatch() {
+  return failure("VIDEO_PLAN_WORKSPACE_GENERATION_MISMATCH");
 }
 
 function legacyStage(code, _readPort = null) {
@@ -173,9 +190,52 @@ function publicAvatarWorkspace(value) {
 
 function registeredAvatarAction(action) {
   if (!action || typeof action !== "object") return null;
+  if (!Object.hasOwn(AVATAR_ACTIONS, action.code)) return null;
   const registered = AVATAR_ACTIONS[action.code];
   if (!registered || action.stage !== registered.stage || action.kind !== registered.kind) return null;
   return { code: action.code, stage: action.stage, kind: action.kind };
+}
+
+function registeredVideoPlanAction(action) {
+  if (!action || typeof action !== "object") return null;
+  if (!Object.hasOwn(VIDEO_PLAN_ACTIONS, action.code)) return null;
+  const registered = VIDEO_PLAN_ACTIONS[action.code];
+  if (!registered || action.stage !== registered.stage || action.kind !== registered.kind) return null;
+  return { code: action.code, stage: action.stage, kind: action.kind };
+}
+
+const VIDEO_PLAN_PRIVATE_KEYS = new Set(["organization_id", "lease_token", "input_snapshot"]);
+
+function publicVideoPlanValue(value) {
+  if (Array.isArray(value)) return value.map(publicVideoPlanValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !VIDEO_PLAN_PRIVATE_KEYS.has(key))
+    .map(([key, item]) => [key, publicVideoPlanValue(item)]));
+}
+
+function publicVideoPlanWorkspace(value) {
+  if (!value || typeof value !== "object") throw unavailable();
+  if (value.versions != null && !Array.isArray(value.versions)) throw unavailable();
+  const preflight = value.preflight && typeof value.preflight === "object" ? value.preflight : {};
+  const review = value.review && typeof value.review === "object" ? value.review : {};
+  if (preflight.history != null && !Array.isArray(preflight.history)) throw unavailable();
+  if (review.history != null && !Array.isArray(review.history)) throw unavailable();
+  return {
+    current_plan: publicVideoPlanValue(value.current_plan || null),
+    head_revision: value.head_revision,
+    versions: (value.versions || []).map(publicVideoPlanValue),
+    preflight: {
+      current_run: publicVideoPlanValue(preflight.current_run || null),
+      current_result: publicVideoPlanValue(preflight.current_result || null),
+      history: (preflight.history || []).map(publicVideoPlanValue)
+    },
+    human_review: {
+      current_review: publicVideoPlanValue(review.current_review || null),
+      history: (review.history || []).map(publicVideoPlanValue),
+      gate: publicVideoPlanValue(review.gate || null)
+    }
+  };
 }
 
 function avatarActionFor(workspace, { copy, selection }) {
@@ -220,6 +280,200 @@ function avatarErrorStage() {
     ...legacyStage("avatar"),
     implementation_status: "workspace",
     read_status: "error"
+  };
+}
+
+function assertPlanIdentity(value, { organizationId, productId }) {
+  if (!value || typeof value !== "object" || !text(value.id) ||
+      value.organization_id !== organizationId || value.product_id !== productId) throw notFound();
+}
+
+function assertPlanChildIdentity(value, { organizationId, planId }) {
+  if (!value || typeof value !== "object" || !text(value.id) ||
+      value.organization_id !== organizationId || value.video_plan_version_id !== planId) {
+    throw failure("VIDEO_PLAN_SELECTED_OBJECT_MISMATCH");
+  }
+}
+
+function assertExactVideoPlanWorkspace(value, { organizationId, projectId, productId, requestedPlanId }) {
+  void projectId;
+  if (!value || typeof value !== "object") throw notFound();
+  const versions = Array.isArray(value.versions) ? value.versions : [];
+  for (const version of versions) assertPlanIdentity(version, { organizationId, productId });
+  const activeVersions = versions.filter((version) => version.status !== "superseded");
+  if (activeVersions.length > 1) throw notFound();
+  const plan = value.current_plan;
+  if (requestedPlanId && (!plan || plan.id !== requestedPlanId)) throw notFound();
+  const preflight = value.preflight && typeof value.preflight === "object" ? value.preflight : {};
+  const review = value.review && typeof value.review === "object" ? value.review : {};
+  if (!plan) {
+    if (activeVersions.length || preflight.current_run || preflight.current_result || (preflight.history || []).length ||
+        review.current_review || (review.history || []).length) throw notFound();
+    return;
+  }
+  assertPlanIdentity(plan, { organizationId, productId });
+  const planId = plan.id;
+  const canonicalPlan = versions.find((version) => version.id === planId);
+  if (!canonicalPlan || !isDeepStrictEqual(plan, canonicalPlan)) throw notFound();
+  if (!requestedPlanId && (activeVersions.length !== 1 || activeVersions[0].id !== planId)) throw notFound();
+  const hasPreflightTruth = Boolean(preflight.current_run || preflight.current_result || (preflight.history || []).length);
+  const hasReviewTruth = Boolean(review.current_review || (review.history || []).length);
+  if (plan.status === "draft" && (hasPreflightTruth || hasReviewTruth)) throw generationMismatch();
+  const assertRunResultPair = (run, result) => {
+    if (run) assertPlanChildIdentity(run, { organizationId, planId });
+    if (result) {
+      assertPlanChildIdentity(result, { organizationId, planId });
+      if (!run || result.preflight_run_id !== run.id || run.preflight_result_id !== result.id) {
+        throw failure("VIDEO_PLAN_SELECTED_OBJECT_MISMATCH");
+      }
+    } else if (run?.preflight_result_id) {
+      throw failure("VIDEO_PLAN_SELECTED_OBJECT_MISMATCH");
+    }
+  };
+  assertRunResultPair(preflight.current_run, preflight.current_result);
+  for (const run of preflight.history || []) {
+    assertRunResultPair(run, run.result || null);
+  }
+  for (const item of [review.current_review, ...(review.history || [])]) {
+    if (item) assertPlanChildIdentity(item, { organizationId, planId });
+  }
+}
+
+function videoPlanCurrentId(workspace) {
+  const candidates = (workspace.versions || []).filter((value) => value?.id && value.status !== "superseded");
+  return candidates.length === 1 ? candidates[0].id : null;
+}
+
+function currentAvatarContext(avatarProjection) {
+  const stage = avatarProjection?.stage;
+  const workspace = stage?.avatar_workspace;
+  const selection = workspace?.selection?.current_selection;
+  const reasons = workspace?.copy_gate?.reasons;
+  const valid = stage?.read_status === "ok" && stage?.implementation_status === "workspace" &&
+    workspace?.copy_gate?.approved === true && (!Array.isArray(reasons) || reasons.length === 0) &&
+    Boolean(selection) && workspace?.selection?.current_valid === true;
+  return {
+    valid,
+    copyVersionId: stage?.current_copy_version_id || workspace?.copy_gate?.copy_version_id || null,
+    selectionId: selection?.id || stage?.current_object?.id || null,
+    assetVersionId: selection?.asset_version_id || null
+  };
+}
+
+function videoPlanUpstreamMatches(plan, avatar, revision) {
+  const snapshot = plan?.upstream_snapshot;
+  return avatar.valid && snapshot && snapshot.product_revision_id === revision.id &&
+    snapshot.copy_version_id === avatar.copyVersionId && snapshot.avatar_selection_id === avatar.selectionId &&
+    snapshot.avatar_asset_version_id === avatar.assetVersionId;
+}
+
+function videoPlanAction(code) {
+  if (!Object.hasOwn(VIDEO_PLAN_ACTIONS, code)) return null;
+  const registered = VIDEO_PLAN_ACTIONS[code];
+  return registered ? { code, stage: registered.stage, kind: registered.kind } : null;
+}
+
+function videoPlanErrorStage() {
+  return {
+    ...legacyStage("video_plan"),
+    implementation_status: "workspace",
+    read_status: "error"
+  };
+}
+
+function videoPlanStage({ workspace, avatarProjection, revision, requestedStage }) {
+  const publicWorkspace = publicVideoPlanWorkspace(workspace);
+  const plan = workspace.current_plan || null;
+  const currentPlanId = videoPlanCurrentId(workspace);
+  const historical = Boolean(plan && (plan.status === "superseded" || (currentPlanId && plan.id !== currentPlanId)));
+  const avatar = currentAvatarContext(avatarProjection);
+  const upstreamMatches = !plan || videoPlanUpstreamMatches(plan, avatar, revision);
+  const preflight = workspace.preflight && typeof workspace.preflight === "object" ? workspace.preflight : {};
+  const run = preflight.current_run || null;
+  const result = preflight.current_result || null;
+  const review = workspace.review && typeof workspace.review === "object" ? workspace.review : {};
+  const currentReview = review.current_review || null;
+  const reviewGate = review.gate && typeof review.gate === "object" ? review.gate : {};
+  const reviewReasons = Array.isArray(reviewGate.reasons) ? reviewGate.reasons : [];
+  const reviewable = ["passed", "warning"].includes(result?.status);
+  const suppliedActionInvalid = Object.hasOwn(workspace, "recommended_action") && workspace.recommended_action !== null &&
+    !registeredVideoPlanAction(workspace.recommended_action);
+  let businessStatus = "视频方案待创建";
+  let blockerCodes = ["VIDEO_PLAN_REQUIRED"];
+  let action = null;
+
+  if (historical) {
+    businessStatus = "历史视频方案";
+    blockerCodes = ["VIDEO_PLAN_HISTORICAL"];
+    action = videoPlanAction("return_to_current_video_plan");
+  } else if (!avatar.valid || (plan && !upstreamMatches)) {
+    businessStatus = !avatar.valid ? "人物选择尚未有效" : "视频方案上游已失效";
+    blockerCodes = ["VIDEO_PLAN_UPSTREAM_INVALID"];
+    action = videoPlanAction("return_to_avatar");
+  } else if (!plan) {
+    action = videoPlanAction("create_video_plan");
+  } else if (result?.status === "invalidated") {
+    businessStatus = "视频方案预检已失效";
+    blockerCodes = ["VIDEO_PLAN_PREFLIGHT_INVALIDATED"];
+    action = videoPlanAction("derive_video_plan_draft");
+  } else if (result?.status === "blocked") {
+    businessStatus = "视频方案预检未通过";
+    blockerCodes = ["VIDEO_PLAN_PREFLIGHT_BLOCKED"];
+    action = videoPlanAction("derive_video_plan_draft");
+  } else if (run?.status === "failed" || result?.status === "failed") {
+    businessStatus = "视频方案预检未完成";
+    blockerCodes = ["VIDEO_PLAN_PREFLIGHT_FAILED"];
+    action = videoPlanAction("retry_video_plan_preflight");
+  } else if (["queued", "running"].includes(run?.status)) {
+    businessStatus = run.status === "queued" ? "视频方案预检已排队" : "正在进行视频方案预检";
+    blockerCodes = ["VIDEO_PLAN_PREFLIGHT_IN_PROGRESS"];
+    action = null;
+  } else if (["changes_requested", "revoked"].includes(currentReview?.status)) {
+    businessStatus = currentReview.status === "changes_requested" ? "人工审核要求修改视频方案" : "视频方案批准已失效";
+    blockerCodes = [currentReview.status === "changes_requested" ? "VIDEO_PLAN_CHANGES_REQUIRED" : "VIDEO_PLAN_APPROVAL_REVOKED"];
+    action = videoPlanAction("derive_video_plan_draft");
+  } else if (currentReview?.status === "approved") {
+    if (reviewable && plan.status === "frozen") {
+      businessStatus = "视频方案已批准";
+      blockerCodes = [];
+      action = videoPlanAction("continue_to_production");
+    } else {
+      businessStatus = "视频方案批准状态不可继续";
+      blockerCodes = ["VIDEO_PLAN_PREFLIGHT_REQUIRED"];
+      action = videoPlanAction("derive_video_plan_draft");
+    }
+  } else if (currentReview?.status === "pending" && plan.status === "frozen" && reviewable && reviewGate.can_decide === true &&
+      !reviewReasons.includes("preflight_not_reviewable") && !reviewReasons.includes("plan_not_frozen")) {
+    businessStatus = "视频方案待人工审核";
+    blockerCodes = ["VIDEO_PLAN_HUMAN_REVIEW_REQUIRED"];
+    action = videoPlanAction("approve_video_plan_review");
+  } else if (plan.status === "frozen" && reviewable && reviewGate.can_submit === true &&
+      !reviewReasons.includes("plan_not_frozen")) {
+    businessStatus = "预检已通过，待提交人工审核";
+    blockerCodes = ["VIDEO_PLAN_HUMAN_REVIEW_REQUIRED"];
+    action = videoPlanAction("submit_video_plan_review");
+  } else if (run?.status === "succeeded" && !result) {
+    businessStatus = "视频方案预检结果不可用";
+    blockerCodes = ["VIDEO_PLAN_PREFLIGHT_REQUIRED"];
+    action = videoPlanAction("retry_video_plan_preflight");
+  } else {
+    businessStatus = plan.status === "draft" ? "视频方案草稿待预检" : "视频方案待运行预检";
+    blockerCodes = ["VIDEO_PLAN_PREFLIGHT_REQUIRED"];
+    action = videoPlanAction("run_video_plan_preflight");
+  }
+
+  return {
+    stage: {
+      code: "video_plan",
+      implementation_status: "workspace",
+      read_status: "ok",
+      navigation_state: historical ? "history" : requestedStage === "video_plan" ? "current" : "available",
+      business_status: businessStatus,
+      blocker_codes: blockerCodes,
+      current_object: publicWorkspace.current_plan ? { type: "video_plan", id: publicWorkspace.current_plan.id } : null,
+      video_plan_workspace: publicWorkspace
+    },
+    action: suppliedActionInvalid ? null : action
   };
 }
 
@@ -437,7 +691,7 @@ async function readAvatarProjection({ avatarService, copyService, reviewService,
 
 export function createOperatorWorkspaceService({ projectContentService, copyService = null,
   qualityService = null, reviewService = null, avatarService = null,
-  videoPlanningService = null, productionService = null } = {}) {
+  videoPlanningService = null, videoPlanningEnabled = null, productionService = null } = {}) {
   if (!projectContentService?.getProject) throw new TypeError("projectContentService.getProject is required");
 
   async function getWorkspace(input = {}) {
@@ -512,21 +766,47 @@ export function createOperatorWorkspaceService({ projectContentService, copyServ
         avatarProjection = { stage: avatarErrorStage(), action: null };
       }
     }
+    let videoPlanProjection = { stage: legacyStage("video_plan"), action: null };
+    const videoPlanWorkspaceEnabled = videoPlanningEnabled !== false && typeof videoPlanningService?.getWorkspace === "function";
+    const readVideoPlan = videoPlanWorkspaceEnabled && !(requestedStage === "avatar" && !currentAvatarContext(avatarProjection).valid);
+    if (readVideoPlan) {
+      try {
+        const videoPlanWorkspace = await videoPlanningService.getWorkspace({
+          organizationId: input.organizationId,
+          actorMemberId: input.actorMemberId,
+          actorRole: input.actorRole,
+          productId: product.id,
+          planId: input.planId
+        });
+        assertExactVideoPlanWorkspace(videoPlanWorkspace, {
+          organizationId: input.organizationId,
+          projectId: project.id,
+          productId: product.id,
+          requestedPlanId: input.planId
+        });
+        videoPlanProjection = videoPlanStage({ workspace: videoPlanWorkspace, avatarProjection, revision, requestedStage });
+      } catch (error) {
+        if (["OPERATOR_WORKSPACE_NOT_FOUND", "VIDEO_PLAN_NOT_FOUND", "VIDEO_PLAN_SELECTED_OBJECT_MISMATCH"].includes(error?.code)) throw notFound();
+        if (requestedStage === "video_plan") throw unavailable(error);
+        videoPlanProjection = { stage: videoPlanErrorStage(), action: null };
+      }
+    }
     const stages = [productContent, copyProjection.stage, avatarProjection.stage,
-      legacyStage("video_plan", videoPlanningService), legacyStage("production", productionService)];
+      videoPlanProjection.stage, legacyStage("production", productionService)];
     const isProductContent = requestedStage === "product_content";
     const isCopy = requestedStage === "copy" && copyWorkspaceEnabled;
     const isAvatar = requestedStage === "avatar" && avatarWorkspaceEnabled;
+    const isVideoPlan = requestedStage === "video_plan" && videoPlanWorkspaceEnabled && videoPlanProjection.stage.read_status === "ok";
     return {
       project: { id: project.id, name: project.name ?? null },
       product: { id: product.id, name: revision.product_name ?? product.name ?? null, current_revision_id: revision.id },
       projection_version: PROJECTION_VERSION,
       action_registry_version: ACTION_REGISTRY_VERSION,
       requested_stage: requestedStage,
-      render_mode: isProductContent || isCopy || isAvatar ? "workspace" : "legacy",
-      recommended_stage: isProductContent ? "product_content" : isCopy ? "copy" : isAvatar ? "avatar" : null,
+      render_mode: isProductContent || isCopy || isAvatar || isVideoPlan ? "workspace" : "legacy",
+      recommended_stage: isProductContent ? "product_content" : isCopy ? "copy" : isAvatar ? "avatar" : isVideoPlan ? "video_plan" : null,
       recommended_action: isProductContent ? actionFor(revision, productContent.blocker_codes) :
-        isCopy ? copyProjection.action : isAvatar ? avatarProjection.action : null,
+        isCopy ? copyProjection.action : isAvatar ? avatarProjection.action : isVideoPlan ? videoPlanProjection.action : null,
       stages
     };
   }

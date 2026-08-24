@@ -39,11 +39,79 @@ async function createAndPreflight(state, suffix = "one", outputInstructions = "�
   return state.service.getWorkspace(actor);
 }
 
+function pauseNextRepositoryMutation(repository, method) {
+  const original = repository[method].bind(repository);
+  let release;
+  let entered;
+  const waiting = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  repository[method] = async (...args) => {
+    entered();
+    await gate;
+    return original(...args);
+  };
+  return { waiting, release };
+}
+
 test("creates a plan with the canonical Hifly presentation size", async () => {
   const state = world();
   const created = await state.service.createPlan({ ...actor, outputInstructions: "首版制作说明",
     presentationSizeCode: "small", expectedHeadRevision: 0, idempotencyKey: "create-presentation-size" });
   assert.equal(created.current_plan.presentation_size_code, "small");
+});
+
+test("create and derive replay committed receipts as current server projections", async () => {
+  const state = world();
+  const createInput = { ...actor, outputInstructions: "首版制作说明", expectedHeadRevision: 0,
+    idempotencyKey: "create-current-projection" };
+  const createPause = pauseNextRepositoryMutation(state.repository, "updateReceiptResult");
+  const creating = state.service.createPlan(createInput);
+  await createPause.waiting;
+  const createReplay = await state.service.createPlan(createInput);
+  createPause.release();
+  const created = await creating;
+  assert.equal(createReplay.current_plan.id, created.current_plan.id);
+  assert.equal(createReplay.current_plan.status, "draft");
+  assert.equal((await state.repository.listPlans(actor.organizationId, actor.productId)).length, 1);
+
+  await state.service.requestPreflight({ ...actor, planId: created.current_plan.id,
+    expectedRevision: created.current_plan.row_version, idempotencyKey: "create-current-projection-preflight" });
+  await state.worker.runNext();
+  const deriveInput = { ...actor, planId: created.current_plan.id, outputInstructions: "第二版制作说明",
+    expectedHeadRevision: 1, idempotencyKey: "derive-current-projection" };
+  const derivePause = pauseNextRepositoryMutation(state.repository, "updateReceiptResult");
+  const deriving = state.service.deriveDraft(deriveInput);
+  await derivePause.waiting;
+  const deriveReplay = await state.service.deriveDraft(deriveInput);
+  derivePause.release();
+  const derived = await deriving;
+  assert.equal(deriveReplay.current_plan.id, derived.current_plan.id);
+  assert.equal(deriveReplay.head_revision, 2);
+  assert.equal((await state.repository.listPlans(actor.organizationId, actor.productId)).length, 2);
+
+  const createAfterDerive = await state.service.createPlan(createInput);
+  assert.equal(createAfterDerive.current_plan.id, created.current_plan.id);
+  assert.equal(createAfterDerive.current_plan.status, "superseded");
+  assert.equal(createAfterDerive.head_revision, 2);
+  await assert.rejects(state.service.deriveDraft({ ...deriveInput, outputInstructions: "不同的第二版" }),
+    { code: "IDEMPOTENCY_CONFLICT" });
+});
+
+test("preflight replay returns the exact current run after asynchronous completion", async () => {
+  const state = world();
+  const created = await state.service.createPlan({ ...actor, outputInstructions: "首版制作说明",
+    expectedHeadRevision: 0, idempotencyKey: "preflight-current-create" });
+  const input = { ...actor, planId: created.current_plan.id, expectedRevision: created.current_plan.row_version,
+    idempotencyKey: "preflight-current-run" };
+  const queued = await state.service.requestPreflight(input);
+  assert.equal(queued.preflight.current_run.status, "queued");
+  await state.worker.runNext();
+  const replay = await state.service.requestPreflight(input);
+  assert.equal(replay.preflight.current_run.id, queued.preflight.current_run.id);
+  assert.equal(replay.preflight.current_run.status, "succeeded");
+  assert.equal(replay.preflight.current_result.preflight_run_id, queued.preflight.current_run.id);
+  await assert.rejects(state.service.requestPreflight({ ...input, expectedRevision: input.expectedRevision + 1 }),
+    { code: "IDEMPOTENCY_CONFLICT" });
 });
 
 test("creates an immutable draft snapshot and derives edits from frozen plans", async () => {
@@ -180,6 +248,69 @@ test("review has one pending cycle, commands are idempotent, and changes require
     expectedRevision: 2, idempotencyKey: "approve-old" }), { code: "VIDEO_PLAN_REVIEW_CONFLICT" });
 });
 
+test("review submission replays across the commit-to-projection window and reflects later head truth", async () => {
+  const state = world({ agentOnline: true });
+  const workspace = await createAndPreflight(state, "submit-replay-window");
+  const input = { ...actor, planId: workspace.current_plan.id, idempotencyKey: "submit-replay-window" };
+  const pause = pauseNextRepositoryMutation(state.repository, "updateReceiptResult");
+  const first = state.service.submitReview(input);
+  await pause.waiting;
+
+  const replay = await state.service.submitReview(input);
+  assert.equal(replay.review.current_review.status, "pending");
+  assert.equal((await state.repository.listReviews(actor.organizationId, workspace.current_plan.id)).length, 1);
+  pause.release();
+  await first;
+
+  await state.service.deriveDraft({ ...actor, planId: workspace.current_plan.id,
+    outputInstructions: "回放后已经存在的新方案", expectedHeadRevision: workspace.head_revision,
+    idempotencyKey: "submit-replay-window-derive" });
+  const currentReplay = await state.service.submitReview(input);
+  assert.equal(currentReplay.current_plan.status, "superseded");
+  assert.equal(currentReplay.review.current_review.status, "pending");
+});
+
+test("memory preflight ordering uses the PostgreSQL timestamp and id tie-break consistently", async () => {
+  const state = world({ agentOnline: true });
+  const created = await state.service.createPlan({ ...actor, outputInstructions: "固定时钟方案",
+    expectedHeadRevision: 0, idempotencyKey: "tie-create" });
+  const at = "2026-08-07T12:00:00.000Z";
+  const run = (id) => ({ id, organization_id: actor.organizationId, video_plan_version_id: created.current_plan.id,
+    status: "queued", input_snapshot: {}, preflight_result_id: null, failure_code: null, lease_token: null,
+    created_by_member_id: actor.actorMemberId, started_at: null, completed_at: null, created_at: at, updated_at: at });
+  await state.repository.createRun({ receiptKey: "tie-run-z", fingerprint: "z", run: run("z-old-failed"),
+    planId: created.current_plan.id, expectedRevision: created.current_plan.row_version, audit: { id: "audit-z" } });
+  const failed = await state.repository.claimNextRun({ now: at, leaseToken: "lease-z" });
+  await state.repository.failRun({ runId: failed.id, leaseToken: failed.lease_token,
+    failureCode: "CONTROLLED_FAILURE", now: at, audit: { id: "audit-failed-z" } });
+  await state.repository.createRun({ receiptKey: "tie-run-a", fingerprint: "a", run: run("a-new-succeeded"),
+    planId: created.current_plan.id, expectedRevision: 0, audit: { id: "audit-a" } });
+  const succeeded = await state.repository.claimNextRun({ now: at, leaseToken: "lease-a" });
+  await state.repository.completeRun({ runId: succeeded.id, leaseToken: succeeded.lease_token, now: at,
+    result: { id: "result-a", organization_id: actor.organizationId, video_plan_version_id: created.current_plan.id,
+      preflight_run_id: succeeded.id, status: "passed", groups: {}, created_at: at,
+      invalidated_at: null, invalidation_reason: null }, audit: { id: "audit-succeeded-a" } });
+
+  const workspace = await state.service.getWorkspace(actor);
+  assert.equal(workspace.preflight.current_run.id, "z-old-failed");
+  assert.equal(workspace.preflight.current_run.status, "failed");
+  await assert.rejects(state.service.submitReview({ ...actor, planId: created.current_plan.id,
+    idempotencyKey: "tie-review" }), { code: "VIDEO_PLAN_REVIEW_GATE_BLOCKED" });
+});
+
+test("memory invalidation updates every reviewable result for the exact plan", async () => {
+  const state = world({ agentOnline: true });
+  let workspace = await createAndPreflight(state, "multi-result-invalidation");
+  await state.service.requestPreflight({ ...actor, planId: workspace.current_plan.id,
+    expectedRevision: workspace.current_plan.row_version, idempotencyKey: "multi-result-second" });
+  await state.worker.runNext();
+  state.upstream.copy_version_id = "copy-new";
+  workspace = await state.service.getWorkspace(actor);
+
+  const resultStatuses = workspace.preflight.history.filter((item) => item.result).map((item) => item.result.status);
+  assert.deepEqual(resultStatuses, ["invalidated", "invalidated"]);
+});
+
 test("review decisions replay the current server projection and reject conflicting payloads", async () => {
   const state = world({ agentOnline: true });
   let workspace = await createAndPreflight(state, "decision-replay");
@@ -238,6 +369,44 @@ test("relevant upstream changes invalidate preflight and revoke approval while m
   await assert.rejects(state.service.approveReview({ ...actor, reviewId: workspace.review.current_review.id,
     expectedRevision: workspace.review.current_review.row_version, idempotencyKey: "restore-revoked" }),
   { code: "VIDEO_PLAN_REVIEW_CONFLICT" });
+});
+
+test("review submission cannot commit after derive replaces the exact frozen head", async () => {
+  const state = world({ agentOnline: true });
+  const workspace = await createAndPreflight(state, "submit-derive-race");
+  const pause = pauseNextRepositoryMutation(state.repository, "createReview");
+  const submitting = state.service.submitReview({ ...actor, planId: workspace.current_plan.id,
+    idempotencyKey: "submit-derive-race-review" });
+  await pause.waiting;
+  await state.service.deriveDraft({ ...actor, planId: workspace.current_plan.id,
+    outputInstructions: "并发创建的新方案", expectedHeadRevision: workspace.head_revision,
+    idempotencyKey: "submit-derive-race-new-plan" });
+  pause.release();
+
+  await assert.rejects(submitting, { code: "VIDEO_PLAN_REVIEW_CONFLICT" });
+  assert.equal((await state.repository.listReviews(actor.organizationId, workspace.current_plan.id)).length, 0);
+  assert.equal((await state.repository.listAuditEvents()).some((event) =>
+    event.event_type === "video_plan.review_submitted"), false);
+});
+
+test("review approval cannot commit after derive supersedes its exact pending head", async () => {
+  const state = world({ agentOnline: true });
+  let workspace = await createAndPreflight(state, "approve-derive-race");
+  workspace = await state.service.submitReview({ ...actor, planId: workspace.current_plan.id,
+    idempotencyKey: "approve-derive-race-submit" });
+  const review = workspace.review.current_review;
+  const pause = pauseNextRepositoryMutation(state.repository, "transitionReview");
+  const approving = state.service.approveReview({ ...actor, reviewId: review.id,
+    expectedRevision: review.row_version, idempotencyKey: "approve-derive-race-decision" });
+  await pause.waiting;
+  await state.service.deriveDraft({ ...actor, planId: workspace.current_plan.id,
+    outputInstructions: "批准前并发创建的新方案", expectedHeadRevision: workspace.head_revision,
+    idempotencyKey: "approve-derive-race-new-plan" });
+  pause.release();
+
+  await assert.rejects(approving, { code: "VIDEO_PLAN_REVIEW_CONFLICT" });
+  assert.equal((await state.repository.getReview(actor.organizationId, review.id)).status, "pending");
+  assert.equal((await state.repository.listReviewEvents()).filter((event) => event.to_status === "approved").length, 0);
 });
 
 test("capability Evidence changes invalidate approval while display metadata does not", async () => {

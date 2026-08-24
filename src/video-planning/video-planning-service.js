@@ -127,9 +127,12 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
       gate: { can_create: uniqueReasons.length === 0, reasons: uniqueReasons } };
   }
 
-  async function replay(input, command, fingerprint) {
+  async function replayPlanProjection(input, command, fingerprint) {
     const found = await repository.getReceipt(receiptKey(input, command), fingerprint);
-    return found?.current_plan || found?.review || found?.preflight ? found : null;
+    if (!found) return null;
+    const planId = clean(found.plan_id || found.current_plan?.id);
+    if (!planId) throw failure("VIDEO_PLAN_NOT_FOUND");
+    return workspace(input, planId, { reconcile: true });
   }
 
   async function upstreamForNewPlan(input) {
@@ -150,7 +153,7 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
     if (!Number.isInteger(input.expectedHeadRevision) || input.expectedHeadRevision < 0) throw failure("VIDEO_PLAN_CONFLICT");
     const fingerprint = stableJson({ product_id: input.productId, output_instructions: output,
       presentation_size_code: presentationSizeCode, expected_head_revision: input.expectedHeadRevision });
-    const prior = await replay(input, "create", fingerprint); if (prior) return prior;
+    const prior = await replayPlanProjection(input, "create", fingerprint); if (prior) return prior;
     const { current, capability } = await upstreamForNewPlan(input), at = timestamp();
     const versions = await repository.listPlans(input.organizationId, input.productId);
     const plan = { id: randomUUID(), organization_id: input.organizationId, product_id: input.productId,
@@ -174,7 +177,7 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
     if (!Number.isInteger(input.expectedHeadRevision) || input.expectedHeadRevision < 1) throw failure("VIDEO_PLAN_CONFLICT");
     const fingerprint = stableJson({ source_plan_id: input.planId, output_instructions: output,
       presentation_size_code: requestedPresentationSizeCode || "preserve_source", expected_head_revision: input.expectedHeadRevision });
-    const prior = await replay(input, "derive", fingerprint); if (prior) return prior;
+    const prior = await replayPlanProjection(input, "derive", fingerprint); if (prior) return prior;
     const source = await requirePlan(input, input.planId), { current, capability } = await upstreamForNewPlan(input);
     const presentationSizeCode = requestedPresentationSizeCode || normalizePresentationSizeCode(source.presentation_size_code);
     const versions = await repository.listPlans(input.organizationId, input.productId), at = timestamp();
@@ -207,7 +210,8 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
     context(input); key(input.idempotencyKey);
     const plan = await requirePlan(input, input.planId);
     const fingerprint = stableJson({ plan_id: plan.id, expected_revision: input.expectedRevision });
-    const prior = await replay(input, "preflight", fingerprint); if (prior) return prior;
+    const prior = await repository.getReceipt(receiptKey(input, "preflight"), fingerprint);
+    if (prior) return workspace(input, plan.id, { reconcile: true });
     if (!clean(plan.output_instructions)) throw failure("VIDEO_PLAN_PREFLIGHT_BLOCKED");
     const at = timestamp(), run = { id: randomUUID(), organization_id: input.organizationId,
       video_plan_version_id: plan.id, status: "queued", input_snapshot: { upstream_snapshot: plan.upstream_snapshot,
@@ -226,13 +230,29 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
   async function reviewProjection(input, receipt = null) {
     const reviewId = receipt?.review_id || receipt?.review?.current_review?.id || input.reviewId;
     const review = reviewId ? await repository.getReview(input.organizationId, reviewId) : null;
+    if (reviewId) {
+      const plan = review ? await repository.getPlan(input.organizationId, review.video_plan_version_id) : null;
+      if (!review || !plan || plan.product_id !== input.productId) throw failure("VIDEO_PLAN_REVIEW_NOT_FOUND");
+    }
     return workspace(input, review?.video_plan_version_id || input.planId, { reconcile: true });
+  }
+
+  function reviewMutationGate(current) {
+    const plan = current?.current_plan;
+    const run = current?.preflight?.current_run;
+    const result = current?.preflight?.current_result;
+    if (!plan || plan.status !== "frozen" || !run || run.status !== "succeeded" ||
+        !result || !["passed", "warning"].includes(result.status) || run.preflight_result_id !== result.id ||
+        result.preflight_run_id !== run.id) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+    return { productId: plan.product_id, planId: plan.id, expectedPlanRevision: plan.row_version,
+      expectedPreflightRunId: run.id, expectedPreflightResultId: result.id };
   }
 
   async function submitReview(input) {
     context(input); key(input.idempotencyKey);
     const plan = await requirePlan(input, input.planId), fingerprint = stableJson({ plan_id: plan.id });
-    const prior = await replay(input, "review-submit", fingerprint); if (prior) return prior;
+    const rKey = receiptKey(input, "review-submit");
+    const prior = await repository.getReceipt(rKey, fingerprint); if (prior) return reviewProjection(input, prior);
     const current = await workspace(input, plan.id);
     if (current.review.current_review?.status === "pending") throw failure("VIDEO_PLAN_REVIEW_ACTIVE_EXISTS");
     if (!current.review.gate.can_submit) throw failure("VIDEO_PLAN_REVIEW_GATE_BLOCKED", current.review.gate.reasons);
@@ -241,41 +261,38 @@ export function createVideoPlanningService({ repository, upstreamPort, capabilit
       author_member_id: input.actorMemberId, reviewer_member_id: null, review_mode: null,
       decision_reason: null, created_at: at, updated_at: at, decided_at: null, revoked_at: null,
       revoke_reason_code: null };
-    const rKey = receiptKey(input, "review-submit");
-    await repository.createReview({ receiptKey: rKey, fingerprint, review,
+    await repository.createReview({ receiptKey: rKey, fingerprint, review, gate: reviewMutationGate(current),
       audit: audit({ input, type: "video_plan.review_submitted", planId: plan.id, reviewId: review.id, at }) });
     const result = await workspace(input, plan.id, { reconcile: false }); await repository.updateReceiptResult(rKey, result); return result;
   }
 
   async function decide(input, status) {
     context(input); key(input.idempotencyKey);
+    const review = await repository.getReview(input.organizationId, input.reviewId);
+    const plan = review ? await repository.getPlan(input.organizationId, review.video_plan_version_id) : null;
+    if (!review || !plan || plan.product_id !== input.productId) throw failure("VIDEO_PLAN_REVIEW_NOT_FOUND");
     const reason = clean(input.reason);
     if (status === "changes_requested" && !reason) throw failure("VIDEO_PLAN_REVIEW_REASON_REQUIRED");
     const fingerprint = stableJson({ review_id: clean(input.reviewId), expected_revision: input.expectedRevision, status, reason });
     const prior = await repository.getReceipt(receiptKey(input, `review-${status}`), fingerprint);
     if (prior) return reviewProjection(input, prior);
-    const review = await repository.getReview(input.organizationId, input.reviewId);
-    if (!review) throw failure("VIDEO_PLAN_REVIEW_NOT_FOUND");
     if (review.status !== "pending" || review.row_version !== input.expectedRevision) throw failure("VIDEO_PLAN_REVIEW_CONFLICT");
+    const current = await workspace(input, review.video_plan_version_id);
     if (status === "approved") {
-      const current = await workspace({ ...input, productId: (await repository.getPlan(input.organizationId,
-        review.video_plan_version_id))?.product_id }, review.video_plan_version_id);
       if (!current.review.gate.can_decide || !["passed", "warning"].includes(current.preflight.current_result?.status)) {
         throw failure("VIDEO_PLAN_REVIEW_GATE_BLOCKED", current.review.gate.reasons);
       }
     }
-    const plan = await repository.getPlan(input.organizationId, review.video_plan_version_id);
-    const effectiveInput = { ...input, productId: plan?.product_id };
     const at = timestamp(), rKey = receiptKey(input, `review-${status}`);
     const changed = await repository.transitionReview({ receiptKey: rKey, fingerprint,
       organizationId: input.organizationId, reviewId: review.id, expectedRevision: input.expectedRevision,
-      fromStatuses: ["pending"], patch: { status, reviewer_member_id: input.actorMemberId,
+      fromStatuses: ["pending"], gate: reviewMutationGate(current), patch: { status, reviewer_member_id: input.actorMemberId,
         review_mode: input.actorMemberId === review.author_member_id ? "self_review" : "standard",
         decision_reason: reason || null, decided_at: at, updated_at: at },
-      audit: audit({ input: effectiveInput, type: status === "approved" ? "video_plan.review_approved" :
+      audit: audit({ input, type: status === "approved" ? "video_plan.review_approved" :
         "video_plan.review_changes_requested", planId: review.video_plan_version_id, reviewId: review.id, at }) });
     if (!changed) throw failure("VIDEO_PLAN_REVIEW_NOT_FOUND");
-    const result = await workspace(effectiveInput, review.video_plan_version_id);
+    const result = await workspace(input, review.video_plan_version_id);
     await repository.updateReceiptResult(rKey, result); return result;
   }
 

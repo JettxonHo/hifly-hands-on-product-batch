@@ -51,6 +51,20 @@ test("video planning API preserves passed vs approved and restores state", async
     payload: { expected_revision: created.json().current_plan.row_version } });
   assert.equal(preflight.statusCode, 202);
   await app.videoPlanning.worker.runNext();
+  const preflightReplay = await app.inject({ method: "POST",
+    url: `/api/products/product-a/video-plans/${created.json().current_plan.id}/preflight`,
+    headers: { ...mutation, "idempotency-key": "api-preflight" },
+    payload: { expected_revision: created.json().current_plan.row_version } });
+  assert.equal(preflightReplay.statusCode, 202);
+  assert.equal(preflightReplay.json().preflight.current_run.status, "succeeded");
+  assert.equal(preflightReplay.json().preflight.current_result.preflight_run_id,
+    preflightReplay.json().preflight.current_run.id);
+  const preflightConflict = await app.inject({ method: "POST",
+    url: `/api/products/product-a/video-plans/${created.json().current_plan.id}/preflight`,
+    headers: { ...mutation, "idempotency-key": "api-preflight" },
+    payload: { expected_revision: created.json().current_plan.row_version + 1 } });
+  assert.equal(preflightConflict.statusCode, 409);
+  assert.deepEqual(preflightConflict.json(), { error: "IDEMPOTENCY_CONFLICT" });
   const restored = (await app.inject({ method: "GET", url: "/api/products/product-a/video-plan-workspace", headers: read })).json();
   assert.equal(restored.preflight.current_run.status, "succeeded");
   assert.equal(restored.preflight.current_result.status, "warning");
@@ -131,4 +145,98 @@ test("video planning API maps conflict, gate and cross-organization errors", asy
     payload: { output_instructions: "完整制作说明", presentation_size_code: "second-button", expected_head_revision: 0 } });
   assert.equal(invalidSize.statusCode, 400);
   assert.equal(invalidSize.json().error, "VIDEO_PLAN_PRESENTATION_SIZE_UNSUPPORTED");
+});
+
+test("video planning API rejects a stale review decision after the exact plan head changes", async (t) => {
+  const { app } = await identityApp(t, { videoPlanning: options({ agentOnline: true }) });
+  const auth = await activateAdmin(app);
+  const mutation = identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true });
+  const read = identityHeaders({ cookies: auth.cookies });
+  const created = (await app.inject({ method: "POST", url: "/api/products/product-a/video-plans",
+    headers: { ...mutation, "idempotency-key": "stale-review-create" },
+    payload: { output_instructions: "首版方案", expected_head_revision: 0 } })).json();
+  await app.inject({ method: "POST", url: `/api/products/product-a/video-plans/${created.current_plan.id}/preflight`,
+    headers: { ...mutation, "idempotency-key": "stale-review-preflight" },
+    payload: { expected_revision: created.current_plan.row_version } });
+  await app.videoPlanning.worker.runNext();
+  const submitted = (await app.inject({ method: "POST",
+    url: `/api/products/product-a/video-plans/${created.current_plan.id}/reviews`,
+    headers: { ...mutation, "idempotency-key": "stale-review-submit" }, payload: {} })).json();
+  const derived = await app.inject({ method: "POST",
+    url: `/api/products/product-a/video-plans/${created.current_plan.id}/derive`,
+    headers: { ...mutation, "idempotency-key": "stale-review-derive" },
+    payload: { output_instructions: "并发后的新方案", expected_head_revision: submitted.head_revision } });
+  assert.equal(derived.statusCode, 201);
+
+  const approval = await app.inject({ method: "POST",
+    url: `/api/products/product-a/plan-reviews/${submitted.review.current_review.id}/approve`,
+    headers: { ...mutation, "idempotency-key": "stale-review-approve" }, payload: { expected_revision: 1 } });
+  assert.equal(approval.statusCode, 409);
+  assert.deepEqual(approval.json(), { error: "VIDEO_PLAN_REVIEW_CONFLICT" });
+  const historical = (await app.inject({ method: "GET",
+    url: `/api/products/product-a/video-plan-workspace?planVersionId=${created.current_plan.id}`, headers: read })).json();
+  assert.equal(historical.current_plan.status, "superseded");
+  assert.equal(historical.review.current_review.status, "pending");
+});
+
+test("video planning API hides wrong-product reviews before reason, state, revision, or receipt replay", async (t) => {
+  const videoPlanning = options({ agentOnline: true });
+  const { app } = await identityApp(t, { videoPlanning });
+  const auth = await activateAdmin(app);
+  const mutation = identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true });
+  const created = (await app.inject({ method: "POST", url: "/api/products/product-a/video-plans",
+    headers: { ...mutation, "idempotency-key": "wrong-product-create" },
+    payload: { output_instructions: "严格绑定商品的方案", expected_head_revision: 0 } })).json();
+  await app.inject({ method: "POST", url: `/api/products/product-a/video-plans/${created.current_plan.id}/preflight`,
+    headers: { ...mutation, "idempotency-key": "wrong-product-preflight" },
+    payload: { expected_revision: created.current_plan.row_version } });
+  await app.videoPlanning.worker.runNext();
+  const submitted = (await app.inject({ method: "POST",
+    url: `/api/products/product-a/video-plans/${created.current_plan.id}/reviews`,
+    headers: { ...mutation, "idempotency-key": "wrong-product-submit" }, payload: {} })).json();
+  const reviewId = submitted.review.current_review.id;
+  const beforeReview = await videoPlanning.repository.getReview("org_test", reviewId);
+  const beforeEvents = await videoPlanning.repository.listReviewEvents();
+  const beforeAudits = await videoPlanning.repository.listAuditEvents();
+
+  const pendingWrongProduct = [
+    ["approve", "wrong-product-approve-wrong-revision", { expected_revision: 999 }],
+    ["request-changes", "wrong-product-changes-missing-reason", { expected_revision: 1 }],
+    ["request-changes", "wrong-product-changes-wrong-revision", { expected_revision: 999, reason: "不应写入" }]
+  ];
+  for (const [command, idempotencyKey, payload] of pendingWrongProduct) {
+    const response = await app.inject({ method: "POST",
+      url: `/api/products/product-b/plan-reviews/${reviewId}/${command}`,
+      headers: { ...mutation, "idempotency-key": idempotencyKey }, payload });
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(response.json(), { error: "VIDEO_PLAN_REVIEW_NOT_FOUND" });
+  }
+  assert.deepEqual(await videoPlanning.repository.getReview("org_test", reviewId), beforeReview);
+  assert.deepEqual(await videoPlanning.repository.listReviewEvents(), beforeEvents);
+  assert.deepEqual(await videoPlanning.repository.listAuditEvents(), beforeAudits);
+
+  const accepted = await app.inject({ method: "POST",
+    url: `/api/products/product-a/plan-reviews/${reviewId}/request-changes`,
+    headers: { ...mutation, "idempotency-key": "wrong-product-valid-changes" },
+    payload: { expected_revision: 1, reason: "精确商品上的有效决定" } });
+  assert.equal(accepted.statusCode, 200);
+  assert.equal(accepted.json().review.current_review.status, "changes_requested");
+  const terminalReview = await videoPlanning.repository.getReview("org_test", reviewId);
+  const terminalEvents = await videoPlanning.repository.listReviewEvents();
+  const terminalAudits = await videoPlanning.repository.listAuditEvents();
+  const terminalWrongProduct = [
+    ["approve", "wrong-product-terminal-approve", { expected_revision: 2 }],
+    ["request-changes", "wrong-product-terminal-changes", { expected_revision: 2, reason: "仍不应写入" }],
+    ["request-changes", "wrong-product-valid-changes", { expected_revision: 1, reason: "精确商品上的有效决定" }]
+  ];
+  for (const [command, idempotencyKey, payload] of terminalWrongProduct) {
+    const response = await app.inject({ method: "POST",
+      url: `/api/products/product-b/plan-reviews/${reviewId}/${command}`,
+      headers: { ...mutation, "idempotency-key": idempotencyKey }, payload });
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(response.json(), { error: "VIDEO_PLAN_REVIEW_NOT_FOUND" });
+  }
+  assert.deepEqual(await videoPlanning.repository.getReview("org_test", reviewId), terminalReview);
+  assert.deepEqual(await videoPlanning.repository.listReviewEvents(), terminalEvents);
+  assert.deepEqual(await videoPlanning.repository.listAuditEvents(), terminalAudits);
 });
