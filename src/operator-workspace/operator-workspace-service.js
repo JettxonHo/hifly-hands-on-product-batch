@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 const STAGES = Object.freeze(["product_content", "copy", "avatar", "video_plan", "production"]);
 const STAGE_SET = new Set(STAGES);
 const PROJECTION_VERSION = 1;
@@ -294,19 +296,22 @@ function assertExactVideoPlanWorkspace(value, { organizationId, projectId, produ
   if (!value || typeof value !== "object") throw notFound();
   const versions = Array.isArray(value.versions) ? value.versions : [];
   for (const version of versions) assertPlanIdentity(version, { organizationId, productId });
+  const activeVersions = versions.filter((version) => version.status !== "superseded");
+  if (activeVersions.length > 1) throw notFound();
   const plan = value.current_plan;
   if (requestedPlanId && (!plan || plan.id !== requestedPlanId)) throw notFound();
   const preflight = value.preflight && typeof value.preflight === "object" ? value.preflight : {};
   const review = value.review && typeof value.review === "object" ? value.review : {};
   if (!plan) {
-    if (preflight.current_run || preflight.current_result || (preflight.history || []).length ||
+    if (activeVersions.length || preflight.current_run || preflight.current_result || (preflight.history || []).length ||
         review.current_review || (review.history || []).length) throw notFound();
     return;
   }
   assertPlanIdentity(plan, { organizationId, productId });
   const planId = plan.id;
-  if (!versions.some((version) => version.id === planId)) throw notFound();
-  if (!requestedPlanId && videoPlanCurrentId(value) !== planId) throw notFound();
+  const canonicalPlan = versions.find((version) => version.id === planId);
+  if (!canonicalPlan || !isDeepStrictEqual(plan, canonicalPlan)) throw notFound();
+  if (!requestedPlanId && (activeVersions.length !== 1 || activeVersions[0].id !== planId)) throw notFound();
   const assertRunResultPair = (run, result) => {
     if (run) assertPlanChildIdentity(run, { organizationId, planId });
     if (result) {
@@ -328,13 +333,8 @@ function assertExactVideoPlanWorkspace(value, { organizationId, projectId, produ
 }
 
 function videoPlanCurrentId(workspace) {
-  const explicit = workspace.current_plan_id || workspace.head?.current_plan_id;
-  if (text(explicit)) return explicit;
   const candidates = (workspace.versions || []).filter((value) => value?.id && value.status !== "superseded");
-  candidates.sort((left, right) => (Number(left.version_number) || 0) - (Number(right.version_number) || 0) ||
-    String(left.updated_at || left.created_at || "").localeCompare(String(right.updated_at || right.created_at || "")) ||
-    String(left.id).localeCompare(String(right.id)));
-  return candidates.at(-1)?.id || workspace.current_plan?.id || null;
+  return candidates.length === 1 ? candidates[0].id : null;
 }
 
 function currentAvatarContext(avatarProjection) {

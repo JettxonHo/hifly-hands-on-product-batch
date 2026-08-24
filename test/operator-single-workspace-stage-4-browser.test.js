@@ -537,11 +537,28 @@ test("Stage 4 rejects stale same-product plan responses and closes version selec
   await page.waitForURL(new RegExp(`plan=${versions.second.id}`));
   await page.locator("#planVersionTitle").filter({ hasText: "方案 v2" }).waitFor();
 
+  const pattern = "**/api/projects/*/products/*/operator-workspace**";
+  for (const field of ["current_plan_id", "head"]) {
+    await page.route(pattern, async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      const workspace = body.workspace.stages.find((stage) => stage.code === "video_plan").video_plan_workspace;
+      if (field === "head") workspace.head = { current_plan_id: versions.first.id };
+      else workspace.current_plan_id = versions.first.id;
+      return route.fulfill({ response, json: body });
+    });
+    await page.reload();
+    await page.locator("#planVersionTitle").filter({ hasText: "方案 v2" }).waitFor();
+    assert.equal(await page.locator("#videoPlanVersionSummary").textContent(), "当前方案 v2");
+    assert.equal(new URL(page.url()).searchParams.get("plan"), versions.second.id);
+    assert.notEqual(await page.locator("#workspacePrimaryAction").getAttribute("data-action-code"), "return_to_current_video_plan");
+    await page.unroute(pattern);
+  }
+
   let releaseOld;
   let oldRequestStarted;
   const oldStarted = new Promise((resolve) => { oldRequestStarted = resolve; });
   const release = new Promise((resolve) => { releaseOld = resolve; });
-  const pattern = "**/api/projects/*/products/*/operator-workspace**";
   await page.route(pattern, async (route) => {
     const url = new URL(route.request().url());
     if (url.searchParams.get("plan") !== versions.first.id) return route.continue();
@@ -650,7 +667,13 @@ test("Stage 4 saves the first plan and restores editable controls plus review re
   assert.equal(await page.locator("#requestChanges").isDisabled(), false);
   await page.locator("#requestChanges").click();
   assert.equal(await page.locator("#reviewReasonInput").inputValue(), reason);
+  await page.locator("#reviewReasonInput").press("Escape");
+  assert.equal(await page.locator("#reviewDialog").evaluate((dialog) => dialog.open), false);
+  await expectVisibleFocus(page, "#requestChanges");
+  await page.locator("#requestChanges").click();
+  assert.equal(await page.locator("#reviewReasonInput").inputValue(), "");
   await page.unroute(changesPattern);
+  await page.locator("#reviewReasonInput").fill("重新确认后的修改意见");
   await page.locator("#confirmReviewAction").click();
   await page.locator("#taskSummaryTitle").filter({ hasText: "审核要求修改方案" }).waitFor();
 });

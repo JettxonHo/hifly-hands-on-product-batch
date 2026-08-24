@@ -636,6 +636,16 @@ test("projects exact VideoPlan preflight truth without treating it as human appr
     id: "selection-confirmed", product_id: "product-a", copy_version_id: copy.id,
     asset_version_id: "avatar-version-a", status: "confirmed", row_version: 2
   };
+  const plan = {
+    id: "plan-a", organization_id: "org-a", product_id: "product-a", version_number: 1,
+    status: "frozen", row_version: 2, output_instructions: "竖版口播",
+    presentation_size_code: "small",
+    upstream_snapshot: {
+      product_revision_id: revision.id, copy_version_id: copy.id,
+      avatar_selection_id: selection.id, avatar_asset_version_id: selection.asset_version_id
+    },
+    capability_config_snapshot: { snapshot_version: "cap-v1", verified_capabilities: [{ code: "mandarin", evidence_reference: "evidence-a" }] }
+  };
   let productionReads = 0;
   const service = createOperatorWorkspaceService({
     projectContentService: {
@@ -664,18 +674,9 @@ test("projects exact VideoPlan preflight truth without treating it as human appr
         assert.equal(input.productId, "product-a");
         assert.equal(input.planId, "plan-a");
         return {
-          current_plan: {
-            id: "plan-a", organization_id: "org-a", product_id: "product-a", version_number: 1,
-            status: "frozen", row_version: 2, output_instructions: "竖版口播",
-            presentation_size_code: "small",
-            upstream_snapshot: {
-              product_revision_id: revision.id, copy_version_id: copy.id,
-              avatar_selection_id: selection.id, avatar_asset_version_id: selection.asset_version_id
-            },
-            capability_config_snapshot: { snapshot_version: "cap-v1", verified_capabilities: [{ code: "mandarin", evidence_reference: "evidence-a" }] }
-          },
+          current_plan: structuredClone(plan),
           head_revision: 1,
-          versions: [{ id: "plan-a", organization_id: "org-a", product_id: "product-a", version_number: 1, status: "frozen", row_version: 2 }],
+          versions: [structuredClone(plan)],
           preflight: {
             current_run: { id: "run-a", organization_id: "org-a", video_plan_version_id: "plan-a", status: "succeeded",
               preflight_result_id: "result-a", input_snapshot: { private: true } },
@@ -955,6 +956,19 @@ test("fails closed when VideoPlan run, result, or review is not bound to the exa
     await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
   }
 
+  for (const mutateVersion of [
+    (value) => { value.status = "superseded"; },
+    (value) => { value.row_version = 99; },
+    (value) => { value.upstream_snapshot = { ...value.upstream_snapshot, copy_version_id: "copy-other" }; }
+  ]) {
+    const version = structuredClone(plan);
+    mutateVersion(version);
+    mismatched = { current_plan: structuredClone(plan), head_revision: 1, versions: [version],
+      preflight: { current_run: null, current_result: null, history: [] },
+      review: { current_review: null, history: [], gate: { can_submit: false, can_decide: false, reasons: [] } } };
+    await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
+  }
+
   const readCurrent = () => service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
     projectId: "project-a", productId: "product-a", stage: "video_plan" });
   for (const value of [
@@ -975,6 +989,41 @@ test("fails closed when VideoPlan run, result, or review is not bound to the exa
     mismatched = value;
     await assert.rejects(readCurrent(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
   }
+
+  const emptyWorkspace = { current_plan: null, head_revision: 0, versions: [],
+    preflight: { current_run: null, current_result: null, history: [] },
+    review: { current_review: null, history: [], gate: { can_submit: false, can_decide: false, reasons: ["plan_missing"] } } };
+  mismatched = structuredClone(emptyWorkspace);
+  assert.equal((await readCurrent()).recommended_action.code, "create_video_plan");
+  mismatched = { ...structuredClone(emptyWorkspace), head_revision: 1,
+    versions: [{ ...structuredClone(plan), status: "superseded" }] };
+  assert.equal((await readCurrent()).recommended_action.code, "create_video_plan");
+  for (const status of ["draft", "frozen"]) {
+    mismatched = { ...structuredClone(emptyWorkspace), head_revision: 1,
+      versions: [{ ...structuredClone(plan), status }] };
+    await assert.rejects(readCurrent(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
+  }
+
+  const superseded = { ...structuredClone(plan), status: "superseded" };
+  const newer = { ...structuredClone(plan), id: "plan-newer", version_number: 2, status: "frozen" };
+  for (const forgedHead of [
+    { current_plan_id: plan.id },
+    { head: { current_plan_id: plan.id } }
+  ]) {
+    mismatched = { current_plan: structuredClone(newer), head_revision: 2,
+      versions: [structuredClone(superseded), structuredClone(newer)],
+      preflight: { current_run: null, current_result: null, history: [] },
+      review: { current_review: null, history: [], gate: { can_submit: false, can_decide: false, reasons: [] } },
+      ...forgedHead };
+    const projected = await readCurrent();
+    assert.equal(projected.stages.find((stage) => stage.code === "video_plan").current_object.id, newer.id);
+    assert.equal(projected.recommended_action.code, "run_video_plan_preflight");
+  }
+  mismatched = { current_plan: structuredClone(plan), head_revision: 2,
+    versions: [structuredClone(plan), structuredClone(newer)],
+    preflight: { current_run: null, current_result: null, history: [] },
+    review: { current_review: null, history: [], gate: { can_submit: false, can_decide: false, reasons: [] } } };
+  await assert.rejects(readCurrent(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
 
   mismatched = { current_plan: { ...plan }, head_revision: 1, versions: [{ ...plan }],
     preflight: { current_run: { id: "run-selected", organization_id: "org-a", video_plan_version_id: plan.id,

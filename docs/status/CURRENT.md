@@ -96,8 +96,10 @@
   当前 Draft 的复审纠偏还要求 preflight 不可审核/失败/运行中真值优先、无 current plan 时也验证所有版本并拒绝残留
   child/history、计划链 exact identity 与 run/result 双向绑定、action registry own-property 校验且推荐动作只由核验后的
   领域真值推导、同商品 request epoch、首版保存继续、版本 Dialog 焦点和所有写命令 409 的统一恢复。要求修改的理由在
-  同一方案冲突恢复中保留，载入最新后所有 busy-dependent 控件重新按服务端真值启用；这些只在对应 fixed head 经独立
-  Review 合并后计入仓库实现。
+  同一方案冲突恢复中保留，载入最新后所有 busy-dependent 控件重新按服务端真值启用；正式 head 只由 `versions` 中唯一
+  非 superseded 版本确定，非合同 head 字段不能改变 current/history/action，selected plan 必须与同 ID canonical version
+  的完整快照一致。无 current plan 时只允许空版本或全 superseded 历史，原生 Escape 则结束要求修改意图、清空理由并恢复
+  exact trigger 焦点。这些只在对应 fixed head 经独立 Review 合并后计入仓库实现。
   Stage 1/2/3 保持稳定，`production` 继续 `legacy/not_loaded` 且不读取 Production service；进入生产只保持旧页导航，
   不创建工单、不推断 eligible/attempt/Worker。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 4 仓库实现成立；
   不表示部署或生产验收，也不授权 Stage 5。

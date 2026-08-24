@@ -161,12 +161,8 @@
 
     function currentPlan() { return planWorkspace?.current_plan || null; }
     function currentPlanId() {
-      if (text(planWorkspace?.current_plan_id)) return planWorkspace.current_plan_id;
       const candidates = (planWorkspace?.versions || []).filter((item) => item?.id && item.status !== "superseded");
-      candidates.sort((left, right) => (Number(left.version_number) || 0) - (Number(right.version_number) || 0) ||
-        String(left.updated_at || left.created_at || "").localeCompare(String(right.updated_at || right.created_at || "")) ||
-        String(left.id).localeCompare(String(right.id)));
-      return candidates.at(-1)?.id || currentPlan()?.id || null;
+      return candidates.length === 1 ? candidates[0].id : null;
     }
     function selectedPlanId() { return currentPlan()?.id || null; }
     function selectedPlanIsHistorical() {
@@ -1116,6 +1112,10 @@
       node("#reviewForm").addEventListener("submit", async (event) => { event.preventDefault(); await performReview(); });
       node("#closeReviewDialog").addEventListener("click", () => closeReview());
       node("#cancelReviewDialog").addEventListener("click", () => closeReview());
+      reviewDialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        closeReview();
+      });
       node("#keepWorkspaceEditing").addEventListener("click", () => finishUnsaved("keep"));
       node("#closeWorkspaceUnsaved").addEventListener("click", () => {
         pendingNavigation = null;

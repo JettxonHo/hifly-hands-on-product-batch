@@ -56,6 +56,11 @@
     绑定且声明结果缺失即 fail closed；推荐动作只从核验后的 plan/preflight/review 推导，unknown/wrong action 仍不显示；
     load-latest 清除 busy 后完整重绘 editor/preflight/review，且同一方案的修改理由只在 conflict recovery 中保留。公开
     Chrome 已加入 `passed + can_submit` 与 390 的冲突恢复、显式重开和重新提交路径。
+11. 第三轮 canonical-head RED：非合同 `current_plan_id`/`head.current_plan_id` 可伪造 current head；同 ID 的 selected plan 与
+    versions 可持有矛盾 status/row version/upstream 快照；无 current plan 仍可夹带 active draft/frozen version；原生 Escape
+    关闭修改 Dialog 后会复活已取消理由。GREEN 后服务端只接受 versions 中至多一个非 superseded head，selected plan 与
+    canonical same-ID version 必须 exact deep-equal，null current 只接受空版本或全 superseded 历史；客户端忽略额外 head
+    字段。Dialog `cancel` 与按钮取消统一清理意图并恢复 exact trigger 焦点。
 
 ## 实现边界
 
@@ -102,6 +107,12 @@
 - 第二轮复审纠偏后的聚焦 service/API/VideoPlanning 非数据库组 52/52 pass；Stage 4 真实 Chrome 7/7 pass；Stage 1/2/3/4
   与旧 Plan 页面组合 16/16 pass。默认 `npm test` 未修改并发参数并自然完成：1152 total / 1137 pass /
   15 existing environment-gated skips / 0 fail，约 151.4 秒。fixed-head CI 以 Draft PR 结果评论为准。
+- 第三轮 canonical-head/Escape 纠偏先在被审 head 形成确定性 RED，GREEN 后 service/API/VideoPlanning 非数据库组
+  52/52 pass、Stage 4 真实 Chrome 7/7 pass、Stage 1/2/3/4 与旧 Plan 组合 16/16 pass，`npm run check` 为 246 files。
+  本轮第一次默认 `npm test` 在另一个 worktree 遗留的并发全量进程持续占用下自然结束为 1152 total / 1135 pass /
+  15 skips / 2 browser failures；其中可见失败是未改动 `frontend-foundation-browser` 的等待超时，该文件随后单跑 1/1 pass。
+  第二次默认命令在同一外部进程仍存在时超过 4 分钟无新输出，作者只终止自己启动的命令，未触碰外部进程，也未把本地
+  默认全量写成通过。fixed-head 三组 CI 与其完整默认测试结果必须作为合并前独立硬门禁，并在 PR 结果评论如实记录。
 - `main` 分支保护已保留 `strict=true` 与原 `test (ubuntu-latest, 22)`、`test (windows-latest, 22)`，仅新增
   `identity-postgres` 为 required context；该设置变更不扩仓库文件 allowlist。
 - 首轮实现 head 的默认 `npm test` 曾自然完成 1148 total / 1133 pass / 15 existing environment-gated skips / 0 fail；首轮
