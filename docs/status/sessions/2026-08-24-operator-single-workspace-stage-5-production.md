@@ -56,15 +56,19 @@
 6. `src/server/app.js`
 7. `src/server/routes/operator-workspace.js`
 8. `test/operator-single-workspace-stage-5-browser.test.js`
-9. `test/operator-workspace-service.test.js`
-10. `test/project-content-api.test.js`
-11. `web/project.js`
-12. `web/workspace-production.js`
-13. `web/workspace.css`
-14. `web/workspace.html`
+9. `test/manual-handoff-package-postgres.integration.test.js`
+10. `test/operator-workspace-service.test.js`
+11. `test/project-content-api.test.js`
+12. `web/project.js`
+13. `web/workspace-production.js`
+14. `web/workspace.css`
+15. `web/workspace.html`
 
 `.github/workflows/ci.yml` 的扩张已在 Issue #246 编辑前 checkpoint；它只把既有 ProductionOrder -> handoff ->
 ManualExecution -> A12 -> Work/delivery PostgreSQL integration 串行加入 required `identity-postgres` job，不改变运行时行为。
+第二次 fixed-head CI 首次真正执行了既有 ManualHandoff PostgreSQL integration，也暴露其 `input_snapshot` fixture 仍早于
+当前交接包合同。Issue/PR 已在编辑前追加 checkpoint；测试只补齐 exact ready ProductRevision 与素材 checksum、approved
+Copy、confirmed Avatar 及内部 asset resolver，继续要求现有 compiler 在完整证据下生成 `ready`，不放宽 fail-closed 校验。
 
 ## 验证
 
@@ -88,6 +92,10 @@ ManualExecution -> A12 -> Work/delivery PostgreSQL integration 串行加入 requ
   测试库的 integration 被单个 `node --test` 并行执行，产生 package/work delivery 串扰。修复只让 browser fixture 与
   Stage 1 至 Stage 4 同构，并把五段既有 PostgreSQL integration 明确串行；没有修改领域状态或弱化断言。后续 fixed-head
   CI 必须在新提交上自然三绿，不能以重跑旧 head 代替。
+- 后续 head 的 CI run `32737781842` 已令 Ubuntu/Windows 自然 SUCCESS；`identity-postgres` 在新增 required 链首次执行
+  ManualHandoff PostgreSQL integration 时得到 `generation_failed`。该测试的旧 fixture 缺少当前 manifest compiler 必需的
+  冻结商品/素材、已批准文案和已确认人物证据；本地没有 PostgreSQL，因此不会把 skip 记为 GREEN。修正后的新 fixed head
+  必须让该 integration 及后续 ManualExecution/A12/Work delivery 段自然完成，不能重跑旧 head 掩盖失败。
 
 ## 未执行边界
 
