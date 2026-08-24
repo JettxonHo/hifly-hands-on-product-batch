@@ -14,7 +14,8 @@ export async function registerOperatorWorkspaceRoutes(app, { service }) {
       productId: request.params.productId,
       stage: request.query?.stage,
       copyVersionId: request.query?.copy,
-      planId: request.query?.plan
+      planId: request.query?.plan,
+      orderId: request.query?.orderId
     })
   }));
 }

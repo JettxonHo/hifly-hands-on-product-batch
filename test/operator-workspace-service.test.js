@@ -1113,6 +1113,249 @@ test("fails closed when VideoPlan run, result, or review is not bound to the exa
   await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
 });
 
+function productionFixture(overrides = {}) {
+  const order = {
+    id: "order-production", organization_id: "org-a", product_id: "product-a",
+    video_plan_version_id: "plan-production", status: "waiting_for_executor", row_version: 1,
+    execution_purpose: "first_production"
+  };
+  return {
+    workspace: {
+      current_plan: { id: "plan-production", organization_id: "org-a", product_id: "product-a", status: "frozen" },
+      gate: { can_create: false, reasons: [] },
+      orders: [order],
+      selected_order: order
+    },
+    packages: [],
+    execution: { order, current_attempt: null, attempts: [], candidates: [], reports: [] },
+    verification: { order, job: null, work: null, works: [] },
+    work: null,
+    read_errors: [],
+    ...overrides
+  };
+}
+
+function productionOperator(readProduction) {
+  const revision = {
+    id: "revision-production", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    status: "ready", product_name: "清透防晒乳", asset_version_ids: ["product-image"],
+    selling_points: [{ text: "清爽", confirmed: true }]
+  };
+  return createOperatorWorkspaceService({
+    projectContentService: { async getProject() {
+      return { id: "project-a", name: "夏日项目", products: [{ id: "product-a", current_revision_id: revision.id, revision }] };
+    } },
+    productionService: { getOperatorWorkspace: readProduction }
+  });
+}
+
+test("projects Stage 5 Production only from exact persisted order, execution, A12 and Work truth", async () => {
+  let value = productionFixture();
+  const service = productionOperator(async (input) => {
+    assert.equal(input.productId, "product-a");
+    assert.ok(input.orderId === "order-production" || input.orderId === null);
+    return structuredClone(value);
+  });
+  const read = (overrides = {}) => service.getWorkspace({
+    organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "production", orderId: "order-production", ...overrides
+  });
+
+  let result = await read();
+  assert.equal(result.render_mode, "workspace");
+  assert.equal(result.recommended_stage, "production");
+  assert.equal(result.stages[4].read_status, "ok");
+  assert.deepEqual(result.recommended_action, {
+    code: "generate_handoff_package", stage: "production", kind: "command"
+  });
+
+  value = productionFixture({
+    workspace: {
+      current_plan: { id: "plan-production", organization_id: "org-a", product_id: "product-a", status: "frozen" },
+      gate: { can_create: true, reasons: [] }, orders: [], selected_order: null
+    },
+    packages: [], execution: null, verification: null, work: null
+  });
+  result = await read({ orderId: null });
+  assert.equal(result.stages[4].business_status, "生产待创建");
+  assert.equal(result.recommended_action?.code, "create_production_order");
+  value.workspace.gate = { can_create: false, reasons: ["approved_plan_missing"] };
+  result = await read({ orderId: null });
+  assert.equal(result.recommended_action?.code, "return_to_video_plan");
+
+  const states = [
+    {
+      name: "package-generating", orderStatus: "waiting_for_executor",
+      packages: [{ id: "package-a", production_order_id: "order-production", status: "generating" }],
+      expectedStatus: "正在准备生产交接资料", expectedAction: null
+    },
+    {
+      name: "package-failed", orderStatus: "waiting_for_executor",
+      packages: [{ id: "package-a", production_order_id: "order-production", status: "generation_failed" }],
+      expectedStatus: "生产交接资料准备失败", expectedAction: "retry_handoff_package"
+    },
+    {
+      name: "package-expired", orderStatus: "waiting_for_executor",
+      packages: [{ id: "package-a", production_order_id: "order-production", status: "expired" }],
+      expectedStatus: "生产交接资料授权已过期", expectedAction: "authorize_handoff_download"
+    },
+    {
+      name: "package-ready-fail-closed", orderStatus: "waiting_for_executor",
+      packages: [{ id: "package-a", production_order_id: "order-production", status: "ready" }],
+      expectedStatus: "等待生产门禁核对", expectedAction: null
+    },
+    {
+      name: "claimed", orderStatus: "claimed",
+      attempt: { id: "attempt-a", production_order_id: "order-production", status: "claimed" },
+      expectedStatus: "生产任务已领取", expectedAction: null
+    },
+    {
+      name: "running", orderStatus: "running",
+      attempt: { id: "attempt-a", production_order_id: "order-production", status: "running" },
+      expectedStatus: "正在生成作品", expectedAction: null
+    },
+    {
+      name: "requires-action", orderStatus: "requires_action",
+      attempt: { id: "attempt-a", production_order_id: "order-production", status: "requires_action" },
+      expectedStatus: "生产需要人工处理", expectedAction: "view_production_failure_details"
+    },
+    {
+      name: "failed", orderStatus: "failed",
+      attempt: { id: "attempt-a", production_order_id: "order-production", status: "failed" },
+      reports: [{ id: "report-a", attempt_id: "attempt-a", production_order_id: "order-production", outcome: "failed" }],
+      expectedStatus: "生产失败，已停止", expectedAction: "view_production_failure_details"
+    },
+    {
+      name: "cancel-requested", orderStatus: "cancel_requested",
+      expectedStatus: "正在取消生产", expectedAction: null
+    },
+    {
+      name: "cancelled", orderStatus: "cancelled",
+      expectedStatus: "生产已取消", expectedAction: "return_to_video_plan"
+    }
+  ];
+  for (const state of states) {
+    value = productionFixture();
+    value.workspace.orders[0].status = state.orderStatus;
+    value.workspace.selected_order = value.workspace.orders[0];
+    value.execution.order = value.workspace.selected_order;
+    value.verification.order = value.workspace.selected_order;
+    value.packages = state.packages || [];
+    value.execution.current_attempt = state.attempt || null;
+    value.execution.attempts = state.attempt ? [state.attempt] : [];
+    value.execution.reports = state.reports || [];
+    result = await read();
+    assert.equal(result.stages[4].business_status, state.expectedStatus, state.name);
+    assert.equal(result.recommended_action?.code || null, state.expectedAction, state.name);
+  }
+
+  const workActions = {
+    pending_review: "review_production_work",
+    rework_required: "view_production_rework",
+    deliverable: "deliver_production_work",
+    delivered: "view_production_delivery"
+  };
+  for (const deliveryStatus of ["pending_review", "rework_required", "deliverable", "delivered"]) {
+    value = productionFixture();
+    value.workspace.orders[0].status = "succeeded";
+    value.workspace.selected_order = value.workspace.orders[0];
+    value.execution = {
+      order: value.workspace.selected_order,
+      current_attempt: { id: "attempt-success", production_order_id: "order-production", status: "succeeded" },
+      attempts: [], candidates: [], reports: []
+    };
+    value.verification = {
+      order: value.workspace.selected_order,
+      job: { id: "verification-a", production_order_id: "order-production", status: "succeeded", verification_status: "passed" },
+      work: { id: "work-a", production_order_id: "order-production" },
+      works: [{ id: "work-a", production_order_id: "order-production" }]
+    };
+    value.work = {
+      id: "work-a", production_order_id: "order-production", product_id: "product-a", delivery_status: deliveryStatus
+    };
+    result = await read();
+    assert.equal(result.stages[4].production.work.delivery_status, deliveryStatus);
+    assert.equal(result.recommended_action?.code, workActions[deliveryStatus]);
+  }
+
+  value.read_errors = ["handoff"];
+  value.packages = [{ id: "package-expired", production_order_id: "order-production", status: "expired" }];
+  result = await read();
+  assert.equal(result.stages[4].business_status, "作品已交付，待真实下载验收");
+  assert.equal(result.recommended_action?.code, "view_production_delivery");
+
+  const verificationStates = [
+    [null, "生成完成，待文件核验", null],
+    [{ id: "verification-pending", production_order_id: "order-production", status: "running",
+      verification_status: "pending" }, "正在核验作品文件", null],
+    [{ id: "verification-action", production_order_id: "order-production", status: "succeeded",
+      verification_status: "requires_action" }, "作品文件核验需要处理", "view_verification_details"],
+    [{ id: "verification-failed", production_order_id: "order-production", status: "failed",
+      verification_status: "failed" }, "作品文件核验需要处理", "view_verification_details"],
+    [{ id: "verification-passed", production_order_id: "order-production", status: "succeeded",
+      verification_status: "passed" }, "正在登记作品", null]
+  ];
+  for (const [job, status, action] of verificationStates) {
+    value = productionFixture();
+    value.workspace.orders[0].status = "succeeded";
+    value.workspace.selected_order = value.workspace.orders[0];
+    value.execution = { order: value.workspace.selected_order,
+      current_attempt: { id: "attempt-success", production_order_id: "order-production", status: "succeeded" },
+      attempts: [], candidates: [], reports: [] };
+    value.verification = { order: value.workspace.selected_order, job, work: null, works: [] };
+    result = await read();
+    assert.equal(result.stages[4].business_status, status);
+    assert.equal(result.recommended_action?.code || null, action);
+  }
+});
+
+test("fails closed when a Stage 5 child projection is cross-order or cannot be read", async () => {
+  let value = productionFixture();
+  const service = productionOperator(async () => structuredClone(value));
+  const read = () => service.getWorkspace({
+    organizationId: "org-a", actorMemberId: "member-a", actorRole: "admin",
+    projectId: "project-a", productId: "product-a", stage: "production", orderId: "order-production"
+  });
+
+  for (const mutate of [
+    (next) => { next.workspace.selected_order.organization_id = "org-b"; },
+    (next) => { next.workspace.selected_order.product_id = "product-b"; },
+    (next) => { next.workspace.selected_order = { ...next.workspace.selected_order, status: "running" }; },
+    (next) => { next.packages = [{ id: "package-a", production_order_id: "order-other", status: "ready" }]; },
+    (next) => { next.execution.order.id = "order-other"; },
+    (next) => { next.execution.current_attempt = { id: "attempt-a", production_order_id: "order-other", status: "running" }; },
+    (next) => { next.verification.order.id = "order-other"; },
+    (next) => {
+      next.workspace.selected_order.status = "succeeded";
+      next.verification.job = { id: "verification-a", production_order_id: "order-other", verification_status: "passed" };
+    },
+    (next) => {
+      next.workspace.selected_order.status = "succeeded";
+      next.verification.work = { id: "work-a", production_order_id: "order-production" };
+      next.work = { id: "work-other", production_order_id: "order-production", delivery_status: "pending_review" };
+    }
+  ]) {
+    value = productionFixture();
+    mutate(value);
+    await assert.rejects(read(), { code: "OPERATOR_WORKSPACE_NOT_FOUND" });
+  }
+
+  value = productionFixture({ read_errors: ["work"] });
+  value.workspace.selected_order.status = "succeeded";
+  value.verification = {
+    order: value.workspace.selected_order,
+    job: { id: "verification-a", production_order_id: "order-production", status: "succeeded", verification_status: "passed" },
+    work: { id: "work-a", production_order_id: "order-production" },
+    works: [{ id: "work-a", production_order_id: "order-production" }]
+  };
+  const result = await read();
+  assert.equal(result.stages[4].business_status, "作品状态读取失败");
+  assert.deepEqual(result.recommended_action, {
+    code: "retry_production_read", stage: "production", kind: "refresh"
+  });
+  assert.equal(result.stages[4].production.work, null);
+});
+
 test("fails visible when VideoPlan truth cannot be read and never retains a plan action", async () => {
   const revision = {
     id: "revision-a", organization_id: "org-a", project_id: "project-a", product_id: "product-a", status: "ready",

@@ -16,6 +16,9 @@ import { createControlledCopyRewriter } from "../src/copy-quality/controlled-rew
 import { createMemoryCopyReviewRepository } from "../src/copy-review/memory-copy-review-repository.js";
 import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
 import { createMemoryVideoPlanningRepository } from "../src/video-planning/memory-video-planning-repository.js";
+import { createMemoryProductionOrderRepository } from "../src/production-orders/memory-production-order-repository.js";
+import { createMemoryManualHandoffRepository } from "../src/manual-handoff/memory-manual-handoff-repository.js";
+import { createMemoryManualHandoffPackageStore } from "../src/manual-handoff/manual-handoff-package-store.js";
 import { buildApp } from "../src/server/app.js";
 import { activateAdmin, identityApp, identityHeaders } from "./helpers/identity-world.js";
 
@@ -29,6 +32,18 @@ const headers = (auth, mutation = false, key = null) => ({
   ...identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation }),
   ...(key ? { "idempotency-key": key } : {})
 });
+
+async function readyOperatorProduct(service, actor, projectId, key, name) {
+  const created = await service.createProduct({ ...actor, projectId, idempotencyKey: key, productName: name });
+  let revision = await service.saveRevision({ ...actor, productRevisionId: created.revision.id,
+    expectedRevision: created.revision.revision_number, productName: name,
+    sellingPoints: [{ text: `${name}核心卖点` }], assetVersionIds: [`${key}-image`] });
+  revision = await service.confirmSellingPoint({ ...actor, productRevisionId: revision.id,
+    pointId: revision.selling_points[0].id, expectedRevision: revision.revision_number });
+  revision = await service.readyRevision({ ...actor, productRevisionId: revision.id,
+    expectedRevision: revision.revision_number, idempotencyKey: `${key}-ready` });
+  return { product: created.product, revision };
+}
 
 async function world(t) {
   const repository = createMemoryProjectContentRepository();
@@ -700,4 +715,133 @@ test("operator workspace API hides foreign VideoPlan history when no current pla
   assert.deepEqual(response.json(), { error: "OPERATOR_WORKSPACE_NOT_FOUND" });
   assert.equal(response.body.includes(marker), false);
   assert.equal(response.body.includes("foreign-product"), false);
+});
+
+test("operator workspace API forwards the exact Stage 5 order and returns a safe Production projection", async (t) => {
+  let received;
+  const order = {
+    id: "order-stage-5", organization_id: "org_test", product_id: null,
+    video_plan_version_id: "plan-stage-5", execution_purpose: "first_production",
+    status: "failed", row_version: 4
+  };
+  const { app, auth } = await operatorWorld(t, {
+    operatorWorkspaceOptions: {
+      productionService: {
+        async getOperatorWorkspace(input) {
+          received = input;
+          const exactOrder = { ...order, product_id: input.productId };
+          return {
+            workspace: {
+              current_plan: { id: "plan-stage-5", organization_id: input.organizationId,
+                product_id: input.productId, status: "frozen" },
+              gate: { can_create: false, reasons: ["existing_order"] },
+              orders: [exactOrder],
+              selected_order: exactOrder
+            },
+            packages: [{ id: "package-stage-5", production_order_id: exactOrder.id, status: "ready" }],
+            execution: {
+              order: exactOrder,
+              current_attempt: { id: "attempt-stage-5", production_order_id: exactOrder.id, status: "failed" },
+              attempts: [], candidates: [],
+              reports: [{ id: "report-stage-5", attempt_id: "attempt-stage-5",
+                production_order_id: exactOrder.id, outcome: "failed" }]
+            },
+            verification: { order: exactOrder, job: null, work: null, works: [] },
+            work: null,
+            read_errors: []
+          };
+        }
+      }
+    }
+  });
+  const project = (await app.inject({ method: "POST", url: "/api/projects",
+    headers: headers(auth, true, "stage-5-project"), payload: { name: "生产工作区" } })).json().project;
+  const product = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`,
+    headers: headers(auth, true, "stage-5-product"), payload: { product_name: "生产商品" } })).json().product;
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/projects/${project.id}/products/${product.id}/operator-workspace?stage=production&orderId=order-stage-5`,
+    headers: headers(auth)
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(received.orderId, "order-stage-5");
+  assert.equal(received.productId, product.id);
+  assert.equal(response.json().workspace.stages[4].business_status, "生产失败，已停止");
+  assert.deepEqual(response.json().workspace.recommended_action, {
+    code: "view_production_failure_details", stage: "production", kind: "focus"
+  });
+  for (const secret of ["organization_id", "input_snapshot", "lease_token", "storage_key"]) {
+    assert.equal(response.body.includes(secret), false, secret);
+  }
+});
+
+test("operator workspace default App wiring reads the existing Production and handoff services", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-production-default-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const identityRepository = createMemoryIdentityRepository();
+  await seedInitialAdmin(identityRepository, { organizationId: "org_test", organizationName: "Test Organization",
+    adminEmail: "admin@example.test", adminDisplayName: "Test Admin", adminTempPassword: "Temporary-Admin-9!" });
+  let productId;
+  const app = await buildApp({ root, executor: createFakeExecutor(),
+    identity: { enabled: true, repository: identityRepository, trustedHosts: ["app.test"],
+      trustedOrigins: ["https://app.test"], cookieSecure: false, seed: { enabled: false } },
+    projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
+    operatorWorkspace: { enabled: true },
+    videoPlanning: { enabled: true, repository: createMemoryVideoPlanningRepository(), worker: { autoStart: false },
+      upstreamPort: { async resolveCurrent() { return null; } }, capabilitySnapshotPort: { async resolve() { return null; } },
+      agentReadinessPort: { async isOnline() { return false; } } },
+    productionOrders: { enabled: true, repository: createMemoryProductionOrderRepository(),
+      planPort: { async resolveCurrentApprovedPlan({ organizationId, productId: requestedProductId }) {
+        if (organizationId !== "org_test" || requestedProductId !== productId) return null;
+        return { current_valid: true, gate: { can_create: true, reasons: [] },
+          plan: { id: "plan-default-stage-5", organization_id: organizationId, product_id: requestedProductId,
+            status: "frozen", version_number: 1, upstream_snapshot: {}, capability_config_snapshot: {}, output_instructions: "视频方案" },
+          plan_review: { id: "review-default-stage-5", status: "approved" },
+          preflight_result: { id: "preflight-default-stage-5", status: "passed" } };
+      } }, inputSnapshotPort: { async freezeForOrder() { return {}; } },
+      agentReadinessPort: { async isOnline() { return false; } } },
+    manualHandoff: { enabled: true, repository: createMemoryManualHandoffRepository(),
+      packageStore: createMemoryManualHandoffPackageStore(), worker: { autoStart: false } }
+  });
+  t.after(() => app.close());
+  const auth = await activateAdmin(app);
+  const actor = { organizationId: "org_test", actorMemberId: auth.body.member.id, actorRole: "admin" };
+  const project = await app.projectContent.service.createProject({ ...actor, idempotencyKey: "default-stage-5-project",
+    name: "默认生产装配" });
+  const ready = await readyOperatorProduct(app.projectContent.service, actor, project.id, "default-stage-5-product", "生产商品");
+  productId = ready.product.id;
+  const created = await app.productionOrders.service.createProductionOrder({ ...actor, productId,
+    executionPurpose: "first_production", idempotencyKey: "default-stage-5-order" });
+
+  const response = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${productId}/operator-workspace?stage=production&orderId=${created.order.id}`,
+    headers: headers(auth) });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json().workspace.render_mode, "workspace");
+  assert.equal(response.json().workspace.stages[4].business_status, "生产交接资料待生成");
+  assert.equal(response.json().workspace.recommended_action.code, "generate_handoff_package");
+});
+
+test("operator workspace Production read failures return a safe 503 envelope", async (t) => {
+  const { app, auth } = await operatorWorld(t, { operatorWorkspaceOptions: { productionService: {
+    async getOperatorWorkspace() {
+      throw Object.assign(new Error("sensitive production read failed"), {
+        token: "must-not-leak", provider_url: "https://provider.invalid/private"
+      });
+    }
+  } } });
+  const project = (await app.inject({ method: "POST", url: "/api/projects",
+    headers: headers(auth, true, "stage-5-error-project"), payload: { name: "生产读取错误" } })).json().project;
+  const product = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`,
+    headers: headers(auth, true, "stage-5-error-product"), payload: { product_name: "安全商品" } })).json().product;
+
+  const response = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${product.id}/operator-workspace?stage=production`,
+    headers: headers(auth) });
+  assert.equal(response.statusCode, 503);
+  assert.deepEqual(response.json(), { error: "OPERATOR_WORKSPACE_UNAVAILABLE" });
+  assert.equal(response.body.includes("sensitive"), false);
+  assert.equal(response.body.includes("must-not-leak"), false);
+  assert.equal(response.body.includes("provider.invalid"), false);
 });
