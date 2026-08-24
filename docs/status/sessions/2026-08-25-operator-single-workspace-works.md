@@ -83,12 +83,17 @@
 8. 首版在不确定交付期间切换作品、分页或筛选会覆盖原 intent key；390 同时出现面板与底部两个主操作，不可用 Work
    还显示可点击但无效的“标记为通过”。真实 Chrome RED 现锁定跨上下文阻断与同 key 重放、每态最多一个可见可执行
    品牌主操作，以及 unavailable/withdrawn 的零 Dialog、零 POST。
+9. 第一修复头仍允许两个首次分页 GET 在同一 `REPEATABLE READ` 快照后竞争初始化同一 Work：败者会泄漏 PostgreSQL
+   `23505`。真实 PG 行锁交错在旧头稳定得到一成功/一 raw 23505；当前实现只把 exact inspection revision unique 竞争
+   规范为 `WORK_DELIVERY_PROJECTION_INVALID`，不吞掉其他约束错误。回归允许两个请求均成功，或败者走 scoped
+   fail-visible；最终 inspection/audit/ledger 必须各且仅一条。
 
 ## 验证与边界
 
 - service/API/三组 Works 真实 Chrome：23/23 pass；Stage 5 及共享 Production/startup/Project API 回归：63/63 pass。
 - 本机一次性 PostgreSQL 16 的 WorkDelivery integration：1/1 pass、0 skip；60 条新增 Work 加既有 1 条，精确验证
-  6 项页、61 total/11 pages、project/status/anchor，以及页外 inspection/audit/ledger 零写；容器已停止并移除。
+  6 项页、61 total/11 pages、project/status/anchor、页外 inspection/audit/ledger 零写，以及两个首次 GET 的确定性
+  同 Work 行锁竞争不会泄漏 raw SQL code、最终只产生一组初始化记录；容器已停止并移除。
 - 首 implementation head 的默认 `npm test` 曾自然完成：1188 tests / 1173 pass / 15 个既有环境门禁 skip / 0 fail。
   独立复审修复树再次运行时，在默认并发下出现一条未改 Stage 5 committed-503 Chrome 用例 30 秒超时，随后套件长期
   无输出，故该次被终止且不计 full pass；同一 Stage 5 文件立即隔离复跑 6/6 pass。该非绿色历史不由 focused 结果覆盖，

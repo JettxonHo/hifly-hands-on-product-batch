@@ -183,7 +183,8 @@ dirty/409、异步读取与三视口恢复均 fail closed。`main` 分支保护�
 ProductionOrder、handoff、ManualExecution、A12 与 Work/delivery 真值；不读取或推断 eligible/active attempts/Worker，
 不提供 Worker 命令、自动重试、重新领取或自动创建下一单。Issue #248 是 Post-stage 作品库独立 Draft gate：专用
 PostgreSQL read port 在单个 `REPEATABLE READ` 事务内完成有界六项分页、total/anchor 与 exact selection，只读取并初始化
-当前页最多 6 个 Work，页外零写；桌面 9 项为第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回。不可见 anchor
+当前页最多 6 个 Work，页外零写；并发首次 GET 竞争同一 Work 初始化时只产生一组记录，败者走受控 projection-invalid
+而不泄漏 raw SQL code。桌面 9 项为第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回。不可见 anchor
 不得回落到另一 Work。分页使用真实服务端集合真值，不由前端伪造。模糊写结果只能以原 idempotency key 精确重放确认
 receipt，未收口前阻止跨作品/分页/筛选/Back；确定性 409 才换最新 binding/new key。390/768 每态最多一个可见可执行
 主操作，不可用/已撤回 Work 零写。下载 token 必须绑定

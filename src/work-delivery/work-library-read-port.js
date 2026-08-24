@@ -156,7 +156,10 @@ async function repeatableRead(pool, callback) {
     return value;
   } catch (error) {
     try { await client.query("ROLLBACK"); } catch {}
-    if (error?.code === "40001" || error?.code === "40P01") throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+    if (error?.code === "40001" || error?.code === "40P01" ||
+        (error?.code === "23505" && error?.constraint === "work_inspections_organization_id_work_id_revision_key")) {
+      throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+    }
     throw error;
   } finally {
     client.release();

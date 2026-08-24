@@ -375,4 +375,71 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   assert.equal(foreignAnchor.pagination.page, 1);
   assert.equal(foreignAnchor.selected_work_id, null);
   assertBoundedReads();
+
+  const concurrentProjectId = randomUUID();
+  const concurrentOrderId = randomUUID();
+  const concurrentWorkId = randomUUID();
+  const concurrentCreatedAt = "2026-08-12T00:00:00.000Z";
+  await pool.query(`INSERT INTO production_orders
+    (id,organization_id,product_id,video_plan_version_id,execution_purpose,status,row_version,input_snapshot,status_history,created_by_member_id,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,'first_production','succeeded',1,$5,$6,$7,$8,$8)`,
+  [concurrentOrderId, organizationId, ids.product, ids.plan,
+    JSON.stringify({ video_plan_version: { id: ids.plan }, product_revision_snapshot: {
+      organization_id: organizationId, project_id: concurrentProjectId, product_id: ids.product,
+      product_name: "并发首次分页商品"
+    } }), JSON.stringify([{ status: "succeeded", at: concurrentCreatedAt }]), seeded.member.id, concurrentCreatedAt]);
+  await pool.query(`INSERT INTO works
+    (id,organization_id,production_order_id,execution_attempt_id,manual_execution_report_id,package_id,package_version,manifest_hash,
+     video_plan_version_id,copy_version_id,avatar_asset_version_id,production_config_snapshot,package_manifest_snapshot,
+     primary_asset_version_id,primary_candidate_id,primary_output_checksum,primary_output_media_type,primary_output_size,status,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,1,'manifest-a13',$7,$8,$9,'{}','{}',$10,$11,$12,'video/mp4',42,'available',$13,$13)`,
+  [concurrentWorkId, organizationId, concurrentOrderId, ids.attempt, ids.report, ids.package, ids.plan, ids.copy,
+    ids.avatarVersion, ids.assetVersion, ids.candidate, checksum, concurrentCreatedAt]);
+
+  resetReads();
+  const blocker = await pool.connect();
+  let concurrentReads = [];
+  let concurrentSettled = [];
+  let blockedReaders = 0;
+  let blockerOpen = false;
+  try {
+    await blocker.query("BEGIN");
+    blockerOpen = true;
+    await blocker.query("SELECT id FROM works WHERE organization_id=$1 AND id=$2 FOR UPDATE",
+      [organizationId, concurrentWorkId]);
+    const concurrentInput = { ...actor, page: 1, pageSize: 6, projectId: concurrentProjectId };
+    concurrentReads = [pagedService.listWorksPage(concurrentInput), pagedService.listWorksPage(concurrentInput)];
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      blockedReaders = Number((await pool.query(`SELECT count(*)::int AS count FROM pg_stat_activity
+        WHERE datname=current_database() AND wait_event_type='Lock'
+          AND query LIKE '%SELECT id FROM works WHERE organization_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE%'`)).rows[0].count);
+      if (blockedReaders === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await blocker.query("COMMIT");
+    blockerOpen = false;
+    concurrentSettled = await Promise.allSettled(concurrentReads);
+  } finally {
+    if (blockerOpen) await blocker.query("ROLLBACK");
+    blocker.release();
+    if (!concurrentSettled.length && concurrentReads.length) concurrentSettled = await Promise.allSettled(concurrentReads);
+  }
+
+  assert.equal(blockedReaders, 2, "both first-page reads must reach the same Work row lock before release");
+  const fulfilledConcurrent = concurrentSettled.filter((result) => result.status === "fulfilled");
+  const rejectedConcurrent = concurrentSettled.filter((result) => result.status === "rejected");
+  assert.ok(fulfilledConcurrent.length >= 1);
+  for (const result of fulfilledConcurrent) {
+    assert.deepEqual(result.value.works.map((work) => work.id), [concurrentWorkId]);
+  }
+  assert.deepEqual(rejectedConcurrent.map((result) => result.reason?.code),
+    Array.from({ length: rejectedConcurrent.length }, () => "WORK_DELIVERY_PROJECTION_INVALID"),
+    "a concurrent lazy-init loser must fail with the scoped projection contract, never raw PostgreSQL 23505");
+  assertBoundedReads();
+  const concurrentWrites = (await pool.query(`SELECT
+    (SELECT count(*)::int FROM work_inspections WHERE organization_id=$1 AND work_id=$2) AS inspections,
+    (SELECT count(*)::int FROM work_delivery_audit_events WHERE organization_id=$1 AND work_id=$2) AS audits,
+    (SELECT count(*)::int FROM work_delivery_status_ledger WHERE organization_id=$1 AND work_id=$2) AS ledger`,
+  [organizationId, concurrentWorkId])).rows[0];
+  assert.deepEqual(concurrentWrites, { inspections: 1, audits: 1, ledger: 1 });
 });

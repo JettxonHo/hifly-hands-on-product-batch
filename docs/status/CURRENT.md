@@ -102,7 +102,8 @@
 - Issue #248 是 Post-stage 作品库方案 A 的独立 acceptance gate。新增分页模式固定 page size 6，以专用 PostgreSQL
   read port 在单个 `REPEATABLE READ` 事务内计算 `(created_at DESC, id DESC)`、filter、6+3、total、anchor 与 exact
   selected Work；只锁定/读取当前页最多 6 个 Work，也只为当前页缺 inspection 的 Work 初始化 pending
-  inspection/audit/ledger，页外保持零写。不可见/过滤外/本页外 anchor 统一为 null selection，不回落到另一作品形成
+  inspection/audit/ledger，页外保持零写；两个首次 GET 竞争同一 Work 初始化时不泄漏 raw PostgreSQL unique code，且
+  最终只产生一组初始化记录。不可见/过滤外/本页外 anchor 统一为 null selection，不回落到另一作品形成
   写目标；本片不新增 DB、migration、领域状态或写命令。1440 使用列表/详情/操作三栏，768/390 使用列表 -> 详情 ->
   返回；读取失败、stale async、409 与模糊写响应均 fail-visible。模糊结果必须以原 idempotency key 显式重放确认，
   不能用状态/数量猜测；未收口前阻止跨作品/分页/筛选/Back，确定性 409 才使用最新 inspection binding 与新 key。
