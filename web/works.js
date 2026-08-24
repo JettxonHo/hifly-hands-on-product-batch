@@ -231,16 +231,17 @@
       next.textContent = "处理返工要求";
       blocker.textContent = inspection?.reason || "当前作品需要返回上游处理";
       blocker.hidden = false;
-      setRecommended(el("#upstreamActionLink").hidden ? null : el("#upstreamActionLink"));
+      setRecommended(usesSequentialLayout() ? el("#mobilePrimaryAction") :
+        el("#upstreamActionLink").hidden ? null : el("#upstreamActionLink"));
     } else if (selected.delivery_status === "delivered") {
       next.textContent = "查看交付记录";
-      setRecommended(el("#viewDeliveryHistory"));
+      setRecommended(usesSequentialLayout() ? el("#mobilePrimaryAction") : el("#viewDeliveryHistory"));
     } else if (inspection?.status === "passed") {
       next.textContent = "登记真实交付";
-      setRecommended(el("#recordDelivery"));
+      setRecommended(usesSequentialLayout() ? el("#mobilePrimaryAction") : el("#recordDelivery"));
     } else {
       next.textContent = "完成作品检查";
-      setRecommended(el("#passInspection"));
+      setRecommended(usesSequentialLayout() ? el("#mobilePrimaryAction") : el("#passInspection"));
     }
   }
 
@@ -418,10 +419,11 @@
     } else { upstream.hidden = true; upstream.removeAttribute("href"); }
     const mobile = el("#mobilePrimaryAction");
     mobile.closest(".works-mobile-action").hidden = !selected;
-    mobile.disabled = loading || busy || authorityFailed;
+    mobile.disabled = loading || busy || authorityFailed || Boolean(selected && !available);
     if (!selected) mobile.textContent = "选择作品";
+    else if (!available) mobile.textContent = "当前作品不可操作";
     else if (!mobileDetailOpen) mobile.textContent = "查看作品详情";
-    else if (rework) mobile.textContent = "查看返工要求";
+    else if (rework) mobile.textContent = href ? `返回${stageLabels[inspection?.target_upstream_stage] || "上游阶段"}` : "查看返工要求";
     else if (delivered) mobile.textContent = "查看交付记录";
     else if (ready) mobile.textContent = "登记一次交付";
     else mobile.textContent = "标记为通过";
@@ -536,6 +538,7 @@
   }
 
   function selectWork(id) {
+    if (reopenUnresolvedIntent()) return;
     const next = works.find((work) => work.id === id) || null;
     if (!next || authorityFailed) return;
     mobileReturnWorkId = id;
@@ -563,6 +566,7 @@
 
   function backToList() {
     if (!usesSequentialLayout()) return;
+    if (reopenUnresolvedIntent()) return;
     mobileReturnWorkId = selected?.id || mobileReturnWorkId;
     updateUrl((params) => params.delete("work"));
     mobileDetailOpen = false;
@@ -573,12 +577,18 @@
 
   function goToPage(page) {
     if (loading || page < 1 || page > pagination.total_pages || page === pagination.page) return;
+    if (reopenUnresolvedIntent()) return;
     mobileReturnWorkId = null;
     updateUrl((params) => { params.set("page", String(page)); params.delete("work"); });
     void loadWorks({ focusPage: page });
   }
 
   function applyFilter() {
+    if (unresolvedIntent()) {
+      el("#deliveryFilter").value = locationState().status;
+      reopenUnresolvedIntent();
+      return;
+    }
     updateUrl((params) => {
       const value = el("#deliveryFilter").value;
       if (value === "all") params.delete("deliveryStatus"); else params.set("deliveryStatus", value);
@@ -609,6 +619,7 @@
       workId: selected?.id || null,
       inspection: binding(),
       beforeDeliveryCount: Number(selected?.delivery_count || 0),
+      recoveryUrl: location.href,
       uncertain: false,
       needsReload: false,
       errorStatus: null
@@ -620,6 +631,30 @@
   function intentError(kind) { return el(kind === "pass" ? "#passError" : kind === "rework" ? "#reworkError" : "#deliveryError"); }
   function intentReload(kind) { return el(kind === "pass" ? "#reloadPassState" : kind === "rework" ? "#reloadReworkState" : "#reloadDeliveryState"); }
   function intentSubmit(kind) { return el(kind === "pass" ? "#submitPass" : kind === "rework" ? "#submitRework" : "#submitDelivery"); }
+
+  function unresolvedIntent() {
+    for (const kind of ["pass", "rework", "delivery"]) {
+      const intent = intents[kind];
+      if (intent?.uncertain || intent?.needsReload) return intent;
+    }
+    return null;
+  }
+
+  function reopenUnresolvedIntent({ restoreUrl = false } = {}) {
+    const intent = unresolvedIntent();
+    if (!intent) return false;
+    if (restoreUrl && intent.recoveryUrl && location.href !== intent.recoveryUrl) {
+      history.pushState({ works: true, recovery: true }, "", intent.recoveryUrl);
+    }
+    const dialog = intentDialog(intent.kind);
+    const reload = intentReload(intent.kind);
+    reload.hidden = false;
+    intentSubmit(intent.kind).disabled = true;
+    notice(el("#actionNotice"), "当前操作结果待确认；请先载入最新作品状态。系统已保留原作品、填写内容和同一操作标识。", "blocked");
+    if (!dialog.open) showDialog(dialog, document.activeElement, `#${reload.id}`);
+    else requestAnimationFrame(() => reload.focus());
+    return true;
+  }
 
   function showDialog(dialog, trigger = document.activeElement, focusSelector = null) {
     dialogTriggers.set(dialog, trigger);
@@ -732,6 +767,7 @@
   }
 
   function openPassDialog() {
+    if (reopenUnresolvedIntent()) return;
     if (!eligible("pass") || busy || authorityFailed) return;
     ensureSelectedUrl();
     const intent = freshIntent("pass");
@@ -743,6 +779,7 @@
   }
 
   function openReworkDialog() {
+    if (reopenUnresolvedIntent()) return;
     if (!eligible("rework") || busy || authorityFailed) return;
     ensureSelectedUrl();
     const intent = freshIntent("rework");
@@ -761,6 +798,7 @@
   }
 
   function openDeliveryDialog() {
+    if (reopenUnresolvedIntent()) return;
     if (!eligible("delivery") || busy || authorityFailed) return;
     ensureSelectedUrl();
     const intent = freshIntent("delivery");
@@ -865,12 +903,16 @@
     heading.focus({ preventScroll: true });
   });
   el("#mobilePrimaryAction").addEventListener("click", () => {
-    if (!selected || authorityFailed) return;
+    if (!selected || selected.status !== "available" || authorityFailed) return;
     if (!mobileDetailOpen) { mobileDetailOpen = true; renderMobileLayer(); el("#selectedWorkName").focus(); return; }
     const inspection = currentInspection();
     if (selected.delivery_status === "rework_required" || inspection?.status === "rework_required") {
-      el("#actionPanelTitle").scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
-      el("#actionPanelTitle").focus({ preventScroll: true });
+      const upstream = el("#upstreamActionLink");
+      if (!upstream.hidden && upstream.href) upstream.click();
+      else {
+        el("#actionPanelTitle").scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+        el("#actionPanelTitle").focus({ preventScroll: true });
+      }
     } else if (selected.delivery_status === "delivered") el("#viewDeliveryHistory").click();
     else if (inspection?.status === "passed") openDeliveryDialog();
     else openPassDialog();
@@ -891,6 +933,7 @@
   }
 
   window.addEventListener("popstate", () => {
+    if (reopenUnresolvedIntent({ restoreUrl: true })) return;
     closeOpenDialogs();
     const route = locationState();
     void loadWorks({ focus: usesSequentialLayout() ? (route.workId ? "detail" : "list") : "none" });

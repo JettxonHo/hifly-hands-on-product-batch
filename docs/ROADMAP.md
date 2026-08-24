@@ -181,10 +181,12 @@ passed/warning 不等于人工批准。current head、canonical snapshot、run/r
 dirty/409、异步读取与三视口恢复均 fail closed。`main` 分支保护保留 strict 并要求 Ubuntu、Windows 与
 `identity-postgres` 三项 context。Issue #246 / PR #247 已把 Stage 5 合并进入 `main@0b0d1d94`：只 additive 组织既有
 ProductionOrder、handoff、ManualExecution、A12 与 Work/delivery 真值；不读取或推断 eligible/active attempts/Worker，
-不提供 Worker 命令、自动重试、重新领取或自动创建下一单。Issue #248 是 Post-stage 作品库独立 Draft gate：服务端
-固定六项分页与 exact selection，桌面 9 项为第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回；不可见 anchor
-不得回落到另一 Work。分页使用真实服务端集合真值，不由前端伪造；paged GET 保留既有 lazy inspection 初始化语义。
-模糊写结果只能以原 idempotency key 精确重放确认 receipt，确定性 409 才换最新 binding/new key；下载 token 必须绑定
+不提供 Worker 命令、自动重试、重新领取或自动创建下一单。Issue #248 是 Post-stage 作品库独立 Draft gate：专用
+PostgreSQL read port 在单个 `REPEATABLE READ` 事务内完成有界六项分页、total/anchor 与 exact selection，只读取并初始化
+当前页最多 6 个 Work，页外零写；桌面 9 项为第 1 页 6 项、第 2 页 3 项，390 保持列表 -> 详情 -> 返回。不可见 anchor
+不得回落到另一 Work。分页使用真实服务端集合真值，不由前端伪造。模糊写结果只能以原 idempotency key 精确重放确认
+receipt，未收口前阻止跨作品/分页/筛选/Back；确定性 409 才换最新 binding/new key。390/768 每态最多一个可见可执行
+主操作，不可用/已撤回 Work 零写。下载 token 必须绑定
 exact Work/AssetVersion 与已核验 bytes，inspection/delivery 跨代读取必须 fail closed。
 后续仍严格串行到素材中心/移动收口，任何仓库实现均不自动部署。
 全部功能 Stage 完成并分别 Review 后，才另开独立视觉 refinement/research gate。PC 1440 主工作区与 768 收敛、移动

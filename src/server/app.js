@@ -72,6 +72,7 @@ import { createLocalAgentBearerGuard, registerLocalAgentExecutionRoutes } from "
 import { registerWorkVerificationRoutes } from "./routes/work-verification.js";
 import { createWorkDeliveryService } from "../work-delivery/work-delivery-service.js";
 import { createPostgresWorkDeliveryRepository } from "../work-delivery/postgres-work-delivery-repository.js";
+import { createPostgresWorkLibraryReadPort } from "../work-delivery/work-library-read-port.js";
 import { runWorkDeliveryMigrations } from "../work-delivery/postgres.js";
 import { registerWorkDeliveryRoutes } from "./routes/work-delivery.js";
 import { registerHiflyProviderRoutes } from "./routes/hifly-provider.js";
@@ -1006,7 +1007,8 @@ export async function buildApp({
       await repository.initialize();
       const workPort = workDeliveryOptions.workPort || app.artifactVerification?.repository;
       if (!workPort?.listWorks || !workPort?.getWork) throw Object.assign(new Error("WORK_DELIVERY_WORK_PORT_REQUIRED"), { code: "WORK_DELIVERY_WORK_PORT_REQUIRED" });
-      service = createWorkDeliveryService({ repository, workPort,
+      const libraryReadPort = workDeliveryOptions.libraryReadPort || (sharedPool ? createPostgresWorkLibraryReadPort({ pool: sharedPool }) : null);
+      service = createWorkDeliveryService({ repository, workPort, libraryReadPort,
         orderPort: workDeliveryOptions.orderPort || app.productionOrders?.service || null,
         assetPort: workDeliveryOptions.assetPort || app.assets?.service || null, now });
     }

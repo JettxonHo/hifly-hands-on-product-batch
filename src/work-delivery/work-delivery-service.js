@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { createMemoryWorkLibraryReadPort } from "./work-library-read-port.js";
+
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const failure = (code, details = null) => Object.assign(new Error(code), { code, details });
 const stableJson = (value) => Array.isArray(value) ? `[${value.map(stableJson).join(",")}]` :
@@ -113,16 +115,69 @@ function positiveInteger(value) {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-function compareWorksNewestFirst(left, right) {
-  const byCreatedAt = String(right.created_at || "").localeCompare(String(left.created_at || ""));
-  return byCreatedAt || String(right.id || "").localeCompare(String(left.id || ""));
+function assertLibraryProjection(value, input) {
+  if (!value || !Array.isArray(value.items) || value.items.length > input.pageSize || !value.pagination) {
+    throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+  }
+  const pagination = value.pagination;
+  if (!Number.isInteger(pagination.page) || pagination.page < 1 || pagination.page_size !== input.pageSize ||
+      !Number.isInteger(pagination.total_items) || pagination.total_items < 0 ||
+      !Number.isInteger(pagination.total_pages) || pagination.total_pages < 0 ||
+      (pagination.total_items === 0 ? pagination.total_pages !== 0 : pagination.total_pages !== Math.ceil(pagination.total_items / input.pageSize))) {
+    throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+  }
+  const ids = new Set();
+  const works = value.items.map((item) => {
+    const work = item?.work;
+    if (!clean(work?.id) || ids.has(work.id) || work.organization_id !== input.organizationId ||
+        !["available", "unavailable", "withdrawn"].includes(work.status) ||
+        (input.projectId && work.project_id !== input.projectId) ||
+        !Array.isArray(item.inspection_history) || !Array.isArray(item.deliveries)) {
+      throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+    }
+    ids.add(work.id);
+    const historyIds = new Set();
+    const active = [];
+    for (const inspection of item.inspection_history) {
+      if (!clean(inspection?.id) || historyIds.has(inspection.id) || inspection.organization_id !== input.organizationId ||
+          inspection.work_id !== work.id || !["pending", "passed", "rework_required", "superseded"].includes(inspection.status) ||
+          !Number.isInteger(Number(inspection.revision)) || Number(inspection.revision) < 1) {
+        throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+      }
+      historyIds.add(inspection.id);
+      if (inspection.status !== "superseded") active.push(inspection);
+    }
+    if (active.length !== 1 || item.current_inspection?.id !== active[0].id) throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+    const deliveryIds = new Set();
+    for (const delivery of item.deliveries) {
+      if (!clean(delivery?.id) || deliveryIds.has(delivery.id) || delivery.organization_id !== input.organizationId ||
+          delivery.work_id !== work.id || !DELIVERY_METHODS.includes(delivery.delivery_method)) {
+        throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+      }
+      deliveryIds.add(delivery.id);
+    }
+    const derivedStatus = active[0].status === "rework_required" ? "rework_required" : item.deliveries.length
+      ? "delivered" : active[0].status === "passed" ? "deliverable" : "pending_review";
+    if (item.delivery_status !== derivedStatus || (input.deliveryStatus !== "all" && derivedStatus !== input.deliveryStatus)) {
+      throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+    }
+    return publicLibraryWork({ ...work, current_inspection: active[0], inspection_history: item.inspection_history,
+      deliveries: item.deliveries, delivery_count: item.deliveries.length, delivery_status: derivedStatus });
+  });
+  if (value.selected_work_id != null && (value.selected_work_id !== input.anchorWorkId || !ids.has(value.selected_work_id))) {
+    throw failure("WORK_DELIVERY_PROJECTION_INVALID");
+  }
+  return { works, pagination, selected_work_id: value.selected_work_id || null };
 }
 
-export function createWorkDeliveryService({ repository, workPort, orderPort = null, assetPort = null, now = Date.now } = {}) {
+export function createWorkDeliveryService({ repository, workPort, orderPort = null, assetPort = null,
+  libraryReadPort = null, now = Date.now } = {}) {
   if (!repository?.ensurePendingInspection || !repository?.createInspection || !repository?.createDelivery) throw new TypeError("work delivery repository is required");
   if (!workPort?.listWorks || !workPort?.getWork) throw new TypeError("formal work port is required");
   const at = () => timestamp(now);
   const downloadBindings = new Map();
+  const workLibrary = libraryReadPort || createMemoryWorkLibraryReadPort({ workPort, orderPort, repository });
+  if (!workLibrary?.listPage) throw new TypeError("work library read port is required");
 
   async function getWorkOrThrow(input) {
     validateActor(input);
@@ -186,35 +241,14 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
     const explicitPage = input.page !== undefined && input.page !== null && input.page !== "";
     const requestedPage = explicitPage ? positiveInteger(input.page) : 1;
     if (pageSize !== WORK_LIBRARY_PAGE_SIZE || requestedPage === null) throw failure("WORK_DELIVERY_PAGINATION_INVALID");
-    const deliveryStatus = clean(input.deliveryStatus);
+    const deliveryStatus = clean(input.deliveryStatus) || "all";
     if (deliveryStatus && !WORK_LIBRARY_DELIVERY_STATUSES.includes(deliveryStatus)) throw failure("WORK_DELIVERY_FILTER_INVALID");
-
-    const values = await workPort.listWorks(input.organizationId);
     const projectId = clean(input.projectId);
-    const metadata = [];
-    for (const value of values.filter((work) => work?.organization_id === input.organizationId)) {
-      const resolved = await resolveWorkMetadata(value, input, { strict: true });
-      if (!projectId || resolved.project_id === projectId) metadata.push(resolved);
-    }
-    const projected = [];
-    for (const value of metadata) projected.push(await projectWork(value, input, { ensureInspection: true, metadataResolved: true }));
-    const filtered = projected
-      .filter((work) => !deliveryStatus || deliveryStatus === "all" || work.delivery_status === deliveryStatus)
-      .sort(compareWorksNewestFirst);
-    const totalItems = filtered.length;
-    const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
     const anchorWorkId = clean(input.anchorWorkId);
-    const anchorIndex = anchorWorkId ? filtered.findIndex((work) => work.id === anchorWorkId) : -1;
-    const resolvedPage = !explicitPage && anchorIndex >= 0 ? Math.floor(anchorIndex / pageSize) + 1 : requestedPage;
-    const page = totalPages === 0 ? 1 : Math.min(resolvedPage, totalPages);
-    const pageWorks = filtered.slice((page - 1) * pageSize, page * pageSize);
-    const selectedWorkId = anchorWorkId && pageWorks.some((work) => work.id === anchorWorkId) ? anchorWorkId : null;
-
-    return {
-      works: pageWorks.map(publicLibraryWork),
-      pagination: { page, page_size: pageSize, total_items: totalItems, total_pages: totalPages },
-      selected_work_id: selectedWorkId
-    };
+    const projectionInput = { ...input, requestedPage, explicitPage, pageSize, projectId,
+      deliveryStatus, anchorWorkId, now: at() };
+    const result = await workLibrary.listPage(projectionInput);
+    return assertLibraryProjection(result, projectionInput);
   }
 
   async function getWork(input) {

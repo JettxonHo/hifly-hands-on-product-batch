@@ -95,10 +95,12 @@ test("A13 works library supports inspection, delivery history, feature entry, an
   assert.equal(await page.locator(".works-mobile-action button").count(), 1);
   assert.equal(await page.locator(".works-mobile-action").evaluate((node) => getComputedStyle(node).position), "fixed");
   assert.equal(await page.locator("#passInspection").isDisabled(), true); assert.equal(await page.locator("#requestRework").isDisabled(), true);
-  assert.equal(await page.locator("#mobilePrimaryAction").isDisabled(), false); assert.equal((await page.locator("#mobilePrimaryAction").textContent()).trim(), "查看返工要求");
+  await page.locator("#mobilePrimaryAction").filter({ hasText: "返回视频方案" }).waitFor();
+  assert.equal(await page.locator("#mobilePrimaryAction").isDisabled(), false);
   await page.locator("#mobilePrimaryAction").click();
-  assert.equal((await page.locator("#selectedDeliveryStatus").textContent()).trim(), "需要返工");
-  assert.equal(await page.locator("#actionPanelTitle").evaluate((node) => node === document.activeElement), true);
+  await page.waitForURL(`${origin}/plan.html?project=project-a13-browser&product=product-a13-rework`);
+  await page.goBack();
+  await page.locator("#selectedDeliveryStatus").filter({ hasText: "需要返工" }).waitFor();
   await page.getByRole("button", { name: /返回作品列表/ }).click();
   await page.locator("#worksList").getByRole("button", { name: /无上游上下文作品/ }).click();
   await page.getByRole("button", { name: "登记返工", exact: true }).click();

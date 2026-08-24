@@ -111,6 +111,10 @@
   .mobile-only { display: inline-flex; }
   .works-mobile-action { position: fixed; z-index: 15; right: 0; bottom: 0; left: 0; display: block; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--n-200); background: rgba(255, 255, 255, 0.96); box-shadow: 0 -4px 14px rgba(16, 24, 40, 0.08); }
   .works-mobile-action button { width: 100%; }
+  .works-action-panel #passInspection,
+  .works-action-panel #upstreamActionLink,
+  .works-action-panel #viewDeliveryHistory,
+  .works-action-panel #recordDelivery:not(.secondary) { display: none; }
   .works-action-panel .action-group { padding-top: var(--space-3); }
   .snapshot-grid { grid-template-columns: 1fr; }
   .download-metadata div { grid-template-columns: 1fr; gap: 2px; }

@@ -99,12 +99,14 @@
   additive 读取 selected ProductionOrder、handoff package、ManualExecution attempt/report、A12 verification 与
   Work/delivery，并继续由既有服务持有写入真值；不读取或推断 eligible、active attempts 或 Worker 状态，也不提供
   Worker 启停、自动重试、重新领取或自动创建下一单。该合并不表示部署、运行时或生产验收。
-- Issue #248 是 Post-stage 作品库方案 A 的独立 acceptance gate。新增分页模式固定 page size 6，以服务端
-  `(created_at DESC, id DESC)` 真值返回 9 项 fixture 的 6+3、total 与 exact selected Work；显式 page 优先于 anchor，
-  不可见/过滤外/本页外 anchor 统一为 null selection，不回落到另一作品形成写目标。paged GET 有意保留既有 lazy
-  pending-inspection 初始化语义，project filter 在初始化前执行；本片不新增 DB、领域状态或写命令。1440 使用
-  列表/详情/操作三栏，768/390 使用列表 -> 详情 -> 返回；读取失败、stale async、409 与模糊写响应均 fail-visible。
-  模糊结果必须以原 idempotency key 显式重放确认，不能用状态/数量猜测；确定性 409 使用最新 inspection binding 与新 key。
+- Issue #248 是 Post-stage 作品库方案 A 的独立 acceptance gate。新增分页模式固定 page size 6，以专用 PostgreSQL
+  read port 在单个 `REPEATABLE READ` 事务内计算 `(created_at DESC, id DESC)`、filter、6+3、total、anchor 与 exact
+  selected Work；只锁定/读取当前页最多 6 个 Work，也只为当前页缺 inspection 的 Work 初始化 pending
+  inspection/audit/ledger，页外保持零写。不可见/过滤外/本页外 anchor 统一为 null selection，不回落到另一作品形成
+  写目标；本片不新增 DB、migration、领域状态或写命令。1440 使用列表/详情/操作三栏，768/390 使用列表 -> 详情 ->
+  返回；读取失败、stale async、409 与模糊写响应均 fail-visible。模糊结果必须以原 idempotency key 显式重放确认，
+  不能用状态/数量猜测；未收口前阻止跨作品/分页/筛选/Back，确定性 409 才使用最新 inspection binding 与新 key。
+  390/768 每态最多一个可见可执行主操作，不可用/已撤回 Work 零 Dialog、零 POST。
   下载授权精确绑定 Work、AssetVersion、期限与已核验 media/size/SHA-256，跨 Work URL fail closed。
   只有 Draft PR 经独立 Review 合并后才计为仓库实现；不表示部署、生产数据或客户验收，也不授权素材中心实现。
 - `main` 分支保护的 required status checks 已在不改变 strict 与既有 Ubuntu/Windows context 的前提下 additive 加入
@@ -614,7 +616,8 @@
    Issues #238/#240/#242/#244/#246 和 PRs #239/#241/#243/#245/#247 严格串行进入 `main@0b0d1d94`。Stage 5
    只 additive 读取并组织既有 ProductionOrder、handoff、ManualExecution、A12 与 Work/delivery 真值，不读取或推断
    eligible/active attempts/Worker，不自动重试、重新领取或创建下一单；合并不表示部署或生产验收。Issue #248 是
-   Post-stage 作品库独立 Draft gate，固定服务端六项分页、strict null anchor 与 1440/768/390 composition；只有独立
+   Post-stage 作品库独立 Draft gate，固定有界服务端六项分页、页外零初始化、strict null anchor、模糊 intent
+   跨上下文阻断与 1440/768/390 composition；只有独立
    Review 合并后才计为仓库实现。后续继续按素材中心/移动收口串行，
    且任何仓库实现均不自动成为部署或生产验收事实。全部功能 Stage 完成并分别验收后，另开独立视觉 refinement/research
    gate：PC 的 1440 主工作区与 768 收敛、移动 390 的列表/详情分层是并行的一等合同，不设 PC/移动优先级，也不把

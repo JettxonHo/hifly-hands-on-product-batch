@@ -244,6 +244,43 @@ test("方案 A 作品库使用服务端六项分页并在桌面与手机安全�
   assert.equal(await page.locator("#mobilePrimaryAction").getAttribute("data-recommended-action"), "true");
   assert.equal(await page.locator("#mobilePrimaryAction").isVisible(), true);
 
+  for (const [workId, label] of [["work-post-5", "待检查"], ["work-post-8", "可交付"], ["work-post-6", "需要返工"], ["work-post-7", "已交付"]]) {
+    await page.goto(`${origin}/works.html?work=${workId}`);
+    await page.locator("#selectedWorkName").waitFor();
+    assert.equal((await page.locator("#selectedDeliveryStatus").textContent()).trim(), label);
+    const visibleEnabledPrimaryCommands = await page.locator("#mainContent").evaluate((main) => {
+      const controls = main.querySelectorAll(".works-action-panel #passInspection, .works-action-panel #recordDelivery, .works-action-panel #viewDeliveryHistory, .works-action-panel #upstreamActionLink, #mobilePrimaryAction");
+      return [...controls].filter((control) => {
+        const style = getComputedStyle(control);
+        const rect = control.getBoundingClientRect();
+        return !control.disabled && !control.hidden && !control.classList.contains("secondary") && style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+      }).length;
+    });
+    assert.equal(visibleEnabledPrimaryCommands, 1, `${workId} rendered ${visibleEnabledPrimaryCommands} visible enabled primary commands`);
+    assert.equal(await page.locator("#mobilePrimaryAction").isVisible(), true);
+    assert.equal(await page.locator("#mobilePrimaryAction").isEnabled(), true);
+    assert.equal(await page.locator("#mobilePrimaryAction").getAttribute("data-recommended-action"), "true");
+  }
+
+  let unavailableCommandPosts = 0;
+  await page.route("**/api/works/work-post-9/**", async (route) => {
+    if (route.request().method() === "POST") unavailableCommandPosts += 1;
+    await route.continue();
+  });
+  for (const unavailableStatus of ["unavailable", "withdrawn"]) {
+    works[8].status = unavailableStatus;
+    await page.goto(`${origin}/works.html?work=work-post-9`);
+    await page.locator("#selectedWorkName").filter({ hasText: "验收商品 9" }).waitFor();
+    assert.equal(await page.locator("#mobilePrimaryAction").isDisabled(), true);
+    assert.equal((await page.locator("#mobilePrimaryAction").textContent()).trim(), "当前作品不可操作");
+    assert.equal((await page.locator("#actionExplanation").textContent()).includes("当前作品已不可操作"), true);
+    await page.locator("#mobilePrimaryAction").evaluate((control) => control.click());
+    assert.equal(await page.locator("dialog[open]").count(), 0);
+    assert.equal(unavailableCommandPosts, 0);
+  }
+  works[8].status = "available";
+  await page.unroute("**/api/works/work-post-9/**");
+
   let releaseOldList;
   let signalOldList;
   const oldListStarted = new Promise((resolve) => { signalOldList = resolve; });
@@ -427,6 +464,8 @@ test("方案 A 作品库使用服务端六项分页并在桌面与手机安全�
   assert.deepEqual(workEightAfterReplay.deliveries.map((item) => item.recipient_reference).sort(), ["另一位操作人", "本次验收团队"].sort());
   await page.unroute("**/api/works/work-post-8/deliveries");
 
+  await page.locator('#worksList [data-work-id="work-post-9"]').click();
+  await page.locator('#worksList [data-work-id="work-post-8"]').click();
   await page.locator("#recordDelivery").click();
   await page.waitForFunction(() => document.activeElement?.id === "deliveryMethod");
   await page.keyboard.press("Escape");
@@ -452,6 +491,35 @@ test("方案 A 作品库使用服务端六项分页并在桌面与手机安全�
   await page.locator("#reloadDeliveryState").waitFor({ state: "visible" });
   assert.equal(await page.locator("#deliveryNote").inputValue(), "服务端已提交但响应被隐藏");
   assert.equal(typeof deliveryIntentKeys[0], "string");
+
+  const committedRecoveryUrl = page.url();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "下一页", exact: true }).click();
+  await page.waitForFunction(() => document.activeElement?.id === "reloadDeliveryState");
+  assert.equal(page.url(), committedRecoveryUrl);
+  assert.equal(await page.locator("#deliveryDialog").evaluate((dialog) => dialog.open), true);
+  assert.equal(await page.locator("#deliveryNote").inputValue(), "服务端已提交但响应被隐藏");
+  assert.equal(deliveryPostCount, 1);
+
+  await page.keyboard.press("Escape");
+  await page.locator('#worksList [data-work-id="work-post-9"]').click();
+  await page.waitForFunction(() => document.activeElement?.id === "reloadDeliveryState");
+  assert.equal(page.url(), committedRecoveryUrl);
+  assert.equal(deliveryPostCount, 1);
+
+  await page.keyboard.press("Escape");
+  await page.locator("#deliveryFilter").selectOption("delivered");
+  await page.waitForFunction(() => document.activeElement?.id === "reloadDeliveryState");
+  assert.equal(page.url(), committedRecoveryUrl);
+  assert.equal(await page.locator("#deliveryFilter").inputValue(), "all");
+  assert.equal(deliveryPostCount, 1);
+
+  await page.keyboard.press("Escape");
+  await page.goBack();
+  await page.waitForFunction(() => document.activeElement?.id === "reloadDeliveryState");
+  assert.equal(page.url(), committedRecoveryUrl);
+  assert.equal(deliveryPostCount, 1);
+
   await page.locator("#reloadDeliveryState").click();
   await page.locator("#deliveryError").filter({ hasText: "权威状态已载入，但仅凭业务状态无法确认本次写入；可使用同一操作标识显式重放，系统不会创建重复记录。" }).waitFor();
   assert.equal(await page.locator("#deliveryDialog").evaluate((node) => node.open), true);

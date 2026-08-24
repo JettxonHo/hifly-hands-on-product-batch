@@ -16,6 +16,7 @@ import { runManualExecutionMigrations } from "../src/manual-execution/postgres.j
 import { runWorkVerificationMigrations } from "../src/work-verification/postgres.js";
 import { createPostgresWorkDeliveryRepository } from "../src/work-delivery/postgres-work-delivery-repository.js";
 import { runWorkDeliveryMigrations } from "../src/work-delivery/postgres.js";
+import { createPostgresWorkLibraryReadPort } from "../src/work-delivery/work-library-read-port.js";
 import { createWorkDeliveryService } from "../src/work-delivery/work-delivery-service.js";
 import { createOperatorWorkspaceService } from "../src/operator-workspace/operator-workspace-service.js";
 
@@ -202,4 +203,176 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   assert.equal(transitions.find((entry) => entry.to_status === "passed" && entry.from_status === "pending").to_status, "passed");
   assert.equal(transitions.find((entry) => entry.to_status === "rework_required" && entry.from_status === "passed").from_status, "passed");
   assert.ok(transitions.length >= 3);
+
+  const libraryProjectId = ids.project;
+  const otherProjectId = randomUUID();
+  const libraryRows = Array.from({ length: 60 }, (_, index) => ({
+    orderId: randomUUID(),
+    workId: randomUUID(),
+    projectId: index >= 54 ? otherProjectId : libraryProjectId,
+    createdAt: new Date(Date.parse("2026-08-10T00:00:00.000Z") + (index + 1) * 60_000).toISOString()
+  }));
+  const librarySeed = await pool.connect();
+  try {
+    await librarySeed.query("BEGIN");
+    for (const [index, row] of libraryRows.entries()) {
+      await librarySeed.query(`INSERT INTO production_orders
+        (id,organization_id,product_id,video_plan_version_id,execution_purpose,status,row_version,input_snapshot,status_history,created_by_member_id,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,'first_production','succeeded',1,$5,$6,$7,$8,$8)`,
+      [row.orderId, organizationId, ids.product, ids.plan,
+        JSON.stringify({ video_plan_version: { id: ids.plan }, product_revision_snapshot: {
+          organization_id: organizationId, project_id: row.projectId, product_id: ids.product,
+          product_name: `分页商品 ${String(index + 1).padStart(2, "0")}`
+        } }), JSON.stringify([{ status: "succeeded", at: row.createdAt }]), seeded.member.id, row.createdAt]);
+      await librarySeed.query(`INSERT INTO works
+        (id,organization_id,production_order_id,execution_attempt_id,manual_execution_report_id,package_id,package_version,manifest_hash,
+         video_plan_version_id,copy_version_id,avatar_asset_version_id,production_config_snapshot,package_manifest_snapshot,
+         primary_asset_version_id,primary_candidate_id,primary_output_checksum,primary_output_media_type,primary_output_size,status,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,1,'manifest-a13',$7,$8,$9,'{}','{}',$10,$11,$12,'video/mp4',42,'available',$13,$13)`,
+      [row.workId, organizationId, row.orderId, ids.attempt, ids.report, ids.package, ids.plan, ids.copy,
+        ids.avatarVersion, ids.assetVersion, ids.candidate, checksum, row.createdAt]);
+    }
+    for (const row of libraryRows.slice(0, 7)) {
+      await librarySeed.query(`INSERT INTO work_delivery_records
+        (id,organization_id,work_id,delivered_by,delivered_at,delivery_method,note,recipient_reference,created_at)
+        VALUES ($1,$2,$3,$4,$5,'email','分页状态筛选 fixture',NULL,$5)`,
+      [randomUUID(), organizationId, row.workId, seeded.member.id, row.createdAt]);
+    }
+    await librarySeed.query("COMMIT");
+  } catch (error) {
+    await librarySeed.query("ROLLBACK");
+    throw error;
+  } finally {
+    librarySeed.release();
+  }
+
+  const reads = { listWorks: 0, getWork: 0, getOrder: 0 };
+  const boundedWorkPort = {
+    async listWorks() {
+      reads.listWorks += 1;
+      throw new Error("paged PostgreSQL listing must not call the unbounded Work port");
+    },
+    async getWork(requestedOrg, workId) {
+      reads.getWork += 1;
+      return (await pool.query("SELECT * FROM works WHERE organization_id=$1 AND id=$2", [requestedOrg, workId])).rows[0] || null;
+    }
+  };
+  const boundedOrderPort = {
+    async getOrder({ organizationId: requestedOrg, orderId }) {
+      reads.getOrder += 1;
+      return (await pool.query("SELECT * FROM production_orders WHERE organization_id=$1 AND id=$2", [requestedOrg, orderId])).rows[0] || null;
+    }
+  };
+  const libraryReadPort = createPostgresWorkLibraryReadPort({ pool });
+  const pagedService = createWorkDeliveryService({ repository, workPort: boundedWorkPort, orderPort: boundedOrderPort,
+    libraryReadPort, now: () => Date.parse("2026-08-11T00:00:00.000Z") });
+  const resetReads = () => { reads.listWorks = 0; reads.getWork = 0; reads.getOrder = 0; };
+  const assertBoundedReads = () => {
+    assert.equal(reads.listWorks, 0);
+    assert.ok(reads.getWork <= 6, `expected no more than 6 Work reads, got ${reads.getWork}`);
+    assert.ok(reads.getOrder <= 6, `expected no more than 6 ProductionOrder reads, got ${reads.getOrder}`);
+  };
+  const writeCounts = async () => (await pool.query(`SELECT
+    (SELECT count(*)::int FROM work_inspections WHERE organization_id=$1) AS inspections,
+    (SELECT count(*)::int FROM work_delivery_audit_events WHERE organization_id=$1) AS audits,
+    (SELECT count(*)::int FROM work_delivery_status_ledger WHERE organization_id=$1) AS ledger`,
+  [organizationId])).rows[0];
+
+  const beforePageOne = await writeCounts();
+  resetReads();
+  const pageOne = await pagedService.listWorksPage({ ...actor, page: 1, pageSize: 6 });
+  assert.deepEqual(pageOne.works.map((work) => work.id), libraryRows.slice(-6).reverse().map((row) => row.workId));
+  assert.deepEqual(pageOne.pagination, { page: 1, page_size: 6, total_items: 61, total_pages: 11 });
+  assert.equal(pageOne.selected_work_id, null);
+  assertBoundedReads();
+  const afterPageOne = await writeCounts();
+  assert.deepEqual({
+    inspections: afterPageOne.inspections - beforePageOne.inspections,
+    audits: afterPageOne.audits - beforePageOne.audits,
+    ledger: afterPageOne.ledger - beforePageOne.ledger
+  }, { inspections: 6, audits: 6, ledger: 6 });
+  const offPageAfterFirst = await pool.query(
+    "SELECT count(*)::int AS count FROM work_inspections WHERE organization_id=$1 AND work_id=ANY($2::uuid[])",
+    [organizationId, libraryRows.slice(0, 54).map((row) => row.workId)]
+  );
+  assert.equal(offPageAfterFirst.rows[0].count, 0);
+
+  resetReads();
+  const pageTwo = await pagedService.listWorksPage({ ...actor, page: 2, pageSize: 6 });
+  assert.deepEqual(pageTwo.works.map((work) => work.id), libraryRows.slice(48, 54).reverse().map((row) => row.workId));
+  assert.deepEqual(pageTwo.pagination, { page: 2, page_size: 6, total_items: 61, total_pages: 11 });
+  assertBoundedReads();
+  const afterPageTwo = await writeCounts();
+  assert.deepEqual({
+    inspections: afterPageTwo.inspections - afterPageOne.inspections,
+    audits: afterPageTwo.audits - afterPageOne.audits,
+    ledger: afterPageTwo.ledger - afterPageOne.ledger
+  }, { inspections: 6, audits: 6, ledger: 6 });
+
+  resetReads();
+  const sameProject = await pagedService.listWorksPage({ ...actor, page: 1, pageSize: 6, projectId: libraryProjectId });
+  assert.deepEqual(sameProject.works.map((work) => work.id), libraryRows.slice(48, 54).reverse().map((row) => row.workId));
+  assert.deepEqual(sameProject.pagination, { page: 1, page_size: 6, total_items: 55, total_pages: 10 });
+  assertBoundedReads();
+
+  resetReads();
+  const otherProject = await pagedService.listWorksPage({ ...actor, page: 1, pageSize: 6, projectId: otherProjectId });
+  assert.deepEqual(otherProject.works.map((work) => work.id), libraryRows.slice(-6).reverse().map((row) => row.workId));
+  assert.deepEqual(otherProject.pagination, { page: 1, page_size: 6, total_items: 6, total_pages: 1 });
+  assertBoundedReads();
+
+  const beforeDelivered = await writeCounts();
+  resetReads();
+  const deliveredOne = await pagedService.listWorksPage({ ...actor, page: 1, pageSize: 6, deliveryStatus: "delivered" });
+  assert.deepEqual(deliveredOne.works.map((work) => work.id), libraryRows.slice(1, 7).reverse().map((row) => row.workId));
+  assert.deepEqual(deliveredOne.pagination, { page: 1, page_size: 6, total_items: 7, total_pages: 2 });
+  assert.ok(deliveredOne.works.every((work) => work.delivery_status === "delivered"));
+  assertBoundedReads();
+  const afterDelivered = await writeCounts();
+  assert.deepEqual({
+    inspections: afterDelivered.inspections - beforeDelivered.inspections,
+    audits: afterDelivered.audits - beforeDelivered.audits,
+    ledger: afterDelivered.ledger - beforeDelivered.ledger
+  }, { inspections: 6, audits: 6, ledger: 6 });
+  assert.equal((await pool.query("SELECT count(*)::int AS count FROM work_inspections WHERE organization_id=$1 AND work_id=$2",
+    [organizationId, libraryRows[0].workId])).rows[0].count, 0);
+
+  resetReads();
+  const deliveredTwo = await pagedService.listWorksPage({ ...actor, page: 2, pageSize: 6, deliveryStatus: "delivered" });
+  assert.deepEqual(deliveredTwo.works.map((work) => work.id), [libraryRows[0].workId]);
+  assert.equal(deliveredTwo.selected_work_id, null);
+  assertBoundedReads();
+
+  resetReads();
+  const anchored = await pagedService.listWorksPage({ ...actor, pageSize: 6, anchorWorkId: libraryRows[0].workId });
+  assert.equal(anchored.pagination.page, 10);
+  assert.equal(anchored.selected_work_id, libraryRows[0].workId);
+  assert.ok(anchored.works.some((work) => work.id === anchored.selected_work_id));
+  assertBoundedReads();
+
+  resetReads();
+  const explicitPageWins = await pagedService.listWorksPage({ ...actor, page: 1, pageSize: 6, anchorWorkId: libraryRows[0].workId });
+  assert.equal(explicitPageWins.pagination.page, 1);
+  assert.equal(explicitPageWins.selected_work_id, null);
+  assertBoundedReads();
+
+  resetReads();
+  const filteredAnchor = await pagedService.listWorksPage({ ...actor, pageSize: 6, projectId: libraryProjectId,
+    anchorWorkId: libraryRows.at(-1).workId });
+  assert.equal(filteredAnchor.pagination.page, 1);
+  assert.equal(filteredAnchor.selected_work_id, null);
+  assertBoundedReads();
+
+  resetReads();
+  const statusFilteredAnchor = await pagedService.listWorksPage({ ...actor, pageSize: 6, deliveryStatus: "delivered",
+    anchorWorkId: libraryRows.at(-1).workId });
+  assert.equal(statusFilteredAnchor.pagination.page, 1);
+  assert.equal(statusFilteredAnchor.selected_work_id, null);
+  assertBoundedReads();
+
+  resetReads();
+  const foreignAnchor = await pagedService.listWorksPage({ ...actor, pageSize: 6, anchorWorkId: randomUUID() });
+  assert.equal(foreignAnchor.pagination.page, 1);
+  assert.equal(foreignAnchor.selected_work_id, null);
+  assertBoundedReads();
 });

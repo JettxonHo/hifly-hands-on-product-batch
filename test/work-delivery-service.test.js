@@ -72,9 +72,11 @@ test("listing a formal work creates a pending inspection projection", async () =
 });
 
 test("paged works use authoritative stable ordering and report a six-plus-three total", async () => {
-  const { service } = pagedWorld();
+  const { service, repository } = pagedWorld();
 
   const first = await service.listWorksPage({ ...actor, page: "1", pageSize: "6" });
+  assert.deepEqual([...repository._records.inspections.values()].map((inspection) => inspection.work_id).sort(),
+    ["work-04", "work-05", "work-06", "work-07", "work-08", "work-09"]);
   const second = await service.listWorksPage({ ...actor, page: 2, pageSize: 6 });
 
   assert.deepEqual(first.works.map((work) => work.id), ["work-09", "work-08", "work-07", "work-06", "work-05", "work-04"]);
