@@ -17,6 +17,7 @@ import { runWorkVerificationMigrations } from "../src/work-verification/postgres
 import { createPostgresWorkDeliveryRepository } from "../src/work-delivery/postgres-work-delivery-repository.js";
 import { runWorkDeliveryMigrations } from "../src/work-delivery/postgres.js";
 import { createWorkDeliveryService } from "../src/work-delivery/work-delivery-service.js";
+import { createOperatorWorkspaceService } from "../src/operator-workspace/operator-workspace-service.js";
 
 const connectionString = process.env.TEST_DATABASE_URL || process.env.IDENTITY_TEST_DATABASE_URL;
 const isolatedUrl = (value, schema) => { const url = new URL(value); url.searchParams.set("options", `-c search_path=${schema}`); return url.toString(); };
@@ -44,7 +45,7 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   const identity = createPostgresIdentityRepository({ pool });
   const seeded = await seedInitialAdmin(identity, { organizationId: "org-a13-pg", organizationName: "A13 PG", adminEmail: "a13-pg@example.test", adminDisplayName: "A13 PG", adminTempPassword: "Temporary-A13-PG-9!" });
   const organizationId = "org-a13-pg", at = "2026-08-09T00:00:00.000Z";
-  const ids = Object.fromEntries(["project", "product", "revision", "copy", "avatarAsset", "avatarVersion", "plan", "order", "package", "packageJob", "attempt", "report", "candidate", "asset", "assetVersion", "work"].map((name) => [name, randomUUID()]));
+  const ids = Object.fromEntries(["project", "product", "revision", "copy", "avatarAsset", "avatarVersion", "plan", "order", "package", "packageJob", "attempt", "report", "candidate", "verificationJob", "asset", "assetVersion", "work"].map((name) => [name, randomUUID()]));
   const checksum = "a".repeat(64);
 
   await pool.query("INSERT INTO project_content_projects(id,organization_id,name,created_by_member_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$5)", [ids.project, organizationId, "A13 项目", seeded.member.id, at]);
@@ -67,7 +68,7 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
     VALUES ($1,$2,$3,1,'frozen',1,$4,$5,$6,$7,$8,$8,$8)`, [ids.plan, organizationId, ids.product, JSON.stringify({ copy_version_id: ids.copy, avatar_asset_version_id: ids.avatarVersion }), JSON.stringify({ preset: "pg" }), "输出", seeded.member.id, at]);
   await pool.query(`INSERT INTO production_orders
     (id,organization_id,product_id,video_plan_version_id,execution_purpose,status,row_version,input_snapshot,status_history,created_by_member_id,created_at,updated_at)
-    VALUES ($1,$2,$3,$4,'first_production','running',1,$5,$6,$7,$8,$8)`, [ids.order, organizationId, ids.product, ids.plan, JSON.stringify({ video_plan_version: { id: ids.plan } }), JSON.stringify([{ status: "running", at }]), seeded.member.id, at]);
+    VALUES ($1,$2,$3,$4,'first_production','succeeded',1,$5,$6,$7,$8,$8)`, [ids.order, organizationId, ids.product, ids.plan, JSON.stringify({ video_plan_version: { id: ids.plan }, product_revision_snapshot: { project_id: ids.project } }), JSON.stringify([{ status: "succeeded", at }]), seeded.member.id, at]);
   const packageClient = await pool.connect();
   try {
     await packageClient.query("BEGIN");
@@ -96,6 +97,11 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   await pool.query(`INSERT INTO works
     (id,organization_id,production_order_id,execution_attempt_id,manual_execution_report_id,package_id,package_version,manifest_hash,video_plan_version_id,copy_version_id,avatar_asset_version_id,production_config_snapshot,package_manifest_snapshot,primary_asset_version_id,primary_candidate_id,primary_output_checksum,primary_output_media_type,primary_output_size,status,created_at,updated_at)
     VALUES ($1,$2,$3,$4,$5,$6,1,'manifest-a13',$7,$8,$9,'{}','{}',$10,$11,$12,'video/mp4',42,'available',$13,$13)`, [ids.work, organizationId, ids.order, ids.attempt, ids.report, ids.package, ids.plan, ids.copy, ids.avatarVersion, ids.assetVersion, ids.candidate, checksum, at]);
+  await pool.query(`INSERT INTO work_verification_jobs
+    (id,organization_id,type,production_order_id,execution_attempt_id,report_id,candidate_id,primary_output_checksum,
+     requested_by_member_id,requested_by_role,status,verification_status,attempts,max_attempts,completed_at,work_id,receipt_key,checks,created_at,updated_at)
+    VALUES ($1,$2,'artifact_verification',$3,$4,$5,$6,$7,$8,'admin','succeeded','passed',1,1,$9,$10,'a13-verification','[]',$9,$9)`,
+  [ids.verificationJob, organizationId, ids.order, ids.attempt, ids.report, ids.candidate, checksum, seeded.member.id, at, ids.work]);
 
   const workPort = {
     async listWorks(org) { return (await pool.query("SELECT * FROM works WHERE organization_id=$1 ORDER BY created_at,id", [org])).rows; },
@@ -103,8 +109,47 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   };
   const repository = createPostgresWorkDeliveryRepository({ pool });
   await repository.initialize();
-  const service = createWorkDeliveryService({ repository, workPort, now: () => Date.parse(at) });
+  const orderPort = { async getOrder({ organizationId: requestedOrg, orderId }) {
+    return (await pool.query("SELECT * FROM production_orders WHERE organization_id=$1 AND id=$2", [requestedOrg, orderId])).rows[0] || null;
+  } };
+  const service = createWorkDeliveryService({ repository, workPort, orderPort, now: () => Date.parse(at) });
   const actor = { organizationId, actorMemberId: seeded.member.id, actorRole: "admin" };
+  const beforeProjection = await pool.query(`SELECT
+    (SELECT count(*)::int FROM work_inspections) AS inspections,
+    (SELECT count(*)::int FROM work_delivery_audit_events) AS audits,
+    (SELECT count(*)::int FROM work_delivery_status_ledger) AS ledger`);
+  const operator = createOperatorWorkspaceService({
+    projectContentService: { async getProject() {
+      return { id: ids.project, name: "A13 项目", products: [{ id: ids.product, current_revision_id: ids.revision,
+        revision: { id: ids.revision, organization_id: organizationId, project_id: ids.project,
+          product_id: ids.product, status: "ready", product_name: "A13 商品", asset_version_ids: [], selling_points: [] } }] };
+    } },
+    productionService: { async getOperatorWorkspace() {
+      const [order, plan, packageValue, attempt, report, job, verificationWork] = await Promise.all([
+        pool.query("SELECT * FROM production_orders WHERE organization_id=$1 AND id=$2", [organizationId, ids.order]).then((value) => value.rows[0]),
+        pool.query("SELECT * FROM video_plan_versions WHERE organization_id=$1 AND id=$2", [organizationId, ids.plan]).then((value) => value.rows[0]),
+        pool.query("SELECT * FROM manual_handoff_packages WHERE organization_id=$1 AND id=$2", [organizationId, ids.package]).then((value) => value.rows[0]),
+        pool.query("SELECT * FROM manual_execution_attempts WHERE organization_id=$1 AND id=$2", [organizationId, ids.attempt]).then((value) => value.rows[0]),
+        pool.query("SELECT * FROM manual_execution_reports WHERE organization_id=$1 AND id=$2", [organizationId, ids.report]).then((value) => value.rows[0]),
+        pool.query("SELECT * FROM work_verification_jobs WHERE organization_id=$1 AND id=$2", [organizationId, ids.verificationJob]).then((value) => value.rows[0]),
+        pool.query("SELECT * FROM works WHERE organization_id=$1 AND id=$2", [organizationId, ids.work]).then((value) => value.rows[0])
+      ]);
+      return { workspace: { current_plan: plan, gate: { can_create: false, reasons: [] }, orders: [order], selected_order: order },
+        packages: [packageValue], execution: { order, current_attempt: attempt, attempts: [attempt], candidates: [], reports: [report] },
+        verification: { order, job, work: verificationWork, works: [verificationWork] },
+        work: await service.getWorkProjection({ ...actor, workId: ids.work }), read_errors: [] };
+    } }
+  });
+  for (const stage of ["production", "product_content"]) {
+    const projected = await operator.getWorkspace({ ...actor, projectId: ids.project, productId: ids.product,
+      stage, orderId: ids.order });
+    assert.equal(projected.stages[4].production.work.delivery_status, "pending_review");
+  }
+  const afterProjection = await pool.query(`SELECT
+    (SELECT count(*)::int FROM work_inspections) AS inspections,
+    (SELECT count(*)::int FROM work_delivery_audit_events) AS audits,
+    (SELECT count(*)::int FROM work_delivery_status_ledger) AS ledger`);
+  assert.deepEqual(afterProjection.rows[0], beforeProjection.rows[0]);
   const pending = (await service.listWorks(actor))[0].current_inspection;
   const passed = await service.markDeliverable({ ...actor, workId: ids.work, expectedInspectionId: pending.id, expectedRevision: pending.revision, idempotencyKey: "a13-pass" });
   assert.equal(passed.work.delivery_status, "deliverable");
@@ -118,8 +163,10 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   const concurrent = await Promise.allSettled(deliveryInputs.map((input) => service.createDelivery(input)));
   assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(concurrent.filter((result) => result.status === "rejected")[0]?.reason?.code, "IDEMPOTENCY_CONFLICT");
-  const winner = concurrent.find((result) => result.status === "fulfilled").value;
-  const replay = await service.createDelivery(deliveryInputs[concurrent.findIndex((result) => result.status === "fulfilled")]);
+  const winnerIndex = concurrent.findIndex((result) => result.status === "fulfilled");
+  const winnerInput = deliveryInputs[winnerIndex];
+  const winner = concurrent[winnerIndex].value;
+  const replay = await service.createDelivery(winnerInput);
   assert.equal(replay.replayed, true);
   assert.equal(replay.delivery.id, winner.delivery.id);
   const second = await service.createDelivery({ ...deliveryInputs[0], idempotencyKey: "a13-second-delivery", note: "第二次真实交付" });
@@ -133,7 +180,7 @@ test("PostgreSQL A13 migration and repository preserve inspection history, deliv
   assert.equal(rework.inspection.category, "visual_quality");
   assert.equal(rework.inspection.reason, "画面需要重新检查");
   assert.equal(rework.inspection.target_upstream_stage, "video_plan");
-  assert.equal((await service.createDelivery(deliveryInputs[0])).replayed, true);
+  assert.equal((await service.createDelivery(winnerInput)).replayed, true);
 
   await assert.rejects(service.markDeliverable({ ...actor, workId: ids.work, idempotencyKey: "a13-pass-after-rework",
     expectedInspectionId: rework.inspection.id, expectedRevision: rework.inspection.revision }), (error) => error.code === "WORK_DELIVERY_REWORK_BLOCKED");

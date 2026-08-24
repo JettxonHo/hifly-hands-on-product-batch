@@ -691,6 +691,93 @@ export async function buildApp({
     const configuredVideoPlanningService = Object.hasOwn(operatorWorkspaceOptions || {}, "videoPlanningService")
       ? operatorWorkspaceOptions.videoPlanningService
       : app.videoPlanning?.service || null;
+    const configuredProductionService = Object.hasOwn(operatorWorkspaceOptions || {}, "productionService")
+      ? operatorWorkspaceOptions.productionService
+      : productionOrdersEnabled ? {
+        async getOperatorWorkspace(input) {
+          const workspace = await app.productionOrders.service.getWorkspace(input);
+          const selected = workspace.selected_order || null;
+          const result = {
+            workspace,
+            packages: [],
+            execution: null,
+            verification: null,
+            work: null,
+            read_errors: []
+          };
+          if (!selected) return result;
+          try {
+            if (app.manualHandoff?.service?.listPackages) {
+              result.packages = await app.manualHandoff.service.listPackages({
+                ...input, productionOrderId: selected.id
+              });
+            } else {
+              result.read_errors.push("handoff");
+            }
+          } catch {
+            result.read_errors.push("handoff");
+          }
+          if (["claimed", "running", "requires_action", "failed", "cancel_requested", "cancelled", "succeeded"].includes(selected.status)) {
+            try {
+              if (app.manualExecution?.service?.getExecutionWorkspace) {
+                result.execution = await app.manualExecution.service.getExecutionWorkspace({
+                  ...input, productionOrderId: selected.id
+                });
+              } else {
+                result.read_errors.push("execution");
+              }
+            } catch {
+              result.read_errors.push("execution");
+            }
+          }
+          const currentAttempt = result.execution?.current_attempt || null;
+          const latestReport = [...(result.execution?.reports || [])].sort((left, right) =>
+            Number(left.report_version) - Number(right.report_version) || String(left.id).localeCompare(String(right.id))).at(-1) || null;
+          const executionCompleted = currentAttempt?.status === "succeeded" && latestReport?.outcome === "completed";
+          const shouldReadVerification = executionCompleted &&
+            ["running", "succeeded"].includes(selected.status);
+          if (shouldReadVerification && !result.read_errors.includes("execution")) {
+            try {
+              if (app.artifactVerification?.service?.getVerificationWorkspace) {
+                result.verification = await app.artifactVerification.service.getVerificationWorkspace({
+                  ...input, productionOrderId: selected.id
+                });
+              } else {
+                result.read_errors.push("verification");
+              }
+            } catch {
+              result.read_errors.push("verification");
+            }
+            const verificationOrder = result.verification?.order || null;
+            const sameOrderGeneration = verificationOrder?.id === selected.id &&
+              verificationOrder?.organization_id === selected.organization_id &&
+              verificationOrder?.product_id === selected.product_id;
+            const generationMismatch = sameOrderGeneration &&
+              (verificationOrder.status !== selected.status ||
+                (selected.status === "running" &&
+                  (result.verification.job?.verification_status === "passed" || result.verification.work)) ||
+                (selected.status === "succeeded" &&
+                  (result.verification.job?.verification_status !== "passed" || !result.verification.work)));
+            if (generationMismatch) {
+              result.verification = null;
+              result.read_errors.push("generation");
+            }
+            const workId = result.verification?.work?.id || null;
+            if (workId) {
+              try {
+                if (app.workDelivery?.service?.getWorkProjection) {
+                  result.work = await app.workDelivery.service.getWorkProjection({ ...input, workId });
+                } else {
+                  result.read_errors.push("work");
+                }
+              } catch {
+                result.read_errors.push("work");
+              }
+            }
+          }
+          return result;
+        }
+      } : null;
     const operatorWorkspaceService = createOperatorWorkspaceService({
       projectContentService: app.projectContent.service,
       copyService: app.copyGeneration?.service,
@@ -699,7 +786,7 @@ export async function buildApp({
       avatarService: app.avatarSelection?.service,
       videoPlanningService: configuredVideoPlanningService,
       videoPlanningEnabled,
-      productionService: operatorWorkspaceOptions.productionService || null
+      productionService: configuredProductionService
     });
     app.decorate("operatorWorkspace", { service: operatorWorkspaceService });
     await registerOperatorWorkspaceRoutes(app, { service: operatorWorkspaceService });

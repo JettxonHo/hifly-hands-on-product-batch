@@ -21,6 +21,20 @@ const VIDEO_PLAN_ACTIONS = Object.freeze({
   approve_video_plan_review: Object.freeze({ stage: "video_plan", kind: "command" }),
   continue_to_production: Object.freeze({ stage: "video_plan", kind: "navigate" })
 });
+const PRODUCTION_ACTIONS = Object.freeze({
+  return_to_video_plan: Object.freeze({ stage: "production", kind: "navigate" }),
+  create_production_order: Object.freeze({ stage: "production", kind: "command" }),
+  generate_handoff_package: Object.freeze({ stage: "production", kind: "command" }),
+  retry_handoff_package: Object.freeze({ stage: "production", kind: "command" }),
+  authorize_handoff_download: Object.freeze({ stage: "production", kind: "command" }),
+  view_production_failure_details: Object.freeze({ stage: "production", kind: "focus" }),
+  view_verification_details: Object.freeze({ stage: "production", kind: "focus" }),
+  review_production_work: Object.freeze({ stage: "production", kind: "navigate" }),
+  view_production_rework: Object.freeze({ stage: "production", kind: "navigate" }),
+  deliver_production_work: Object.freeze({ stage: "production", kind: "navigate" }),
+  view_production_delivery: Object.freeze({ stage: "production", kind: "navigate" }),
+  retry_production_read: Object.freeze({ stage: "production", kind: "refresh" })
+});
 
 const failure = (code, details = {}) => Object.assign(new Error(code), { code, ...details });
 const text = (value) => typeof value === "string" ? value.trim() : "";
@@ -477,6 +491,308 @@ function videoPlanStage({ workspace, avatarProjection, revision, requestedStage 
   };
 }
 
+function productionAction(code) {
+  if (!Object.hasOwn(PRODUCTION_ACTIONS, code)) return null;
+  const registered = PRODUCTION_ACTIONS[code];
+  return registered ? { code, stage: registered.stage, kind: registered.kind } : null;
+}
+
+function publicProductionOrder(value) {
+  if (!value) return null;
+  const keys = ["id", "product_id", "video_plan_version_id", "execution_purpose", "status", "row_version",
+    "created_at", "updated_at"];
+  return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
+}
+
+function publicProductionPackage(value) {
+  if (!value) return null;
+  const keys = ["id", "package_id", "production_order_id", "status", "package_version", "row_version",
+    "attempts", "max_attempts", "failure_reason", "expires_at", "created_at", "updated_at"];
+  return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
+}
+
+function publicProductionAttempt(value) {
+  if (!value) return null;
+  const keys = ["id", "production_order_id", "status", "row_version", "progress_phase", "heartbeat_at",
+    "claimed_at", "started_at", "completed_at", "created_at", "updated_at"];
+  return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
+}
+
+function publicProductionReport(value) {
+  if (!value) return null;
+  const keys = ["id", "production_order_id", "outcome", "failure_stage", "failure_code",
+    "failure_reason", "retryability", "created_at", "completed_at"];
+  return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
+}
+
+function publicVerificationJob(value) {
+  if (!value) return null;
+  const keys = ["id", "production_order_id", "execution_attempt_id", "status", "verification_status",
+    "failure_kind", "failure_code", "failure_reason", "row_version", "attempts", "max_attempts",
+    "created_at", "updated_at", "completed_at"];
+  return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
+}
+
+function publicProductionWork(value) {
+  if (!value) return null;
+  const keys = ["id", "production_order_id", "project_id", "product_id", "status", "delivery_status",
+    "delivery_count", "created_at", "updated_at"];
+  return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
+}
+
+function hasForeignOrganization(value, organizationId) {
+  return Boolean(value && Object.hasOwn(value, "organization_id") && value.organization_id !== organizationId);
+}
+
+function latestExecutionReport(reports) {
+  if (!Array.isArray(reports) || reports.length === 0) return null;
+  if (reports.some((report) => !text(report?.id) || !Number.isInteger(report.report_version) || report.report_version < 1)) {
+    throw notFound();
+  }
+  return [...reports].sort((left, right) =>
+    left.report_version - right.report_version || left.id.localeCompare(right.id)).at(-1);
+}
+
+function assertExactProductionWorkspace(value, { organizationId, projectId, productId, requestedOrderId }) {
+  if (!value || typeof value !== "object" || !value.workspace || typeof value.workspace !== "object") throw notFound();
+  const workspace = value.workspace;
+  const orders = Array.isArray(workspace.orders) ? workspace.orders : [];
+  for (const order of orders) {
+    if (!text(order?.id) || order.organization_id !== organizationId || order.product_id !== productId) throw notFound();
+  }
+  const selected = workspace.selected_order || null;
+  if (requestedOrderId && (!selected || selected.id !== requestedOrderId)) throw notFound();
+  if (selected) {
+    const canonicalOrder = orders.find((order) => order.id === selected.id);
+    if (!canonicalOrder || !isDeepStrictEqual(canonicalOrder, selected) || selected.organization_id !== organizationId ||
+        selected.product_id !== productId) throw notFound();
+  }
+  if (workspace.current_plan && (!text(workspace.current_plan.id) ||
+      workspace.current_plan.organization_id !== organizationId || workspace.current_plan.product_id !== productId)) throw notFound();
+  if (!selected) {
+    if ((value.packages || []).length || value.execution || value.verification || value.work) throw notFound();
+    return;
+  }
+  for (const item of value.packages || []) {
+    if (!text(item?.id || item?.package_id) || item.production_order_id !== selected.id ||
+        hasForeignOrganization(item, organizationId)) throw notFound();
+  }
+  const execution = value.execution;
+  let currentAttempt = null;
+  let latestReport = null;
+  if (execution) {
+    if (hasForeignOrganization(execution.order, organizationId) ||
+        !isDeepStrictEqual(publicProductionOrder(execution.order), publicProductionOrder(selected))) throw notFound();
+    const attempts = Array.isArray(execution.attempts) ? execution.attempts : [];
+    for (const attempt of attempts) {
+      if (attempt && (!text(attempt.id) || attempt.production_order_id !== selected.id ||
+          hasForeignOrganization(attempt, organizationId))) throw notFound();
+    }
+    currentAttempt = execution.current_attempt || null;
+    if (currentAttempt) {
+      const canonicalAttempt = attempts.find((attempt) => attempt.id === currentAttempt.id);
+      if (!canonicalAttempt || !isDeepStrictEqual(canonicalAttempt, currentAttempt) ||
+          currentAttempt.production_order_id !== selected.id ||
+          hasForeignOrganization(currentAttempt, organizationId)) throw notFound();
+    }
+    const reports = execution.reports || [];
+    for (const report of reports) {
+      if (!currentAttempt || !text(report?.id) || report.production_order_id !== selected.id ||
+          report.execution_attempt_id !== currentAttempt.id ||
+          hasForeignOrganization(report, organizationId)) throw notFound();
+    }
+    latestReport = latestExecutionReport(reports);
+  }
+  const verification = value.verification;
+  if (verification) {
+    if (hasForeignOrganization(verification.order, organizationId) ||
+        !isDeepStrictEqual(publicProductionOrder(verification.order), publicProductionOrder(selected))) throw notFound();
+    if (verification.job && (!currentAttempt || verification.job.production_order_id !== selected.id ||
+        verification.job.execution_attempt_id !== currentAttempt.id ||
+        !latestReport || verification.job.report_id !== latestReport.id ||
+        hasForeignOrganization(verification.job, organizationId))) throw notFound();
+    for (const work of [verification.work, ...(verification.works || [])]) {
+      if (work && (!verification.job || !text(work.id) || work.production_order_id !== selected.id ||
+          work.execution_attempt_id !== currentAttempt?.id ||
+          work.manual_execution_report_id !== verification.job.report_id ||
+          hasForeignOrganization(work, organizationId))) throw notFound();
+    }
+  }
+  if (value.work) {
+    if (!text(value.work.id) || value.work.production_order_id !== selected.id ||
+        value.work.project_id !== projectId || value.work.product_id !== productId ||
+        value.work.execution_attempt_id !== currentAttempt?.id ||
+        value.work.manual_execution_report_id !== verification?.job?.report_id ||
+        !verification?.work?.id || verification.work.id !== value.work.id ||
+        hasForeignOrganization(value.work, organizationId)) throw notFound();
+  }
+}
+
+function productionStage({ value, requestedStage }) {
+  const workspace = value.workspace;
+  const selected = workspace.selected_order || null;
+  const packages = (value.packages || []).map(publicProductionPackage);
+  const currentPackage = packages[0] || null;
+  const execution = value.execution || null;
+  const attempt = publicProductionAttempt(execution?.current_attempt || null);
+  const latestReport = latestExecutionReport(execution?.reports || []);
+  const reports = (execution?.reports || []).map(publicProductionReport);
+  const verification = value.verification || null;
+  const verificationJob = publicVerificationJob(verification?.job || null);
+  const work = publicProductionWork(value.work || null);
+  const readErrors = new Set(Array.isArray(value.read_errors) ? value.read_errors : []);
+  let businessStatus = "生产待创建";
+  let blockerCodes = ["PRODUCTION_ORDER_REQUIRED"];
+  let action = workspace.gate?.can_create === true ? productionAction("create_production_order") : productionAction("return_to_video_plan");
+
+  if (selected) {
+    action = null;
+    const executionCompleted = attempt?.status === "succeeded" && latestReport?.outcome === "completed";
+    const observesVerification = selected.status === "succeeded" ||
+      (selected.status === "running" && executionCompleted);
+    const handoffReadFailed = selected.status === "waiting_for_executor" && readErrors.has("handoff");
+    const executionReadFailed = ["claimed", "running", "requires_action", "failed", "cancel_requested", "cancelled", "succeeded"]
+      .includes(selected.status) && readErrors.has("execution");
+    const verificationReadFailed = observesVerification && readErrors.has("verification");
+    const workReadFailed = selected.status === "succeeded" && readErrors.has("work");
+    if (readErrors.has("production") || readErrors.has("generation") || handoffReadFailed || executionReadFailed ||
+        verificationReadFailed || workReadFailed) {
+      businessStatus = workReadFailed ? "作品状态读取失败" : verificationReadFailed ? "核验状态读取失败" :
+        handoffReadFailed ? "生产交接资料读取失败" : readErrors.has("generation") ?
+          "生产状态已变化，请刷新" : "生产执行状态读取失败";
+      blockerCodes = ["PRODUCTION_READ_FAILED"];
+      action = productionAction("retry_production_read");
+    } else if (selected.status === "waiting_for_executor") {
+      if (!currentPackage) {
+        businessStatus = "生产交接资料待生成";
+        blockerCodes = ["HANDOFF_PACKAGE_REQUIRED"];
+        action = productionAction("generate_handoff_package");
+      } else if (currentPackage.status === "generating") {
+        businessStatus = "正在准备生产交接资料";
+        blockerCodes = ["HANDOFF_PACKAGE_IN_PROGRESS"];
+      } else if (currentPackage.status === "generation_failed") {
+        businessStatus = "生产交接资料准备失败";
+        blockerCodes = ["HANDOFF_PACKAGE_FAILED"];
+        action = productionAction("retry_handoff_package");
+      } else if (currentPackage.status === "expired") {
+        businessStatus = "生产交接资料授权已过期";
+        blockerCodes = ["HANDOFF_PACKAGE_AUTHORIZATION_EXPIRED"];
+        action = productionAction("authorize_handoff_download");
+      } else if (currentPackage.status === "ready") {
+        businessStatus = "等待生产门禁核对";
+        blockerCodes = ["PRODUCTION_ACTIVATION_NOT_PROVEN"];
+      } else {
+        businessStatus = "当前生产交接包不可用";
+        blockerCodes = ["HANDOFF_PACKAGE_UNAVAILABLE"];
+      }
+    } else if (selected.status === "claimed") {
+      businessStatus = "生产任务已领取";
+      blockerCodes = ["PRODUCTION_IN_PROGRESS"];
+    } else if (selected.status === "running") {
+      if (executionCompleted) {
+        const verificationStatus = verificationJob?.verification_status ||
+          (["queued", "running"].includes(verificationJob?.status) ? "pending" : "not_started");
+        if (["queued", "running", "pending"].includes(verificationStatus)) {
+          businessStatus = "正在核验作品文件";
+          blockerCodes = ["WORK_VERIFICATION_IN_PROGRESS"];
+        } else if (["failed", "requires_action"].includes(verificationStatus)) {
+          businessStatus = "作品文件核验需要处理";
+          blockerCodes = ["WORK_VERIFICATION_REQUIRES_ACTION"];
+          action = productionAction("view_verification_details");
+        } else if (verificationStatus === "passed" || work) {
+          businessStatus = "生产状态已变化，请刷新";
+          blockerCodes = ["PRODUCTION_READ_FAILED"];
+          action = productionAction("retry_production_read");
+        } else {
+          businessStatus = "生成完成，待文件核验";
+          blockerCodes = ["WORK_VERIFICATION_REQUIRED"];
+        }
+      } else {
+        businessStatus = "正在生成作品";
+        blockerCodes = ["PRODUCTION_IN_PROGRESS"];
+      }
+    } else if (selected.status === "requires_action") {
+      businessStatus = "生产需要人工处理";
+      blockerCodes = ["PRODUCTION_REQUIRES_ACTION"];
+      action = productionAction("view_production_failure_details");
+    } else if (selected.status === "failed") {
+      businessStatus = "生产失败，已停止";
+      blockerCodes = ["PRODUCTION_FAILED"];
+      action = reports.some((report) => report.outcome === "failed")
+        ? productionAction("view_production_failure_details") : productionAction("return_to_video_plan");
+    } else if (selected.status === "cancel_requested") {
+      businessStatus = "正在取消生产";
+      blockerCodes = ["PRODUCTION_CANCEL_PENDING"];
+    } else if (selected.status === "cancelled") {
+      businessStatus = "生产已取消";
+      blockerCodes = ["PRODUCTION_CANCELLED"];
+      action = productionAction("return_to_video_plan");
+    } else if (selected.status === "succeeded") {
+      const verificationStatus = verificationJob?.verification_status ||
+        (["queued", "running"].includes(verificationJob?.status) ? "pending" : "not_started");
+      if (verificationStatus === "passed" && work) {
+        const labels = {
+          pending_review: "作品待检查", rework_required: "作品需要返工",
+          deliverable: "作品可交付", delivered: "作品已交付，待真实下载验收"
+        };
+        businessStatus = labels[work.delivery_status] || "作品状态待确认";
+        blockerCodes = work.delivery_status === "deliverable" ? [] : ["WORK_ACTION_REQUIRED"];
+        const workActions = {
+          pending_review: "review_production_work",
+          rework_required: "view_production_rework",
+          deliverable: "deliver_production_work",
+          delivered: "view_production_delivery"
+        };
+        action = productionAction(workActions[work.delivery_status]);
+      } else {
+        businessStatus = "生产状态已变化，请刷新";
+        blockerCodes = ["PRODUCTION_READ_FAILED"];
+        action = productionAction("retry_production_read");
+      }
+    } else {
+      businessStatus = "生产状态待确认";
+      blockerCodes = ["PRODUCTION_STATUS_UNKNOWN"];
+    }
+  }
+
+  return {
+    stage: {
+      code: "production",
+      implementation_status: "workspace",
+      read_status: "ok",
+      navigation_state: requestedStage === "production" ? "current" : "available",
+      business_status: businessStatus,
+      blocker_codes: blockerCodes,
+      current_object: selected ? { type: "production_order", id: selected.id } : null,
+      production: {
+        current_plan: workspace.current_plan ? {
+          id: workspace.current_plan.id,
+          status: workspace.current_plan.status,
+          version_number: workspace.current_plan.version_number
+        } : null,
+        gate: { can_create: workspace.gate?.can_create === true,
+          reasons: Array.isArray(workspace.gate?.reasons) ? [...workspace.gate.reasons] : [] },
+        orders: (workspace.orders || []).map(publicProductionOrder),
+        selected_order: publicProductionOrder(selected),
+        package: currentPackage,
+        execution: { current_attempt: attempt, reports },
+        verification: { job: verificationJob },
+        work,
+        read_errors: [...readErrors]
+      }
+    },
+    action
+  };
+}
+
+function productionErrorStage() {
+  return {
+    ...legacyStage("production"),
+    implementation_status: "workspace",
+    read_status: "error"
+  };
+}
+
 function copyState({ revision, copy, currentCopyId, versions, generation, quality, review, requestedStage, actorRole }) {
   const generationStatus = generation.status;
   const reviewStatus = review.status;
@@ -791,22 +1107,49 @@ export function createOperatorWorkspaceService({ projectContentService, copyServ
         videoPlanProjection = { stage: videoPlanErrorStage(), action: null };
       }
     }
+    let productionProjection = { stage: legacyStage("production"), action: null };
+    const productionWorkspaceEnabled = typeof productionService?.getOperatorWorkspace === "function";
+    if (productionWorkspaceEnabled) {
+      try {
+        const productionWorkspace = await productionService.getOperatorWorkspace({
+          organizationId: input.organizationId,
+          actorMemberId: input.actorMemberId,
+          actorRole: input.actorRole,
+          productId: product.id,
+          orderId: input.orderId || null
+        });
+        assertExactProductionWorkspace(productionWorkspace, {
+          organizationId: input.organizationId,
+          projectId: project.id,
+          productId: product.id,
+          requestedOrderId: input.orderId || null
+        });
+        productionProjection = productionStage({ value: productionWorkspace, requestedStage });
+      } catch (error) {
+        if (error?.code === "OPERATOR_WORKSPACE_NOT_FOUND") throw error;
+        if (requestedStage === "production") throw unavailable(error);
+        productionProjection = { stage: productionErrorStage(), action: null };
+      }
+    }
     const stages = [productContent, copyProjection.stage, avatarProjection.stage,
-      videoPlanProjection.stage, legacyStage("production", productionService)];
+      videoPlanProjection.stage, productionProjection.stage];
     const isProductContent = requestedStage === "product_content";
     const isCopy = requestedStage === "copy" && copyWorkspaceEnabled;
     const isAvatar = requestedStage === "avatar" && avatarWorkspaceEnabled;
     const isVideoPlan = requestedStage === "video_plan" && videoPlanWorkspaceEnabled && videoPlanProjection.stage.read_status === "ok";
+    const isProduction = requestedStage === "production" && productionWorkspaceEnabled && productionProjection.stage.read_status === "ok";
     return {
       project: { id: project.id, name: project.name ?? null },
       product: { id: product.id, name: revision.product_name ?? product.name ?? null, current_revision_id: revision.id },
       projection_version: PROJECTION_VERSION,
       action_registry_version: ACTION_REGISTRY_VERSION,
       requested_stage: requestedStage,
-      render_mode: isProductContent || isCopy || isAvatar || isVideoPlan ? "workspace" : "legacy",
-      recommended_stage: isProductContent ? "product_content" : isCopy ? "copy" : isAvatar ? "avatar" : isVideoPlan ? "video_plan" : null,
+      render_mode: isProductContent || isCopy || isAvatar || isVideoPlan || isProduction ? "workspace" : "legacy",
+      recommended_stage: isProductContent ? "product_content" : isCopy ? "copy" : isAvatar ? "avatar" :
+        isVideoPlan ? "video_plan" : isProduction ? "production" : null,
       recommended_action: isProductContent ? actionFor(revision, productContent.blocker_codes) :
-        isCopy ? copyProjection.action : isAvatar ? avatarProjection.action : isVideoPlan ? videoPlanProjection.action : null,
+        isCopy ? copyProjection.action : isAvatar ? avatarProjection.action : isVideoPlan ? videoPlanProjection.action :
+          isProduction ? productionProjection.action : null,
       stages
     };
   }

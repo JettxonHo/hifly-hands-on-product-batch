@@ -29,6 +29,14 @@
     });
     return;
   }
+  if (workspaceMode && requestedStage === "production") {
+    await window.HiflyProductionWorkspace.start({
+      projectId,
+      productId: requestedProductId,
+      orderId: params.get("orderId")
+    });
+    return;
+  }
   const editor = document.querySelector("#editor");
   const revisionForm = document.querySelector("#revisionForm");
   const pointList = document.querySelector("#pointList");
