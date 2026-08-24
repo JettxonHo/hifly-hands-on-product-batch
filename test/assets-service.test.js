@@ -63,6 +63,59 @@ async function verified(world, overrides = {}) {
   return created;
 }
 
+async function registeredWorkVideo(world, overrides = {}) {
+  const body = overrides.body || Buffer.from("verified-work-video");
+  const objectKey = overrides.objectKey || `org_a/work-videos/${randomUUID()}.mp4`;
+  const checksum = createHash("sha256").update(body).digest("hex");
+  await world.objectStore.put({
+    key: objectKey,
+    body,
+    contentType: "video/mp4",
+    metadata: { organizationId: "org_a" }
+  });
+  return world.service.verifiedOutputAssetPort.registerVerifiedOutput({
+    organizationId: "org_a",
+    actorMemberId: "member_a",
+    candidate: {
+      id: randomUUID(),
+      object_key: objectKey,
+      original_filename: "verified-work.mp4",
+      media_type: "video/mp4",
+      size: body.length,
+      checksum
+    },
+    now: "2026-08-25T08:00:00.000Z"
+  });
+}
+
+test("verified work replay rejects an internal image that shares the same object key", async () => {
+  const w = world();
+  const staged = await w.service.appearanceCandidateAssetPort.stageVerifiedCandidate({
+    organizationId: "org_a",
+    candidateId: "candidate_work_collision",
+    captureRequestId: "capture_work_collision",
+    body: PNG,
+    mediaType: "image/png"
+  });
+  await w.service.appearanceCandidateAssetPort.registerStagedCandidate({
+    organizationId: "org_a", actorSystemId: "cloud_executor", staged
+  });
+
+  await assert.rejects(w.service.verifiedOutputAssetPort.registerVerifiedOutput({
+    organizationId: "org_a",
+    actorMemberId: "member_a",
+    candidate: {
+      id: "work_collision",
+      object_key: staged.object_key,
+      original_filename: "collision.png",
+      media_type: staged.media_type,
+      size: staged.size,
+      checksum: staged.checksum_sha256
+    },
+    now: "2026-08-25T08:00:00.000Z"
+  }), { code: "WORK_VERIFICATION_ASSET_CONFLICT" });
+});
+
 test("upload authorization is idempotent and safely re-signs an unfinished session", async () => {
   const w = world();
   const input = {
@@ -282,6 +335,67 @@ test("asset optimistic conflicts are visible; referenced delete is blocked while
   );
 });
 
+test("generic download authorization fails closed after an Asset is deleted", async () => {
+  const w = world();
+  const created = await verified(w);
+
+  await w.service.deleteAsset({
+    organizationId: "org_a",
+    assetId: created.asset.id,
+    expectedRevision: 1,
+    actorMemberId: "member_a"
+  });
+
+  await assert.rejects(
+    w.service.createDownloadAuthorization({
+      organizationId: "org_a",
+      assetVersionId: created.asset_version.id
+    }),
+    { code: "ASSET_VERSION_NOT_AVAILABLE" }
+  );
+});
+
+test("generic Assets expose only the three authoritative kinds and keep work videos read-only", async () => {
+  const w = world();
+  const product = await verified(w);
+  const avatar = await verified(w, { assetKind: "avatar_image", idempotencyKey: "avatar-public-kind" });
+  const workVideo = await registeredWorkVideo(w);
+  const internal = await w.service.appearanceCandidateAssetPort.registerStagedCandidate({
+    organizationId: "org_a",
+    actorSystemId: "cloud_executor",
+    staged: await stageCandidate(w)
+  });
+
+  const listed = await w.service.listAssets({ organizationId: "org_a" });
+  assert.deepEqual(new Set(listed.map((asset) => asset.kind)), new Set(["product_image", "avatar_image", "work_video"]));
+  assert.equal(listed.some((asset) => asset.id === product.asset.id), true);
+  assert.equal(listed.some((asset) => asset.id === avatar.asset.id), true);
+  assert.equal(listed.some((asset) => asset.id === workVideo.asset.id), true);
+  assert.equal(listed.some((asset) => asset.id === internal.asset.id), false);
+
+  for (const operation of [
+    () => w.service.updateAssetMetadata({ organizationId: "org_a", assetId: workVideo.asset.id, expectedRevision: 1, displayName: "不可改名" }),
+    () => w.service.disableAsset({ organizationId: "org_a", assetId: workVideo.asset.id, expectedRevision: 1 }),
+    () => w.service.deleteAsset({ organizationId: "org_a", assetId: workVideo.asset.id, expectedRevision: 1 }),
+    () => w.service.createUploadAuthorization({
+      organizationId: "org_a",
+      actorMemberId: "member_a",
+      idempotencyKey: "work-video-new-version",
+      assetId: workVideo.asset.id,
+      filename: "replacement.png",
+      contentType: "image/png",
+      size: PNG.length,
+      checksumSha256: SHA256
+    })
+  ]) {
+    await assert.rejects(operation(), { code: "ASSET_READ_ONLY" });
+  }
+
+  const unchanged = await w.service.getAsset({ organizationId: "org_a", assetId: workVideo.asset.id });
+  assert.equal(unchanged.status, "active");
+  assert.equal(unchanged.display_name, "verified-work.mp4");
+});
+
 test("bindAvailableVersion is idempotent, organization-safe, and returns an immutable verification snapshot", async () => {
   const w = world();
   const created = await uploaded(w);
@@ -293,6 +407,87 @@ test("bindAvailableVersion is idempotent, organization-safe, and returns an immu
   assert.deepEqual(second, first);
   assert.deepEqual(first.verification, { content_type: "image/png", size: PNG.length, checksum_sha256: SHA256 });
   await assert.rejects(w.service.assetReferencePort.bindAvailableVersion({ ...input, organizationId: "org_b" }), { code: "ASSET_VERSION_NOT_FOUND" });
+
+  const avatar = await verified(w, { assetKind: "avatar_image", filename: "avatar.png" });
+  await assert.rejects(w.service.assetReferencePort.bindAvailableVersion({
+    ...input, assetVersionId: avatar.asset_version.id, referenceId: "rev-avatar"
+  }), { code: "ASSET_VERSION_NOT_AVAILABLE" });
+
+  const disabled = await verified(w);
+  await w.service.disableAsset({ organizationId: "org_a", assetId: disabled.asset.id, expectedRevision: 1 });
+  await assert.rejects(w.service.assetReferencePort.bindAvailableVersion({
+    ...input, assetVersionId: disabled.asset_version.id, referenceId: "rev-disabled-first"
+  }), { code: "ASSET_NOT_ACTIVE" });
+});
+
+test("a pending transactional bind prevents delete and cannot append a reference after deletion", async () => {
+  const w = world();
+  const created = await verified(w);
+  await assert.rejects(
+    w.service.assetReferencePort.bindAvailableVersion({
+      organizationId: "org_a",
+      assetVersionId: created.asset_version.id,
+      referenceType: "product_revision",
+      referenceId: "revision-incomplete-uow",
+      role: "product_image",
+      transactionClient: { onCommit() {} }
+    }),
+    /onCommit and onRollback/
+  );
+  const commitCallbacks = [];
+  const rollbackCallbacks = [];
+  const input = {
+    organizationId: "org_a",
+    assetVersionId: created.asset_version.id,
+    referenceType: "product_revision",
+    referenceId: "revision-pending-bind",
+    role: "product_image",
+    transactionClient: {
+      onCommit(callback) { commitCallbacks.push(callback); },
+      onRollback(callback) { rollbackCallbacks.push(callback); }
+    }
+  };
+
+  const binding = await w.service.assetReferencePort.bindAvailableVersion(input);
+  assert.equal(binding.reference.reference_id, "revision-pending-bind");
+  let deletionSettled = false;
+  const deletion = w.service.deleteAsset({ organizationId: "org_a", assetId: created.asset.id, expectedRevision: 1 })
+    .finally(() => { deletionSettled = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(deletionSettled, false);
+  assert.equal(rollbackCallbacks.length, 1);
+
+  for (const callback of commitCallbacks) callback();
+  await assert.rejects(
+    deletion,
+    { code: "ASSET_HISTORY_REFERENCED" }
+  );
+
+  await assert.rejects(
+    w.service.deleteAsset({ organizationId: "org_a", assetId: created.asset.id, expectedRevision: 1 }),
+    { code: "ASSET_HISTORY_REFERENCED" }
+  );
+
+  const rolledBack = await verified(w);
+  const rollbackOnly = [];
+  await w.service.assetReferencePort.bindAvailableVersion({
+    organizationId: "org_a",
+    assetVersionId: rolledBack.asset_version.id,
+    referenceType: "product_revision",
+    referenceId: "revision-rolled-back-bind",
+    role: "product_image",
+    transactionClient: {
+      onCommit() {},
+      onRollback(callback) { rollbackOnly.push(callback); }
+    }
+  });
+  let rollbackDeleteSettled = false;
+  const rollbackDelete = w.service.deleteAsset({ organizationId: "org_a", assetId: rolledBack.asset.id, expectedRevision: 1 })
+    .finally(() => { rollbackDeleteSettled = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(rollbackDeleteSettled, false);
+  for (const callback of rollbackOnly.reverse()) callback();
+  assert.equal((await rollbackDelete).status, "deleted");
 });
 
 test("a new service instance recovers persisted pending and verifying jobs", async () => {

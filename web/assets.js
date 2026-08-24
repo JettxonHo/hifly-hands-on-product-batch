@@ -19,8 +19,12 @@
     OWNERSHIP_MISMATCH: "文件归属核验失败，请联系管理员。"
   };
   const pendingStatuses = new Set(["upload_pending", "uploading", "verifying"]);
+  const imageMediaTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+  const routeKinds = new Set(Object.keys(kindLabels));
   const dialogs = [byId("uploadDialog"), byId("renameDialog"), byId("assetDangerDialog")];
   const dialogTriggers = new Map();
+  const dialogFocusOverrides = new Map();
+  const dialogCloseResolvers = new Map();
   const workspace = document.querySelector(".asset-workspace");
 
   let assets = [];
@@ -29,14 +33,69 @@
   let identity = null;
   let loading = true;
   let loadError = false;
+  let assetAuthorityValid = false;
   let bootstrapInFlight = false;
-  let refreshInFlight = false;
+  let listEpoch = 0;
+  let previewEpoch = 0;
+  let previewEntries = new Map();
+  let previewPump = null;
+  let previewAbortController = new AbortController();
   let pollTimer = null;
   let tornDown = false;
   let uploadBusy = false;
   let renameBusy = false;
   let renameConflictAssetId = null;
   let dangerIntent = null;
+
+  function readRoute() {
+    const url = new URL(window.location.href);
+    const rawKind = url.searchParams.get("kind");
+    return {
+      kind: routeKinds.has(rawKind) ? rawKind : "product_image",
+      assetId: url.searchParams.get("asset") || null,
+      needsKindRepair: rawKind !== null && !routeKinds.has(rawKind),
+      legacy: rawKind === null && !url.searchParams.has("asset")
+    };
+  }
+
+  function routeIdentity() {
+    const route = readRoute();
+    return `${route.kind}:${route.assetId || ""}`;
+  }
+
+  function routeUrl(kind, assetId = null) {
+    const url = new URL("/assets.html", window.location.origin);
+    url.searchParams.set("kind", kind);
+    if (assetId) url.searchParams.set("asset", assetId);
+    return `${url.pathname}${url.search}`;
+  }
+
+  function writeRoute(kind, assetId, { replace = false, state = {} } = {}) {
+    const method = replace ? "replaceState" : "pushState";
+    history[method]({ assetsRoute: true, ...state }, "", routeUrl(kind, assetId));
+  }
+
+  function validPreviewVersion(asset) {
+    const version = asset?.versions?.[0];
+    return asset?.kind === "avatar_image" && version?.status === "available" &&
+      imageMediaTypes.has(version.verified_content_type) && Number.isInteger(version.verified_size) &&
+      version.verified_size > 0 && /^[a-f0-9]{64}$/.test(version.verified_checksum_sha256 || "") ? version : null;
+  }
+
+  const previewKey = (assetId, versionId) => `${assetId}:${versionId}`;
+
+  function clearPreviewAuthority() {
+    previewEpoch += 1;
+    previewAbortController.abort();
+    previewAbortController = new AbortController();
+    previewPump = null;
+    for (const entry of previewEntries.values()) if (entry.timer) clearTimeout(entry.timer);
+    previewEntries = new Map();
+    document.querySelectorAll("img[data-preview-role]").forEach((image) => {
+      image.removeAttribute("src");
+      image.hidden = true;
+    });
+  }
 
   const csrf = () => {
     const value = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf="));
@@ -59,7 +118,7 @@
   const currentAssets = () => assets.filter((asset) => asset.kind === activeKind);
   const selectedAsset = () => assets.find((asset) => asset.id === selectedAssetId) || null;
   const latestVersion = (asset) => asset?.versions?.[0] || null;
-  const canWriteAsset = (asset) => asset && asset.kind !== "work_video" && asset.status === "active";
+  const canWriteAsset = (asset) => assetAuthorityValid && asset && asset.kind !== "work_video" && asset.status === "active";
   const isAdmin = () => identity?.membership?.role === "admin";
   const usesSequentialLayout = () => window.matchMedia("(max-width: 900px)").matches;
 
@@ -69,7 +128,7 @@
 
   function setRecommended(node) {
     clearRecommended();
-    if (node && !node.hidden && !node.disabled) node.setAttribute("data-recommended-action", "true");
+    if (node && !node.hidden && !node.disabled && node.getClientRects().length > 0) node.setAttribute("data-recommended-action", "true");
   }
 
   function setNotice(message = "", type = "") {
@@ -90,13 +149,29 @@
   }
 
   function showDialog(dialog, trigger = document.activeElement) {
-    dialogTriggers.set(dialog, trigger);
+    dialogTriggers.set(dialog, {
+      node: trigger,
+      id: trigger?.id || null,
+      action: trigger?.dataset?.action || null,
+      assetId: selectedAssetId,
+      kind: trigger?.dataset?.kind || null
+    });
     dialog.showModal();
-    queueMicrotask(() => dialog.querySelector("input:not([type=hidden]), select, button")?.focus());
+    queueMicrotask(() => {
+      const target = dialog === byId("uploadDialog")
+        ? (byId("assetKind").disabled ? byId("assetFile") : byId("assetKind"))
+        : dialog === byId("renameDialog") ? byId("assetDisplayName") : byId("dangerTitle");
+      target?.focus();
+    });
   }
 
-  function closeDialog(dialog) {
-    if (dialog.open) dialog.close();
+  function closeDialog(dialog, focusOverride = null) {
+    if (!dialog.open) return Promise.resolve();
+    if (focusOverride) dialogFocusOverrides.set(dialog, focusOverride);
+    return new Promise((resolve) => {
+      dialogCloseResolvers.set(dialog, resolve);
+      dialog.close();
+    });
   }
 
   for (const dialog of dialogs) {
@@ -108,9 +183,32 @@
         byId("uploadStatus").textContent = "";
         byId("uploadError").textContent = "";
       }
+      if (dialog === byId("assetDangerDialog")) {
+        dangerIntent = null;
+        byId("dangerConflictActions").hidden = true;
+        byId("confirmDanger").disabled = false;
+      }
       const trigger = dialogTriggers.get(dialog);
-      if (trigger?.isConnected) trigger.focus();
+      const usable = (node) => node?.isConnected && !node.disabled && !node.hidden && node.getClientRects().length > 0 ? node : null;
+      const override = dialogFocusOverrides.get(dialog);
+      let replacement = override?.action ? usable(document.querySelector(`[data-action="${CSS.escape(override.action)}"]`)) : null;
+      if (!replacement && override?.detailAssetId === selectedAssetId) replacement = usable(byId("assetDetailTitle"));
+      if (!replacement && override?.kind) replacement = usable(document.querySelector(`[data-kind="${CSS.escape(override.kind)}"]`));
+      if (!replacement && override?.id) replacement = usable(byId(override.id));
+      if (!replacement) replacement = usable(trigger?.node);
+      if (!replacement && trigger?.action) replacement = usable(document.querySelector(`[data-action="${CSS.escape(trigger.action)}"]`));
+      if (!replacement && trigger?.assetId) replacement = usable(document.querySelector(`[data-asset-id="${CSS.escape(trigger.assetId)}"]`));
+      if (!replacement && trigger?.id) replacement = usable(byId(trigger.id));
+      if (!replacement && trigger?.kind) replacement = usable(document.querySelector(`[data-kind="${CSS.escape(trigger.kind)}"]`));
+      if (!replacement) replacement = usable(byId("refreshAssets")) || usable(byId("mainContent"));
+      const resolveClose = dialogCloseResolvers.get(dialog);
       dialogTriggers.delete(dialog);
+      dialogFocusOverrides.delete(dialog);
+      dialogCloseResolvers.delete(dialog);
+      queueMicrotask(() => {
+        replacement?.focus({ preventScroll: true });
+        resolveClose?.();
+      });
     });
     dialog.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => closeDialog(dialog)));
   }
@@ -120,6 +218,172 @@
     node.className = `state ${value}`;
     node.textContent = labels[value] || value;
     return node;
+  }
+
+  function failPreview(key, message, expectedEpoch, expectedUrl = null, state = "error") {
+    if (expectedEpoch !== previewEpoch) return;
+    const entry = previewEntries.get(key);
+    if (!entry || (expectedUrl && entry.url !== expectedUrl)) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.state = state;
+    entry.message = message;
+    entry.url = null;
+    entry.timer = null;
+    applyPreviewEntry(key);
+  }
+
+  function applyPreviewEntry(key) {
+    const entry = previewEntries.get(key);
+    document.querySelectorAll(`[data-preview-key="${CSS.escape(key)}"]`).forEach((region) => {
+      const image = region.querySelector("img[data-preview-role]");
+      const fallback = region.querySelector("[data-preview-fallback]");
+      const retry = region.querySelector("#retryAssetPreview");
+      if (!image || !fallback) return;
+      region.dataset.previewState = entry?.state || "loading";
+      if (retry) retry.hidden = !["error", "expired"].includes(entry?.state);
+      if (["loading", "ready"].includes(entry?.state) && entry.url) {
+        const expectedUrl = entry.url;
+        image.onload = () => {
+          const current = previewEntries.get(key);
+          if (current && ["loading", "ready"].includes(current.state) && current.url === expectedUrl &&
+              current.epoch === previewEpoch && current.listEpoch === listEpoch) {
+            current.state = "ready";
+            applyPreviewEntry(key);
+          }
+        };
+        image.onerror = () => failPreview(key, "图片预览解码失败，请重试。", entry.epoch, expectedUrl);
+        fallback.hidden = entry.state === "ready";
+        if (!fallback.hidden) fallback.textContent = "正在载入人物预览...";
+        image.hidden = false;
+        if (image.getAttribute("src") !== expectedUrl) image.setAttribute("src", expectedUrl);
+      } else {
+        image.onload = null;
+        image.onerror = null;
+        image.removeAttribute("src");
+        image.hidden = true;
+        fallback.hidden = false;
+        fallback.textContent = ["error", "expired"].includes(entry?.state) ? entry.message : "正在获取人物预览...";
+      }
+    });
+  }
+
+  function createPreviewRegion(asset, role) {
+    const version = validPreviewVersion(asset);
+    if (!version) return null;
+    const region = document.createElement(role === "detail" ? "section" : "span");
+    const key = previewKey(asset.id, version.id);
+    region.className = role === "detail" ? "asset-preview" : "asset-thumb";
+    region.dataset.previewKey = key;
+    if (role === "detail") {
+      region.id = "assetPreviewRegion";
+      region.setAttribute("aria-live", "polite");
+    }
+    const image = document.createElement("img");
+    image.hidden = true;
+    image.alt = `${asset.display_name}预览`;
+    image.dataset.previewRole = role;
+    image.dataset.assetId = asset.id;
+    if (role === "detail") image.id = "assetPreviewImage";
+    const fallback = document.createElement("span");
+    fallback.dataset.previewFallback = "true";
+    fallback.setAttribute("role", "img");
+    fallback.setAttribute("aria-label", `${asset.display_name}人物预览`);
+    fallback.textContent = "正在获取人物预览...";
+    if (role === "detail") fallback.id = "assetPreviewFallback";
+    region.append(image, fallback);
+    if (role === "detail") {
+      const retry = document.createElement("button");
+      retry.id = "retryAssetPreview";
+      retry.type = "button";
+      retry.className = "secondary";
+      retry.textContent = "重试人物预览";
+      retry.addEventListener("click", () => {
+        const existing = previewEntries.get(key);
+        if (existing?.timer) clearTimeout(existing.timer);
+        previewEntries.delete(key);
+        applyPreviewEntry(key);
+        const currentAsset = assets.find((candidate) => candidate.id === asset.id && candidate.kind === "avatar_image");
+        const currentVersion = validPreviewVersion(currentAsset);
+        if (currentVersion?.id === version.id) {
+          void authorizePreview(currentAsset, currentVersion, listEpoch, previewEpoch, previewAbortController.signal);
+        }
+      });
+      region.append(retry);
+    }
+    queueMicrotask(() => applyPreviewEntry(key));
+    return region;
+  }
+
+  function normalizedDownloadUrl(value) {
+    if (typeof value !== "string" || !value) return null;
+    let parsed;
+    try { parsed = new URL(value, window.location.origin); } catch { return null; }
+    if (parsed.origin !== window.location.origin || parsed.search || parsed.hash ||
+        !/^\/api\/assets\/downloads\/[^/]+$/.test(parsed.pathname)) return null;
+    return parsed.pathname;
+  }
+
+  async function authorizePreview(asset, version, epoch, authorityEpoch, signal) {
+    const key = previewKey(asset.id, version.id);
+    if (previewEntries.has(key)) return;
+    previewEntries.set(key, { state: "pending", assetId: asset.id, versionId: version.id, listEpoch: epoch, epoch: authorityEpoch, url: null, timer: null });
+    applyPreviewEntry(key);
+    try {
+      const result = await request(`/api/asset-versions/${encodeURIComponent(version.id)}/download-authorizations`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal
+      });
+      if (epoch !== listEpoch || authorityEpoch !== previewEpoch || tornDown) return;
+      const currentAsset = assets.find((candidate) => candidate.id === asset.id && candidate.kind === "avatar_image");
+      const currentVersion = validPreviewVersion(currentAsset);
+      if (!currentVersion || currentVersion.id !== version.id) return;
+      const url = normalizedDownloadUrl(result?.download?.url);
+      const expiresAt = Date.parse(result?.download?.expires_at || "");
+      if (!url || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error("PREVIEW_AUTHORIZATION_INVALID");
+      const entry = previewEntries.get(key);
+      if (!entry || entry.epoch !== authorityEpoch) return;
+      entry.state = "loading";
+      entry.url = url;
+      entry.message = "";
+      const delay = Math.min(2147483647, Math.max(0, expiresAt - Date.now()));
+      entry.timer = setTimeout(() => failPreview(key, "人物预览权限已过期，请重试。", authorityEpoch, url, "expired"), delay);
+      applyPreviewEntry(key);
+    } catch (error) {
+      if (epoch === listEpoch && authorityEpoch === previewEpoch && error.code !== "AUTH_REQUIRED") {
+        failPreview(key, "人物预览暂不可用，请重试。", authorityEpoch);
+      }
+    }
+  }
+
+  function ensurePreviews() {
+    if (loading || loadError || !assetAuthorityValid || activeKind !== "avatar_image" || tornDown || previewPump) return;
+    const epoch = listEpoch;
+    const authorityEpoch = previewEpoch;
+    const signal = previewAbortController.signal;
+    const selected = selectedAsset();
+    const visibleAssetIds = new Set([...document.querySelectorAll(".asset-row[data-asset-id]")]
+      .filter((row) => {
+        const rect = row.getBoundingClientRect();
+        return rect.bottom >= 0 && rect.top <= window.innerHeight;
+      })
+      .map((row) => row.dataset.assetId));
+    const visibleAssets = currentAssets().filter((asset) => visibleAssetIds.has(asset.id));
+    const ordered = [selected, ...visibleAssets.filter((asset) => asset.id !== selected?.id)]
+      .filter((asset) => asset && validPreviewVersion(asset) && !previewEntries.has(previewKey(asset.id, validPreviewVersion(asset).id)));
+    if (!ordered.length) return;
+    const pump = (async () => {
+      for (const asset of ordered) {
+        if (epoch !== listEpoch || authorityEpoch !== previewEpoch || tornDown) return;
+        const version = validPreviewVersion(asset);
+        if (version) await authorizePreview(asset, version, epoch, authorityEpoch, signal);
+      }
+    })();
+    previewPump = pump;
+    void pump.finally(() => {
+      if (previewPump === pump) {
+        previewPump = null;
+        ensurePreviews();
+      }
+    });
   }
 
   function renderSummary() {
@@ -191,7 +455,8 @@
     }
     byId("assetListTitle").textContent = kindLabels[activeKind];
     byId("assetListDescription").textContent = kindDescriptions[activeKind];
-    byId("openUpload").hidden = activeKind === "work_video";
+    byId("openUpload").hidden = activeKind === "work_video" || Boolean(selectedAssetId);
+    byId("openUpload").disabled = loading || loadError || !assetAuthorityValid;
   }
 
   function renderList() {
@@ -217,11 +482,16 @@
       const version = latestVersion(asset);
       const button = document.createElement("button");
       button.type = "button"; button.className = "asset-row"; button.dataset.assetId = asset.id;
+      button.disabled = !assetAuthorityValid;
+      if (!assetAuthorityValid) button.title = "状态可能已过期，请先刷新当前分类";
       button.setAttribute("aria-current", String(asset.id === selectedAssetId));
       const main = document.createElement("span"); main.className = "asset-row-main";
       const name = document.createElement("span"); name.className = "asset-name"; name.textContent = asset.display_name;
       const meta = document.createElement("span"); meta.className = "asset-meta"; meta.textContent = `${asset.versions?.length || 0} 个版本 · ${version?.original_filename || "暂无文件"}`;
-      main.append(name, meta); button.append(main, asset.status === "disabled" ? makeState("disabled", assetLabels) : makeState(version?.status || "unavailable"));
+      main.append(name, meta);
+      const preview = createPreviewRegion(asset, "list");
+      if (preview) { button.classList.add("has-preview"); button.append(preview); }
+      button.append(main, asset.status === "disabled" ? makeState("disabled", assetLabels) : makeState(version?.status || "unavailable"));
       button.addEventListener("click", () => selectAsset(asset.id, { openDetail: true, focusDetail: true }));
       node.append(button);
     }
@@ -260,6 +530,9 @@
     const title = document.createElement("h2"); title.id = "assetDetailTitle"; title.tabIndex = -1; title.textContent = asset.display_name;
     headingWrap.append(eyebrow, title); header.append(headingWrap, makeState(asset.status, assetLabels)); node.append(header);
 
+    const preview = createPreviewRegion(asset, "detail");
+    if (preview) node.append(preview);
+
     const actions = document.createElement("div"); actions.className = "asset-detail-actions";
     if (canWriteAsset(asset)) {
       const upload = document.createElement("button"); upload.type = "button"; upload.id = "uploadNewVersion"; upload.dataset.action = "upload-new-version"; upload.textContent = "上传新版本"; upload.addEventListener("click", (event) => openUploadDialog(event.currentTarget, asset)); actions.append(upload);
@@ -297,60 +570,121 @@
 
   function render() {
     renderTabs(); renderList(); renderDetail(); renderSummary();
+    ensurePreviews();
+  }
+
+  function invalidateRouteAuthority() {
+    listEpoch += 1;
+    clearPreviewAuthority();
   }
 
   function selectAsset(assetId, { openDetail = false, focusDetail = false } = {}) {
+    if (!assetAuthorityValid) return;
+    const asset = assets.find((candidate) => candidate.id === assetId && candidate.kind === activeKind);
+    if (!asset) return;
+    if (readRoute().kind === activeKind && readRoute().assetId === assetId) {
+      if (focusDetail) queueMicrotask(() => {
+        const target = usesSequentialLayout() ? byId("assetDetailTitle") : document.querySelector(`[data-asset-id="${CSS.escape(assetId)}"]`);
+        target?.focus({ preventScroll: true });
+      });
+      return;
+    }
+    history.replaceState({ ...(history.state || {}), assetFocusId: assetId }, "", window.location.href);
+    writeRoute(activeKind, assetId);
+    invalidateRouteAuthority();
     selectedAssetId = assetId;
     if (openDetail && usesSequentialLayout()) workspace.dataset.layer = "detail";
     render();
-    if (focusDetail) queueMicrotask(() => byId("assetDetailTitle")?.focus({ preventScroll: true }));
-  }
-
-  function backToList() {
-    workspace.dataset.layer = "list";
-    queueMicrotask(() => document.querySelector(`[data-asset-id="${CSS.escape(selectedAssetId || "")}"]`)?.focus());
-  }
-
-  function focusStableAssetContext(assetId, preferredAction = null) {
-    queueMicrotask(() => {
-      const preferred = preferredAction ? document.querySelector(`[data-action="${preferredAction}"]`) : null;
-      const detail = assetId && selectedAssetId === assetId ? byId("assetDetailTitle") : null;
-      const row = assetId ? document.querySelector(`[data-asset-id="${CSS.escape(assetId)}"]`) : null;
-      (preferred || detail || row || document.querySelector(`[data-kind="${activeKind}"]`))?.focus({ preventScroll: true });
+    if (focusDetail) queueMicrotask(() => {
+      const target = usesSequentialLayout() ? byId("assetDetailTitle") : document.querySelector(`[data-asset-id="${CSS.escape(assetId)}"]`);
+      target?.focus({ preventScroll: true });
     });
   }
 
-  async function refresh({ preserveSelection = true, quiet = false } = {}) {
-    if (refreshInFlight || tornDown) return false;
-    refreshInFlight = true; byId("refreshAssets").disabled = true;
-    if (!quiet) { loadError = false; byId("assetError").textContent = ""; }
+  function backToList() {
+    const sourceAssetId = selectedAssetId;
+    writeRoute(activeKind, null, { state: { assetFocusId: sourceAssetId } });
+    invalidateRouteAuthority();
+    selectedAssetId = null;
+    workspace.dataset.layer = "list";
+    render();
+    queueMicrotask(() => document.querySelector(`[data-asset-id="${CSS.escape(sourceAssetId || "")}"]`)?.focus({ preventScroll: true }));
+  }
+
+  async function refresh({ preserveSelection = true, quiet = false, requestedAssetId, focusAfter = null } = {}) {
+    if (tornDown) return false;
+    const desiredAssetId = requestedAssetId === undefined ? (preserveSelection ? (readRoute().assetId || selectedAssetId) : null) : requestedAssetId;
+    const requestIdentity = routeIdentity();
+    const epoch = ++listEpoch;
+    clearPreviewAuthority();
+    selectedAssetId = null;
+    workspace.dataset.layer = "list";
+    loading = true;
+    loadError = false;
+    assetAuthorityValid = false;
+    byId("refreshAssets").disabled = true;
+    if (!quiet) byId("assetError").textContent = "";
+    render();
     try {
       const result = await request("/api/assets");
       if (!Array.isArray(result?.assets)) throw Object.assign(new Error("INVALID_ASSET_RESPONSE"), { code: "INVALID_ASSET_RESPONSE" });
-      assets = result.assets;
-      if (!preserveSelection || !assets.some((asset) => asset.id === selectedAssetId)) selectedAssetId = null;
-      loadError = false; loading = false; render(); schedulePolling(); return true;
+      if (epoch !== listEpoch || requestIdentity !== routeIdentity() || tornDown) return false;
+      assets = result.assets.filter((asset) => routeKinds.has(asset?.kind));
+      assetAuthorityValid = true;
+      const selected = desiredAssetId ? assets.find((asset) => asset.id === desiredAssetId && asset.kind === activeKind) : null;
+      selectedAssetId = selected?.id || null;
+      if (desiredAssetId && !selected && readRoute().assetId === desiredAssetId) writeRoute(activeKind, null, { replace: true });
+      workspace.dataset.layer = selectedAssetId && usesSequentialLayout() ? "detail" : "list";
+      loadError = false;
+      loading = false;
+      byId("assetError").textContent = "";
+      render();
+      schedulePolling();
+      if (focusAfter === "detail" && selectedAssetId) queueMicrotask(() => byId("assetDetailTitle")?.focus({ preventScroll: true }));
+      else if (focusAfter) queueMicrotask(() => document.querySelector(`[data-asset-id="${CSS.escape(focusAfter)}"]`)?.focus({ preventScroll: true }));
+      return true;
     } catch (error) {
-      stopPolling(); loading = false;
-      if (error.code !== "AUTH_REQUIRED") { loadError = true; byId("assetError").textContent = "素材加载失败，现有内容没有被覆盖。请刷新当前分类。"; render(); }
+      if (epoch !== listEpoch || requestIdentity !== routeIdentity() || tornDown) return false;
+      stopPolling();
+      loading = false;
+      if (error.code !== "AUTH_REQUIRED") {
+        loadError = true;
+        assetAuthorityValid = false;
+        byId("assetError").textContent = `${kindLabels[activeKind]}加载失败，旧详情和操作权限已清除。请刷新当前分类。`;
+        render();
+      }
       return false;
     } finally {
-      refreshInFlight = false; byId("refreshAssets").disabled = false; renderSummary();
+      if (epoch === listEpoch) {
+        byId("refreshAssets").disabled = false;
+        renderSummary();
+      }
     }
   }
 
   async function bootstrap() {
     if (bootstrapInFlight || tornDown) return false;
-    bootstrapInFlight = true; loading = true; loadError = false; byId("assetError").textContent = ""; byId("refreshAssets").disabled = true; render();
+    bootstrapInFlight = true;
+    assets = [];
+    selectedAssetId = null;
+    workspace.dataset.layer = "list";
+    clearPreviewAuthority();
+    loading = true;
+    loadError = false;
+    assetAuthorityValid = false;
+    byId("assetError").textContent = "";
+    byId("refreshAssets").disabled = true;
+    render();
     try {
       identity = await request("/api/auth/me");
       if (identity.status !== "ok") { window.location.replace("/login.html"); return false; }
-      return await refresh({ preserveSelection: true });
+      return await refresh({ preserveSelection: true, requestedAssetId: readRoute().assetId });
     } catch (error) {
       if (error.code !== "AUTH_REQUIRED") {
         identity = null; loading = false; loadError = true;
         byId("assetError").textContent = "素材中心初始化失败，请重新加载身份与素材状态。";
         render();
+        queueMicrotask(() => byId("refreshAssets")?.focus({ preventScroll: true }));
       }
       return false;
     } finally {
@@ -382,8 +716,11 @@
       await request(authorization.upload.url, { method: "PUT", headers: { "content-type": file.type }, body: file });
       await request("/api/assets/upload-completions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ upload_session_id: authorization.upload_session_id, idempotency_key: crypto.randomUUID() }) });
       const targetAssetId = assetId || authorization.asset.id;
-      activeKind = kind; selectedAssetId = assetId || null; byId("uploadStatus").textContent = "上传完成，服务端正在核验。";
-      await refresh({ preserveSelection: true, quiet: true }); closeDialog(byId("uploadDialog")); focusStableAssetContext(targetAssetId); setNotice("上传完成，服务端正在核验。可以离开页面，稍后再刷新。", "success");
+      activeKind = kind; selectedAssetId = targetAssetId; byId("uploadStatus").textContent = "上传完成，服务端正在核验。";
+      if (readRoute().kind !== kind || readRoute().assetId !== targetAssetId) writeRoute(kind, targetAssetId);
+      const refreshed = await refresh({ preserveSelection: true, quiet: true, requestedAssetId: targetAssetId });
+      await closeDialog(byId("uploadDialog"), refreshed ? { detailAssetId: targetAssetId } : { id: "refreshAssets" });
+      setNotice("上传完成，服务端正在核验。可以离开页面，稍后再刷新。", "success");
     } catch (error) {
       if (error.code !== "AUTH_REQUIRED") byId("uploadError").textContent = error.code === "ASSET_NOT_ACTIVE" ? "该素材已不可写，请关闭后刷新状态。" : "上传未完成，请检查图片后重试。";
     } finally { uploadBusy = false; byId("submitUpload").disabled = false; }
@@ -401,7 +738,9 @@
     renameBusy = true; byId("submitRename").disabled = true; byId("renameError").textContent = "";
     try {
       await request(`/api/assets/${encodeURIComponent(asset.id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ display_name: byId("assetDisplayName").value, expected_revision: asset.revision_number }) });
-      await refresh({ preserveSelection: true, quiet: true }); closeDialog(byId("renameDialog")); focusStableAssetContext(asset.id, "rename"); setNotice("素材名称已保存。", "success");
+      const refreshed = await refresh({ preserveSelection: true, quiet: true });
+      await closeDialog(byId("renameDialog"), refreshed ? { action: "rename", detailAssetId: asset.id } : { id: "refreshAssets" });
+      setNotice("素材名称已保存。", "success");
     } catch (error) {
       if (error.status === 409 || error.code === "ASSET_VERSION_CONFLICT") {
         renameConflictAssetId = asset.id; byId("renameError").textContent = "素材状态已变化。你的名称仍保留，请先载入最新状态。"; byId("renameConflictActions").hidden = false;
@@ -427,24 +766,52 @@
 
   function openDangerDialog(trigger, asset, action) {
     if (!isAdmin() || !canWriteAsset(asset)) return;
-    dangerIntent = { assetId: asset.id, revision: asset.revision_number, action };
+    dangerIntent = { assetId: asset.id, revision: asset.revision_number, action, needsReload: false };
     byId("dangerTitle").textContent = action === "delete" ? "删除素材" : "停用素材";
     byId("dangerMessage").textContent = action === "delete" ? `删除“${asset.display_name}”后，该素材不会再出现在目录中。` : `停用“${asset.display_name}”后，它不能再被新内容引用。`;
-    byId("dangerError").textContent = ""; byId("confirmDanger").textContent = action === "delete" ? "确认删除" : "确认停用";
+    byId("dangerError").textContent = ""; byId("dangerConflictActions").hidden = true;
+    byId("confirmDanger").disabled = false; byId("confirmDanger").textContent = action === "delete" ? "确认删除" : "确认停用";
     showDialog(byId("assetDangerDialog"), trigger);
   }
 
   async function confirmDanger() {
-    if (!dangerIntent) return;
+    if (!dangerIntent || dangerIntent.needsReload) return;
     byId("confirmDanger").disabled = true; byId("dangerError").textContent = "";
     try {
       const { assetId, revision, action } = dangerIntent;
       await request(`/api/assets/${encodeURIComponent(assetId)}${action === "disable" ? "/disable" : ""}`, { method: action === "delete" ? "DELETE" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expected_revision: revision }) });
-      closeDialog(byId("assetDangerDialog")); dangerIntent = null; await refresh({ preserveSelection: true, quiet: true }); focusStableAssetContext(action === "delete" ? null : assetId); setNotice(action === "delete" ? "素材已删除。" : "素材已停用。", "success");
+      dangerIntent = null;
+      const refreshed = await refresh({ preserveSelection: true, quiet: true });
+      await closeDialog(byId("assetDangerDialog"), refreshed
+        ? (action === "delete" ? { kind: activeKind } : { detailAssetId: assetId })
+        : { id: "refreshAssets" });
+      setNotice(action === "delete" ? "素材已删除。" : "素材已停用。", "success");
     } catch (error) {
-      if (error.status === 409 || error.code === "ASSET_VERSION_CONFLICT") byId("dangerError").textContent = "素材状态已变化，本次操作未执行。请关闭并刷新当前分类。";
+      if (error.status === 409 || error.code === "ASSET_VERSION_CONFLICT") {
+        dangerIntent.needsReload = true;
+        byId("dangerError").textContent = "素材状态已变化，本次操作未执行。请先载入同一素材的最新状态。";
+        byId("dangerConflictActions").hidden = false;
+      }
       else if (error.code !== "AUTH_REQUIRED") byId("dangerError").textContent = "操作未完成，请稍后重试。";
-    } finally { byId("confirmDanger").disabled = false; }
+    } finally { byId("confirmDanger").disabled = Boolean(dangerIntent?.needsReload); }
+  }
+
+  async function reloadDangerIntent() {
+    if (!dangerIntent?.needsReload) return;
+    const { assetId, action } = dangerIntent;
+    byId("reloadDanger").disabled = true;
+    const ok = await refresh({ preserveSelection: true, quiet: true, requestedAssetId: assetId });
+    const target = assets.find((asset) => asset.id === assetId && asset.kind === activeKind);
+    if (!ok || !isAdmin() || !canWriteAsset(target)) {
+      byId("dangerError").textContent = "无法载入同一素材的可写状态。本次操作已取消，请关闭窗口。";
+      byId("confirmDanger").disabled = true;
+    } else {
+      dangerIntent = { assetId, action, revision: target.revision_number, needsReload: false };
+      byId("dangerConflictActions").hidden = true;
+      byId("dangerError").textContent = "已载入最新状态；请重新核对并再次明确确认。";
+      byId("confirmDanger").disabled = false;
+    }
+    byId("reloadDanger").disabled = false;
   }
 
   async function downloadVersion(version, button) {
@@ -458,7 +825,64 @@
     } finally { button.disabled = false; }
   }
 
-  for (const button of document.querySelectorAll("[data-kind]")) button.addEventListener("click", () => { activeKind = button.dataset.kind; selectedAssetId = null; workspace.dataset.layer = "list"; render(); });
+  function initializeRoute() {
+    let route = readRoute();
+    const url = new URL(window.location.href);
+    if (route.needsKindRepair) {
+      writeRoute("product_image", null, { replace: true });
+      route = readRoute();
+    } else if (!route.legacy && !url.searchParams.has("kind")) {
+      writeRoute("product_image", route.assetId, { replace: true });
+      route = readRoute();
+    }
+    activeKind = route.kind;
+    selectedAssetId = route.assetId;
+    workspace.dataset.layer = selectedAssetId && usesSequentialLayout() ? "detail" : "list";
+  }
+
+  function changeKind(kind) {
+    if (!routeKinds.has(kind)) return;
+    const needsRead = loading || loadError || !assetAuthorityValid;
+    if (readRoute().kind === kind && !readRoute().assetId) {
+      document.querySelector(`[data-kind="${kind}"]`)?.focus({ preventScroll: true });
+      if (identity && needsRead) void refresh({ preserveSelection: false, requestedAssetId: null });
+      return;
+    }
+    writeRoute(kind, null);
+    invalidateRouteAuthority();
+    activeKind = kind;
+    selectedAssetId = null;
+    if (assetAuthorityValid) {
+      loadError = false;
+      byId("assetError").textContent = "";
+    }
+    workspace.dataset.layer = "list";
+    render();
+    queueMicrotask(() => document.querySelector(`[data-kind="${kind}"]`)?.focus({ preventScroll: true }));
+    if (identity && needsRead) void refresh({ preserveSelection: false, requestedAssetId: null });
+  }
+
+  async function restoreRouteFromHistory() {
+    for (const dialog of dialogs) closeDialog(dialog);
+    let route = readRoute();
+    if (route.needsKindRepair) {
+      writeRoute("product_image", null, { replace: true });
+      route = readRoute();
+    }
+    invalidateRouteAuthority();
+    activeKind = route.kind;
+    selectedAssetId = route.assetId;
+    workspace.dataset.layer = route.assetId && usesSequentialLayout() ? "detail" : "list";
+    render();
+    if (identity) await refresh({
+      preserveSelection: true,
+      requestedAssetId: route.assetId,
+      focusAfter: route.assetId ? "detail" : history.state?.assetFocusId || null
+    });
+  }
+
+  initializeRoute();
+  for (const button of document.querySelectorAll("[data-kind]")) button.addEventListener("click", () => changeKind(button.dataset.kind));
   byId("openUpload").addEventListener("click", (event) => {
     if (byId("assetFile").files[0]) byId("uploadForm").requestSubmit();
     else openUploadDialog(event.currentTarget);
@@ -467,9 +891,26 @@
   byId("renameForm").addEventListener("submit", submitRename);
   byId("reloadRename").addEventListener("click", reloadRenameIntent);
   byId("confirmDanger").addEventListener("click", confirmDanger);
-  byId("refreshAssets").addEventListener("click", () => identity ? refresh({ preserveSelection: true }) : bootstrap());
+  byId("reloadDanger").addEventListener("click", reloadDangerIntent);
+  byId("refreshAssets").addEventListener("click", () => identity ? refresh({ preserveSelection: true, requestedAssetId: readRoute().assetId }) : bootstrap());
   byId("backToAssets").addEventListener("click", backToList);
-  window.addEventListener("pagehide", () => { tornDown = true; stopPolling(); }, { once: true });
+  window.addEventListener("scroll", ensurePreviews, { passive: true });
+  window.addEventListener("resize", ensurePreviews);
+  window.addEventListener("popstate", () => { void restoreRouteFromHistory(); });
+  window.addEventListener("pagehide", () => {
+    tornDown = true;
+    listEpoch += 1;
+    clearPreviewAuthority();
+    stopPolling();
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    tornDown = false;
+    bootstrapInFlight = false;
+    identity = null;
+    assetAuthorityValid = false;
+    void bootstrap();
+  });
 
   await bootstrap();
 })();

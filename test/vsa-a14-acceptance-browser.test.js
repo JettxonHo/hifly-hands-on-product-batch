@@ -349,9 +349,9 @@ test("VSA-A14 main path completes from a fresh enterprise login to inspected and
   await operatorPage.goto(`${origin}/assets.html`);
   await operatorPage.locator("#assetFile").setInputFiles(assetPath);
   await operatorPage.getByRole("button", { name: "上传并开始核验" }).click();
-  await operatorPage.getByText("核验中", { exact: true }).waitFor();
+  await operatorPage.locator("#assetList").getByText("核验中", { exact: true }).waitFor();
   await app.assets.service.runNextVerificationJob();
-  await operatorPage.getByText("核验通过", { exact: true }).waitFor({ timeout: 5000 });
+  await operatorPage.locator("#assetList").getByText("核验通过", { exact: true }).waitFor({ timeout: 5000 });
   const listedAssets = await operatorPage.evaluate(async () => (await (await fetch("/api/assets")).json()).assets);
   assetVersionId = listedAssets[0].versions[0].id;
 

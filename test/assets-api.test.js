@@ -113,6 +113,22 @@ test("ordinary members may upload but cannot disable assets", async (t) => {
   });
   assert.equal(forbidden.statusCode, 403);
   assert.equal(forbidden.json().error, "ADMIN_REQUIRED");
+
+  const disabled = await app.inject({
+    method: "POST",
+    url: `/api/assets/${created.json().asset.id}/disable`,
+    headers: authHeaders(admin, true),
+    payload: { expected_revision: 2 }
+  });
+  assert.equal(disabled.statusCode, 200);
+  const disabledRename = await app.inject({
+    method: "PATCH",
+    url: `/api/assets/${created.json().asset.id}`,
+    headers: authHeaders(member, true),
+    payload: { display_name: "不得改写已停用素材", expected_revision: 3 }
+  });
+  assert.equal(disabledRename.statusCode, 422);
+  assert.equal(disabledRename.json().error, "ASSET_NOT_ACTIVE");
 });
 
 test("a second Organization cannot read or complete the first Organization upload", async (t) => {
@@ -127,13 +143,37 @@ test("a second Organization cannot read or complete the first Organization uploa
   });
   const first = await activateAdmin(app);
   const created = (await authorize(app, first)).json();
+  await app.inject({ method: "PUT", url: created.upload.url, headers: authHeaders(first, true, "image/png"), payload: PNG });
+  await app.inject({ method: "POST", url: "/api/assets/upload-completions", headers: authHeaders(first, true),
+    payload: { upload_session_id: created.upload_session_id, idempotency_key: "cross-org-complete" } });
+  await app.assets.service.runNextVerificationJob();
   const other = await login(app, { email: "other-admin@example.test", password: ADMIN_TEMP_PASSWORD });
   await app.inject({ method: "POST", url: "/api/auth/change-password", headers: authHeaders(other, true), payload: { new_password: "Other-Admin-Password-9!" } });
   assert.equal((await app.inject({ method: "GET", url: `/api/asset-versions/${created.asset_version.id}`, headers: authHeaders(other) })).statusCode, 404);
+  const crossOrganizationGrant = await app.inject({ method: "POST", url: `/api/asset-versions/${created.asset_version.id}/download-authorizations`,
+    headers: authHeaders(other, true), payload: {} });
+  assert.equal(crossOrganizationGrant.statusCode, 422);
+  assert.equal(crossOrganizationGrant.json().error, "ASSET_VERSION_NOT_AVAILABLE");
+  assert.equal(crossOrganizationGrant.json().download, undefined);
+  const missingGrant = await app.inject({ method: "POST", url: `/api/asset-versions/${randomUUID()}/download-authorizations`,
+    headers: authHeaders(first, true), payload: {} });
+  assert.equal(missingGrant.statusCode, 422);
+  assert.equal(missingGrant.json().error, "ASSET_VERSION_NOT_AVAILABLE");
+  assert.equal(missingGrant.json().download, undefined);
   assert.equal((await app.inject({
     method: "POST", url: "/api/assets/upload-completions", headers: authHeaders(other, true),
     payload: { upload_session_id: created.upload_session_id, idempotency_key: "cross-org" }
   })).statusCode, 404);
+
+  const deleted = await app.inject({ method: "DELETE", url: `/api/assets/${created.asset.id}`, headers: authHeaders(first, true),
+    payload: { expected_revision: 1 } });
+  assert.equal(deleted.statusCode, 200);
+  assert.equal((await app.inject({ method: "GET", url: `/api/asset-versions/${created.asset_version.id}`, headers: authHeaders(first) })).statusCode, 404);
+  const deletedGrant = await app.inject({ method: "POST", url: `/api/asset-versions/${created.asset_version.id}/download-authorizations`,
+    headers: authHeaders(first, true), payload: {} });
+  assert.equal(deletedGrant.statusCode, 422);
+  assert.equal(deletedGrant.json().error, "ASSET_VERSION_NOT_AVAILABLE");
+  assert.equal(deletedGrant.json().download, undefined);
 });
 
 test("identity and assets disabled leave the Playwright workbench route contract unchanged", async (t) => {
@@ -262,8 +302,11 @@ test("generic Asset APIs cannot read or mutate internal appearance candidates", 
     payload: { expected_revision: 1 } })).statusCode, 404);
   assert.equal((await app.inject({ method: "DELETE", url: `/api/assets/${assetId}`, headers: mutationHeaders,
     payload: { expected_revision: 1 } })).statusCode, 404);
-  assert.equal((await app.inject({ method: "POST", url: `/api/asset-versions/${assetVersionId}/download-authorizations`, headers: mutationHeaders,
-    payload: {} })).statusCode, 422);
+  const genericGrant = await app.inject({ method: "POST", url: `/api/asset-versions/${assetVersionId}/download-authorizations`, headers: mutationHeaders,
+    payload: {} });
+  assert.equal(genericGrant.statusCode, 422);
+  assert.equal(genericGrant.json().error, "ASSET_VERSION_NOT_AVAILABLE");
+  assert.equal(genericGrant.json().download, undefined);
 
   const internalGrant = await app.assets.service.appearanceCandidateAssetPort.createDownloadAuthorization({
     organizationId: "org_test",
@@ -275,4 +318,59 @@ test("generic Asset APIs cannot read or mutate internal appearance candidates", 
     token: internalGrant.token,
   });
   assert.deepEqual(internalDownload.body, PNG);
+});
+
+test("the Assets API exposes authoritative kinds and enforces work video read-only semantics", async (t) => {
+  const { app, objectStore } = await assetWorld(t);
+  const auth = await activateAdmin(app);
+  const image = (await authorize(app, auth)).json();
+  const video = Buffer.from("verified-work-video");
+  const videoKey = `org_test/work-videos/${randomUUID()}.mp4`;
+  const videoChecksum = createHash("sha256").update(video).digest("hex");
+  await objectStore.put({ key: videoKey, body: video, contentType: "video/mp4", metadata: { organizationId: "org_test" } });
+  const registered = await app.assets.service.verifiedOutputAssetPort.registerVerifiedOutput({
+    organizationId: "org_test",
+    actorMemberId: "member_test",
+    candidate: {
+      id: randomUUID(),
+      object_key: videoKey,
+      original_filename: "verified-work.mp4",
+      media_type: "video/mp4",
+      size: video.length,
+      checksum: videoChecksum
+    },
+    now: "2026-08-25T08:00:00.000Z"
+  });
+
+  const listed = await app.inject({ method: "GET", url: "/api/assets", headers: authHeaders(auth) });
+  assert.equal(listed.statusCode, 200);
+  assert.deepEqual(new Set(listed.json().assets.map((asset) => asset.kind)), new Set(["product_image", "work_video"]));
+  assert.equal(listed.body.includes("object_key"), false);
+  assert.equal(listed.json().assets.some((asset) => asset.id === image.asset.id), true);
+  assert.equal(listed.json().assets.some((asset) => asset.id === registered.asset.id), true);
+
+  const mutations = [
+    app.inject({ method: "PATCH", url: `/api/assets/${registered.asset.id}`, headers: authHeaders(auth, true),
+      payload: { display_name: "不可改名", expected_revision: 1 } }),
+    app.inject({ method: "POST", url: `/api/assets/${registered.asset.id}/disable`, headers: authHeaders(auth, true),
+      payload: { expected_revision: 1 } }),
+    app.inject({ method: "DELETE", url: `/api/assets/${registered.asset.id}`, headers: authHeaders(auth, true),
+      payload: { expected_revision: 1 } }),
+    authorize(app, auth, { asset_id: registered.asset.id, filename: "replacement.png" }, "work-video-new-version")
+  ];
+  for (const response of await Promise.all(mutations)) {
+    assert.equal(response.statusCode, 422, response.body);
+    assert.equal(response.json().error, "ASSET_READ_ONLY");
+  }
+
+  const grant = await app.inject({
+    method: "POST",
+    url: `/api/asset-versions/${registered.asset_version.id}/download-authorizations`,
+    headers: authHeaders(auth, true),
+    payload: {}
+  });
+  assert.equal(grant.statusCode, 201);
+  const download = await app.inject({ method: "GET", url: grant.json().download.url, headers: authHeaders(auth) });
+  assert.equal(download.statusCode, 200);
+  assert.deepEqual(download.rawPayload, video);
 });

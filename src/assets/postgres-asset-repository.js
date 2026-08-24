@@ -194,7 +194,8 @@ export function createPostgresAssetRepository({ pool, ownsPool = false } = {}) {
             WHERE av.object_key=$1 FOR UPDATE`, [candidate.object_key]
         ));
         if (existing) {
-          if (existing.asset_organization_id !== organizationId || existing.kind !== "work_video" || existing.status !== "available" ||
+          if (existing.asset_organization_id !== organizationId || existing.kind !== "work_video" || existing.asset_status !== "active" ||
+            existing.status !== "available" || existing.expected_content_type !== candidate.media_type ||
             existing.expected_checksum_sha256 !== candidate.checksum || Number(existing.expected_size) !== Number(candidate.size)) throw failure("WORK_VERIFICATION_ASSET_CONFLICT");
           return { asset: assetProjection({ id: existing.asset_id, organization_id: existing.asset_organization_id, kind: existing.kind,
             display_name: existing.display_name, status: existing.asset_status, row_version: existing.row_version,
@@ -341,6 +342,7 @@ export function createPostgresAssetRepository({ pool, ownsPool = false } = {}) {
         const current = one(await client.query("SELECT * FROM asset_assets WHERE id=$1 AND organization_id=$2 FOR UPDATE", [assetId, organizationId]));
         if (!current) throw failure("ASSET_NOT_FOUND");
         if (Number(current.row_version) !== expectedRevision) throw failure("ASSET_VERSION_CONFLICT");
+        if (current.status !== "active") throw failure("ASSET_NOT_ACTIVE");
         const updated = assetProjection(one(await client.query(
           "UPDATE asset_assets SET display_name=$2, row_version=row_version+1, updated_at=$3 WHERE id=$1 RETURNING *",
           [assetId, displayName, now]
@@ -351,10 +353,21 @@ export function createPostgresAssetRepository({ pool, ownsPool = false } = {}) {
     },
     async bindReference({ organizationId, assetVersionId, referenceType, referenceId, role, now, transactionClient = null }) {
       const work = async (client) => {
-        const version = versionProjection(one(await client.query("SELECT * FROM asset_versions WHERE id=$1 AND organization_id=$2", [assetVersionId, organizationId])));
+        const asset = assetProjection(one(await client.query(
+          `SELECT * FROM asset_assets
+           WHERE organization_id=$2
+             AND id=(SELECT asset_id FROM asset_versions WHERE id=$1 AND organization_id=$2)
+           FOR UPDATE`,
+          [assetVersionId, organizationId]
+        )));
+        if (!asset) throw failure("ASSET_VERSION_NOT_FOUND");
+        const version = versionProjection(one(await client.query(
+          "SELECT * FROM asset_versions WHERE id=$1 AND organization_id=$2 AND asset_id=$3 FOR UPDATE",
+          [assetVersionId, organizationId, asset.id]
+        )));
         if (!version) throw failure("ASSET_VERSION_NOT_FOUND");
-        const asset = assetProjection(one(await client.query("SELECT * FROM asset_assets WHERE id=$1", [version.asset_id])));
         if (asset.status !== "active") throw failure("ASSET_NOT_ACTIVE");
+        if (asset.kind !== "product_image") throw failure("ASSET_VERSION_NOT_AVAILABLE");
         if (version.status !== "available") throw failure("ASSET_VERSION_NOT_AVAILABLE");
         await client.query(
           `INSERT INTO asset_references(id, organization_id, asset_id, asset_version_id, reference_type, reference_id, role, created_at)

@@ -3,6 +3,7 @@ import { fileTypeFromBuffer } from "file-type";
 
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ALLOWED_KINDS = new Set(["product_image", "avatar_image"]);
+const PUBLIC_ASSET_KINDS = new Set(["product_image", "avatar_image", "work_video"]);
 const APPEARANCE_CANDIDATE_KIND = "appearance_candidate_image";
 const APPEARANCE_CANDIDATE_EXTENSIONS = new Map([
   ["image/jpeg", "jpg"],
@@ -51,6 +52,10 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
 
   async function createUploadAuthorization(input) {
     const assetKind = validateCreate(input);
+    if (input.assetId) {
+      const existingAsset = await getPublicAsset(input.organizationId, input.assetId);
+      if (existingAsset.kind === "work_video") fail("ASSET_READ_ONLY");
+    }
     const createdAt = timestamp();
     const assetId = input.assetId || randomUUID();
     const versionId = randomUUID();
@@ -304,14 +309,21 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
 
   async function getPublicAsset(organizationId, assetId) {
     const asset = await repository.getAsset(organizationId, assetId);
-    if (asset.kind === APPEARANCE_CANDIDATE_KIND) fail("ASSET_NOT_FOUND");
+    if (!PUBLIC_ASSET_KINDS.has(asset.kind)) fail("ASSET_NOT_FOUND");
+    return asset;
+  }
+
+  async function getMutableImageAsset(organizationId, assetId, { requireActive = false } = {}) {
+    const asset = await getPublicAsset(organizationId, assetId);
+    if (asset.kind === "work_video") fail("ASSET_READ_ONLY");
+    if (requireActive && asset.status !== "active") fail("ASSET_NOT_ACTIVE");
     return asset;
   }
 
   async function getPublicAssetVersion(organizationId, assetVersionId) {
     const version = await repository.getAssetVersion(organizationId, assetVersionId);
     const asset = await repository.getAsset(organizationId, version.asset_id);
-    if (asset.kind === APPEARANCE_CANDIDATE_KIND) fail("ASSET_VERSION_NOT_FOUND");
+    if (!PUBLIC_ASSET_KINDS.has(asset.kind) || asset.status === "deleted") fail("ASSET_VERSION_NOT_FOUND");
     return version;
   }
 
@@ -339,17 +351,17 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
     authorizeAvatarPreview,
     getAssetVersion: ({ organizationId, assetVersionId }) => getPublicAssetVersion(organizationId, assetVersionId),
     getAsset: ({ organizationId, assetId }) => getPublicAsset(organizationId, assetId),
-    listAssets: async ({ organizationId }) => (await repository.listAssets(organizationId)).filter((asset) => asset.kind !== APPEARANCE_CANDIDATE_KIND),
+    listAssets: async ({ organizationId }) => (await repository.listAssets(organizationId)).filter((asset) => PUBLIC_ASSET_KINDS.has(asset.kind)),
     updateAssetMetadata: async ({ organizationId, assetId, expectedRevision, displayName, actorMemberId = null }) => {
-      await getPublicAsset(organizationId, assetId);
+      await getMutableImageAsset(organizationId, assetId, { requireActive: true });
       return repository.updateAssetMetadata({ organizationId, assetId, expectedRevision, displayName: normalizeDisplayName(displayName), actorMemberId, now: timestamp() });
     },
     disableAsset: async ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => {
-      await getPublicAsset(organizationId, assetId);
+      await getMutableImageAsset(organizationId, assetId);
       return repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "disabled", now: timestamp() });
     },
     deleteAsset: async ({ organizationId, assetId, expectedRevision, actorMemberId = null }) => {
-      await getPublicAsset(organizationId, assetId);
+      await getMutableImageAsset(organizationId, assetId);
       return repository.updateAssetStatus({ organizationId, assetId, expectedRevision, actorMemberId, status: "deleted", now: timestamp() });
     },
     createDownloadAuthorization: async ({ organizationId, assetVersionId }) => {

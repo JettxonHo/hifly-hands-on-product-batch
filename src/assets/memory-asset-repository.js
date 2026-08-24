@@ -6,14 +6,25 @@ const APPEARANCE_CANDIDATE_KIND = "appearance_candidate_image";
 const AVATAR_PREVIEW_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 function createSerialGate() {
   let tail = Promise.resolve();
-  return async (work) => {
+  const acquire = async () => {
     const prior = tail;
     let release;
     tail = new Promise((resolve) => { release = resolve; });
     await prior;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      release();
+    };
+  };
+  const run = async (work) => {
+    const release = await acquire();
     try { return await work(); }
     finally { release(); }
   };
+  run.acquire = acquire;
+  return run;
 }
 
 export function createMemoryAssetRepository() {
@@ -26,6 +37,7 @@ export function createMemoryAssetRepository() {
   const references = new Map();
   const audits = [];
   const previewGate = createSerialGate();
+  const transactionLocks = new WeakMap();
   function owned(map, id, organizationId, code) {
     const value = map.get(id);
     if (!value || value.organization_id !== organizationId) throw failure(code);
@@ -168,12 +180,16 @@ export function createMemoryAssetRepository() {
       return { asset: clone(asset), asset_version: clone(version) };
     },
     async registerVerifiedOutput({ organizationId, actorMemberId = null, candidate, now, transactionClient = null }) {
-      const existing = [...versions.values()].find((version) => version.organization_id === organizationId && version.object_key === candidate.object_key);
+      const existing = [...versions.values()].find((version) => version.object_key === candidate.object_key);
       if (existing) {
-        if (existing.status !== "available" || existing.expected_checksum_sha256 !== candidate.checksum || existing.expected_size !== candidate.size) {
+        const existingAsset = assets.get(existing.asset_id);
+        if (!existingAsset || existing.organization_id !== organizationId || existingAsset.organization_id !== organizationId ||
+            existingAsset.kind !== "work_video" || existingAsset.status !== "active" || existing.status !== "available" ||
+            existing.expected_content_type !== candidate.media_type || existing.expected_checksum_sha256 !== candidate.checksum ||
+            existing.expected_size !== candidate.size) {
           throw failure("WORK_VERIFICATION_ASSET_CONFLICT");
         }
-        return { asset: clone(assets.get(existing.asset_id)), asset_version: clone(existing) };
+        return { asset: clone(existingAsset), asset_version: clone(existing) };
       }
       const asset = {
         id: randomUUID(), organization_id: organizationId, kind: "work_video", display_name: candidate.original_filename || "已核验作品",
@@ -228,25 +244,60 @@ export function createMemoryAssetRepository() {
       });
     },
     async updateAssetMetadata({ organizationId, assetId, expectedRevision, displayName, actorMemberId = null, now }) {
-      const asset = owned(assets, assetId, organizationId, "ASSET_NOT_FOUND");
-      if (asset.revision_number !== expectedRevision) throw failure("ASSET_VERSION_CONFLICT");
-      asset.display_name = displayName; asset.revision_number += 1; asset.updated_at = now;
-      audits.push({ id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId, event_type: "asset.metadata_updated", asset_id: assetId, metadata: { display_name: displayName }, created_at: now });
-      return clone(asset);
+      return previewGate(async () => {
+        const asset = owned(assets, assetId, organizationId, "ASSET_NOT_FOUND");
+        if (asset.revision_number !== expectedRevision) throw failure("ASSET_VERSION_CONFLICT");
+        if (asset.status !== "active") throw failure("ASSET_NOT_ACTIVE");
+        asset.display_name = displayName; asset.revision_number += 1; asset.updated_at = now;
+        audits.push({ id: randomUUID(), organization_id: organizationId, actor_member_id: actorMemberId, event_type: "asset.metadata_updated", asset_id: assetId, metadata: { display_name: displayName }, created_at: now });
+        return clone(asset);
+      });
     },
     async bindReference({ organizationId, assetVersionId, referenceType, referenceId, role, now, transactionClient = null }) {
-      const version = owned(versions, assetVersionId, organizationId, "ASSET_VERSION_NOT_FOUND");
-      const asset = assets.get(version.asset_id);
-      if (asset.status !== "active") throw failure("ASSET_NOT_ACTIVE");
-      if (version.status !== "available") throw failure("ASSET_VERSION_NOT_AVAILABLE");
-      const key = `${organizationId}:${assetVersionId}:${referenceType}:${referenceId}:${role}`;
-      let reference = references.get(key);
-      if (!reference) {
-        reference = { id: randomUUID(), organization_id: organizationId, asset_id: asset.id, asset_version_id: version.id, reference_type: referenceType, reference_id: referenceId, role, created_at: now };
-        if (transactionClient?.onCommit) transactionClient.onCommit(() => references.set(key, clone(reference)));
-        else references.set(key, reference);
+      if (transactionClient != null && (typeof transactionClient !== "object" ||
+          typeof transactionClient.onCommit !== "function" || typeof transactionClient.onRollback !== "function")) {
+        throw new TypeError("transactionClient must provide onCommit and onRollback");
       }
-      return { reference: clone(reference), asset: clone(asset), asset_version: clone(version) };
+      const transactional = transactionClient && typeof transactionClient === "object" &&
+        typeof transactionClient.onCommit === "function" && typeof transactionClient.onRollback === "function";
+      let transactionLock = transactional ? transactionLocks.get(transactionClient) : null;
+      let release = null;
+      if (!transactionLock) {
+        release = await previewGate.acquire();
+        if (transactional) {
+          transactionLock = { pending: new Map(), settled: false, release };
+          transactionLocks.set(transactionClient, transactionLock);
+          const settle = (commit) => {
+            if (transactionLock.settled) return;
+            transactionLock.settled = true;
+            if (commit) {
+              for (const [key, reference] of transactionLock.pending) references.set(key, clone(reference));
+            }
+            transactionLock.pending.clear();
+            transactionLocks.delete(transactionClient);
+            transactionLock.release();
+          };
+          transactionClient.onCommit(() => settle(true));
+          transactionClient.onRollback(() => settle(false));
+        }
+      }
+      try {
+        const version = owned(versions, assetVersionId, organizationId, "ASSET_VERSION_NOT_FOUND");
+        const asset = assets.get(version.asset_id);
+        if (asset.status !== "active") throw failure("ASSET_NOT_ACTIVE");
+        if (asset.kind !== "product_image") throw failure("ASSET_VERSION_NOT_AVAILABLE");
+        if (version.status !== "available") throw failure("ASSET_VERSION_NOT_AVAILABLE");
+        const key = `${organizationId}:${assetVersionId}:${referenceType}:${referenceId}:${role}`;
+        let reference = references.get(key) || transactionLock?.pending.get(key);
+        if (!reference) {
+          reference = { id: randomUUID(), organization_id: organizationId, asset_id: asset.id, asset_version_id: version.id, reference_type: referenceType, reference_id: referenceId, role, created_at: now };
+          if (transactionLock) transactionLock.pending.set(key, clone(reference));
+          else references.set(key, reference);
+        }
+        return { reference: clone(reference), asset: clone(asset), asset_version: clone(version) };
+      } finally {
+        if (!transactional) release?.();
+      }
     },
     async listAuditEvents() { return clone(audits); }
   };

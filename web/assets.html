@@ -98,8 +98,13 @@
     </dialog>
 
     <dialog id="assetDangerDialog" aria-labelledby="dangerTitle">
-      <div class="dialog-header"><h2 id="dangerTitle">确认操作</h2><button class="dialog-close" type="button" data-close-dialog aria-label="关闭">×</button></div>
-      <div class="dialog-body"><p id="dangerMessage"></p><p id="dangerError" class="notice error" role="alert"></p><div class="actions"><button class="secondary" type="button" data-close-dialog>取消</button><button id="confirmDanger" class="danger-solid" type="button">确认</button></div></div>
+      <div class="dialog-header"><h2 id="dangerTitle" tabindex="-1">确认操作</h2><button class="dialog-close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="dialog-body">
+        <p id="dangerMessage"></p>
+        <p id="dangerError" class="notice error" role="alert"></p>
+        <div id="dangerConflictActions" class="conflict-actions" hidden><button id="reloadDanger" class="secondary" type="button">载入最新素材状态</button></div>
+        <div class="actions"><button class="secondary" type="button" data-close-dialog>取消</button><button id="confirmDanger" class="danger-solid" type="button">确认</button></div>
+      </div>
     </dialog>
   </body>
 </html>

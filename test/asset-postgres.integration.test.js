@@ -45,6 +45,18 @@ test("clean PostgreSQL asset migration and repository contract", { skip: !connec
   await repository.initialize();
   const objectStore = createMemoryObjectStore();
   const service = createAssetService({ repository, objectStore });
+  const createVerifiedImage = async (key) => {
+    const createdImage = await service.createUploadAuthorization({
+      organizationId: "org_pg", actorMemberId: seeded.member.id, idempotencyKey: `pg-${key}`,
+      filename: `${key}.png`, contentType: "image/png", size: PNG.length, checksumSha256: CHECKSUM
+    });
+    await service.uploadObject({ organizationId: "org_pg", uploadToken: createdImage.upload.token, body: PNG, contentType: "image/png" });
+    await service.completeUpload({
+      organizationId: "org_pg", uploadSessionId: createdImage.upload_session_id, idempotencyKey: `pg-${key}-complete`
+    });
+    await service.runNextVerificationJob();
+    return createdImage;
+  };
   const authorizationInput = {
     organizationId: "org_pg", actorMemberId: seeded.member.id, idempotencyKey: "pg-authorize",
     filename: "product.png", contentType: "image/png", size: PNG.length, checksumSha256: CHECKSUM
@@ -104,6 +116,95 @@ test("clean PostgreSQL asset migration and repository contract", { skip: !connec
     transactionClient.release();
   }
   assert.equal((await pool.query("SELECT count(*)::integer count FROM asset_references WHERE reference_id='rollback-revision'")).rows[0].count, 0);
+
+  const bindCommitClient = await pool.connect();
+  try {
+    await bindCommitClient.query("BEGIN");
+    await service.assetReferencePort.bindAvailableVersion({
+      organizationId: "org_pg", assetVersionId: created.asset_version.id, referenceType: "product_revision",
+      referenceId: "bind-first-commit", role: "product_image", transactionClient: bindCommitClient
+    });
+    let deleteSettled = false;
+    const pendingDelete = service.deleteAsset({
+      organizationId: "org_pg", assetId: created.asset.id, expectedRevision: 2, actorMemberId: seeded.member.id
+    });
+    pendingDelete.then(() => { deleteSettled = true; }, () => { deleteSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(deleteSettled, false, "delete must wait for the enclosing bind transaction");
+    await bindCommitClient.query("COMMIT");
+    await assert.rejects(pendingDelete, { code: "ASSET_HISTORY_REFERENCED" });
+  } finally {
+    if (!bindCommitClient.released) {
+      await bindCommitClient.query("ROLLBACK").catch(() => {});
+      bindCommitClient.release();
+    }
+  }
+
+  const rollbackImage = await createVerifiedImage("bind-first-rollback");
+  const bindRollbackClient = await pool.connect();
+  try {
+    await bindRollbackClient.query("BEGIN");
+    await service.assetReferencePort.bindAvailableVersion({
+      organizationId: "org_pg", assetVersionId: rollbackImage.asset_version.id, referenceType: "product_revision",
+      referenceId: "bind-first-rollback", role: "product_image", transactionClient: bindRollbackClient
+    });
+    let deleteSettled = false;
+    const pendingDelete = service.deleteAsset({
+      organizationId: "org_pg", assetId: rollbackImage.asset.id, expectedRevision: 1, actorMemberId: seeded.member.id
+    });
+    pendingDelete.then(() => { deleteSettled = true; }, () => { deleteSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(deleteSettled, false, "delete must wait until the enclosing bind transaction rolls back");
+    await bindRollbackClient.query("ROLLBACK");
+    assert.equal((await pendingDelete).status, "deleted");
+    assert.equal((await pool.query("SELECT count(*)::integer count FROM asset_references WHERE reference_id='bind-first-rollback'")).rows[0].count, 0);
+  } finally {
+    bindRollbackClient.release();
+  }
+
+  const disableImage = await createVerifiedImage("bind-first-disable");
+  const bindDisableClient = await pool.connect();
+  try {
+    await bindDisableClient.query("BEGIN");
+    await service.assetReferencePort.bindAvailableVersion({
+      organizationId: "org_pg", assetVersionId: disableImage.asset_version.id, referenceType: "product_revision",
+      referenceId: "bind-first-disable", role: "product_image", transactionClient: bindDisableClient
+    });
+    let disableSettled = false;
+    const pendingDisable = service.disableAsset({
+      organizationId: "org_pg", assetId: disableImage.asset.id, expectedRevision: 1, actorMemberId: seeded.member.id
+    });
+    pendingDisable.then(() => { disableSettled = true; }, () => { disableSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(disableSettled, false, "disable must wait for the enclosing bind transaction");
+    await bindDisableClient.query("COMMIT");
+    assert.equal((await pendingDisable).status, "disabled");
+    assert.equal((await pool.query("SELECT count(*)::integer count FROM asset_references WHERE reference_id='bind-first-disable'")).rows[0].count, 1);
+  } finally {
+    if (!bindDisableClient.released) {
+      await bindDisableClient.query("ROLLBACK").catch(() => {});
+      bindDisableClient.release();
+    }
+  }
+
+  const deleteFirstImage = await createVerifiedImage("delete-first");
+  await service.deleteAsset({
+    organizationId: "org_pg", assetId: deleteFirstImage.asset.id, expectedRevision: 1, actorMemberId: seeded.member.id
+  });
+  await assert.rejects(service.assetReferencePort.bindAvailableVersion({
+    organizationId: "org_pg", assetVersionId: deleteFirstImage.asset_version.id, referenceType: "product_revision",
+    referenceId: "delete-first", role: "product_image"
+  }), { code: "ASSET_NOT_ACTIVE" });
+
+  const disableFirstImage = await createVerifiedImage("disable-first");
+  await service.disableAsset({
+    organizationId: "org_pg", assetId: disableFirstImage.asset.id, expectedRevision: 1, actorMemberId: seeded.member.id
+  });
+  await assert.rejects(service.assetReferencePort.bindAvailableVersion({
+    organizationId: "org_pg", assetVersionId: disableFirstImage.asset_version.id, referenceType: "product_revision",
+    referenceId: "disable-first", role: "product_image"
+  }), { code: "ASSET_NOT_ACTIVE" });
+
   await assert.rejects(pool.query("UPDATE asset_versions SET object_key='overwritten' WHERE id=$1", [created.asset_version.id]), /immutable/);
   assert.equal((await pool.query("SELECT token_digest FROM asset_upload_sessions WHERE id=$1", [created.upload_session_id])).rows[0].token_digest === created.upload.token, false);
 

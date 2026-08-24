@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
+import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
 
+import { createAssetService } from "../src/assets/asset-service.js";
+import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
+import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryProjectContentRepository } from "../src/project-content/memory-project-content-repository.js";
 import { createProjectContentService } from "../src/project-content/project-content-service.js";
 
 const ORG = "org_test";
 const MEMBER = "member_test";
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+const PNG_CHECKSUM = createHash("sha256").update(PNG).digest("hex");
 
 function availableAssetPort({ unavailable = new Set(), failAfter = null } = {}) {
   const references = [];
@@ -419,6 +425,67 @@ test("asset binding failure rolls back ready state and staged references", async
   }), { code: "ASSET_BIND_FAILED" });
   assert.equal(port.references.length, 0);
   assert.equal((await ctx.service.getRevision({ ...ctx.actor, productRevisionId: draft.id })).status, "draft");
+});
+
+test("a failed multi-image ready transaction releases real Asset bind reservations", async () => {
+  const assetRepository = createMemoryAssetRepository();
+  const objectStore = createMemoryObjectStore();
+  const assetService = createAssetService({ repository: assetRepository, objectStore });
+  const createAvailableImage = async (name) => {
+    const created = await assetService.createUploadAuthorization({
+      organizationId: ORG,
+      actorMemberId: MEMBER,
+      idempotencyKey: `asset-${name}-${randomUUID()}`,
+      filename: `${name}.png`,
+      contentType: "image/png",
+      size: PNG.length,
+      checksumSha256: PNG_CHECKSUM
+    });
+    await assetService.uploadObject({ organizationId: ORG, uploadToken: created.upload.token, body: PNG, contentType: "image/png" });
+    await assetService.completeUpload({
+      organizationId: ORG,
+      uploadSessionId: created.upload_session_id,
+      idempotencyKey: `complete-${name}-${randomUUID()}`
+    });
+    await assetService.runNextVerificationJob();
+    return created;
+  };
+  const first = await createAvailableImage("first");
+  const second = await createAvailableImage("second");
+  await assetService.disableAsset({ organizationId: ORG, assetId: second.asset.id, expectedRevision: 1, actorMemberId: MEMBER });
+
+  const ctx = world({ assetReferencePort: assetService.assetReferencePort });
+  const { revision } = await createProductDraft(ctx);
+  let draft = await ctx.service.saveRevision({
+    ...ctx.actor,
+    productRevisionId: revision.id,
+    expectedRevision: revision.revision_number,
+    productName: "云朵抱枕",
+    sellingPoints: [{ text: "柔软亲肤" }],
+    assetVersionIds: [first.asset_version.id, second.asset_version.id]
+  });
+  draft = await ctx.service.confirmSellingPoint({
+    ...ctx.actor,
+    productRevisionId: draft.id,
+    pointId: draft.selling_points[0].id,
+    expectedRevision: draft.revision_number
+  });
+
+  await assert.rejects(ctx.service.readyRevision({
+    ...ctx.actor,
+    productRevisionId: draft.id,
+    expectedRevision: draft.revision_number,
+    idempotencyKey: "ready-real-assets-fails"
+  }), { code: "ASSET_NOT_ACTIVE" });
+  assert.equal((await ctx.service.getRevision({ ...ctx.actor, productRevisionId: draft.id })).status, "draft");
+
+  const deleted = await assetService.deleteAsset({
+    organizationId: ORG,
+    assetId: first.asset.id,
+    expectedRevision: 1,
+    actorMemberId: MEMBER
+  });
+  assert.equal(deleted.status, "deleted");
 });
 
 test("cross-organization project and revision commands do not reveal object existence", async () => {

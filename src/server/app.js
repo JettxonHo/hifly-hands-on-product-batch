@@ -287,7 +287,7 @@ function apiError(error, request = null) {
   if (["ASSET_VERSION_CONFLICT", "ASSET_HISTORY_REFERENCED", "IDEMPOTENCY_CONFLICT", "OBJECT_ALREADY_EXISTS", "UPLOAD_SESSION_NOT_PENDING", "UPLOAD_AUTHORIZATION_NOT_REPLAYABLE"].includes(error?.code)) {
     return { statusCode: 409, code: error.code };
   }
-  if (["ASSET_NOT_ACTIVE", "ASSET_VERSION_NOT_AVAILABLE", "UPLOAD_NOT_COMPLETED"].includes(error?.code)) {
+  if (["ASSET_NOT_ACTIVE", "ASSET_READ_ONLY", "ASSET_VERSION_NOT_AVAILABLE", "UPLOAD_NOT_COMPLETED"].includes(error?.code)) {
     return { statusCode: 422, code: error.code };
   }
   if (error?.code === "ADMIN_REQUIRED") return { statusCode: 403, code: "ADMIN_REQUIRED" };

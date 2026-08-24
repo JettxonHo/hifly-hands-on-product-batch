@@ -65,6 +65,8 @@ jobs:
         run: node --test test/identity-postgres.integration.test.js
       - name: Run ProjectContent v2 PostgreSQL integration
         run: node --test test/project-content-postgres.integration.test.js
+      - name: Run Assets PostgreSQL concurrency integration
+        run: node --test test/asset-postgres.integration.test.js
       - name: Run VideoPlanning v2 PostgreSQL integration
         run: node --test test/video-planning-postgres.integration.test.js
       - name: Run Stage 5 Production PostgreSQL authority chain

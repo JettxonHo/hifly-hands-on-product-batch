@@ -3,6 +3,31 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-25 素材中心与移动收口 fixed candidate
+
+- Issue #248 / PR #249 的 Post-stage 作品库已进入固定基线
+  `main@255569deaba294807b3348a985277a850be3dce2`。Issue #250 在该基线完成素材中心/移动收口候选包；只有对应
+  Draft PR exact-head CI 与独立 Review 通过并合并后才计为仓库实现，不表示部署、生产数据、Provider 或客户验收。
+- 公共 Assets 只展示三种服务端真值 `product_image`、`avatar_image`、`work_video`；作品视频由服务端强制只读，内部
+  candidate 与 deleted parent 不能经公共 list/detail/new download grant 暴露。通用授权对 missing/cross-org/internal/
+  deleted 统一 generic fail-closed。
+- ProductRevision 图片绑定在 memory/PostgreSQL 均关闭 bind/delete/disable 交错：PostgreSQL 先锁 parent Asset 再锁
+  Version，并持锁到 enclosing commit；memory UoW 提供 LIFO rollback callback 和 transaction-owned reservation。
+  删除门禁只精确覆盖现有 `asset_references`；企业人物、AvatarSelection、Work 等跨领域历史引用没有统一关系真值，仍是
+  后续独立 Product/API + migration gate，不得宣称本轮已全链阻止删除。
+- Assets URL/history、request epoch、scoped error、409 二次确认、Dialog/移动返回焦点与 bfcache 身份重读均已 fail closed；
+  390/768 身份重读 503 会撤销旧 authority、切回 list layer 并保留唯一可见且可聚焦的 refresh。
+  只有 exact current successful list snapshot 中的 available+verified `avatar_image` 会复用既有 same-origin 短时授权显示真实
+  list/detail 预览；到期、授权、decode 或 bytes SHA drift 会清 stale `src`。URL/token/object key/Provider 字段不进入
+  history、storage 或日志；`work_video` 零 image grant。
+- 本地证据：focused service/API/ProjectContent 59/59、PostgreSQL 16 Assets 1/1、新 closeout 系统 Chrome 8/8、兼容
+  Assets/V2/A14 12/12、Stage 1–5 + Works 24/24，以及默认 suite 1202 total / 1187 pass / 15 既有环境 skip / 0 fail。
+  精确 1440x900、768x900、390x844 人物详情截图已在 preview ready 后
+  输出到 `/private/tmp/hifly-issue-250-assets-screenshots/`；使用 1x1 黑/白 fixture，只证明授权/bytes/layout，不是生产人物视觉。
+- 本轮没有访问 Hifly/Provider、启动 Worker/Local Agent、SSH/部署、修改生产数据、创建/执行真实视频或消耗积分；也没有
+  开始视觉研究。完整 allowlist、RED/GREEN、截图 hash、验证与 deferred blocker 见
+  `docs/status/sessions/2026-08-25-operator-single-workspace-assets-mobile-closeout.md`。
+
 ## 2026-08-25 Post-stage 作品库方案 A 实现门禁
 
 - Stage 5 已通过 Issue #246 / PR #247 合并进入精确 `main@0b0d1d94df4a06b9209e7385f7082e3cad53a742`；该事实仅表示仓库实现，不表示已部署、已运行或已完成生产验收。

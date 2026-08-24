@@ -2,10 +2,33 @@
 
 > 最后更新：2026-08-25
 > 当前 Goal：下一代运营单任务工作区严格串行 Stage Goals
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 合同与 Stage 1 至 Stage 5 仓库实现已严格串行进入精确 `main@0b0d1d94df4a06b9209e7385f7082e3cad53a742`；Issue #248 是 Post-stage 作品库方案 A 的独立 acceptance gate，只有对应 Draft PR 经独立 Review 合并后才计为仓库实现，不代表部署、运行时、生产数据或客户验收。可信 TLS 仍是独立发布门禁。
+> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 至 Stage 5 与 Issue #248 / PR #249 Post-stage 作品库已严格串行进入精确 `main@255569deaba294807b3348a985277a850be3dce2`；Issue #250 是素材中心/移动收口独立 Draft acceptance gate，只有 exact-head CI、独立 Review 与合并后才计为仓库实现，不代表部署、运行时、生产数据、真实人物视觉或客户验收。可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## Issue #250 素材中心与移动收口
+
+- 固定基线为 `main@255569deaba294807b3348a985277a850be3dce2`。候选包将公共 Assets 收敛为
+  `product_image`、`avatar_image`、`work_video` 三种服务端真值；`work_video` 的 rename/new-version/metadata/status/
+  delete 由 Asset service/API 对 member/admin 统一只读。missing、cross-org、internal、deleted 的通用新下载授权统一
+  generic fail-closed；内部 candidate 不能通过 work output replay 洗成公共作品。
+- ProductRevision 图片绑定只接受 `product_image`。memory ProjectContent UoW 新增 LIFO rollback callbacks，并以
+  transaction-owned reservation 关闭 bind/delete/disable 交错；PostgreSQL 按 parent Asset -> exact Version 的锁序并持锁至
+  enclosing commit。现有删除门禁只覆盖 `asset_references`，不等价于企业人物、AvatarSelection、Work 等跨领域全部历史
+  引用；该关系真值与 migration 是明确 deferred 的独立 Product/API gate。
+- Assets canonical kind/asset URL、history/popstate、list/preview epoch、503 撤权、409 二次确认、Dialog/移动返回焦点与
+  bfcache 身份重读均 fail closed；390/768 身份重读失败会撤权并切回保留唯一可见 refresh 的 list layer。只有最新成功 list
+  snapshot 中 exact available+verified `avatar_image` 复用既有 generic
+  same-origin 短时授权生成 list/detail 同 URL 预览；过期、授权失败、decode 或 bytes SHA drift 均清 stale `src`，不把
+  token/URL/object key/Provider 信息持久化或写日志。`work_video` 零 image grant。
+- 当前 fixed candidate 本地证据为 focused 59/59、PostgreSQL 16 Assets 1/1、新系统 Chrome 8/8、兼容 12/12、Stage 1–5
+  + Works 24/24，以及默认 suite 1202 total / 1187 pass / 15 既有环境 skip / 0 fail。preview ready 后的精确
+  1440x900、768x900、390x844 临时截图使用 1x1 黑/白 PNG fixture，只证明授权、
+  bytes 与布局，不是生产人物视觉。完整 scope、RED/GREEN、hash 与命令见
+  `docs/status/sessions/2026-08-25-operator-single-workspace-assets-mobile-closeout.md`。
+- 本 Goal 未访问 Provider/Hifly，未启动 Worker/Local Agent，未 SSH/部署、修改生产数据、生成真实视频或消耗积分，也未
+  开始视觉研究。只有 Issue #250 经独立 Review 合并后，才可启动独立视觉 refinement/research Goal。
 
 ## Issue #190 商品图片候选类型收敛
 
@@ -616,11 +639,10 @@
 3. Issue #236 / PR #237 的单任务工作区合同已进入 `main@b7716acf` 并计为 designed；Stage 1 至 Stage 5 已随
    Issues #238/#240/#242/#244/#246 和 PRs #239/#241/#243/#245/#247 严格串行进入 `main@0b0d1d94`。Stage 5
    只 additive 读取并组织既有 ProductionOrder、handoff、ManualExecution、A12 与 Work/delivery 真值，不读取或推断
-   eligible/active attempts/Worker，不自动重试、重新领取或创建下一单；合并不表示部署或生产验收。Issue #248 是
-   Post-stage 作品库独立 Draft gate，固定有界服务端六项分页、页外零初始化、strict null anchor、模糊 intent
-   跨上下文阻断与 1440/768/390 composition；只有独立
-   Review 合并后才计为仓库实现。后续继续按素材中心/移动收口串行，
-   且任何仓库实现均不自动成为部署或生产验收事实。全部功能 Stage 完成并分别验收后，另开独立视觉 refinement/research
+   eligible/active attempts/Worker，不自动重试、重新领取或创建下一单；合并不表示部署或生产验收。Issue #248 / PR #249
+   的 Post-stage 作品库已以固定有界服务端六项分页、页外零初始化、strict null anchor、模糊 intent 跨上下文阻断与
+   1440/768/390 composition 进入 `main@255569de`。Issue #250 素材中心/移动收口保持独立 Draft gate；只有 exact-head CI、
+   独立 Review 与合并后才计为仓库实现，且任何仓库实现均不自动成为部署或生产验收事实。#250 合并后另开独立视觉 refinement/research
    gate：PC 的 1440 主工作区与 768 收敛、移动 390 的列表/详情分层是并行的一等合同，不设 PC/移动优先级，也不把
    桌面当作移动布局放大。两端共享业务真值、动作和状态词，但可采用不同响应式 composition；实现合并前均须真实
    Chrome 行为/截图与人工视觉 acceptance。外部设计站点只按 Hifly 自身任务选择性取证，不直接复制风格。
