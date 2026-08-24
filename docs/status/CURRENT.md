@@ -101,7 +101,10 @@
   的完整快照一致。无 current plan 时只允许空版本或全 superseded 历史，原生 Escape 则结束要求修改意图、清空理由并恢复
   exact trigger 焦点。并发读取若混合 draft head 与后来产生的 preflight/review 子真值，会作为可恢复读取错误 fail-visible，
   不暴露批准/提交动作；仅 superseded 历史且无 active head 时，“回到当前方案”会清除 plan 深链并进入首版创建态。这些只在
-  对应 fixed head 经独立 Review 合并后计入仓库实现。
+  对应 fixed head 经独立 Review 合并后计入仓库实现。第五轮纠偏进一步把提交/批准/要求修改审核与 exact product head、
+  frozen plan revision、最新 reviewable preflight run/result 和 pending review revision 放入同一 repository 原子门禁；derive
+  先完成时旧方案审核返回安全冲突且不写 review/event/audit。memory 单事件门禁与 PostgreSQL 固定事务锁序均须经 fixed-head
+  独立 Review 后才成立。
   Stage 1/2/3 保持稳定，`production` 继续 `legacy/not_loaded` 且不读取 Production service；进入生产只保持旧页导航，
   不创建工单、不推断 eligible/attempt/Worker。只有对应 Draft PR 经独立 Review 合并后才表示 Stage 4 仓库实现成立；
   不表示部署或生产验收，也不授权 Stage 5。

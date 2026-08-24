@@ -132,3 +132,35 @@ test("video planning API maps conflict, gate and cross-organization errors", asy
   assert.equal(invalidSize.statusCode, 400);
   assert.equal(invalidSize.json().error, "VIDEO_PLAN_PRESENTATION_SIZE_UNSUPPORTED");
 });
+
+test("video planning API rejects a stale review decision after the exact plan head changes", async (t) => {
+  const { app } = await identityApp(t, { videoPlanning: options({ agentOnline: true }) });
+  const auth = await activateAdmin(app);
+  const mutation = identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true });
+  const read = identityHeaders({ cookies: auth.cookies });
+  const created = (await app.inject({ method: "POST", url: "/api/products/product-a/video-plans",
+    headers: { ...mutation, "idempotency-key": "stale-review-create" },
+    payload: { output_instructions: "首版方案", expected_head_revision: 0 } })).json();
+  await app.inject({ method: "POST", url: `/api/products/product-a/video-plans/${created.current_plan.id}/preflight`,
+    headers: { ...mutation, "idempotency-key": "stale-review-preflight" },
+    payload: { expected_revision: created.current_plan.row_version } });
+  await app.videoPlanning.worker.runNext();
+  const submitted = (await app.inject({ method: "POST",
+    url: `/api/products/product-a/video-plans/${created.current_plan.id}/reviews`,
+    headers: { ...mutation, "idempotency-key": "stale-review-submit" }, payload: {} })).json();
+  const derived = await app.inject({ method: "POST",
+    url: `/api/products/product-a/video-plans/${created.current_plan.id}/derive`,
+    headers: { ...mutation, "idempotency-key": "stale-review-derive" },
+    payload: { output_instructions: "并发后的新方案", expected_head_revision: submitted.head_revision } });
+  assert.equal(derived.statusCode, 201);
+
+  const approval = await app.inject({ method: "POST",
+    url: `/api/products/product-a/plan-reviews/${submitted.review.current_review.id}/approve`,
+    headers: { ...mutation, "idempotency-key": "stale-review-approve" }, payload: { expected_revision: 1 } });
+  assert.equal(approval.statusCode, 409);
+  assert.deepEqual(approval.json(), { error: "VIDEO_PLAN_REVIEW_CONFLICT" });
+  const historical = (await app.inject({ method: "GET",
+    url: `/api/products/product-a/video-plan-workspace?planVersionId=${created.current_plan.id}`, headers: read })).json();
+  assert.equal(historical.current_plan.status, "superseded");
+  assert.equal(historical.review.current_review.status, "pending");
+});

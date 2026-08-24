@@ -67,11 +67,17 @@
     review child truth 都抛出专用 generation mismatch，并由当前 stage 映射为可恢复 503/零动作；approve/submit 还显式要求
     frozen 且拒绝 `plan_not_frozen`。客户端以 superseded status 判定历史，并允许 null head 导航清除 plan query、重载空 head
     后进入第一版创建态。
+13. 第五轮审核写入竞态 RED：真实 memory domain 在 service gate 读取后暂停 `createReview`/`transitionReview`，并发 derive
+    替换 exact head 后，旧实现仍会创建 pending 或把 superseded 方案的 pending review 批准；公开 API 对同一 stale approval
+    返回 200。GREEN 后 service 把 exact plan revision 与最新 succeeded passed/warning run/result 身份传入 repository；memory
+    在单事件写入边界复核，PostgreSQL 统一按 receipt -> product head -> plan -> latest run/result -> review head 的事务锁序复核。
+    derive 先完成时 create/transition 均返回 `VIDEO_PLAN_REVIEW_CONFLICT`，不写 terminal review、event、audit；API 只返回安全
+    409 envelope。该修复不新增状态、migration 或公共接口。
 
 ## 实现边界
 
 - Stage 4 只对现有 opt-in vanilla HTML/CSS/JS 做 targeted upgrade；没有搬运 throwaway 原型、引入框架/依赖、改动
-  VideoPlan 状态机或新增公共写 API。
+  VideoPlan 状态机或新增公共写 API。第五轮只把既有 VideoPlanning review mutation 收紧为 repository 原子门禁。
 - client dirty、saving、conflict 与 read error 可以在 persisted recommended action 之上 fail closed；服务端计划、preflight、
   review 与 history 仍是领域真值。每个状态最多一个 `data-recommended-action`，上下文按钮不与底部主动作竞争。
 - 技术 ID、row version、preflight run/result 与审核历史在折叠详情中可访问；业务主层使用中文。刷新只重读当前商品的 exact
@@ -95,6 +101,12 @@
 13. `web/workspace-plan.js`
 14. `web/workspace.css`
 15. `web/workspace.html`
+16. `src/video-planning/video-planning-service.js`
+17. `src/video-planning/memory-video-planning-repository.js`
+18. `src/video-planning/postgres-video-planning-repository.js`
+19. `test/video-planning-service.test.js`
+20. `test/video-planning-postgres.integration.test.js`
+21. `test/video-planning-api.test.js`
 
 ## 验证
 
@@ -123,13 +135,17 @@
   53/53 pass、Stage 4 Chrome 8/8 pass、Stage 1/2/3/4 + legacy Plan Chrome 17/17 pass，`npm run check` 仍为 246 files。
   前述另一个 worktree 的全量进程在本轮仍持续运行超过 9 小时，因此没有再次启动本地 default suite 制造第三次资源争用；
   新 fixed-head Ubuntu/Windows 的自然 default suite 与 identity-postgres 必须全部 SUCCESS 才交付独立复审。
+- 第五轮 memory/API 三条 RED 分别为 submit-vs-derive、approve-vs-derive 的 Missing expected rejection 与 stale approval
+  HTTP 200；GREEN 后 service/API/operator workspace 非数据库聚焦组 56/56 pass。PostgreSQL 同一 integration seam 新增
+  derive 胜出后的 stale transition/create 断言；本机无可用 PostgreSQL daemon，不能冒充本地 PG 通过，必须由 fixed-head
+  `identity-postgres` 自然执行并记录。受影响 Chrome、check、diff-check 与 fixed-head CI 结果在提交前继续补齐。
 - `main` 分支保护已保留 `strict=true` 与原 `test (ubuntu-latest, 22)`、`test (windows-latest, 22)`，仅新增
   `identity-postgres` 为 required context；该设置变更不扩仓库文件 allowlist。
 - 首轮实现 head 的默认 `npm test` 曾自然完成 1148 total / 1133 pass / 15 existing environment-gated skips / 0 fail；首轮
   纠偏 head 的一次默认命令受另一 worktree 遗留的同套全量进程影响而停在未改动的 `yingdao-rpa-executor.test.js`，当时未
   误写为通过。本轮第二次纠偏的默认命令在该外部进程仍存在时仍自然完成，结果以上述 1152 项为准；没有杀死外部进程，
   也没有用串行参数规避。
-- `git diff --check` 与严格 15 文件 allowlist 通过；fixed-head CI 的最终结果以 Draft PR 元数据和结果评论为准，session 不在
+- `git diff --check` 与严格 21 文件 allowlist 必须通过；fixed-head CI 的最终结果以 Draft PR 元数据和结果评论为准，session 不在
   提交正文中自引用最终 commit。
 
 ## 未执行边界

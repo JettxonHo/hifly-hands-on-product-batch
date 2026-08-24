@@ -39,6 +39,20 @@ async function createAndPreflight(state, suffix = "one", outputInstructions = "�
   return state.service.getWorkspace(actor);
 }
 
+function pauseNextRepositoryMutation(repository, method) {
+  const original = repository[method].bind(repository);
+  let release;
+  let entered;
+  const waiting = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  repository[method] = async (...args) => {
+    entered();
+    await gate;
+    return original(...args);
+  };
+  return { waiting, release };
+}
+
 test("creates a plan with the canonical Hifly presentation size", async () => {
   const state = world();
   const created = await state.service.createPlan({ ...actor, outputInstructions: "首版制作说明",
@@ -238,6 +252,44 @@ test("relevant upstream changes invalidate preflight and revoke approval while m
   await assert.rejects(state.service.approveReview({ ...actor, reviewId: workspace.review.current_review.id,
     expectedRevision: workspace.review.current_review.row_version, idempotencyKey: "restore-revoked" }),
   { code: "VIDEO_PLAN_REVIEW_CONFLICT" });
+});
+
+test("review submission cannot commit after derive replaces the exact frozen head", async () => {
+  const state = world({ agentOnline: true });
+  const workspace = await createAndPreflight(state, "submit-derive-race");
+  const pause = pauseNextRepositoryMutation(state.repository, "createReview");
+  const submitting = state.service.submitReview({ ...actor, planId: workspace.current_plan.id,
+    idempotencyKey: "submit-derive-race-review" });
+  await pause.waiting;
+  await state.service.deriveDraft({ ...actor, planId: workspace.current_plan.id,
+    outputInstructions: "并发创建的新方案", expectedHeadRevision: workspace.head_revision,
+    idempotencyKey: "submit-derive-race-new-plan" });
+  pause.release();
+
+  await assert.rejects(submitting, { code: "VIDEO_PLAN_REVIEW_CONFLICT" });
+  assert.equal((await state.repository.listReviews(actor.organizationId, workspace.current_plan.id)).length, 0);
+  assert.equal((await state.repository.listAuditEvents()).some((event) =>
+    event.event_type === "video_plan.review_submitted"), false);
+});
+
+test("review approval cannot commit after derive supersedes its exact pending head", async () => {
+  const state = world({ agentOnline: true });
+  let workspace = await createAndPreflight(state, "approve-derive-race");
+  workspace = await state.service.submitReview({ ...actor, planId: workspace.current_plan.id,
+    idempotencyKey: "approve-derive-race-submit" });
+  const review = workspace.review.current_review;
+  const pause = pauseNextRepositoryMutation(state.repository, "transitionReview");
+  const approving = state.service.approveReview({ ...actor, reviewId: review.id,
+    expectedRevision: review.row_version, idempotencyKey: "approve-derive-race-decision" });
+  await pause.waiting;
+  await state.service.deriveDraft({ ...actor, planId: workspace.current_plan.id,
+    outputInstructions: "批准前并发创建的新方案", expectedHeadRevision: workspace.head_revision,
+    idempotencyKey: "approve-derive-race-new-plan" });
+  pause.release();
+
+  await assert.rejects(approving, { code: "VIDEO_PLAN_REVIEW_CONFLICT" });
+  assert.equal((await state.repository.getReview(actor.organizationId, review.id)).status, "pending");
+  assert.equal((await state.repository.listReviewEvents()).filter((event) => event.to_status === "approved").length, 0);
 });
 
 test("capability Evidence changes invalidate approval while display metadata does not", async () => {
