@@ -83,6 +83,11 @@ ManualExecution -> A12 -> Work/delivery PostgreSQL integration 串行加入 requ
   synthetic browser seam 的响应式 composition，不是部署或生产数据证据。
 - fixed-head CI 的最终 commit、run 与三项 required check 结果以 Draft PR 元数据和结果评论为准；session 不在提交
   正文中自引用自身最终 head。
+- 首个 Draft head 的 CI run `32737416941` 如实失败：Ubuntu/Windows 的默认套件发现 Stage 5 browser fixture 缺少既有的
+  “系统 Chrome 不可用时环境门禁 skip”，各 4 条错误尝试 macOS Chrome 路径；`identity-postgres` 又发现五个会重置同一
+  测试库的 integration 被单个 `node --test` 并行执行，产生 package/work delivery 串扰。修复只让 browser fixture 与
+  Stage 1 至 Stage 4 同构，并把五段既有 PostgreSQL integration 明确串行；没有修改领域状态或弱化断言。后续 fixed-head
+  CI 必须在新提交上自然三绿，不能以重跑旧 head 代替。
 
 ## 未执行边界
 

@@ -68,13 +68,12 @@ jobs:
       - name: Run VideoPlanning v2 PostgreSQL integration
         run: node --test test/video-planning-postgres.integration.test.js
       - name: Run Stage 5 Production PostgreSQL authority chain
-        run: >-
-          node --test
-          test/production-order-postgres.integration.test.js
-          test/manual-handoff-package-postgres.integration.test.js
-          test/manual-execution-postgres.integration.test.js
-          test/work-verification-postgres.integration.test.js
-          test/work-delivery-postgres.integration.test.js
+        run: |
+          node --test test/production-order-postgres.integration.test.js
+          node --test test/manual-handoff-package-postgres.integration.test.js
+          node --test test/manual-execution-postgres.integration.test.js
+          node --test test/work-verification-postgres.integration.test.js
+          node --test test/work-delivery-postgres.integration.test.js
       - name: Run Fidelity-B Appearance PostgreSQL integration
         run: node --test test/appearance-fidelity-postgres.integration.test.js
       - name: Run Stage 3 AvatarSelection PostgreSQL integration
