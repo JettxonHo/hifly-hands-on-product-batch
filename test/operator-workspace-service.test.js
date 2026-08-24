@@ -1222,7 +1222,8 @@ test("projects Stage 5 Production only from exact persisted order, execution, A1
     {
       name: "failed", orderStatus: "failed",
       attempt: { id: "attempt-a", production_order_id: "order-production", status: "failed" },
-      reports: [{ id: "report-a", attempt_id: "attempt-a", production_order_id: "order-production", outcome: "failed" }],
+      reports: [{ id: "report-a", execution_attempt_id: "attempt-a", production_order_id: "order-production",
+        report_version: 1, outcome: "failed" }],
       expectedStatus: "生产失败，已停止", expectedAction: "view_production_failure_details"
     },
     {
@@ -1259,19 +1260,25 @@ test("projects Stage 5 Production only from exact persisted order, execution, A1
     value = productionFixture();
     value.workspace.orders[0].status = "succeeded";
     value.workspace.selected_order = value.workspace.orders[0];
+    const attempt = { id: "attempt-success", production_order_id: "order-production", status: "succeeded" };
+    const report = { id: "report-success", execution_attempt_id: attempt.id,
+      production_order_id: "order-production", report_version: 1, outcome: "completed" };
     value.execution = {
       order: value.workspace.selected_order,
-      current_attempt: { id: "attempt-success", production_order_id: "order-production", status: "succeeded" },
-      attempts: [], candidates: [], reports: []
+      current_attempt: attempt, attempts: [attempt], candidates: [], reports: [report]
     };
     value.verification = {
       order: value.workspace.selected_order,
-      job: { id: "verification-a", production_order_id: "order-production", status: "succeeded", verification_status: "passed" },
-      work: { id: "work-a", production_order_id: "order-production" },
-      works: [{ id: "work-a", production_order_id: "order-production" }]
+      job: { id: "verification-a", production_order_id: "order-production", execution_attempt_id: attempt.id,
+        report_id: report.id, status: "succeeded", verification_status: "passed" },
+      work: { id: "work-a", production_order_id: "order-production", execution_attempt_id: attempt.id,
+        manual_execution_report_id: report.id },
+      works: [{ id: "work-a", production_order_id: "order-production", execution_attempt_id: attempt.id,
+        manual_execution_report_id: report.id }]
     };
     value.work = {
-      id: "work-a", production_order_id: "order-production", product_id: "product-a", delivery_status: deliveryStatus
+      id: "work-a", production_order_id: "order-production", project_id: "project-a", product_id: "product-a",
+      execution_attempt_id: attempt.id, manual_execution_report_id: report.id, delivery_status: deliveryStatus
     };
     result = await read();
     assert.equal(result.stages[4].production.work.delivery_status, deliveryStatus);
@@ -1293,20 +1300,34 @@ test("projects Stage 5 Production only from exact persisted order, execution, A1
     [{ id: "verification-failed", production_order_id: "order-production", status: "failed",
       verification_status: "failed" }, "作品文件核验需要处理", "view_verification_details"],
     [{ id: "verification-passed", production_order_id: "order-production", status: "succeeded",
-      verification_status: "passed" }, "正在登记作品", null]
+      verification_status: "passed" }, "生产状态已变化，请刷新", "retry_production_read"]
   ];
   for (const [job, status, action] of verificationStates) {
     value = productionFixture();
-    value.workspace.orders[0].status = "succeeded";
+    value.workspace.orders[0].status = "running";
     value.workspace.selected_order = value.workspace.orders[0];
+    const attempt = { id: "attempt-success", production_order_id: "order-production", status: "succeeded" };
+    const report = { id: "report-success", execution_attempt_id: attempt.id,
+      production_order_id: "order-production", report_version: 1, outcome: "completed" };
     value.execution = { order: value.workspace.selected_order,
-      current_attempt: { id: "attempt-success", production_order_id: "order-production", status: "succeeded" },
-      attempts: [], candidates: [], reports: [] };
-    value.verification = { order: value.workspace.selected_order, job, work: null, works: [] };
+      current_attempt: attempt, attempts: [attempt], candidates: [], reports: [report] };
+    value.verification = { order: value.workspace.selected_order,
+      job: job ? { ...job, execution_attempt_id: attempt.id, report_id: report.id } : null,
+      work: null, works: [] };
     result = await read();
     assert.equal(result.stages[4].business_status, status);
     assert.equal(result.recommended_action?.code || null, action);
   }
+
+  value = productionFixture({ read_errors: ["execution"] });
+  value.workspace.orders[0].status = "succeeded";
+  value.workspace.selected_order = value.workspace.orders[0];
+  value.execution = null;
+  value.verification = null;
+  result = await read();
+  assert.equal(result.stages[4].business_status, "生产执行状态读取失败");
+  assert.equal(result.stages[4].production.execution.current_attempt, null);
+  assert.equal(result.recommended_action?.code, "retry_production_read");
 });
 
 test("fails closed when a Stage 5 child projection is cross-order or cannot be read", async () => {
@@ -1323,16 +1344,82 @@ test("fails closed when a Stage 5 child projection is cross-order or cannot be r
     (next) => { next.workspace.selected_order = { ...next.workspace.selected_order, status: "running" }; },
     (next) => { next.packages = [{ id: "package-a", production_order_id: "order-other", status: "ready" }]; },
     (next) => { next.execution.order.id = "order-other"; },
+    (next) => { next.execution.order = { ...next.execution.order, organization_id: "org-b" }; },
     (next) => { next.execution.current_attempt = { id: "attempt-a", production_order_id: "order-other", status: "running" }; },
+    (next) => {
+      next.workspace.selected_order.status = "failed";
+      next.execution.current_attempt = { id: "attempt-current", production_order_id: "order-production", status: "failed" };
+      next.execution.attempts = [{ ...next.execution.current_attempt }];
+      next.execution.reports = [{ id: "report-other", execution_attempt_id: "attempt-other",
+        production_order_id: "order-production", report_version: 1, outcome: "failed" }];
+    },
+    (next) => {
+      next.workspace.selected_order.status = "succeeded";
+      next.execution.current_attempt = { id: "attempt-current", production_order_id: "order-production", status: "succeeded" };
+      next.execution.attempts = [{ ...next.execution.current_attempt }];
+      next.execution.reports = [{ id: "report-current", execution_attempt_id: "attempt-current",
+        production_order_id: "order-production", report_version: 1, outcome: "completed" }];
+      next.verification.job = { id: "verification-other", production_order_id: "order-production",
+        execution_attempt_id: "attempt-other", report_id: "report-other", verification_status: "passed" };
+    },
+    (next) => {
+      next.workspace.selected_order.status = "succeeded";
+      const attempt = { id: "attempt-current", production_order_id: "order-production", status: "succeeded" };
+      const oldReport = { id: "report-v1", production_order_id: "order-production",
+        execution_attempt_id: attempt.id, report_version: 1, outcome: "completed" };
+      const latestReport = { id: "report-v2", production_order_id: "order-production",
+        execution_attempt_id: attempt.id, report_version: 2, supersedes_report_id: oldReport.id,
+        outcome: "completed", input_changed: true };
+      next.execution.current_attempt = attempt;
+      next.execution.attempts = [attempt];
+      next.execution.reports = [latestReport, oldReport];
+      next.verification.job = { id: "verification-old", production_order_id: "order-production",
+        execution_attempt_id: attempt.id, report_id: oldReport.id, verification_status: "passed" };
+      next.verification.work = { id: "work-old", production_order_id: "order-production",
+        execution_attempt_id: attempt.id, manual_execution_report_id: oldReport.id };
+      next.verification.works = [next.verification.work];
+      next.work = { id: "work-old", production_order_id: "order-production", project_id: "project-a",
+        product_id: "product-a", execution_attempt_id: attempt.id,
+        manual_execution_report_id: oldReport.id, delivery_status: "pending_review" };
+    },
+    (next) => {
+      next.workspace.selected_order.status = "failed";
+      const attempt = { id: "attempt-current", production_order_id: "order-production", status: "failed" };
+      next.execution.current_attempt = attempt;
+      next.execution.attempts = [attempt];
+      next.execution.reports = [{ id: "report-missing-version", production_order_id: "order-production",
+        execution_attempt_id: attempt.id, outcome: "failed" }];
+    },
+    (next) => {
+      next.workspace.selected_order.status = "failed";
+      const attempt = { id: "attempt-current", production_order_id: "order-production", status: "failed" };
+      next.execution.current_attempt = attempt;
+      next.execution.attempts = [attempt];
+      next.execution.reports = [{ id: "report-invalid-version", production_order_id: "order-production",
+        execution_attempt_id: attempt.id, report_version: 0, outcome: "failed" }];
+    },
     (next) => { next.verification.order.id = "order-other"; },
+    (next) => { next.verification.order = { ...next.verification.order, organization_id: "org-b" }; },
     (next) => {
       next.workspace.selected_order.status = "succeeded";
       next.verification.job = { id: "verification-a", production_order_id: "order-other", verification_status: "passed" };
     },
     (next) => {
       next.workspace.selected_order.status = "succeeded";
-      next.verification.work = { id: "work-a", production_order_id: "order-production" };
-      next.work = { id: "work-other", production_order_id: "order-production", delivery_status: "pending_review" };
+      const attempt = { id: "attempt-current", production_order_id: "order-production", status: "succeeded" };
+      const report = { id: "report-current", execution_attempt_id: attempt.id,
+        production_order_id: "order-production", report_version: 1, outcome: "completed" };
+      next.execution.current_attempt = attempt;
+      next.execution.attempts = [attempt];
+      next.execution.reports = [report];
+      next.verification.job = { id: "verification-current", production_order_id: "order-production",
+        execution_attempt_id: attempt.id, report_id: report.id, verification_status: "passed" };
+      next.verification.work = { id: "work-a", production_order_id: "order-production",
+        execution_attempt_id: attempt.id, manual_execution_report_id: report.id };
+      next.verification.works = [next.verification.work];
+      next.work = { id: "work-other", production_order_id: "order-production", project_id: "project-a",
+        product_id: "product-a", execution_attempt_id: attempt.id,
+        manual_execution_report_id: report.id, delivery_status: "pending_review" };
     }
   ]) {
     value = productionFixture();
@@ -1344,10 +1431,18 @@ test("fails closed when a Stage 5 child projection is cross-order or cannot be r
   value.workspace.selected_order.status = "succeeded";
   value.verification = {
     order: value.workspace.selected_order,
-    job: { id: "verification-a", production_order_id: "order-production", status: "succeeded", verification_status: "passed" },
-    work: { id: "work-a", production_order_id: "order-production" },
-    works: [{ id: "work-a", production_order_id: "order-production" }]
+    job: { id: "verification-a", production_order_id: "order-production", execution_attempt_id: "attempt-a",
+      report_id: "report-a", status: "succeeded", verification_status: "passed" },
+    work: { id: "work-a", production_order_id: "order-production", execution_attempt_id: "attempt-a",
+      manual_execution_report_id: "report-a" },
+    works: [{ id: "work-a", production_order_id: "order-production", execution_attempt_id: "attempt-a",
+      manual_execution_report_id: "report-a" }]
   };
+  value.execution = { order: value.workspace.selected_order,
+    current_attempt: { id: "attempt-a", production_order_id: "order-production", status: "succeeded" },
+    attempts: [{ id: "attempt-a", production_order_id: "order-production", status: "succeeded" }],
+    candidates: [], reports: [{ id: "report-a", execution_attempt_id: "attempt-a",
+      production_order_id: "order-production", report_version: 1, outcome: "completed" }] };
   const result = await read();
   assert.equal(result.stages[4].business_status, "作品状态读取失败");
   assert.deepEqual(result.recommended_action, {

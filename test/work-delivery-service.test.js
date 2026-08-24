@@ -32,6 +32,20 @@ test("listing a formal work creates a pending inspection projection", async () =
   assert.equal(result[0].delivery_status, "pending_review");
 });
 
+test("operator projection reads a formal work without creating inspection truth", async () => {
+  const { service, repository } = world();
+
+  const result = await service.getWorkProjection({ ...actor, workId: "work-a" });
+
+  assert.equal(result.id, "work-a");
+  assert.equal(result.current_inspection, null);
+  assert.deepEqual(result.inspection_history, []);
+  assert.equal(result.delivery_status, "pending_review");
+  assert.equal(repository._records.inspections.size, 0);
+  assert.equal(repository._records.audits.length, 0);
+  assert.equal(repository._records.ledger.length, 0);
+});
+
 test("passing a work creates an inspection and unlocks delivery", async () => {
   const { service } = world();
 

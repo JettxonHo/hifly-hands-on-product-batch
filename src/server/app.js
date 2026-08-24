@@ -706,7 +706,7 @@ export async function buildApp({
             read_errors: []
           };
           if (!selected) return result;
-          if (selected.status === "waiting_for_executor") try {
+          try {
             if (app.manualHandoff?.service?.listPackages) {
               result.packages = await app.manualHandoff.service.listPackages({
                 ...input, productionOrderId: selected.id
@@ -730,7 +730,13 @@ export async function buildApp({
               result.read_errors.push("execution");
             }
           }
-          if (selected.status === "succeeded") {
+          const currentAttempt = result.execution?.current_attempt || null;
+          const latestReport = [...(result.execution?.reports || [])].sort((left, right) =>
+            Number(left.report_version) - Number(right.report_version) || String(left.id).localeCompare(String(right.id))).at(-1) || null;
+          const executionCompleted = currentAttempt?.status === "succeeded" && latestReport?.outcome === "completed";
+          const shouldReadVerification = executionCompleted &&
+            ["running", "succeeded"].includes(selected.status);
+          if (shouldReadVerification && !result.read_errors.includes("execution")) {
             try {
               if (app.artifactVerification?.service?.getVerificationWorkspace) {
                 result.verification = await app.artifactVerification.service.getVerificationWorkspace({
@@ -742,11 +748,25 @@ export async function buildApp({
             } catch {
               result.read_errors.push("verification");
             }
+            const verificationOrder = result.verification?.order || null;
+            const sameOrderGeneration = verificationOrder?.id === selected.id &&
+              verificationOrder?.organization_id === selected.organization_id &&
+              verificationOrder?.product_id === selected.product_id;
+            const generationMismatch = sameOrderGeneration &&
+              (verificationOrder.status !== selected.status ||
+                (selected.status === "running" &&
+                  (result.verification.job?.verification_status === "passed" || result.verification.work)) ||
+                (selected.status === "succeeded" &&
+                  (result.verification.job?.verification_status !== "passed" || !result.verification.work)));
+            if (generationMismatch) {
+              result.verification = null;
+              result.read_errors.push("generation");
+            }
             const workId = result.verification?.work?.id || null;
             if (workId) {
               try {
-                if (app.workDelivery?.service?.getWork) {
-                  result.work = await app.workDelivery.service.getWork({ ...input, workId });
+                if (app.workDelivery?.service?.getWorkProjection) {
+                  result.work = await app.workDelivery.service.getWorkProjection({ ...input, workId });
                 } else {
                   result.read_errors.push("work");
                 }

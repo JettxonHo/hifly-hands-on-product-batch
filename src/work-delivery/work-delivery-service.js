@@ -72,7 +72,7 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
     return work;
   }
 
-  async function enrichWork(work, input) {
+  async function projectWork(work, input, { ensureInspection = false } = {}) {
     let enriched = { ...work };
     if (orderPort?.getOrder && work.production_order_id) {
       const order = await orderPort.getOrder({ organizationId: input.organizationId, actorMemberId: input.actorMemberId, actorRole: input.actorRole, orderId: work.production_order_id });
@@ -80,11 +80,19 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
       enriched = { ...enriched, product_name: enriched.product_name || snapshot.product_name || null,
         project_id: enriched.project_id || snapshot.project_id || null, product_id: enriched.product_id || order?.product_id || null };
     }
-    const inspection = await repository.ensurePendingInspection({ organizationId: input.organizationId, workId: work.id, now: at() });
+    const inspection = ensureInspection
+      ? await repository.ensurePendingInspection({ organizationId: input.organizationId, workId: work.id, now: at() })
+      : null;
     const state = await repository.getInspectionState(input.organizationId, work.id);
     const deliveries = await repository.listDeliveries(input.organizationId, work.id);
-    return publicWork(enriched, { current: state.current || inspection, history: state.history.length ? state.history : [inspection], deliveries });
+    return publicWork(enriched, {
+      current: state.current || inspection,
+      history: state.history.length ? state.history : inspection ? [inspection] : [],
+      deliveries
+    });
   }
+
+  const enrichWork = (work, input) => projectWork(work, input, { ensureInspection: true });
 
   async function listWorks(input) {
     validateActor(input);
@@ -99,6 +107,11 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
   async function getWork(input) {
     const work = await getWorkOrThrow(input);
     return enrichWork(work, input);
+  }
+
+  async function getWorkProjection(input) {
+    const work = await getWorkOrThrow(input);
+    return projectWork(work, input);
   }
 
   async function createInspection(input, status, fields = {}) {
@@ -169,6 +182,6 @@ export function createWorkDeliveryService({ repository, workPort, orderPort = nu
     return assetPort.downloadObject({ organizationId: input.organizationId, token: input.token });
   }
 
-  return { listWorks, getWork, markDeliverable, requestRework, createDelivery, createDownloadAuthorization, downloadObject,
+  return { listWorks, getWork, getWorkProjection, markDeliverable, requestRework, createDelivery, createDownloadAuthorization, downloadObject,
     publicWork, publicInspection, publicDelivery };
 }

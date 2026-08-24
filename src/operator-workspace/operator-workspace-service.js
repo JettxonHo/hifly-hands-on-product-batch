@@ -520,7 +520,7 @@ function publicProductionAttempt(value) {
 
 function publicProductionReport(value) {
   if (!value) return null;
-  const keys = ["id", "attempt_id", "production_order_id", "outcome", "failure_stage", "failure_code",
+  const keys = ["id", "production_order_id", "outcome", "failure_stage", "failure_code",
     "failure_reason", "retryability", "created_at", "completed_at"];
   return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
 }
@@ -540,7 +540,20 @@ function publicProductionWork(value) {
   return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
 }
 
-function assertExactProductionWorkspace(value, { organizationId, productId, requestedOrderId }) {
+function hasForeignOrganization(value, organizationId) {
+  return Boolean(value && Object.hasOwn(value, "organization_id") && value.organization_id !== organizationId);
+}
+
+function latestExecutionReport(reports) {
+  if (!Array.isArray(reports) || reports.length === 0) return null;
+  if (reports.some((report) => !text(report?.id) || !Number.isInteger(report.report_version) || report.report_version < 1)) {
+    throw notFound();
+  }
+  return [...reports].sort((left, right) =>
+    left.report_version - right.report_version || left.id.localeCompare(right.id)).at(-1);
+}
+
+function assertExactProductionWorkspace(value, { organizationId, projectId, productId, requestedOrderId }) {
   if (!value || typeof value !== "object" || !value.workspace || typeof value.workspace !== "object") throw notFound();
   const workspace = value.workspace;
   const orders = Array.isArray(workspace.orders) ? workspace.orders : [];
@@ -561,31 +574,57 @@ function assertExactProductionWorkspace(value, { organizationId, productId, requ
     return;
   }
   for (const item of value.packages || []) {
-    if (!text(item?.id || item?.package_id) || item.production_order_id !== selected.id) throw notFound();
+    if (!text(item?.id || item?.package_id) || item.production_order_id !== selected.id ||
+        hasForeignOrganization(item, organizationId)) throw notFound();
   }
   const execution = value.execution;
+  let currentAttempt = null;
+  let latestReport = null;
   if (execution) {
-    if (execution.order?.id !== selected.id) throw notFound();
-    for (const attempt of [execution.current_attempt, ...(execution.attempts || [])]) {
-      if (attempt && (!text(attempt.id) || attempt.production_order_id !== selected.id)) throw notFound();
+    if (hasForeignOrganization(execution.order, organizationId) ||
+        !isDeepStrictEqual(publicProductionOrder(execution.order), publicProductionOrder(selected))) throw notFound();
+    const attempts = Array.isArray(execution.attempts) ? execution.attempts : [];
+    for (const attempt of attempts) {
+      if (attempt && (!text(attempt.id) || attempt.production_order_id !== selected.id ||
+          hasForeignOrganization(attempt, organizationId))) throw notFound();
     }
-    const attemptIds = new Set([execution.current_attempt, ...(execution.attempts || [])].filter(Boolean).map((item) => item.id));
-    for (const report of execution.reports || []) {
-      if (!text(report?.id) || report.production_order_id !== selected.id ||
-          (report.attempt_id && !attemptIds.has(report.attempt_id))) throw notFound();
+    currentAttempt = execution.current_attempt || null;
+    if (currentAttempt) {
+      const canonicalAttempt = attempts.find((attempt) => attempt.id === currentAttempt.id);
+      if (!canonicalAttempt || !isDeepStrictEqual(canonicalAttempt, currentAttempt) ||
+          currentAttempt.production_order_id !== selected.id ||
+          hasForeignOrganization(currentAttempt, organizationId)) throw notFound();
     }
+    const reports = execution.reports || [];
+    for (const report of reports) {
+      if (!currentAttempt || !text(report?.id) || report.production_order_id !== selected.id ||
+          report.execution_attempt_id !== currentAttempt.id ||
+          hasForeignOrganization(report, organizationId)) throw notFound();
+    }
+    latestReport = latestExecutionReport(reports);
   }
   const verification = value.verification;
   if (verification) {
-    if (verification.order?.id !== selected.id) throw notFound();
-    if (verification.job && verification.job.production_order_id !== selected.id) throw notFound();
+    if (hasForeignOrganization(verification.order, organizationId) ||
+        !isDeepStrictEqual(publicProductionOrder(verification.order), publicProductionOrder(selected))) throw notFound();
+    if (verification.job && (!currentAttempt || verification.job.production_order_id !== selected.id ||
+        verification.job.execution_attempt_id !== currentAttempt.id ||
+        !latestReport || verification.job.report_id !== latestReport.id ||
+        hasForeignOrganization(verification.job, organizationId))) throw notFound();
     for (const work of [verification.work, ...(verification.works || [])]) {
-      if (work && (!text(work.id) || work.production_order_id !== selected.id)) throw notFound();
+      if (work && (!verification.job || !text(work.id) || work.production_order_id !== selected.id ||
+          work.execution_attempt_id !== currentAttempt?.id ||
+          work.manual_execution_report_id !== verification.job.report_id ||
+          hasForeignOrganization(work, organizationId))) throw notFound();
     }
   }
   if (value.work) {
     if (!text(value.work.id) || value.work.production_order_id !== selected.id ||
-        value.work.product_id !== productId || (verification?.work?.id && verification.work.id !== value.work.id)) throw notFound();
+        value.work.project_id !== projectId || value.work.product_id !== productId ||
+        value.work.execution_attempt_id !== currentAttempt?.id ||
+        value.work.manual_execution_report_id !== verification?.job?.report_id ||
+        !verification?.work?.id || verification.work.id !== value.work.id ||
+        hasForeignOrganization(value.work, organizationId)) throw notFound();
   }
 }
 
@@ -596,6 +635,7 @@ function productionStage({ value, requestedStage }) {
   const currentPackage = packages[0] || null;
   const execution = value.execution || null;
   const attempt = publicProductionAttempt(execution?.current_attempt || null);
+  const latestReport = latestExecutionReport(execution?.reports || []);
   const reports = (execution?.reports || []).map(publicProductionReport);
   const verification = value.verification || null;
   const verificationJob = publicVerificationJob(verification?.job || null);
@@ -607,14 +647,19 @@ function productionStage({ value, requestedStage }) {
 
   if (selected) {
     action = null;
+    const executionCompleted = attempt?.status === "succeeded" && latestReport?.outcome === "completed";
+    const observesVerification = selected.status === "succeeded" ||
+      (selected.status === "running" && executionCompleted);
     const handoffReadFailed = selected.status === "waiting_for_executor" && readErrors.has("handoff");
-    const executionReadFailed = ["claimed", "running", "requires_action", "failed", "cancel_requested", "cancelled"]
+    const executionReadFailed = ["claimed", "running", "requires_action", "failed", "cancel_requested", "cancelled", "succeeded"]
       .includes(selected.status) && readErrors.has("execution");
-    const verificationReadFailed = selected.status === "succeeded" && readErrors.has("verification");
+    const verificationReadFailed = observesVerification && readErrors.has("verification");
     const workReadFailed = selected.status === "succeeded" && readErrors.has("work");
-    if (readErrors.has("production") || handoffReadFailed || executionReadFailed || verificationReadFailed || workReadFailed) {
+    if (readErrors.has("production") || readErrors.has("generation") || handoffReadFailed || executionReadFailed ||
+        verificationReadFailed || workReadFailed) {
       businessStatus = workReadFailed ? "作品状态读取失败" : verificationReadFailed ? "核验状态读取失败" :
-        handoffReadFailed ? "生产交接资料读取失败" : "生产执行状态读取失败";
+        handoffReadFailed ? "生产交接资料读取失败" : readErrors.has("generation") ?
+          "生产状态已变化，请刷新" : "生产执行状态读取失败";
       blockerCodes = ["PRODUCTION_READ_FAILED"];
       action = productionAction("retry_production_read");
     } else if (selected.status === "waiting_for_executor") {
@@ -644,8 +689,28 @@ function productionStage({ value, requestedStage }) {
       businessStatus = "生产任务已领取";
       blockerCodes = ["PRODUCTION_IN_PROGRESS"];
     } else if (selected.status === "running") {
-      businessStatus = "正在生成作品";
-      blockerCodes = ["PRODUCTION_IN_PROGRESS"];
+      if (executionCompleted) {
+        const verificationStatus = verificationJob?.verification_status ||
+          (["queued", "running"].includes(verificationJob?.status) ? "pending" : "not_started");
+        if (["queued", "running", "pending"].includes(verificationStatus)) {
+          businessStatus = "正在核验作品文件";
+          blockerCodes = ["WORK_VERIFICATION_IN_PROGRESS"];
+        } else if (["failed", "requires_action"].includes(verificationStatus)) {
+          businessStatus = "作品文件核验需要处理";
+          blockerCodes = ["WORK_VERIFICATION_REQUIRES_ACTION"];
+          action = productionAction("view_verification_details");
+        } else if (verificationStatus === "passed" || work) {
+          businessStatus = "生产状态已变化，请刷新";
+          blockerCodes = ["PRODUCTION_READ_FAILED"];
+          action = productionAction("retry_production_read");
+        } else {
+          businessStatus = "生成完成，待文件核验";
+          blockerCodes = ["WORK_VERIFICATION_REQUIRED"];
+        }
+      } else {
+        businessStatus = "正在生成作品";
+        blockerCodes = ["PRODUCTION_IN_PROGRESS"];
+      }
     } else if (selected.status === "requires_action") {
       businessStatus = "生产需要人工处理";
       blockerCodes = ["PRODUCTION_REQUIRES_ACTION"];
@@ -665,14 +730,7 @@ function productionStage({ value, requestedStage }) {
     } else if (selected.status === "succeeded") {
       const verificationStatus = verificationJob?.verification_status ||
         (["queued", "running"].includes(verificationJob?.status) ? "pending" : "not_started");
-      if (["queued", "running", "pending"].includes(verificationStatus)) {
-        businessStatus = "正在核验作品文件";
-        blockerCodes = ["WORK_VERIFICATION_IN_PROGRESS"];
-      } else if (["failed", "requires_action"].includes(verificationStatus)) {
-        businessStatus = "作品文件核验需要处理";
-        blockerCodes = ["WORK_VERIFICATION_REQUIRES_ACTION"];
-        action = productionAction("view_verification_details");
-      } else if (verificationStatus === "passed" && work) {
+      if (verificationStatus === "passed" && work) {
         const labels = {
           pending_review: "作品待检查", rework_required: "作品需要返工",
           deliverable: "作品可交付", delivered: "作品已交付，待真实下载验收"
@@ -686,12 +744,10 @@ function productionStage({ value, requestedStage }) {
           delivered: "view_production_delivery"
         };
         action = productionAction(workActions[work.delivery_status]);
-      } else if (verificationStatus === "passed") {
-        businessStatus = "正在登记作品";
-        blockerCodes = ["WORK_REGISTRATION_IN_PROGRESS"];
       } else {
-        businessStatus = "生成完成，待文件核验";
-        blockerCodes = ["WORK_VERIFICATION_REQUIRED"];
+        businessStatus = "生产状态已变化，请刷新";
+        blockerCodes = ["PRODUCTION_READ_FAILED"];
+        action = productionAction("retry_production_read");
       }
     } else {
       businessStatus = "生产状态待确认";
@@ -721,7 +777,8 @@ function productionStage({ value, requestedStage }) {
         package: currentPackage,
         execution: { current_attempt: attempt, reports },
         verification: { job: verificationJob },
-        work
+        work,
+        read_errors: [...readErrors]
       }
     },
     action
@@ -1063,6 +1120,7 @@ export function createOperatorWorkspaceService({ projectContentService, copyServ
         });
         assertExactProductionWorkspace(productionWorkspace, {
           organizationId: input.organizationId,
+          projectId: project.id,
           productId: product.id,
           requestedOrderId: input.orderId || null
         });

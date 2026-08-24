@@ -24,7 +24,12 @@
   const WORK_LABELS = {
     pending_review: "待检查", rework_required: "需返工", deliverable: "可交付", delivered: "已交付"
   };
+  const VERIFICATION_LABELS = {
+    not_started: "未发起", pending: "核验中", passed: "已通过", failed: "核验失败", requires_action: "需人工处理"
+  };
   const byId = (id) => document.getElementById(id);
+  const ambiguousWriteError = (error) => !Number.isInteger(error?.status) || error.status === 408 ||
+    error.status >= 500 || [404, 409, 422].includes(error.status);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim())
     .find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
 
@@ -89,9 +94,10 @@
     let requestEpoch = 0;
     let busy = false;
     let readFailed = false;
-    let lastOrderTrigger = null;
+    let lastOrderTriggerId = orderId;
     let selectedProductTrigger = null;
     let createTrigger = null;
+    let createIntentKey = null;
 
     document.body.dataset.workspaceStage = "production";
     document.body.dataset.mobileLayer = "detail";
@@ -105,7 +111,22 @@
       panel.dataset.productionMobileLayer = layer;
       if (!focus) return;
       if (layer === "detail") byId("productionTaskTitle").focus();
-      else lastOrderTrigger?.focus();
+      else currentOrderTrigger()?.focus();
+    }
+
+    function currentOrderTrigger() {
+      const buttons = [...byId("productionOrderList").querySelectorAll("button[data-order-id]")];
+      return buttons.find((button) => button.dataset.orderId === (selectedOrderId || lastOrderTriggerId)) || null;
+    }
+
+    function invalidateCreateIntent({ restoreFocus = false } = {}) {
+      const trigger = createTrigger;
+      const dialog = byId("productionCreateDialog");
+      if (dialog.open) dialog.close();
+      createIntentKey = null;
+      createTrigger = null;
+      byId("productionCreateError").textContent = "";
+      if (restoreFocus && trigger?.isConnected) trigger.focus();
     }
 
     function clearRecommendedAction() {
@@ -171,6 +192,7 @@
       const button = document.createElement("button");
       button.type = "button";
       button.className = "production-order-item";
+      button.dataset.orderId = order.id;
       button.setAttribute("aria-current", String(order.id === selectedOrderId));
       button.setAttribute("aria-label", `生产工单 ${ORDER_LABELS[order.status] || "状态待确认"}`);
       const title = document.createElement("strong");
@@ -179,7 +201,7 @@
       meta.textContent = ORDER_LABELS[order.status] || "状态待确认";
       button.append(title, meta);
       button.addEventListener("click", async () => {
-        lastOrderTrigger = button;
+        lastOrderTriggerId = order.id;
         selectedOrderId = order.id;
         setMobileLayer("detail");
         const url = stageUrl(projectId, activeProductId, "production", projection, selectedOrderId);
@@ -198,6 +220,7 @@
       button.textContent = item.revision?.product_name || "未命名商品";
       if (item.id === activeProductId) selectedProductTrigger = button;
       button.addEventListener("click", async () => {
+        invalidateCreateIntent();
         selectedProductTrigger = button;
         activeProductId = item.id;
         selectedOrderId = null;
@@ -224,6 +247,7 @@
       const attempt = production.execution?.current_attempt;
       const verification = production.verification?.job;
       const work = production.work;
+      const readErrors = new Set(production.read_errors || []);
       byId("productionOrderList").replaceChildren(...production.orders.map(orderButton));
       byId("productionOrderEmpty").hidden = production.orders.length > 0;
       byId("productionTaskTitle").textContent = stage.business_status;
@@ -232,30 +256,102 @@
       byId("productionTaskDescription").textContent = stage.blocker_codes.length
         ? "当前状态不会自动重试、重新领取或创建下一单。" : "服务端持久真值允许进入下一步。";
       byId("productionOrderSummary").textContent = selected ? ORDER_LABELS[selected.status] || "状态待确认" : "尚无工单";
-      byId("productionPackageSummary").textContent = packageValue ? PACKAGE_LABELS[packageValue.status] || "状态待确认" : "未生成";
-      byId("productionExecutionSummary").textContent = attempt ? ORDER_LABELS[attempt.status] || "状态待确认" : "未开始";
-      byId("productionVerificationSummary").textContent = verification
-        ? verification.verification_status || verification.status || "状态待确认" : "未发起";
-      byId("productionWorkSummary").textContent = work ? WORK_LABELS[work.delivery_status] || "状态待确认" : "尚未登记";
+      byId("productionPackageSummary").textContent = readErrors.has("handoff") ? "读取失败" :
+        packageValue ? PACKAGE_LABELS[packageValue.status] || "状态待确认" : "未生成";
+      byId("productionExecutionSummary").textContent = readErrors.has("execution") ? "读取失败" :
+        attempt ? ORDER_LABELS[attempt.status] || "状态待确认" : "未开始";
+      byId("productionVerificationSummary").textContent = readErrors.has("verification") ? "读取失败" :
+        verification ? VERIFICATION_LABELS[verification.verification_status] ||
+          VERIFICATION_LABELS[verification.status] || "状态待确认" : "未发起";
+      byId("productionWorkSummary").textContent = readErrors.has("work") ? "读取失败" :
+        work ? WORK_LABELS[work.delivery_status] || "状态待确认" : "尚未登记";
       byId("productionTechnicalOrder").textContent = selected?.id || "无";
       byId("productionTechnicalAttempt").textContent = attempt?.id || "无";
       byId("productionTechnicalVerification").textContent = verification?.id || "无";
       byId("productionTechnicalWork").textContent = work?.id || "无";
       notice.textContent = stage.blocker_codes.includes("PRODUCTION_ACTIVATION_NOT_PROVEN")
         ? "页面没有组织级 eligible、active attempts 或 Worker 启停真值，因此保持失败关闭。" : "";
+      renderSupportingContext(stage);
       loading.hidden = true;
       body.hidden = false;
       syncStageLinks();
       renderAction();
     }
 
+    function renderSupportingContext(stage) {
+      const action = ownedAction(projection?.recommended_action);
+      const selected = stage.production?.selected_order;
+      byId("taskSummaryTitle").textContent = "当前生产任务";
+      byId("taskContext").textContent = selected
+        ? `${projection.product.name || "当前商品"} · ${ORDER_LABELS[selected.status] || "生产状态待确认"}`
+        : `${projection.product.name || "当前商品"} · 尚无生产工单`;
+      byId("taskStatus").textContent = stage.business_status;
+      byId("taskStatus").className = `state ${stage.blocker_codes.length ? "blocked" : "ready"}`;
+      byId("saveStatus").textContent = "服务端状态已同步";
+      byId("taskNext").textContent = action?.label || "当前无需操作";
+      byId("taskBlocker").hidden = stage.blocker_codes.length === 0;
+      byId("taskBlocker").textContent = stage.blocker_codes.length
+        ? "当前状态保持失败关闭，不会自动重试、重新领取或创建下一单。" : "";
+      byId("workspaceProjectionVersion").textContent = `v${projection.projection_version} · 动作表 v${projection.action_registry_version}`;
+      byId("workspaceTechnicalStage").textContent = "生产";
+      byId("workspaceTechnicalObjectRow").hidden = !selected;
+      byId("workspaceTechnicalObject").textContent = selected ? `production_order · ${selected.id}` : "未载入";
+    }
+
+    function clearProductionTruth() {
+      production = null;
+      byId("productionOrderList").replaceChildren();
+      byId("productionOrderEmpty").hidden = false;
+      byId("productionOrderSummary").textContent = "未读取";
+      byId("productionPackageSummary").textContent = "未读取";
+      byId("productionExecutionSummary").textContent = "未读取";
+      byId("productionVerificationSummary").textContent = "未读取";
+      byId("productionWorkSummary").textContent = "未读取";
+      byId("productionTechnicalOrder").textContent = "无";
+      byId("productionTechnicalAttempt").textContent = "无";
+      byId("productionTechnicalVerification").textContent = "无";
+      byId("productionTechnicalWork").textContent = "无";
+      byId("productionTechnicalDetails").open = false;
+      notice.textContent = "";
+      byId("taskSummaryTitle").textContent = "当前生产任务";
+      byId("taskContext").textContent = "当前商品生产真值暂时无法读取";
+      byId("taskStatus").textContent = "读取失败";
+      byId("taskStatus").className = "state failure";
+      byId("saveStatus").textContent = "服务端状态未同步";
+      byId("taskNext").textContent = "刷新当前工单";
+      byId("taskBlocker").hidden = false;
+      byId("taskBlocker").textContent = "读取成功前不使用上一工单的生产、核验或作品状态。";
+      byId("workspaceProjectionVersion").textContent = "读取失败";
+      byId("workspaceTechnicalStage").textContent = "生产";
+      byId("workspaceTechnicalObjectRow").hidden = true;
+      byId("workspaceTechnicalObject").textContent = "未载入";
+    }
+
+    function renderPendingAuthority() {
+      clearProductionTruth();
+      const item = project?.products?.find((productItem) => productItem.id === activeProductId);
+      const name = item?.revision?.product_name || "当前商品";
+      byId("taskSummaryTitle").textContent = "当前生产任务";
+      byId("taskContext").textContent = `正在读取 ${name} 的生产状态`;
+      byId("taskStatus").textContent = "正在读取服务端";
+      byId("taskStatus").className = "state";
+      byId("saveStatus").textContent = "等待服务端状态";
+      byId("taskNext").textContent = "等待读取完成";
+      byId("taskBlocker").hidden = false;
+      byId("taskBlocker").textContent = "读取完成前不使用上一商品的生产真值。";
+      byId("workspaceProjectionVersion").textContent = "正在读取";
+      byId("productionTaskTitle").textContent = "正在读取生产状态";
+      byId("productionTaskState").textContent = "正在读取";
+      byId("productionTaskState").className = "state";
+      byId("productionTaskDescription").textContent = "正在核对当前商品的服务端持久真值。";
+    }
+
     function failRead() {
       readFailed = true;
       projection = null;
-      production = null;
+      clearProductionTruth();
       loading.hidden = true;
       body.hidden = false;
-      byId("productionOrderList").replaceChildren();
       byId("productionTaskTitle").textContent = "生产状态暂时无法读取";
       byId("productionTaskState").textContent = "读取失败";
       byId("productionTaskState").className = "state failure";
@@ -268,6 +364,8 @@
     async function load({ focus = false } = {}) {
       const epoch = ++requestEpoch;
       busy = true;
+      renderProducts();
+      renderPendingAuthority();
       loading.hidden = false;
       body.hidden = true;
       disableStageLinks();
@@ -291,9 +389,11 @@
         const exactUrl = stageUrl(projectId, activeProductId, "production", projection, selectedOrderId);
         history.replaceState({ productId: activeProductId, orderId: selectedOrderId }, "", exactUrl);
         if (focus) byId("productionTaskTitle").focus();
+        return true;
       } catch {
         if (epoch !== requestEpoch) return;
         failRead();
+        return false;
       } finally {
         if (epoch === requestEpoch) {
           busy = false;
@@ -311,8 +411,14 @@
         await load({ focus: true });
         return true;
       } catch (error) {
-        notice.textContent = error.status === 409 ? "服务端状态已变化，请刷新当前工单。" : "操作未完成，当前状态没有改变。";
-        if (error.status === 409) await load();
+        if (ambiguousWriteError(error)) {
+          projection = null;
+          clearProductionTruth();
+          const recovered = await load({ focus: true });
+          if (recovered && !notice.textContent) notice.textContent = "已重新读取当前生产状态，请按最新状态继续。";
+        } else {
+          notice.textContent = "操作未完成，当前状态没有改变。";
+        }
         return false;
       } finally {
         busy = false;
@@ -320,9 +426,50 @@
       }
     }
 
+    async function createProductionOrder() {
+      if (busy || !production?.current_plan?.id || !createIntentKey) return false;
+      busy = true;
+      renderAction();
+      try {
+        await request(`/api/products/${encodeURIComponent(activeProductId)}/production-orders`, {
+          method: "POST", headers: { "idempotency-key": createIntentKey },
+          body: JSON.stringify({ video_plan_version_id: production.current_plan.id, execution_purpose: "first_production" })
+        });
+        createIntentKey = null;
+        createTrigger = null;
+        await load({ focus: true });
+        return true;
+      } catch (error) {
+        const mustReconcile = ambiguousWriteError(error);
+        if (!mustReconcile) {
+          byId("productionCreateError").textContent = "创建未完成，当前状态没有改变。";
+          return false;
+        }
+        projection = null;
+        clearProductionTruth();
+        const recovered = await load();
+        if (!recovered) {
+          byId("productionCreateError").textContent = "创建结果未知，当前生产状态仍无法读取。";
+          return false;
+        }
+        const currentAction = ownedAction(projection?.recommended_action);
+        if (currentAction?.code === "create_production_order") {
+          createIntentKey = crypto.randomUUID();
+          byId("productionCreateError").textContent = "服务端仍允许创建；请重新确认新的创建意图。";
+          byId("confirmProductionCreate").focus();
+          return false;
+        }
+        invalidateCreateIntent();
+        byId("productionTaskTitle").focus();
+        return true;
+      } finally {
+        busy = false;
+        renderAction();
+      }
+    }
+
     function closeCreateDialog() {
-      byId("productionCreateDialog").close();
-      createTrigger?.focus();
+      invalidateCreateIntent({ restoreFocus: true });
     }
 
     byId("refreshProductionWorkspace").addEventListener("click", () => load({ focus: true }));
@@ -339,18 +486,10 @@
     });
     byId("productionCreateForm").addEventListener("submit", async (event) => {
       event.preventDefault();
-      const planId = production?.current_plan?.id;
-      if (!planId) return;
-      const succeeded = await command(`/api/products/${encodeURIComponent(activeProductId)}/production-orders`, {
-        method: "POST", headers: { "idempotency-key": crypto.randomUUID() },
-        body: JSON.stringify({ video_plan_version_id: planId, execution_purpose: "first_production" })
-      });
+      const succeeded = await createProductionOrder();
       if (succeeded) {
         if (byId("productionCreateDialog").open) byId("productionCreateDialog").close();
         byId("productionTaskTitle").focus();
-      } else {
-        byId("productionCreateError").textContent = "工单状态已变化；已载入服务端最新状态，请确认后再继续。";
-        byId("confirmProductionCreate").focus();
       }
     });
     primary.addEventListener("click", async () => {
@@ -364,6 +503,7 @@
         location.assign(stageUrl(projectId, activeProductId, "video_plan", projection));
       } else if (action.code === "create_production_order") {
         createTrigger = primary;
+        createIntentKey = crypto.randomUUID();
         byId("productionCreateError").textContent = "";
         byId("productionCreateDialog").showModal();
         byId("confirmProductionCreate").focus();
@@ -388,6 +528,7 @@
       }
     });
     addEventListener("popstate", async () => {
+      invalidateCreateIntent();
       const params = new URLSearchParams(location.search);
       activeProductId = params.get("product");
       selectedOrderId = params.get("orderId");

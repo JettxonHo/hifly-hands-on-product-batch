@@ -19,6 +19,8 @@ import { createMemoryVideoPlanningRepository } from "../src/video-planning/memor
 import { createMemoryProductionOrderRepository } from "../src/production-orders/memory-production-order-repository.js";
 import { createMemoryManualHandoffRepository } from "../src/manual-handoff/memory-manual-handoff-repository.js";
 import { createMemoryManualHandoffPackageStore } from "../src/manual-handoff/manual-handoff-package-store.js";
+import { createMemoryWorkDeliveryRepository } from "../src/work-delivery/memory-work-delivery-repository.js";
+import { createWorkDeliveryService } from "../src/work-delivery/work-delivery-service.js";
 import { buildApp } from "../src/server/app.js";
 import { activateAdmin, identityApp, identityHeaders } from "./helpers/identity-world.js";
 
@@ -742,9 +744,9 @@ test("operator workspace API forwards the exact Stage 5 order and returns a safe
             execution: {
               order: exactOrder,
               current_attempt: { id: "attempt-stage-5", production_order_id: exactOrder.id, status: "failed" },
-              attempts: [], candidates: [],
-              reports: [{ id: "report-stage-5", attempt_id: "attempt-stage-5",
-                production_order_id: exactOrder.id, outcome: "failed" }]
+              attempts: [{ id: "attempt-stage-5", production_order_id: exactOrder.id, status: "failed" }], candidates: [],
+              reports: [{ id: "report-stage-5", execution_attempt_id: "attempt-stage-5",
+                production_order_id: exactOrder.id, report_version: 1, outcome: "failed" }]
             },
             verification: { order: exactOrder, job: null, work: null, works: [] },
             work: null,
@@ -773,6 +775,133 @@ test("operator workspace API forwards the exact Stage 5 order and returns a safe
   });
   for (const secret of ["organization_id", "input_snapshot", "lease_token", "storage_key"]) {
     assert.equal(response.body.includes(secret), false, secret);
+  }
+});
+
+test("operator workspace API rejects a cross-attempt Production evidence chain without leaking markers", async (t) => {
+  const marker = "FOREIGN_PRODUCTION_MARKER";
+  const { app, auth } = await operatorWorld(t, {
+    operatorWorkspaceOptions: {
+      productionService: {
+        async getOperatorWorkspace(input) {
+          const order = { id: "order-exact", organization_id: input.organizationId, product_id: input.productId,
+            video_plan_version_id: "plan-exact", execution_purpose: "first_production", status: "succeeded", row_version: 1 };
+          const attempt = { id: "attempt-exact", production_order_id: order.id, status: "succeeded" };
+          return {
+            workspace: { current_plan: { id: "plan-exact", organization_id: input.organizationId,
+              product_id: input.productId, status: "frozen" }, gate: { can_create: false, reasons: [] },
+              orders: [order], selected_order: order },
+            packages: [],
+            execution: { order, current_attempt: attempt, attempts: [attempt], candidates: [], reports: [{
+              id: "report-other", production_order_id: order.id, execution_attempt_id: "attempt-other",
+              report_version: 1, outcome: "completed", failure_reason: marker
+            }] },
+            verification: { order, job: { id: "job-other", production_order_id: order.id,
+              execution_attempt_id: "attempt-other", report_id: "report-other", verification_status: "passed" },
+              work: null, works: [] }, work: null, read_errors: []
+          };
+        }
+      }
+    }
+  });
+  const project = (await app.inject({ method: "POST", url: "/api/projects",
+    headers: headers(auth, true, "stage-5-binding-project"), payload: { name: "生产绑定" } })).json().project;
+  const product = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`,
+    headers: headers(auth, true, "stage-5-binding-product"), payload: { product_name: "绑定商品" } })).json().product;
+
+  const response = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${product.id}/operator-workspace?stage=production&orderId=order-exact`,
+    headers: headers(auth) });
+
+  assert.equal(response.statusCode, 404);
+  assert.deepEqual(response.json(), { error: "OPERATOR_WORKSPACE_NOT_FOUND" });
+  assert.equal(response.body.includes(marker), false);
+});
+
+test("operator workspace API rejects A12 and Work truth bound to a superseded execution report", async (t) => {
+  const marker = "SUPERSEDED_REPORT_WORK_MARKER";
+  let exactProjectId;
+  const { app, auth } = await operatorWorld(t, {
+    operatorWorkspaceOptions: {
+      productionService: {
+        async getOperatorWorkspace(input) {
+          const order = { id: "order-report-head", organization_id: input.organizationId, product_id: input.productId,
+            video_plan_version_id: "plan-report-head", execution_purpose: "first_production",
+            status: "succeeded", row_version: 1 };
+          const attempt = { id: "attempt-report-head", production_order_id: order.id, status: "succeeded" };
+          const oldReport = { id: "report-v1", production_order_id: order.id,
+            execution_attempt_id: attempt.id, report_version: 1, outcome: "completed" };
+          const latestReport = { id: "report-v2", production_order_id: order.id,
+            execution_attempt_id: attempt.id, report_version: 2, supersedes_report_id: oldReport.id,
+            outcome: "completed", input_changed: true };
+          const oldWork = { id: "work-v1", production_order_id: order.id, project_id: exactProjectId,
+            product_id: input.productId, execution_attempt_id: attempt.id,
+            manual_execution_report_id: oldReport.id, delivery_status: "pending_review", marker };
+          return {
+            workspace: { current_plan: { id: "plan-report-head", organization_id: input.organizationId,
+              product_id: input.productId, status: "frozen" }, gate: { can_create: false, reasons: [] },
+              orders: [order], selected_order: order },
+            packages: [],
+            execution: { order, current_attempt: attempt, attempts: [attempt], candidates: [],
+              reports: [latestReport, oldReport] },
+            verification: { order, job: { id: "job-v1", production_order_id: order.id,
+              execution_attempt_id: attempt.id, report_id: oldReport.id, verification_status: "passed" },
+              work: oldWork, works: [oldWork] },
+            work: oldWork,
+            read_errors: []
+          };
+        }
+      }
+    }
+  });
+  const project = (await app.inject({ method: "POST", url: "/api/projects",
+    headers: headers(auth, true, "stage-5-report-head-project"), payload: { name: "报告头绑定" } })).json().project;
+  exactProjectId = project.id;
+  const product = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`,
+    headers: headers(auth, true, "stage-5-report-head-product"), payload: { product_name: "报告头商品" } })).json().product;
+
+  const response = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${product.id}/operator-workspace?stage=production&orderId=order-report-head`,
+    headers: headers(auth) });
+
+  assert.equal(response.statusCode, 404);
+  assert.deepEqual(response.json(), { error: "OPERATOR_WORKSPACE_NOT_FOUND" });
+  assert.equal(response.body.includes(marker), false);
+});
+
+test("operator workspace API rejects cross-organization execution and verification orders before public stripping", async (t) => {
+  const marker = "FOREIGN_CHILD_ORDER_MARKER";
+  let foreignChild = "execution";
+  const { app, auth } = await operatorWorld(t, { operatorWorkspaceOptions: { productionService: {
+    async getOperatorWorkspace(input) {
+      const order = { id: "order-child-org", organization_id: input.organizationId, product_id: input.productId,
+        video_plan_version_id: "plan-child-org", execution_purpose: "first_production", status: "running", row_version: 1 };
+      const foreignOrder = { ...order, organization_id: "org-foreign", failure_reason: marker };
+      const attempt = { id: "attempt-child-org", production_order_id: order.id, status: "running" };
+      return {
+        workspace: { current_plan: { id: "plan-child-org", organization_id: input.organizationId,
+          product_id: input.productId, status: "frozen" }, gate: { can_create: false, reasons: [] },
+          orders: [order], selected_order: order }, packages: [],
+        execution: { order: foreignChild === "execution" ? foreignOrder : order,
+          current_attempt: attempt, attempts: [attempt], candidates: [], reports: [] },
+        verification: { order: foreignChild === "verification" ? foreignOrder : order,
+          job: null, work: null, works: [] }, work: null, read_errors: []
+      };
+    }
+  } } });
+  const project = (await app.inject({ method: "POST", url: "/api/projects",
+    headers: headers(auth, true, "stage-5-child-org-project"), payload: { name: "子对象组织绑定" } })).json().project;
+  const product = (await app.inject({ method: "POST", url: `/api/projects/${project.id}/products`,
+    headers: headers(auth, true, "stage-5-child-org-product"), payload: { product_name: "组织绑定商品" } })).json().product;
+
+  for (const child of ["execution", "verification"]) {
+    foreignChild = child;
+    const response = await app.inject({ method: "GET",
+      url: `/api/projects/${project.id}/products/${product.id}/operator-workspace?stage=production&orderId=order-child-org`,
+      headers: headers(auth) });
+    assert.equal(response.statusCode, 404, child);
+    assert.deepEqual(response.json(), { error: "OPERATOR_WORKSPACE_NOT_FOUND" });
+    assert.equal(response.body.includes(marker), false);
   }
 });
 
@@ -821,6 +950,120 @@ test("operator workspace default App wiring reads the existing Production and ha
   assert.equal(response.json().workspace.render_mode, "workspace");
   assert.equal(response.json().workspace.stages[4].business_status, "生产交接资料待生成");
   assert.equal(response.json().workspace.recommended_action.code, "generate_handoff_package");
+
+  const terminalOrder = { ...created.order, status: "succeeded" };
+  const attempt = { id: "attempt-default-stage-5", production_order_id: terminalOrder.id, status: "succeeded" };
+  const report = { id: "report-default-stage-5", production_order_id: terminalOrder.id,
+    execution_attempt_id: attempt.id, report_version: 1, outcome: "completed" };
+  const job = { id: "job-default-stage-5", production_order_id: terminalOrder.id,
+    execution_attempt_id: attempt.id, report_id: report.id, status: "succeeded", verification_status: "passed" };
+  const work = { id: "work-default-stage-5", organization_id: actor.organizationId,
+    production_order_id: terminalOrder.id, execution_attempt_id: attempt.id,
+    manual_execution_report_id: report.id, status: "available" };
+  let handoffReads = 0;
+  app.productionOrders.service.getWorkspace = async () => ({
+    current_plan: { id: "plan-default-stage-5", organization_id: actor.organizationId,
+      product_id: productId, status: "frozen" }, gate: { can_create: false, reasons: [] },
+    orders: [terminalOrder], selected_order: terminalOrder
+  });
+  app.manualHandoff.service.listPackages = async () => {
+    handoffReads += 1;
+    return [{ id: "package-default-stage-5", production_order_id: terminalOrder.id, status: "ready" }];
+  };
+  app.manualExecution = { service: { async getExecutionWorkspace() {
+    return { order: terminalOrder, current_attempt: attempt, attempts: [attempt], candidates: [], reports: [report] };
+  } } };
+  app.artifactVerification = { service: { async getVerificationWorkspace() {
+    return { order: terminalOrder, job, work, works: [work] };
+  } } };
+  const deliveryRepository = createMemoryWorkDeliveryRepository();
+  app.workDelivery = { service: createWorkDeliveryService({ repository: deliveryRepository,
+    workPort: { async listWorks() { return [work]; }, async getWork(_organizationId, workId) {
+      return workId === work.id ? work : null;
+    } }, orderPort: { async getOrder() {
+      return { ...terminalOrder, input_snapshot: { product_revision_snapshot: { project_id: project.id } } };
+    } } }) };
+
+  const runningOrder = { ...terminalOrder, status: "running" };
+  const verificationAction = { ...job, verification_status: "requires_action" };
+  app.productionOrders.service.getWorkspace = async () => ({
+    current_plan: { id: "plan-default-stage-5", organization_id: actor.organizationId,
+      product_id: productId, status: "frozen" }, gate: { can_create: false, reasons: [] },
+    orders: [runningOrder], selected_order: runningOrder
+  });
+  app.manualExecution.service.getExecutionWorkspace = async () => ({
+    order: runningOrder, current_attempt: attempt, attempts: [attempt], candidates: [], reports: [report]
+  });
+  app.artifactVerification.service.getVerificationWorkspace = async () => ({
+    order: runningOrder, job: verificationAction, work: null, works: []
+  });
+  const verificationActionResponse = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${productId}/operator-workspace?stage=production&orderId=${runningOrder.id}`,
+    headers: headers(auth) });
+  assert.equal(verificationActionResponse.statusCode, 200, verificationActionResponse.body);
+  assert.equal(verificationActionResponse.json().workspace.stages[4].business_status, "作品文件核验需要处理");
+  assert.equal(verificationActionResponse.json().workspace.recommended_action.code, "view_verification_details");
+
+  app.artifactVerification.service.getVerificationWorkspace = async () => ({
+    order: terminalOrder, job, work, works: [work]
+  });
+  const mixedGeneration = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${productId}/operator-workspace?stage=production&orderId=${runningOrder.id}`,
+    headers: headers(auth) });
+  assert.equal(mixedGeneration.statusCode, 200, mixedGeneration.body);
+  assert.equal(mixedGeneration.json().workspace.stages[4].business_status, "生产状态已变化，请刷新");
+  assert.equal(mixedGeneration.json().workspace.recommended_action.code, "retry_production_read");
+  assert.equal(mixedGeneration.json().workspace.stages[4].production.verification.job, null);
+  assert.equal(mixedGeneration.json().workspace.stages[4].production.work, null);
+
+  app.artifactVerification.service.getVerificationWorkspace = async () => ({
+    order: terminalOrder, job, work, works: [work]
+  });
+  app.productionOrders.service.getWorkspace = async () => ({
+    current_plan: { id: "plan-default-stage-5", organization_id: actor.organizationId,
+      product_id: productId, status: "frozen" }, gate: { can_create: false, reasons: [] },
+    orders: [terminalOrder], selected_order: terminalOrder
+  });
+  app.manualExecution.service.getExecutionWorkspace = async () => ({
+    order: terminalOrder, current_attempt: attempt, attempts: [attempt], candidates: [], reports: [report]
+  });
+
+  for (const stage of ["production", "product_content"]) {
+    const terminal = await app.inject({ method: "GET",
+      url: `/api/projects/${project.id}/products/${productId}/operator-workspace?stage=${stage}&orderId=${terminalOrder.id}`,
+      headers: headers(auth) });
+    assert.equal(terminal.statusCode, 200, terminal.body);
+    assert.equal(terminal.json().workspace.stages[4].production.package.status, "ready");
+    assert.equal(terminal.json().workspace.stages[4].production.work.delivery_status, "pending_review");
+  }
+  assert.equal(handoffReads, 4);
+  assert.equal(deliveryRepository._records.inspections.size, 0);
+  assert.equal(deliveryRepository._records.audits.length, 0);
+  assert.equal(deliveryRepository._records.ledger.length, 0);
+
+  let verificationReadsAfterExecutionFailure = 0;
+  let workReadsAfterExecutionFailure = 0;
+  app.manualExecution.service.getExecutionWorkspace = async () => {
+    throw new Error("transient execution read failure");
+  };
+  app.artifactVerification.service.getVerificationWorkspace = async () => {
+    verificationReadsAfterExecutionFailure += 1;
+    return { order: terminalOrder, job, work, works: [work] };
+  };
+  app.workDelivery.service.getWorkProjection = async () => {
+    workReadsAfterExecutionFailure += 1;
+    return { ...work, delivery_status: "pending_review" };
+  };
+  const executionFailure = await app.inject({ method: "GET",
+    url: `/api/projects/${project.id}/products/${productId}/operator-workspace?stage=production&orderId=${terminalOrder.id}`,
+    headers: headers(auth) });
+  assert.equal(executionFailure.statusCode, 200, executionFailure.body);
+  assert.equal(executionFailure.json().workspace.stages[4].business_status, "生产执行状态读取失败");
+  assert.equal(executionFailure.json().workspace.recommended_action.code, "retry_production_read");
+  assert.equal(executionFailure.json().workspace.stages[4].production.verification.job, null);
+  assert.equal(executionFailure.json().workspace.stages[4].production.work, null);
+  assert.equal(verificationReadsAfterExecutionFailure, 0);
+  assert.equal(workReadsAfterExecutionFailure, 0);
 });
 
 test("operator workspace Production read failures return a safe 503 envelope", async (t) => {
