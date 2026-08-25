@@ -10,9 +10,9 @@ function cloneState(state) {
   };
 }
 
-function unitOfWork(state, onCommit) {
+function unitOfWork(state, onCommit, onRollback) {
   return {
-    transactionClient: { onCommit },
+    transactionClient: { onCommit, onRollback },
     async findReceipt(key) { return clone(state.receipts.get(key) || null); },
     async insertReceipt(key, receipt) { state.receipts.set(key, clone(receipt)); },
     async insertProject(project) { state.projects.set(project.id, clone(project)); },
@@ -56,10 +56,21 @@ export function createMemoryProjectContentRepository() {
       await previous;
       const staged = cloneState(state);
       const commitCallbacks = [];
+      const rollbackCallbacks = [];
       try {
-        const result = await work(unitOfWork(staged, (callback) => commitCallbacks.push(callback)));
+        let result;
+        try {
+          result = await work(unitOfWork(
+            staged,
+            (callback) => commitCallbacks.push(callback),
+            (callback) => rollbackCallbacks.push(callback)
+          ));
+        } catch (error) {
+          for (const callback of rollbackCallbacks.reverse()) await callback();
+          throw error;
+        }
         state = staged;
-        for (const callback of commitCallbacks) callback();
+        for (const callback of commitCallbacks) await callback();
         return clone(result);
       } finally {
         release();
