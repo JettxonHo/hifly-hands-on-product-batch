@@ -8,6 +8,10 @@ const MAX_CATEGORY_TAG_LENGTH = 40;
 const MAX_CAPABILITIES = 12;
 const MAX_CAPABILITY_FIELD_LENGTH = 120;
 const PREVIEW_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+// Keep provider bytes bounded before entering the repository transaction. The catalog
+// pagination contract is unchanged; entries beyond either cap are neutral/unavailable.
+const MAX_PUBLIC_THUMBNAIL_SOURCE_ITEMS = 100;
+const MAX_PUBLIC_THUMBNAIL_SOURCE_BYTES = 64 * 1024 * 1024;
 const RECOMMENDATION_REASON = Object.freeze({
   exact_category_match: (category) => `匹配商品主品类「${category}」。`,
   general_pool_fallback: "未找到商品主品类精确匹配，使用未设置分类标签的通用人物。",
@@ -95,7 +99,7 @@ export function createCurrentApprovedCopyPort({ copyService, copyReviewService }
 
 export function createAvatarSelectionService({ repository, copyApprovalPort, now = Date.now,
   confirmationReturnBarrier = async () => {}, publicAvatarCatalog = null, materialAssetPort = null,
-  productRevisionPort = null } = {}) {
+  publicAvatarThumbnailSource = null, productRevisionPort = null } = {}) {
   if (!repository || !copyApprovalPort) throw new TypeError("repository and copyApprovalPort are required");
   const timestamp = () => new Date(now()).toISOString();
 
@@ -120,8 +124,71 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
     }
     if (!Array.isArray(entries)) throw failure("HIFLY_PUBLIC_AVATAR_CATALOG_INVALID");
     const syncedAt = timestamp();
-    const summary = await repository.syncPublicCatalog({ organizationId: input.organizationId, entries, now: syncedAt });
-    return { ...summary, synced_at: syncedAt };
+    const sourceRead = publicAvatarThumbnailSource?.read || publicAvatarThumbnailSource?.readThumbnail || publicAvatarThumbnailSource?.getThumbnail;
+    const registerThumbnail = materialAssetPort?.registerPublicAvatarThumbnail || materialAssetPort?.register;
+    const bindThumbnail = repository.bindPublicAvatarMaterial;
+    if (typeof sourceRead !== "function" || typeof registerThumbnail !== "function" || typeof bindThumbnail !== "function") {
+      const summary = await repository.syncPublicCatalog({ organizationId: input.organizationId, entries, now: syncedAt });
+      return { ...summary, synced_at: syncedAt };
+    }
+
+    const thumbnails = [];
+    let sourceReadCount = 0;
+    let sourceBytes = 0;
+    let sourceBudgetExhausted = false;
+    for (const entry of entries) {
+      if (sourceBudgetExhausted || sourceReadCount >= MAX_PUBLIC_THUMBNAIL_SOURCE_ITEMS) {
+        thumbnails.push({ entry, thumbnail: null, status: "unavailable" });
+        continue;
+      }
+      sourceReadCount += 1;
+      try {
+        const thumbnail = await sourceRead.call(publicAvatarThumbnailSource, {
+          provider_key: entry.provider_key, providerKey: entry.provider_key,
+          title: entry.display_name, display_name: entry.display_name
+        });
+        if (!thumbnail || !Buffer.isBuffer(thumbnail.bytes) || thumbnail.bytes.length < 1) {
+          throw failure("HIFLY_PUBLIC_AVATAR_THUMBNAIL_UNAVAILABLE");
+        }
+        if (sourceBytes + thumbnail.bytes.length > MAX_PUBLIC_THUMBNAIL_SOURCE_BYTES) {
+          sourceBudgetExhausted = true;
+          thumbnails.push({ entry, thumbnail: null, status: "unavailable" });
+          continue;
+        }
+        sourceBytes += thumbnail.bytes.length;
+        if (sourceBytes >= MAX_PUBLIC_THUMBNAIL_SOURCE_BYTES) sourceBudgetExhausted = true;
+        thumbnails.push({ entry, thumbnail, status: "available" });
+      } catch {
+        thumbnails.push({ entry, thumbnail: null, status: "unavailable" });
+      }
+    }
+
+    const run = async (transactionClient = null) => {
+      const summary = await repository.syncPublicCatalog({ organizationId: input.organizationId, entries, now: syncedAt, transactionClient });
+      let thumbnailImported = 0, thumbnailUnchanged = 0, thumbnailUnavailable = 0;
+      for (const item of thumbnails) {
+        if (item.status !== "available") { thumbnailUnavailable += 1; continue; }
+        const material = await registerThumbnail.call(materialAssetPort, {
+          organizationId: input.organizationId, providerKey: item.entry.provider_key,
+          displayName: item.entry.display_name, bytes: item.thumbnail.bytes,
+          mediaType: item.thumbnail.media_type, size: item.thumbnail.size,
+          checksumSha256: item.thumbnail.checksum_sha256, transactionClient
+        });
+        const bound = await bindThumbnail.call(repository, {
+          organizationId: input.organizationId, providerKey: item.entry.provider_key,
+          materialAsset: material.asset, materialVersion: material.asset_version,
+          now: syncedAt, transactionClient
+        });
+        if (bound.replayed || material.replayed) thumbnailUnchanged += 1;
+        else thumbnailImported += 1;
+      }
+      return { ...summary, thumbnail_total: entries.length, thumbnail_imported: thumbnailImported,
+        thumbnail_unchanged: thumbnailUnchanged, thumbnail_unavailable: thumbnailUnavailable, synced_at: syncedAt };
+    };
+    if (typeof repository.withPublicAvatarSync === "function") {
+      return repository.withPublicAvatarSync({ organizationId: input.organizationId, work: ({ transactionClient }) => run(transactionClient) });
+    }
+    return run(null);
   }
 
   function catalogGate(entry, approvedGate) {

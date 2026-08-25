@@ -36,3 +36,31 @@ test("Hifly public avatar catalog rejects malformed fake client pages without ex
     return true;
   });
 });
+
+test("Hifly public avatar catalog preserves colon and Unicode provider identities while rejecting controls", async () => {
+  const catalog = createHiflyPublicAvatarCatalog({
+    pageSize: 3,
+    client: { async listPublicAvatars() {
+      return { items: [
+        { avatar: "人物:甲", kind: 2, title: "合法人物" },
+        { avatar: "hifly-public:已有前缀:乙", kind: 2, title: "已有前缀" },
+        { avatar: "人物\u0080丙", kind: 2, title: "C1 控制字符" },
+        { avatar: "人物\u0000乙", kind: 2, title: "控制字符" }
+      ] };
+    } }
+  });
+  await assert.rejects(catalog.list(), { code: "HIFLY_API_RESPONSE_INVALID" });
+
+  const validCatalog = createHiflyPublicAvatarCatalog({
+    client: { async listPublicAvatars() {
+      return { items: [
+        { avatar: "人物:甲", kind: 2, title: "合法人物" },
+        { avatar: "hifly-public:已有前缀:乙", kind: 2, title: "已有前缀" }
+      ] };
+    } }
+  });
+  assert.deepEqual(await validCatalog.list(), [
+    { provider_key: "hifly-public:人物:甲", display_name: "合法人物", source_type: "public" },
+    { provider_key: "hifly-public:hifly-public:已有前缀:乙", display_name: "已有前缀", source_type: "public" }
+  ]);
+});

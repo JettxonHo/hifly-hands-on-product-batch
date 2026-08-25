@@ -33,6 +33,21 @@
 
 每项能力记录以下字段：capability ID、产品目标、API 文档状态、当前账号权限、真实调用状态、Adapter 状态、SaaS 产品状态、已知输入、已知输出、异步任务与状态、授权要求、消耗或积分影响、当前证据来源、未解决问题、最后验证日期。
 
+### 0.2 avatar.public_thumbnail_read（公共数字人缩略图只读同步）
+
+- **产品目标**：是（Issue #252 素材中心公共人物预览闭环）
+- **API 文档状态**：公共列表字段已确认仅 `avatar`、`kind`、`title`；官方缩略图读取端点/字段尚未确认
+- **当前账号权限**：未验证；没有进行真实登录或 Provider 请求
+- **真实调用状态**：未开始，0 次 Provider 调用，0 积分
+- **Adapter 状态**：已实现离线受控 source seam；只接受精确 provider key/title 输入，返回受控 bytes/media/size/SHA-256，并校验 MIME、claimed metadata 与大小上限
+- **SaaS 产品状态**：离线导入闭环已实现：既有管理员显式 sync、`avatar_image` AssetVersion、同组织原子 material 绑定、checksum 幂等与历史版本保留；普通读取零 Provider 调用。source 预取最多 100 项 / 64 MiB 聚合 bytes，超限条目中性计为 unavailable 且不写 Asset，不改变官方列表分页合同
+- **已知输入 / 输出**：输入为 provider-neutral key/title；Browser/public projection 与 source upward bytes result 不含 Provider key、URL、cookie、token 或 object key；provider_key 仅保留在 server-side identity/audit 边界
+- **异步任务与状态**：同步管理员命令；不创建 Worker、调度或自动重试
+- **授权要求 / 消耗**：真实 Provider read/login 需独立 Owner 授权；离线 fixture 不消耗积分
+- **当前证据来源**：Issue #252 合同、fake/disabled source 测试、memory 导入/回放/变更/rollback 测试；无真实飞影 bytes 证据
+- **未解决问题**：真实 Hifly 缩略图端点、字段、账号权限、内容类型/稳定性与视觉校准；不得把 synthetic PNG 视为真实人物预览
+- **最后验证日期**：2026-08-25（离线；真实 Provider 未验证）
+
 ---
 
 ## 能力台账

@@ -7,6 +7,17 @@
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
 
+## Issue #252 公共数字人缩略图同步（2026-08-25，离线证据）
+
+- 已在独立 worktree 的 fixed `main@831c927` 实现只读 thumbnail source seam 与素材中心导入/绑定闭环：source 输出只含受控 bytes、media、size、SHA-256；provider identity、真实 MIME、claimed size/SHA、10 MB cap 均服务端 fail closed。
+- sync source 预取另有最多 100 个条目 / 64 MiB 的聚合内存上限；超限条目仍保留官方列表分页结果但中性计为 `thumbnail_unavailable`，不进行 Asset 写入，避免恶意目录导致无界 Buffer 累积。
+- Memory sync barrier 期间普通 Assets/Avatar list/get/version 与 generic download authorization 经过 read gate，commit/rollback 完成后同一 turn 才放行；provisional Asset/AvatarVersion 不进入普通 projection。Provider key 额外拒绝 DEL/C1（`U+007F–U+009F`）。
+- 现有管理员显式同步入口复用，不新增 endpoint/migration；普通目录/workspace 读保持零 Provider 调用。稳定 provider key+checksum 重放不新增版本，checksum 变化追加 `avatar_image` AssetVersion 并绑定公共 Avatar 当前版本，历史保留；memory 串行 gate 与 PostgreSQL advisory lock/同事务边界覆盖组织隔离、并发和 rollback。
+- 当前证据仅为 fake/disabled source 与 synthetic PNG。未做真实 Hifly 登录、Provider 缩略图校准、Worker/调度、私有人物、积分或生产数据验收；真实 Provider 门禁仍为待确认，不得宣称真实飞影完成。
+- LocalObjectStore 的 `put/head/get/remove` 以 body+metadata 完整提交为可见边界：metadata 序列化失败清理本调用 body；重启在 body bytes 与请求精确相同时恢复 body-only 或损坏 metadata partial，异 bytes 不覆盖并 fail closed；同进程 per-key lock 与独立 Node 进程的唯一临时 metadata + 固定 `.metadata.v2.json` hard-link 原子不覆盖 publish 保证单一完整赢家，legacy `.metadata.json` 永不 unlink，普通 `get` 不暴露未提交 body。
+- 主控最新 default `npm test` 为 1229 total / 1213 pass / 15 skipped / 1 failed；唯一失败是未修改的 Works browser line 599 在并行负载下失败，default 仍不是绿色。随后该文件 isolated rerun 自然通过 1/1；该 isolated 通过不抵消 default 失败。
+- final candidate default `npm test` 另一次运行超过 2 分钟后，Node 与本次 Playwright Chrome 均为 0% CPU 且无新增 TAP 输出；仅终止本次命令自身。该 run 非绿色但没有产品断言失败，属于测试/浏览器 harness 无进展；此前 1229/1213/15/1 与 isolated Works 1/1 仍是历史证据，不得过称。
+
 ## Issue #250 素材中心与移动收口
 
 - 固定基线为 `main@255569deaba294807b3348a985277a850be3dce2`。候选包将公共 Assets 收敛为

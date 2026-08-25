@@ -273,6 +273,41 @@ test("asset upload defaults to product_image and accepts explicit avatar_image w
   );
 });
 
+test("public avatar thumbnail material registration is provider-key and checksum idempotent", async () => {
+  const w = world({ trackPuts: true });
+  const first = await w.service.registerPublicAvatarThumbnail({
+    organizationId: "org_a", providerKey: " hifly-public:101:人物甲 ", displayName: "林小满",
+    bytes: PNG, mediaType: "image/png", size: PNG.length, checksumSha256: SHA256
+  });
+  assert.equal(first.asset.kind, "avatar_image");
+  assert.equal(first.asset_version.status, "available");
+  assert.equal(first.replayed, false);
+  assert.equal(first.asset_version.verified_checksum_sha256, SHA256);
+
+  const replay = await w.service.registerPublicAvatarThumbnail({
+    organizationId: "org_a", providerKey: "hifly-public:101:人物甲", displayName: "林小满改名",
+    bytes: PNG, mediaType: "image/png", size: PNG.length, checksumSha256: SHA256
+  });
+  assert.equal(replay.asset.id, first.asset.id);
+  assert.equal(replay.asset_version.id, first.asset_version.id);
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.asset.display_name, "林小满改名");
+  assert.equal((await w.service.listAssets({ organizationId: "org_a" })).filter((asset) => asset.kind === "avatar_image").length, 1);
+
+  const changed = Buffer.from(PNG);
+  changed[changed.length - 1] ^= 1;
+  const changedChecksum = createHash("sha256").update(changed).digest("hex");
+  const next = await w.service.registerPublicAvatarThumbnail({
+    organizationId: "org_a", providerKey: "hifly-public:101:人物甲", displayName: "林小满改名",
+    bytes: changed, mediaType: "image/png", size: changed.length, checksumSha256: changedChecksum
+  });
+  assert.equal(next.asset.id, first.asset.id);
+  assert.equal(next.asset_version.version_number, 2);
+  assert.equal(next.replayed, false);
+  assert.equal((await w.service.listAssets({ organizationId: "org_a" })).find((asset) => asset.id === first.asset.id).versions.length, 2);
+  assert.equal(w.putCalls.length, 2);
+});
+
 for (const scenario of [
   ["missing object", async (w, created) => w.objectStore.remove(created.object_key), "OBJECT_MISSING"],
   ["real file type mismatch", async (w, created) => w.objectStore.replace(created.object_key, Buffer.from("not an image")), "FILE_TYPE_MISMATCH"],

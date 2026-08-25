@@ -5,6 +5,7 @@ import test from "node:test";
 import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
+import { createHiflyPublicAvatarThumbnailSource } from "../src/providers/hifly-public-avatar-thumbnail-source.js";
 import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { activateAdmin, identityApp, identityHeaders, intent, login } from "./helpers/identity-world.js";
 
@@ -228,6 +229,48 @@ test("public avatar sync without a provider client fails stably and ordinary wor
     headers: identityHeaders({ cookies: noProviderAdmin.cookies, csrf: noProviderAdmin.csrf, mutation: true }), payload: {} });
   assert.equal(response.statusCode, 503);
   assert.equal(response.json().error, "HIFLY_PUBLIC_AVATAR_SYNC_UNAVAILABLE");
+});
+
+test("public avatar sync imports only safe thumbnail metadata and ordinary reads stay provider-free", async (t) => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const checksum = createHash("sha256").update(png).digest("hex");
+  const assetRepository = createMemoryAssetRepository();
+  const objectStore = createMemoryObjectStore();
+  let sourceCalls = 0;
+  const source = createHiflyPublicAvatarThumbnailSource({ read: async ({ provider_key, title }) => {
+    sourceCalls += 1;
+    return { provider_key, title, bytes: png, media_type: "image/png", size: png.length, checksum_sha256: checksum };
+  } });
+  const { app } = await identityApp(t, {
+    assets: { enabled: true, repository: assetRepository, objectStore, worker: { autoStart: false } },
+    avatarSelection: {
+      enabled: true, repository: createMemoryAvatarSelectionRepository(), copyApprovalPort: approvalPort,
+      publicAvatarCatalog: { async list() { return [{ provider_key: "hifly-public:api-thumbnail-101", display_name: "API 缩略图人物", source_type: "public" }]; } },
+      publicAvatarThumbnailSource: source
+    }
+  });
+  const admin = await activateAdmin(app);
+  const mutation = identityHeaders({ cookies: admin.cookies, csrf: admin.csrf, mutation: true });
+  const read = identityHeaders({ cookies: admin.cookies });
+  const synced = await app.inject({ method: "POST", url: "/api/avatar-catalog/hifly-public/sync", headers: mutation, payload: {} });
+  assert.equal(synced.statusCode, 200);
+  assert.deepEqual(synced.json(), {
+    total: 1, created: 1, updated: 0, unchanged: 0, thumbnail_total: 1, thumbnail_imported: 1,
+    thumbnail_unchanged: 0, thumbnail_unavailable: 0, synced_at: synced.json().synced_at
+  });
+  assert.equal(synced.body.includes("api-thumbnail-101"), false);
+  assert.equal(synced.body.includes("object_key"), false);
+  assert.equal(synced.body.includes(checksum), false);
+  assert.equal(sourceCalls, 1);
+
+  const workspace = await app.inject({ method: "GET", url: "/api/products/product-a/avatar-workspace?copyVersionId=copy-a", headers: read });
+  assert.equal(workspace.statusCode, 200);
+  assert.equal(sourceCalls, 1);
+  const item = workspace.json().catalog.find((entry) => entry.display_name === "API 缩略图人物");
+  assert.equal(item.materials_accessible, true);
+  assert.equal(item.asset_version.preview_kind, "uploaded");
+  assert.equal(workspace.body.includes("api-thumbnail-101"), false);
+  assert.equal(workspace.body.includes("object_key"), false);
 });
 
 test("public avatar sync maps provider failures without returning provider messages", async (t) => {

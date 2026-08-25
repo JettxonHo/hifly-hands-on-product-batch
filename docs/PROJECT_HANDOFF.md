@@ -3,6 +3,16 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-25 Issue #252 公共数字人缩略图同步（离线端口/导入闭环）
+
+- 在固定 `main@831c927` 上完成 allowlist 内的公共缩略图 source seam、`avatar_image` AssetVersion 幂等导入、当前公共 Avatar material 原子绑定，以及 memory/PostgreSQL 适配器路径。官方列表仍只读 `avatar/kind/title`；普通目录/workspace 读取保持零 Provider 调用；同步仍由现有管理员 `POST /api/avatar-catalog/hifly-public/sync` 显式触发。source 预取设有最多 100 项 / 64 MiB 聚合上限，超限条目保留列表但中性计为 unavailable、无 Asset 写入。
+- source seam 仅向上层回传受控 bytes、media、size、SHA-256，并在服务端校验 provider key/title、真实文件类型、claimed metadata、大小上限；Provider key 可含合法 Unicode/冒号但拒绝控制字符，URL、cookie、token、object key 不进入公开投影。相同 provider key+checksum 重放不新建版本；内容变化保留旧版本并绑定新的当前 AvatarVersion；同组织边界、并发 serial/advisory lock 与事务 rollback 已覆盖。
+- 本轮只完成 fake/disabled source 的离线端口与导入闭环；没有真实 Hifly login、Provider thumbnail 校准、Worker/调度、私有人物、积分或生产数据验收。真实 Provider 读校准仍是独立门禁，不能把 fixture 结果写成真实飞影证据。
+- RED：新 source test 在旧 head 为 `ERR_MODULE_NOT_FOUND`；asset registration seam 在旧 head 为缺少 `registerPublicAvatarThumbnail`；aggregate source cap test 在无 cap head source calls `5 !== 4`；Memory read-isolation barrier 在 live Map head 读取到 provisional（`true !== false`）。GREEN：source/catalog/assets/avatar focused 67/67；Memory ordinary Asset/Avatar reads 与 generic download 在 sync commit/rollback 前均由 read gate 隔离，C0/DEL/C1 provider controls fail closed；API 8/8；真实临时 PostgreSQL avatar integration 1/1（含并发、rollback、exact history/latest list、printable U+00BE/U+00BF base64url `_` 精确前缀与 COMMIT callback guard）；Stage 3 Chrome exact-PNG 1/1；素材中心 exact-PNG 测试受本机 Chrome/测试进程资源状态影响，待 owner 在稳定浏览器 lane 重跑。`npm ci --ignore-scripts` 后 `pg` 已可用，未访问真实 Provider。后续由 owner 决定是否继续真实 Provider 门禁。
+- LocalObjectStore slice：body 成功后 metadata 序列化失败会清理本调用 body；重启在请求 bytes 精确相同时可 adopt body-only 或损坏 metadata partial，异 bytes 保留并 `EEXIST` fail closed；完整同 key replay 不覆盖；同进程 32-way per-key lock 与独立 Node 进程的唯一临时 metadata + 固定 `.metadata.v2.json` hard-link 原子不覆盖 publish 均只有一个完整赢家，legacy `.metadata.json` 永不 unlink，loser 不删除赢家，`get` 只返回可解析 metadata 已提交对象。
+- 主控最新 default `npm test` 为 1229 total / 1213 pass / 15 skipped / 1 failed；唯一失败是未修改的 Works browser line 599 在并行负载下失败，故 default 不记为绿色。随后该文件 isolated rerun 自然通过 1/1；该单文件通过不抵消 default 的失败。该结果不涉及真实 Provider 或积分。
+- final candidate 上再次运行 default `npm test` 超过 2 分钟后，Node 与本次 Playwright Chrome 均为 0% CPU 且无新增 TAP 输出；仅终止本次命令自身。该 run 非绿色但没有产品断言失败，属于测试/浏览器 harness 无进展；此前 1229/1213/15/1 与 isolated Works 1/1 证据仍保留，不得过称为绿色。
+
 ## 2026-08-25 素材中心与移动收口 fixed candidate
 
 - Issue #248 / PR #249 的 Post-stage 作品库已进入固定基线

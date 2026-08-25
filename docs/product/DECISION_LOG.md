@@ -893,3 +893,11 @@
 - **Evidence**：[HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md)
 - **决策来源**：Owner 于 2026-08-20 明确授权 Fidelity-A 领域/API 设计 gate；本 Decision 由 Fidelity-0 Evidence、D-028
   现有领域合同与当前 Provider 未知边界推导，随独立审阅后的 PR 合并才生效。
+
+## Issue #252 实现边界记录（非真实 Provider 验收）
+
+- **日期**：2026-08-25
+- **范围**：只读公共数字人 thumbnail source seam、既有管理员同步入口、`avatar_image` AssetVersion 导入与公共 Avatar 当前 material 绑定；不新增 endpoint、migration、Worker 或公开破坏性字段。
+- **安全合同**：source 向领域只回传受控 bytes/media/size/SHA-256；provider key/title、真实 MIME、claimed metadata、组织归属与 checksum 在服务端核验。公开投影不带 URL、cookie、token、object key 或 Provider 标识；普通读取零 Provider 调用。
+- **幂等/并发**：provider key+checksum 重放不新增 AssetVersion；内容变化追加新版本并保留旧历史；memory serial gate 与 PostgreSQL advisory-lock/同事务绑定确保组织边界和 rollback。
+- **证据边界**：当前仅 fake/disabled source 与 synthetic PNG 离线证据。真实 Hifly 只读 login、thumbnail 端点/字段校准、Provider 权限与真实 bytes 验收必须取得单独授权；本记录不将离线闭环写成真实能力。

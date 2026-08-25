@@ -5,6 +5,7 @@ import { assertAssetSchemaCurrent } from "./postgres.js";
 
 const failure = (code) => Object.assign(new Error(code), { code });
 const AVATAR_PREVIEW_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const PUBLIC_AVATAR_PROVIDER_KEY = /^hifly-public:[^\u0000-\u001f\u007f-\u009f]{1,256}$/u;
 const one = (result) => result.rows[0] ?? null;
 const iso = (value) => value instanceof Date ? value.toISOString() : value;
 const versionProjection = (row) => row ? {
@@ -179,6 +180,100 @@ export function createPostgresAssetRepository({ pool, ownsPool = false } = {}) {
         return work(transactionClient);
       }
       return withTransaction(pool, work);
+    },
+    async registerPublicAvatarThumbnail({ organizationId, providerKey, displayName, objectKey, mediaType,
+      size, checksumSha256, now, transactionClient = null }) {
+      const normalizedProviderKey = typeof providerKey === "string" ? providerKey.trim() : "";
+      if (!PUBLIC_AVATAR_PROVIDER_KEY.test(normalizedProviderKey) || typeof objectKey !== "string" || !objectKey ||
+          !AVATAR_PREVIEW_MEDIA_TYPES.has(mediaType) || !Number.isInteger(size) || size < 1 ||
+          !/^[a-f0-9]{64}$/.test(checksumSha256 || "")) throw failure("INVALID_PUBLIC_AVATAR_THUMBNAIL");
+      const work = async (client) => {
+        const existing = one(await client.query(
+          `SELECT av.*,aa.organization_id asset_organization_id,aa.kind,aa.display_name asset_display_name,
+                  aa.status asset_status,aa.row_version,aa.created_by_member_id,aa.created_at asset_created_at,aa.updated_at asset_updated_at
+             FROM asset_versions av JOIN asset_assets aa ON aa.id=av.asset_id AND aa.organization_id=av.organization_id
+            WHERE av.object_key=$1 FOR UPDATE OF av,aa`, [objectKey]
+        ));
+        if (existing) {
+          if (existing.asset_organization_id !== organizationId || existing.kind !== "avatar_image" ||
+              existing.asset_status !== "active" || existing.status !== "available" ||
+              existing.expected_content_type !== mediaType || Number(existing.expected_size) !== Number(size) ||
+              existing.expected_checksum_sha256 !== checksumSha256 || existing.verified_content_type !== mediaType ||
+              Number(existing.verified_size) !== Number(size) || existing.verified_checksum_sha256 !== checksumSha256) {
+            throw failure("PUBLIC_AVATAR_THUMBNAIL_ASSET_CONFLICT");
+          }
+          return {
+            asset: assetProjection({ id: existing.asset_id, organization_id: existing.asset_organization_id, kind: existing.kind,
+              display_name: existing.asset_display_name, status: existing.asset_status, row_version: existing.row_version,
+              created_by_member_id: existing.created_by_member_id, created_at: existing.asset_created_at, updated_at: existing.asset_updated_at }),
+            asset_version: versionProjection(existing), replayed: true
+          };
+        }
+        const providerPrefix = `${objectKey.slice(0, objectKey.lastIndexOf("/"))}/`;
+        const prior = one(await client.query(
+          `SELECT av.*,aa.organization_id asset_organization_id,aa.kind,aa.display_name asset_display_name,
+                  aa.status asset_status,aa.row_version,aa.created_by_member_id,aa.created_at asset_created_at,aa.updated_at asset_updated_at,
+                  aa.id parent_asset_id
+             FROM asset_versions av JOIN asset_assets aa ON aa.id=av.asset_id AND aa.organization_id=av.organization_id
+            WHERE av.organization_id=$1 AND left(av.object_key,length($2))=$2 AND aa.kind='avatar_image'
+            ORDER BY av.version_number DESC LIMIT 1 FOR UPDATE OF av,aa`, [organizationId, providerPrefix]
+        ));
+        let asset;
+        let assetId;
+        if (prior) {
+          if (prior.asset_status !== "active") throw failure("PUBLIC_AVATAR_THUMBNAIL_ASSET_CONFLICT");
+          assetId = prior.parent_asset_id;
+          asset = assetProjection({ id: assetId, organization_id: prior.asset_organization_id, kind: prior.kind,
+            display_name: prior.asset_display_name, status: prior.asset_status, row_version: prior.row_version,
+            created_by_member_id: prior.created_by_member_id, created_at: prior.asset_created_at, updated_at: prior.asset_updated_at });
+        } else {
+          assetId = randomUUID();
+          asset = assetProjection(one(await client.query(
+            `INSERT INTO asset_assets(id,organization_id,kind,display_name,status,row_version,created_by_member_id,created_at,updated_at)
+             VALUES ($1,$2,'avatar_image',$3,'active',1,NULL,$4,$4) RETURNING *`,
+            [assetId, organizationId, displayName, now]
+          )));
+        }
+        const versionId = randomUUID();
+        const extension = mediaType === "image/jpeg" ? "jpg" : mediaType === "image/webp" ? "webp" : "png";
+        const version = versionProjection(one(await client.query(
+          `INSERT INTO asset_versions(id,asset_id,organization_id,version_number,status,object_key,original_filename,
+             expected_content_type,expected_size,expected_checksum_sha256,verified_content_type,verified_size,verified_checksum_sha256,verified_at,created_at,updated_at)
+           VALUES ($1,$2,$3,$4,'available',$5,$6,$7,$8,$9,$7,$8,$9,$10,$10,$10) RETURNING *`,
+          [versionId, assetId, organizationId, Number(prior ? prior.version_number : 0) + 1, objectKey,
+            `${displayName}.${extension}`, mediaType, size, checksumSha256, now]
+        )));
+        await appendAudit(client, { id: randomUUID(), organization_id: organizationId, actor_member_id: null,
+          event_type: "asset.public_avatar_thumbnail_available", asset_id: asset.id, asset_version_id: version.id,
+          metadata: { provider_key: normalizedProviderKey }, created_at: now });
+        return { asset, asset_version: version, replayed: false };
+      };
+      if (transactionClient) {
+        if (typeof transactionClient.query !== "function") throw new TypeError("transactionClient must be a PostgreSQL client");
+        return work(transactionClient);
+      }
+      return withTransaction(pool, async (client) => {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-material-boundary:${organizationId}`]);
+        return work(client);
+      });
+    },
+    async updatePublicAvatarThumbnailDisplayName({ organizationId, assetId, displayName, now, transactionClient = null }) {
+      const work = async (client) => {
+        const current = one(await client.query(
+          "SELECT * FROM asset_assets WHERE id=$1 AND organization_id=$2 AND kind='avatar_image' FOR UPDATE", [assetId, organizationId]
+        ));
+        if (!current) throw failure("ASSET_NOT_FOUND");
+        if (current.status !== "active") throw failure("ASSET_NOT_ACTIVE");
+        return assetProjection(one(await client.query(
+          "UPDATE asset_assets SET display_name=$3,row_version=row_version+1,updated_at=$4 WHERE id=$1 AND organization_id=$2 RETURNING *",
+          [assetId, organizationId, displayName, now]
+        )));
+      };
+      if (transactionClient) return work(transactionClient);
+      return withTransaction(pool, async (client) => {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-material-boundary:${organizationId}`]);
+        return work(client);
+      });
     },
     async listAssets(organizationId) {
       const assetRows = (await pool.query("SELECT * FROM asset_assets WHERE organization_id = $1 AND status <> 'deleted' ORDER BY created_at DESC", [organizationId])).rows;

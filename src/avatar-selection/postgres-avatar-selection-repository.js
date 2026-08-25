@@ -5,7 +5,9 @@ import { CONTROLLED_AVATARS, PUBLIC_CATALOG_DESCRIPTION, PUBLIC_CATALOG_SEED_LAB
 import { assertAvatarSelectionSchemaCurrent } from "./postgres.js";
 
 const failure = (code) => Object.assign(new Error(code), { code });
+const PUBLIC_AVATAR_PROVIDER_KEY = /^hifly-public:[^\u0000-\u001f\u007f-\u009f]{1,256}$/u;
 const iso = (value) => value instanceof Date ? value.toISOString() : value;
+const one = (result) => result.rows[0] ?? null;
 const normalizeSelection = (row) => row ? { ...row, version_number: Number(row.version_number), row_version: Number(row.row_version),
   created_at: iso(row.created_at), updated_at: iso(row.updated_at), confirmed_at: iso(row.confirmed_at), superseded_at: iso(row.superseded_at) } : null;
 const normalizeVersion = (row) => ({ ...row, version_number: Number(row.version_number), authorization_expires_at: iso(row.authorization_expires_at),
@@ -15,6 +17,33 @@ const normalizeAsset = (row) => ({ ...row, category_tags: Array.isArray(row.cate
 
 async function lockAvatarMaterialBoundary(client, organizationId) {
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-material-boundary:${organizationId}`]);
+}
+
+async function withTransactionHooks(pool, work) {
+  const client = await pool.connect();
+  const commits = [], rollbacks = [];
+  let committed = false;
+  const transactionClient = {
+    query: (...args) => client.query(...args),
+    onCommit(callback) { if (typeof callback !== "function") throw new TypeError("transaction callback must be a function"); commits.push(callback); },
+    onRollback(callback) { if (typeof callback !== "function") throw new TypeError("transaction callback must be a function"); rollbacks.push(callback); }
+  };
+  try {
+    await client.query("BEGIN");
+    const result = await work(transactionClient);
+    await client.query("COMMIT");
+    committed = true;
+    for (const callback of commits) await callback();
+    return result;
+  } catch (error) {
+    if (!committed) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      for (const callback of [...rollbacks].reverse()) await callback().catch(() => undefined);
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function replay(client, receiptKey, fingerprint) {
@@ -36,7 +65,7 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
         FROM avatar_assets a JOIN avatar_asset_versions v ON v.asset_id=a.id AND v.organization_id=a.organization_id
         LEFT JOIN asset_versions m ON m.id=v.material_asset_version_id AND m.organization_id=v.organization_id
         LEFT JOIN asset_assets ma ON ma.id=m.asset_id AND ma.organization_id=m.organization_id
-        WHERE a.organization_id=$1 AND v.id=$2`, [organizationId, assetVersionId])).rows[0];
+        WHERE a.organization_id=$1 AND a.status<>'deleted' AND v.id=$2`, [organizationId, assetVersionId])).rows[0];
     if (!row) return null;
     const materialsAccessible = row.material_asset_version_id
       ? row.material_status === "available" && row.material_asset_status === "active" && row.material_asset_kind === "avatar_image"
@@ -73,17 +102,25 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
         }
       });
     },
-    async syncPublicCatalog({ organizationId, entries = [], now } = {}) {
+    async withPublicAvatarSync({ organizationId, work } = {}) {
+      if (typeof work !== "function") throw new TypeError("work is required");
+      return withTransactionHooks(pool, async (transactionClient) => {
+        await lockAvatarMaterialBoundary(transactionClient, organizationId);
+        await transactionClient.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-public-sync:${organizationId}`]);
+        return work({ transactionClient, organizationId });
+      });
+    },
+    async syncPublicCatalog({ organizationId, entries = [], now, transactionClient = null } = {}) {
       const unique = new Map();
       for (const entry of entries) {
-        if (!entry || entry.source_type !== "public" || typeof entry.provider_key !== "string" ||
-          !entry.provider_key.startsWith("hifly-public:") || typeof entry.display_name !== "string" || !entry.display_name.trim()) {
+        const providerKey = typeof entry?.provider_key === "string" ? entry.provider_key.trim() : "";
+        if (!entry || entry.source_type !== "public" || !PUBLIC_AVATAR_PROVIDER_KEY.test(providerKey) ||
+          typeof entry.display_name !== "string" || !entry.display_name.trim()) {
           throw failure("HIFLY_PUBLIC_AVATAR_CATALOG_INVALID");
         }
-        unique.set(entry.provider_key, { provider_key: entry.provider_key, display_name: entry.display_name.trim() });
+        unique.set(providerKey, { provider_key: providerKey, display_name: entry.display_name.trim() });
       }
-      return withTransaction(pool, async (client) => {
-        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-public-sync:${organizationId}`]);
+      const sync = async (client) => {
         let created = 0, updated = 0, unchanged = 0;
         for (const entry of unique.values()) {
           const existing = (await client.query(
@@ -110,6 +147,66 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
           created += 1;
         }
         return { total: unique.size, created, updated, unchanged };
+      };
+      if (transactionClient) return sync(transactionClient);
+      return withTransaction(pool, async (client) => {
+        await lockAvatarMaterialBoundary(client, organizationId);
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-public-sync:${organizationId}`]);
+        return sync(client);
+      });
+    },
+    async bindPublicAvatarMaterial({ organizationId, providerKey, materialAsset, materialVersion, now, transactionClient = null } = {}) {
+      const bind = async (client) => {
+        const normalizedProviderKey = typeof providerKey === "string" ? providerKey.trim() : "";
+        if (!PUBLIC_AVATAR_PROVIDER_KEY.test(normalizedProviderKey) ||
+            !materialAsset || !materialVersion || materialAsset.organization_id !== organizationId ||
+            materialVersion.organization_id !== organizationId || materialVersion.asset_id !== materialAsset.id ||
+            materialAsset.kind !== "avatar_image" || materialAsset.status !== "active" || materialVersion.status !== "available") {
+          throw failure("AVATAR_MATERIAL_NOT_AVAILABLE");
+        }
+        const avatar = one(await client.query(
+          "SELECT * FROM avatar_assets WHERE organization_id=$1 AND seed_key=$2 AND source_type='public' AND status='active' FOR UPDATE",
+          [organizationId, normalizedProviderKey]
+        ));
+        if (!avatar) throw failure("AVATAR_ASSET_NOT_FOUND");
+        const material = one(await client.query(
+          `SELECT av.*,aa.id asset_id,aa.organization_id asset_organization_id,aa.kind asset_kind,aa.status asset_status
+             FROM asset_versions av JOIN asset_assets aa ON aa.id=av.asset_id AND aa.organization_id=av.organization_id
+            WHERE av.id=$1 AND av.organization_id=$2 FOR UPDATE OF av,aa`, [materialVersion.id, organizationId]
+        ));
+        if (!material || material.asset_organization_id !== organizationId || material.asset_kind !== "avatar_image" ||
+            material.asset_status !== "active" || material.status !== "available") throw failure("AVATAR_MATERIAL_NOT_AVAILABLE");
+        const duplicate = one(await client.query(
+          "SELECT id,asset_id FROM avatar_asset_versions WHERE organization_id=$1 AND material_asset_version_id=$2 FOR UPDATE",
+          [organizationId, materialVersion.id]
+        ));
+        if (duplicate && duplicate.asset_id !== avatar.id) throw failure("AVATAR_MATERIAL_ALREADY_BOUND");
+        const current = one(await client.query(
+          "SELECT * FROM avatar_asset_versions WHERE organization_id=$1 AND asset_id=$2 ORDER BY version_number DESC LIMIT 1 FOR UPDATE",
+          [organizationId, avatar.id]
+        ));
+        if (current?.material_asset_version_id === materialVersion.id) return { ...(await catalogEntry(client, organizationId, current.id)), replayed: true };
+        const versionId = randomUUID();
+        await client.query(`INSERT INTO avatar_asset_versions(
+            id,asset_id,organization_id,version_number,status,authorization_status,authorization_expires_at,
+            authorization_scope,capability_status,materials_accessible,material_asset_version_id,preview_kind,created_at,updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10,'uploaded',$11,$11)`,
+        [versionId, avatar.id, organizationId, Number(current?.version_number || 0) + 1,
+          current?.status || "available", current?.authorization_status || "incomplete", current?.authorization_expires_at || null,
+          current?.authorization_scope || "current_organization", current?.capability_status || "unverified", materialVersion.id, now]);
+        if (current) {
+          await client.query(`INSERT INTO avatar_verified_capabilities(id,organization_id,asset_version_id,capability_code,capability_label,verification_status,evidence_reference,created_at)
+            SELECT gen_random_uuid(),organization_id,$2,capability_code,capability_label,verification_status,evidence_reference,$3
+              FROM avatar_verified_capabilities WHERE organization_id=$1 AND asset_version_id=$4`,
+          [organizationId, versionId, now, current.id]);
+        }
+        return { ...(await catalogEntry(client, organizationId, versionId)), replayed: false };
+      };
+      if (transactionClient) return bind(transactionClient);
+      return withTransaction(pool, async (client) => {
+        await lockAvatarMaterialBoundary(client, organizationId);
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`avatar-public-sync:${organizationId}`]);
+        return bind(client);
       });
     },
     async listCatalog(organizationId) {
@@ -117,7 +214,11 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
         v.authorization_scope,v.capability_status,v.materials_accessible stored_materials_accessible,v.preview_kind,v.material_asset_version_id,
         m.status material_status,ma.status material_asset_status,ma.kind material_asset_kind,
         v.created_at version_created_at,v.updated_at version_updated_at
-        FROM avatar_assets a JOIN avatar_asset_versions v ON v.asset_id=a.id AND v.organization_id=a.organization_id
+        FROM avatar_assets a JOIN LATERAL (
+          SELECT * FROM avatar_asset_versions av
+           WHERE av.asset_id=a.id AND av.organization_id=a.organization_id
+           ORDER BY av.version_number DESC LIMIT 1
+        ) v ON true
         LEFT JOIN asset_versions m ON m.id=v.material_asset_version_id AND m.organization_id=v.organization_id
         LEFT JOIN asset_assets ma ON ma.id=m.asset_id AND ma.organization_id=m.organization_id
         WHERE a.organization_id=$1 AND a.status<>'deleted' ORDER BY a.display_name,a.id`, [organizationId])).rows;
@@ -162,8 +263,9 @@ export function createPostgresAvatarSelectionRepository({ pool, ownsPool = false
       });
     },
     async getCatalogVersion(organizationId, assetVersionId) {
-      const catalog = await this.listCatalog(organizationId);
-      return catalog.find((entry) => entry.asset_version.id === assetVersionId) || null;
+      const client = await pool.connect();
+      try { return await catalogEntry(client, organizationId, assetVersionId); }
+      finally { client.release(); }
     },
     async registerEnterpriseAvatar({ organizationId, actorMemberId = null, materialAssetVersionId, displayName, description,
       authorizationStatus, authorizationExpiresAt = null, categoryTags = [], capabilities: verified = [], now }) {

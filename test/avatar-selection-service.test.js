@@ -9,6 +9,7 @@ import { createAvatarSelectionService, createCurrentApprovedCopyPort } from "../
 import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
 
 const actor = { organizationId: "org-a", actorMemberId: "member-a", actorRole: "member" };
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
 function world({ approved = true, now = "2026-08-07T08:00:00.000Z" } = {}) {
   let copyApproved = approved;
@@ -302,7 +303,7 @@ test("A06 adapter resolves the newest current effective approved copy for a prod
         return [
           { id: "copy-current", product_id: "product-a", product_revision_id: "revision-current" },
           { id: "copy-old", product_id: "product-a", product_revision_id: "revision-old" }
-        ];
+    ];
       }
     },
     copyReviewService: { async getCurrentApprovedGate({ copyVersionId }) { return { approved: copyVersionId === "copy-current" }; } }
@@ -368,6 +369,319 @@ test("public avatar sync is admin-only and fails closed without a provider", asy
     { code: "HIFLY_PUBLIC_AVATAR_SYNC_FORBIDDEN" });
   await assert.rejects(service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "admin-a", actorRole: "admin" }),
     { code: "HIFLY_PUBLIC_AVATAR_SYNC_UNAVAILABLE" });
+});
+
+test("admin public avatar sync imports a validated thumbnail and binds the current material atomically", async () => {
+  const repository = createMemoryAvatarSelectionRepository();
+  const assetRepository = createMemoryAssetRepository();
+  const objectStore = createMemoryObjectStore();
+  const materialAssetPort = createAssetService({ repository: assetRepository, objectStore, now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+  let bytes = PNG;
+  const checksum = () => createHash("sha256").update(bytes).digest("hex");
+  let sourceCalls = 0;
+  const service = createAvatarSelectionService({ repository,
+    copyApprovalPort: { async getCurrentApprovedCopy() { return null; } },
+    publicAvatarCatalog: { async list() { return [{ provider_key: "hifly-public:101", display_name: "公共人物一", source_type: "public" }]; } },
+    publicAvatarThumbnailSource: { async read(input) {
+      sourceCalls += 1;
+      assert.deepEqual(input, { provider_key: "hifly-public:101", providerKey: "hifly-public:101", title: "公共人物一", display_name: "公共人物一" });
+      return { bytes, media_type: "image/png", size: bytes.length, checksum_sha256: checksum() };
+    } },
+    materialAssetPort,
+    now: () => Date.parse("2026-08-12T00:00:00.000Z")
+  });
+
+  const first = await service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "admin-a", actorRole: "admin" });
+  assert.deepEqual(first, { total: 1, created: 1, updated: 0, unchanged: 0, thumbnail_total: 1,
+    thumbnail_imported: 1, thumbnail_unchanged: 0, thumbnail_unavailable: 0, synced_at: "2026-08-12T00:00:00.000Z" });
+  const catalog = await repository.listCatalog("org-a");
+  assert.equal(catalog[0].asset_version.materials_accessible, true);
+  assert.equal(catalog[0].asset_version.preview_kind, "uploaded");
+  assert.equal((await assetRepository.listAssets("org-a")).filter((item) => item.kind === "avatar_image").length, 1);
+
+  const replay = await service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "admin-a", actorRole: "admin" });
+  assert.equal(replay.thumbnail_imported, 0);
+  assert.equal(replay.thumbnail_unchanged, 1);
+  assert.equal((await repository.listCatalog("org-a"))[0].asset_version.version_number, 2);
+
+  bytes = Buffer.from(PNG); bytes[bytes.length - 1] ^= 1;
+  const changed = await service.syncPublicCatalog({ organizationId: "org-a", actorMemberId: "admin-a", actorRole: "admin" });
+  assert.equal(changed.thumbnail_imported, 1);
+  assert.equal((await repository.listCatalog("org-a"))[0].asset_version.version_number, 3);
+  assert.equal((await assetRepository.listAssets("org-a")).find((item) => item.kind === "avatar_image").versions.length, 2);
+  assert.equal(sourceCalls, 3);
+});
+
+test("concurrent memory public thumbnail syncs converge on one material and bind, while bind failure rolls back all writes", async () => {
+  const repository = createMemoryAvatarSelectionRepository();
+  const assetRepository = createMemoryAssetRepository();
+  const objectStore = createMemoryObjectStore();
+  const materialAssetPort = createAssetService({ repository: assetRepository, objectStore, now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+  const entry = { provider_key: "hifly-public:memory-concurrent", display_name: "并发公共人物", source_type: "public" };
+  const source = { async read({ provider_key, title }) {
+    return { provider_key, title, bytes: PNG, media_type: "image/png", size: PNG.length,
+      checksum_sha256: createHash("sha256").update(PNG).digest("hex") };
+  } };
+  const makeService = () => createAvatarSelectionService({ repository, materialAssetPort,
+    publicAvatarCatalog: { async list() { return [entry]; } }, publicAvatarThumbnailSource: source,
+    copyApprovalPort: { async getCurrentApprovedCopy() { return null; } }, now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+
+  const [left, right] = await Promise.all([
+    makeService().syncPublicCatalog({ organizationId: "org-memory-concurrent", actorMemberId: "admin-a", actorRole: "admin" }),
+    makeService().syncPublicCatalog({ organizationId: "org-memory-concurrent", actorMemberId: "admin-b", actorRole: "admin" })
+  ]);
+  assert.deepEqual([left.thumbnail_imported, left.thumbnail_unchanged].sort(), [0, 1]);
+  assert.deepEqual([right.thumbnail_imported, right.thumbnail_unchanged].sort(), [0, 1]);
+  const assets = (await assetRepository.listAssets("org-memory-concurrent")).filter((item) => item.kind === "avatar_image");
+  assert.equal(assets.length, 1);
+  assert.equal(assets[0].versions.length, 1);
+  const catalog = await repository.listCatalog("org-memory-concurrent");
+  assert.equal(catalog.filter((item) => item.asset.seed_key === entry.provider_key).length, 1);
+  assert.equal(catalog[0].asset_version.material_asset_version_id, assets[0].versions[0].id);
+
+  const rollbackRepository = createMemoryAvatarSelectionRepository();
+  const rollbackAssetRepository = createMemoryAssetRepository();
+  const rollbackStore = createMemoryObjectStore();
+  const rollbackAssetPort = createAssetService({ repository: rollbackAssetRepository, objectStore: rollbackStore,
+    now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+  const originalBind = rollbackRepository.bindPublicAvatarMaterial.bind(rollbackRepository);
+  rollbackRepository.bindPublicAvatarMaterial = async (input) => {
+    await originalBind(input);
+    throw Object.assign(new Error("INJECTED_BIND_FAILURE"), { code: "INJECTED_BIND_FAILURE" });
+  };
+  const rollbackService = createAvatarSelectionService({ repository: rollbackRepository, materialAssetPort: rollbackAssetPort,
+    publicAvatarCatalog: { async list() { return [entry]; } }, publicAvatarThumbnailSource: source,
+    copyApprovalPort: { async getCurrentApprovedCopy() { return null; } }, now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+  await assert.rejects(rollbackService.syncPublicCatalog({ organizationId: "org-memory-rollback", actorMemberId: "admin-a", actorRole: "admin" }),
+    { code: "INJECTED_BIND_FAILURE" });
+  assert.equal((await rollbackAssetRepository.listAssets("org-memory-rollback")).length, 0);
+  assert.equal((await rollbackRepository.listCatalog("org-memory-rollback")).length, 0);
+  assert.equal((await rollbackRepository.listAuditEvents()).filter((event) => event.organization_id === "org-memory-rollback").length, 0);
+  const objectKey = `org-memory-rollback/public-avatar-thumbnails/${Buffer.from(entry.provider_key).toString("base64url")}/${createHash("sha256").update(PNG).digest("hex")}`;
+  assert.equal(await rollbackStore.head(objectKey), null);
+});
+
+test("public thumbnail sync fails closed after the aggregate source byte cap", async () => {
+  const repository = createMemoryAvatarSelectionRepository();
+  const entries = Array.from({ length: 5 }, (_, index) => ({
+    provider_key: `hifly-public:aggregate-cap-${index}`,
+    display_name: `聚合上限人物${index}`,
+    source_type: "public"
+  }));
+  const nearCapBytes = Buffer.alloc(17 * 1024 * 1024, 7);
+  let sourceCalls = 0;
+  let registerCalls = 0;
+  const materialAssetPort = {
+    async registerPublicAvatarThumbnail({ organizationId }) {
+      registerCalls += 1;
+      const assetId = `material-asset-${registerCalls}`;
+      return {
+        asset: { id: assetId, organization_id: organizationId, kind: "avatar_image", status: "active" },
+        asset_version: { id: `material-version-${registerCalls}`, asset_id: assetId, organization_id: organizationId, status: "available" }
+      };
+    }
+  };
+  const service = createAvatarSelectionService({
+    repository,
+    materialAssetPort,
+    publicAvatarCatalog: { async list() { return entries; } },
+    publicAvatarThumbnailSource: {
+      async read() {
+        sourceCalls += 1;
+        return { bytes: nearCapBytes, media_type: "image/png", size: nearCapBytes.length,
+          checksum_sha256: createHash("sha256").update(nearCapBytes).digest("hex") };
+      }
+    },
+    copyApprovalPort: { async getCurrentApprovedCopy() { return null; } },
+    now: () => Date.parse("2026-08-12T00:00:00.000Z")
+  });
+
+  const result = await service.syncPublicCatalog({ organizationId: "org-aggregate-cap", actorMemberId: "admin-a", actorRole: "admin" });
+
+  assert.equal(sourceCalls, 4, "source reads stop once the aggregate byte budget is exhausted");
+  assert.equal(registerCalls, 3, "entries beyond the aggregate byte budget never write materials");
+  assert.equal(result.thumbnail_imported, 3);
+  assert.equal(result.thumbnail_unchanged, 0);
+  assert.equal(result.thumbnail_unavailable, 2);
+  assert.equal((await repository.listCatalog("org-aggregate-cap")).length, entries.length);
+});
+
+test("memory thumbnail sync and Asset status changes share one transaction lock", async () => {
+  for (const status of ["deleted", "disabled"]) {
+    const organizationId = `org-memory-lock-${status}`;
+    const entry = { provider_key: `hifly-public:memory-lock-${status}`, display_name: `锁顺序人物-${status}`, source_type: "public" };
+    const repository = createMemoryAvatarSelectionRepository();
+    const assetRepository = createMemoryAssetRepository();
+    const objectStore = createMemoryObjectStore();
+    const materialAssetPort = createAssetService({ repository: assetRepository, objectStore,
+      now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+    let registeredMaterial;
+    const originalRegister = materialAssetPort.registerPublicAvatarThumbnail.bind(materialAssetPort);
+    materialAssetPort.registerPublicAvatarThumbnail = async (input) => {
+      registeredMaterial = await originalRegister(input);
+      return registeredMaterial;
+    };
+    const source = { async read({ provider_key, title }) {
+      return { provider_key, title, bytes: PNG, media_type: "image/png", size: PNG.length,
+        checksum_sha256: createHash("sha256").update(PNG).digest("hex") };
+    } };
+    const service = createAvatarSelectionService({ repository, materialAssetPort,
+      publicAvatarCatalog: { async list() { return [entry]; } }, publicAvatarThumbnailSource: source,
+      copyApprovalPort: { async getCurrentApprovedCopy() { return null; } }, now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+    let bindReachedResolve;
+    const bindReached = new Promise((resolve) => { bindReachedResolve = resolve; });
+    let releaseBindResolve;
+    const releaseBind = new Promise((resolve) => { releaseBindResolve = resolve; });
+    const originalBind = repository.bindPublicAvatarMaterial.bind(repository);
+    repository.bindPublicAvatarMaterial = async (input) => {
+      bindReachedResolve();
+      await releaseBind;
+      return originalBind(input);
+    };
+    const syncPromise = service.syncPublicCatalog({ organizationId, actorMemberId: "admin-a", actorRole: "admin" });
+    await bindReached;
+    const material = registeredMaterial?.asset;
+    assert.ok(material);
+    let statusSettled = false;
+    const statusPromise = materialAssetPort[status === "deleted" ? "deleteAsset" : "disableAsset"]({
+      organizationId, assetId: material.id, expectedRevision: material.revision_number, actorMemberId: "admin-a"
+    }).then((result) => { statusSettled = true; return result; });
+    const settledBeforeBind = await Promise.race([
+      statusPromise.then(() => true),
+      new Promise((resolve) => setTimeout(() => resolve(false), 10))
+    ]);
+    assert.equal(settledBeforeBind, false, `${status} must wait for the in-flight public thumbnail transaction`);
+    assert.equal(statusSettled, false);
+    releaseBindResolve();
+    const [syncResult, statusResult] = await Promise.all([syncPromise, statusPromise]);
+    assert.equal(syncResult.thumbnail_imported, 1);
+    assert.equal(statusResult.status, status);
+    const workspace = await service.getWorkspace({ organizationId, actorMemberId: "member-a", actorRole: "member",
+      productId: "product-a", copyVersionId: "copy-a" });
+    const projection = workspace.catalog.find((item) => item.display_name === entry.display_name);
+    assert.ok(projection);
+    assert.equal(projection.materials_accessible, false);
+    assert.equal(projection.gate.can_confirm, false);
+    assert.ok(projection.gate.reasons.includes("avatar_materials_unavailable"));
+  }
+});
+
+test("memory thumbnail sync refuses to bind a material disabled or deleted before registration", async () => {
+  for (const status of ["deleted", "disabled"]) {
+    const organizationId = `org-memory-before-register-${status}`;
+    const entry = { provider_key: `hifly-public:memory-before-register-${status}`, display_name: `注册前人物-${status}`, source_type: "public" };
+    const repository = createMemoryAvatarSelectionRepository();
+    const assetRepository = createMemoryAssetRepository();
+    const objectStore = createMemoryObjectStore();
+    const materialAssetPort = createAssetService({ repository: assetRepository, objectStore,
+      now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+    const source = { async read({ provider_key, title }) {
+      return { provider_key, title, bytes: PNG, media_type: "image/png", size: PNG.length,
+        checksum_sha256: createHash("sha256").update(PNG).digest("hex") };
+    } };
+    const initial = await materialAssetPort.registerPublicAvatarThumbnail({ organizationId, providerKey: entry.provider_key,
+      displayName: entry.display_name, bytes: PNG, mediaType: "image/png", size: PNG.length,
+      checksumSha256: createHash("sha256").update(PNG).digest("hex") });
+    await materialAssetPort[status === "deleted" ? "deleteAsset" : "disableAsset"]({
+      organizationId, assetId: initial.asset.id, expectedRevision: initial.asset.revision_number, actorMemberId: "admin-a"
+    });
+    const service = createAvatarSelectionService({ repository, materialAssetPort,
+      publicAvatarCatalog: { async list() { return [entry]; } }, publicAvatarThumbnailSource: source,
+      copyApprovalPort: { async getCurrentApprovedCopy() { return null; } }, now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+    await assert.rejects(service.syncPublicCatalog({ organizationId, actorMemberId: "admin-a", actorRole: "admin" }),
+      { code: "PUBLIC_AVATAR_THUMBNAIL_ASSET_CONFLICT" });
+    assert.equal((await repository.listCatalog(organizationId)).length, 0, "failed registration must roll back the avatar row");
+    assert.equal((await assetRepository.getAsset(organizationId, initial.asset.id)).status, status);
+    assert.equal((await assetRepository.getAssetVersion(organizationId, initial.asset_version.id)).status, "available");
+  }
+});
+
+test("memory public sync hides staged Assets and AvatarVersions from ordinary reads until commit", async () => {
+  for (const outcome of ["commit", "rollback"]) {
+    const organizationId = `org-memory-read-isolation-${outcome}`;
+    const entry = { provider_key: `hifly-public:memory-read-isolation-${outcome}`, display_name: `读隔离人物-${outcome}`, source_type: "public" };
+    const repository = createMemoryAvatarSelectionRepository();
+    const assetRepository = createMemoryAssetRepository();
+    const objectStore = createMemoryObjectStore();
+    const materialAssetPort = createAssetService({ repository: assetRepository, objectStore,
+      now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+    await repository.syncPublicCatalog({ organizationId, entries: [entry], now: "2026-08-12T00:00:00.000Z" });
+    const baseline = (await repository.listCatalog(organizationId))[0];
+    let registered;
+    const originalRegister = materialAssetPort.registerPublicAvatarThumbnail.bind(materialAssetPort);
+    materialAssetPort.registerPublicAvatarThumbnail = async (input) => {
+      registered = await originalRegister(input);
+      return registered;
+    };
+    let bindReachedResolve;
+    const bindReached = new Promise((resolve) => { bindReachedResolve = resolve; });
+    let releaseBindResolve;
+    const releaseBind = new Promise((resolve) => { releaseBindResolve = resolve; });
+    const originalBind = repository.bindPublicAvatarMaterial.bind(repository);
+    let bound;
+    repository.bindPublicAvatarMaterial = async (input) => {
+      bound = await originalBind(input);
+      bindReachedResolve();
+      await releaseBind;
+      if (outcome === "rollback") throw Object.assign(new Error("READ_ISOLATION_BIND_FAILURE"), { code: "READ_ISOLATION_BIND_FAILURE" });
+      return bound;
+    };
+    const service = createAvatarSelectionService({ repository, materialAssetPort,
+      publicAvatarCatalog: { async list() { return [entry]; } },
+      publicAvatarThumbnailSource: { async read({ provider_key, title }) {
+        return { provider_key, title, bytes: PNG, media_type: "image/png", size: PNG.length,
+          checksum_sha256: createHash("sha256").update(PNG).digest("hex") };
+      } },
+      copyApprovalPort: { async getCurrentApprovedCopy() { return null; } },
+      now: () => Date.parse("2026-08-12T00:00:00.000Z") });
+    const syncPromise = service.syncPublicCatalog({ organizationId, actorMemberId: "admin-a", actorRole: "admin" });
+    await bindReached;
+    assert.ok(registered);
+    assert.ok(bound);
+    const stagedVersionId = registered.asset_version.id;
+    const readPromises = [
+      materialAssetPort.listAssets({ organizationId }),
+      materialAssetPort.getAssetVersion({ organizationId, assetVersionId: stagedVersionId }),
+      repository.listCatalog(organizationId),
+      repository.getCatalogAsset(organizationId, baseline.asset.id),
+      repository.getCatalogVersion(organizationId, bound.asset_version.id),
+      materialAssetPort.createDownloadAuthorization({ organizationId, assetVersionId: stagedVersionId })
+    ].map((promise) => promise.then((value) => ({ status: "fulfilled", value }), (reason) => ({ status: "rejected", reason })));
+    const settledBeforeCommit = await Promise.race([
+      Promise.all(readPromises).then(() => true),
+      new Promise((resolve) => setTimeout(() => resolve(false), 10))
+    ]);
+    assert.equal(settledBeforeCommit, false, "ordinary reads must remain behind the transaction gate");
+    releaseBindResolve();
+    const [syncResult, reads] = await Promise.all([
+      syncPromise.then((value) => ({ status: "fulfilled", value }), (reason) => ({ status: "rejected", reason })),
+      Promise.all(readPromises)
+    ]);
+    if (outcome === "commit") {
+      assert.equal(syncResult.status, "fulfilled");
+      assert.equal(syncResult.value.thumbnail_imported, 1);
+      assert.equal(reads.every((read) => read.status === "fulfilled"), true);
+      assert.equal(reads[0].value.length, 1);
+      assert.equal(reads[0].value[0].versions.some((version) => version.id === stagedVersionId), true);
+      assert.equal(reads[1].value.id, stagedVersionId);
+      assert.equal(reads[2].value[0].asset_version.id, bound.asset_version.id);
+      assert.equal(reads[3].value.asset_version.id, bound.asset_version.id);
+      assert.equal(reads[4].value.asset_version.id, bound.asset_version.id);
+      assert.equal(reads[5].value.asset_version_id, stagedVersionId);
+    } else {
+      assert.equal(syncResult.status, "rejected");
+      assert.equal(syncResult.reason.code, "READ_ISOLATION_BIND_FAILURE");
+      assert.equal(reads[0].status, "fulfilled");
+      assert.deepEqual(reads[0].value, []);
+      assert.equal(reads[1].reason.code, "ASSET_VERSION_NOT_FOUND");
+      assert.equal(reads[2].status, "fulfilled");
+      assert.equal(reads[2].value[0].asset_version.id, baseline.asset_version.id);
+      assert.equal(reads[3].value.asset_version.id, baseline.asset_version.id);
+      assert.equal(reads[4].status, "fulfilled");
+      assert.equal(reads[4].value, null);
+      assert.equal(reads[5].reason.code, "ASSET_VERSION_NOT_AVAILABLE");
+    }
+  }
 });
 
 test("secure preview authorization revalidates the exact private avatar image and returns only public metadata", async () => {
