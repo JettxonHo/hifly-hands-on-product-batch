@@ -13,7 +13,8 @@
 - 公共系统 Chrome 回归当前为 Stage 1 2/2、Stage 2 3/3、Stage 3 3/3、Stage 4 9/9、Stage 5 6/6。Stage 2/3/4
   新增视觉合同，锁定唯一可见可执行品牌动作、深浅层级、16px 主按钮、三视口 composition、焦点与无横向溢出。
   default `npm test` 自然结束为 1213 total / 1197 pass / 15 existing environment skip / 1 fail；唯一失败是未修改 Assets
-  旧回归的移动详情标题焦点，isolated 1/1 通过，因此本地 default 仍不记 GREEN，最终全量终态等待 fixed-head CI。
+  旧回归的移动详情标题焦点，isolated 1/1 通过，因此本地 default 仍不记 GREEN。implementation candidate `555fa7b4`
+  的 CI run `33002289425` 首次自然三绿；本次 doc-only closeout 后仍以最终头自己的 required CI 为终态。
 - 临时 1440x900、768x900、390x844 截图已人工查看。人物截图使用 1x1 黑/白安全 fixture，只证明受控授权、字节和布局，
   不是飞影真实人物视觉；本轮也没有伪造商品缩略图。
 - PR #253 公共人物缩略图同步仍是独立 Draft，不属于 Issue #254。本轮没有访问 Hifly/Provider、创建任务、点击生成、

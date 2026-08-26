@@ -17,7 +17,8 @@
 - 当前系统 Chrome 证据为 Stage 1 2/2、Stage 2 3/3、Stage 3 3/3、Stage 4 9/9、Stage 5 6/6；
   1440x900、768x900、390x844 临时截图已人工查看。人物为安全测试 PNG，只证明授权/bytes/layout，不是飞影真实人物视觉。
   default `npm test` 自然结束为 1213 total / 1197 pass / 15 existing environment skip / 1 fail；唯一失败在未修改的 Assets
-  移动焦点旧回归，isolated 1/1 通过，但本地 default 仍不记 GREEN。最终全量终态等待 exact-head required CI。
+  移动焦点旧回归，isolated 1/1 通过，但本地 default 仍不记 GREEN。implementation candidate `555fa7b4` 的 CI run
+  `33002289425` 首次自然三绿；doc-only final head 仍须自己的 exact-head required CI。
 - 本轮没有访问 Hifly/Provider、创建任务、点击生成、运行 Worker/Local Agent、部署、写生产数据或消耗积分。完整 allowlist、
   RED/GREEN 与边界见 `docs/status/sessions/2026-08-27-frontend-visual-upgrade.md`。
 

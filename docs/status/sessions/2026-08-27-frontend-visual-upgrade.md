@@ -48,6 +48,9 @@
 - default `npm test` 自然结束但不记 GREEN：1213 total / 1197 pass / 15 existing environment skip / 1 fail。
   唯一失败为未修改的 `operator-workbench-v2-assets-browser` 移动详情标题焦点在并行负载下得到空焦点；同一公开用例随后
   isolated 1/1 自然 PASS。本轮不以单跑覆盖全量失败，也不扩 scope 修改无关 Assets 页面；最终全量终态等待 fixed-head CI。
+- implementation candidate `555fa7b415da345de7049d9177c7b3874293b14b` 的 CI run `33002289425` 首次自然三绿：
+  Ubuntu 1m05s、Windows 1m56s、identity-postgres 1m06s。补写本证据后的 doc-only final head 仍须运行自己的 exact-head CI，
+  不用前一提交的绿色代替最终头。
 - 临时截图目录：`/private/tmp/hifly-frontend-stage{1,2,3,4}-final/`，不提交仓库。
 
 ## 边界
