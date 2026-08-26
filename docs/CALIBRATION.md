@@ -73,6 +73,7 @@ assets/person_pool/fresh_food/host_02.jpg
 
 ## 飞影页面已知行为与调试要点（实机总结）
 
+- **公用数字人真图存在，但开发者 API 还不能安全自动配图（2026-08-26）**：Owner 授权只读登录后，`https://hifly.cc/avatar` 的「公用数字人」卡片会加载 `https://hfcdn.lingverse.co/...` 真实图片；`/avatar-market` 则是包含免费/付费/雇佣状态的市场目录，不等价于可直接使用的公共人物 API。代表人物「周景行」在 `/avatar` 的页面图片与公开市场 cover 为同一 JPEG（1,987,252 bytes，SHA-256 `e15b88a3880967db06d0b5ceae12cfd738b19223a5ace610188f652369d6f91d`）。但官方开发者公共人物列表仍只有 `avatar/kind/title`，页面 DOM/公开市场 JSON 没有给出 `avatar` 到 cover 的 exact foreign-key，且市场存在重名；因此不得按人物名拼 URL 或配图。真实 thumbnail source 在飞影提供 exact identity→thumbnail 字段/端点前保持 disabled。本次只导航和 GET，没有点击「创建作品」「去创作」、生成或雇佣，0 积分、0 Provider 写入。
 - **Local Agent 真实模式必须先做登录预检**：执行器进入 `https://hifly.cc/goods` 后，手机号输入框（placeholder 含「11 位手机号」）、「微信扫码登录」、顶部「游客模式」或「注册即得…积分」都属于登录失效信号。飞影允许游客访问商品页，因此“页面可打开”不等于已登录。预检必须发生在云端 heartbeat/claim 前；命中时返回 `LOGIN_REQUIRED / requires_action`，不得领取工单或继续上传。
 - **登录与执行必须使用同一份外部配置/Profile**：Local Agent 通过 `LOCAL_AGENT_HIFLY_CONFIG_PATH` 指定配置时，Playwright lazy executor 必须按该路径重新加载配置，并相对于该配置文件目录解析 `browser.profileDir`。登录也要显式使用同一路径：先加载 `~/.config/hifly-local-agent/cloud.env`，再运行 `HIFLY_CONFIG="$LOCAL_AGENT_HIFLY_CONFIG_PATH" npm run login`。不要只登录仓库运行目录的默认 Profile，否则预检与真实执行可能使用不同登录态。
 - **弹窗上传优先直接设置对应 input**：实页 DOM 中“上传人物”和“上传商品”都是 `<span role="button">`，各自内部有独立的隐藏 `input[type=file]`。上传必须先限定到可见“手持商品图”弹窗，再对匹配控件内的 input 调用 `setInputFiles`；不要用页面级 `/上传人物/` 查询，否则会误命中弹窗背后的“上传人物+产品图”。只有控件内没有 input 时才用 `Promise.all([waitForEvent("filechooser"), click()])` 回退。

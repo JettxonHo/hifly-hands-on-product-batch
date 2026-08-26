@@ -1,19 +1,20 @@
 # 项目当前状态
 
-> 最后更新：2026-08-25
+> 最后更新：2026-08-26
 > 当前 Goal：下一代运营单任务工作区严格串行 Stage Goals
 > 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 至 Stage 5 与 Issue #248 / PR #249 Post-stage 作品库已严格串行进入精确 `main@255569deaba294807b3348a985277a850be3dce2`；Issue #250 是素材中心/移动收口独立 Draft acceptance gate，只有 exact-head CI、独立 Review 与合并后才计为仓库实现，不代表部署、运行时、生产数据、真实人物视觉或客户验收。可信 TLS 仍是独立发布门禁。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
 
-## Issue #252 公共数字人缩略图同步（2026-08-25，离线证据）
+## Issue #252 公共数字人缩略图同步（2026-08-26，真实只读校准）
 
 - 已在独立 worktree 的 fixed `main@831c927` 实现只读 thumbnail source seam 与素材中心导入/绑定闭环：source 输出只含受控 bytes、media、size、SHA-256；provider identity、真实 MIME、claimed size/SHA、10 MB cap 均服务端 fail closed。
 - sync source 预取另有最多 100 个条目 / 64 MiB 的聚合内存上限；超限条目仍保留官方列表分页结果但中性计为 `thumbnail_unavailable`，不进行 Asset 写入，避免恶意目录导致无界 Buffer 累积。
 - Memory sync barrier 期间普通 Assets/Avatar list/get/version 与 generic download authorization 经过 read gate，commit/rollback 完成后同一 turn 才放行；provisional Asset/AvatarVersion 不进入普通 projection。Provider key 额外拒绝 DEL/C1（`U+007F–U+009F`）。
 - 现有管理员显式同步入口复用，不新增 endpoint/migration；普通目录/workspace 读保持零 Provider 调用。稳定 provider key+checksum 重放不新增版本，checksum 变化追加 `avatar_image` AssetVersion 并绑定公共 Avatar 当前版本，历史保留；memory 串行 gate 与 PostgreSQL advisory lock/同事务边界覆盖组织隔离、并发和 rollback。
-- 当前证据仅为 fake/disabled source 与 synthetic PNG。未做真实 Hifly 登录、Provider 缩略图校准、Worker/调度、私有人物、积分或生产数据验收；真实 Provider 门禁仍为待确认，不得宣称真实飞影完成。
+- Owner 于 2026-08-26 明确授权只读登录飞影并校准公共数字人缩略图，禁止创建任务、点击生成、消耗积分或执行 Provider 写操作。实页 `/avatar` 的「公用数字人」卡片确认加载真实 `hfcdn.lingverse.co` 图片；代表人物「周景行」页面图片与公开数字人市场 cover 为同一 JPEG（1,987,252 bytes，SHA-256 `e15b88a3880967db06d0b5ceae12cfd738b19223a5ace610188f652369d6f91d`）。全程 0 task / 0 generate / 0 Provider write / 0 points。
+- 该只读校准证明真实缩略图字节存在且公开 CDN 可读，但尚未提供可安全启用的 runtime source：开发者公共人物 API 仍只有 `avatar/kind/title`；页面 DOM 与公开市场响应没有给出 `avatar` 到 cover 的官方精确绑定，公开市场 737 条中还有 31 组重名。产品合同禁止按姓名猜图，因此真实 source 继续 disabled，管理员 sync 未调用；不能把“真实图可见”过称为“已完成自动导入”。
 - LocalObjectStore 的 `put/head/get/remove` 以 body+metadata 完整提交为可见边界：metadata 序列化失败清理本调用 body；重启在 body bytes 与请求精确相同时恢复 body-only 或损坏 metadata partial，异 bytes 不覆盖并 fail closed；同进程 per-key lock 与独立 Node 进程的唯一临时 metadata + 固定 `.metadata.v2.json` hard-link 原子不覆盖 publish 保证单一完整赢家，legacy `.metadata.json` 永不 unlink，普通 `get` 不暴露未提交 body。
 - 主控最新 default `npm test` 为 1229 total / 1213 pass / 15 skipped / 1 failed；唯一失败是未修改的 Works browser line 599 在并行负载下失败，default 仍不是绿色。随后该文件 isolated rerun 自然通过 1/1；该 isolated 通过不抵消 default 失败。
 - final candidate default `npm test` 另一次运行超过 2 分钟后，Node 与本次 Playwright Chrome 均为 0% CPU 且无新增 TAP 输出；仅终止本次命令自身。该 run 非绿色但没有产品断言失败，属于测试/浏览器 harness 无进展；此前 1229/1213/15/1 与 isolated Works 1/1 仍是历史证据，不得过称。

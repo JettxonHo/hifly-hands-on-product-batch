@@ -3,7 +3,7 @@
 ## 范围与固定基线
 
 - Issue #252 合同基线：`main@831c927`。
-- 本 session 只覆盖 allowlist 内的只读 source seam、既有管理员 sync、`avatar_image` AssetVersion 导入和公共 Avatar material 绑定，以及 LocalObjectStore `put/head/get/remove` 的 partial/并发提交边界；没有新增 endpoint、migration、Worker/调度、真实 Provider/login、私有人物或公开破坏性变更。
+- 本 session 先覆盖 allowlist 内的只读 source seam、既有管理员 sync、`avatar_image` AssetVersion 导入和公共 Avatar material 绑定，以及 LocalObjectStore `put/head/get/remove` 的 partial/并发提交边界；没有新增 endpoint、migration、Worker/调度、私有人物或公开破坏性变更。2026-08-26 经 Owner 单独授权后追加真实 Hifly **只读**登录/页面与公开字节校准，仍禁止任务、生成、积分和 Provider 写入。
 
 ## RED → GREEN
 
@@ -24,8 +24,11 @@
 
 ## Provider / 积分门禁
 
-- 本轮 fake/disabled source + synthetic PNG only；未访问 Hifly、未 login、未调用真实 thumbnail endpoint、未启动 Worker/调度、未改生产数据、未生成视频、0 积分。
-- 真实 Provider 的 read-only login、端点/字段校准、权限、视觉验收仍是独立 gate。不得把 fake source、fixture bytes 或离线 67/67 写成真实飞影证据。
+- 实现与自动化验收仍使用 fake/disabled source + synthetic PNG；这些 fixture 不能作为真实人物视觉证据。
+- 2026-08-26 Owner 明确授权只读登录飞影并校准缩略图，禁止创建任务、点击生成、消耗积分或写入 Provider。主控只导航到 `/avatar-market`、`/avatar`，读取 DOM/公开 GET 与 CDN bytes；没有点击「创建作品」「去创作」或任何生成/雇佣按钮，没有调用管理员 sync。
+- `/avatar` 的「公用数字人」真实卡片加载 `https://hfcdn.lingverse.co/...` 图片。代表人物「周景行」页面图片（1536×1536）与公开 `digital_human_merchandises_v3` 对应市场 cover 为同一 JPEG：1,987,252 bytes，SHA-256 `e15b88a3880967db06d0b5ceae12cfd738b19223a5ace610188f652369d6f91d`。公开市场列表只读响应为 737 条，其中 554 条具有单一 `hfcdn.lingverse.co/hiflys/avatar-market/` cover；存在 31 组重名。
+- 真实 source 仍保持 disabled：官方开发者公共人物 API 条目仅 `avatar/kind/title`，已登录页面 DOM 与公开市场响应没有给出 `avatar` 到 cover 的官方 foreign-key。按 title 连接会在重名下错绑，并违反“不得按人物名拼图”的产品合同。下一门禁是取得飞影官方的 exact identity→thumbnail 字段/端点或等价书面合同；在此之前不得自动导入真实 cover。
+- 本次真实校准结论：真实人物缩略图“存在且可读”已验证；“可按开发者 API 人物标识安全自动同步”未验证。0 task / 0 generate / 0 Provider write / 0 points。
 
 ## 验证与限制
 
@@ -35,6 +38,6 @@
 
 ## Allowlist diff
 
-Changed tracked files: `docs/PROJECT_HANDOFF.md`, `docs/ROADMAP.md`, `docs/product/DECISION_LOG.md`, `docs/product/HIFLY_CAPABILITY_EVIDENCE.md`, `docs/product/OPEN_QUESTIONS.md`, `docs/status/CURRENT.md`, `src/assets/asset-service.js`, `src/assets/local-object-store.js`, `src/assets/memory-asset-repository.js`, `src/assets/postgres-asset-repository.js`, `src/avatar-selection/avatar-selection-service.js`, `src/avatar-selection/hifly-public-avatar-catalog.js`, `src/avatar-selection/memory-avatar-selection-repository.js`, `src/avatar-selection/postgres-avatar-selection-repository.js`, `src/server/app.js`, `test/assets-service.test.js`, `test/avatar-selection-api.test.js`, `test/avatar-selection-postgres.integration.test.js`, `test/avatar-selection-service.test.js`, `test/hifly-public-avatar-catalog.test.js`, `test/operator-single-workspace-assets-mobile-closeout-browser.test.js`, `test/operator-single-workspace-stage-3-browser.test.js`.
+Changed tracked files: `docs/CALIBRATION.md`, `docs/PROJECT_HANDOFF.md`, `docs/ROADMAP.md`, `docs/product/DECISION_LOG.md`, `docs/product/HIFLY_CAPABILITY_EVIDENCE.md`, `docs/product/OPEN_QUESTIONS.md`, `docs/status/CURRENT.md`, `src/assets/asset-service.js`, `src/assets/local-object-store.js`, `src/assets/memory-asset-repository.js`, `src/assets/postgres-asset-repository.js`, `src/avatar-selection/avatar-selection-service.js`, `src/avatar-selection/hifly-public-avatar-catalog.js`, `src/avatar-selection/memory-avatar-selection-repository.js`, `src/avatar-selection/postgres-avatar-selection-repository.js`, `src/server/app.js`, `test/assets-service.test.js`, `test/avatar-selection-api.test.js`, `test/avatar-selection-postgres.integration.test.js`, `test/avatar-selection-service.test.js`, `test/hifly-public-avatar-catalog.test.js`, `test/operator-single-workspace-assets-mobile-closeout-browser.test.js`, `test/operator-single-workspace-stage-3-browser.test.js`.
 
 Added allowlisted files: `src/providers/hifly-public-avatar-thumbnail-source.js`, `test/hifly-public-avatar-thumbnail-source.test.js`, `test/local-object-store.test.js`, this session document.
