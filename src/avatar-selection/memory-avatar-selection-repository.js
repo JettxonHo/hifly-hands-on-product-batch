@@ -2,15 +2,51 @@ import { randomUUID } from "node:crypto";
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const failure = (code) => Object.assign(new Error(code), { code });
+const PUBLIC_AVATAR_PROVIDER_KEY = /^hifly-public:[^\u0000-\u001f\u007f-\u009f]{1,256}$/u;
 function createSerialGate() {
   let tail = Promise.resolve();
-  return async (work) => {
+  const acquire = async () => {
     const prior = tail;
     let release;
     tail = new Promise((resolve) => { release = resolve; });
     await prior;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      release();
+    };
+  };
+  const run = async (work) => {
+    const release = await acquire();
     try { return await work(); }
     finally { release(); }
+  };
+  run.acquire = acquire;
+  return run;
+}
+function createMemoryTransaction() {
+  const commits = [], rollbacks = [], finalizers = [];
+  let settled = false, finalized = false;
+  return {
+    onCommit(callback) { if (typeof callback !== "function") throw new TypeError("transaction callback must be a function"); commits.push(callback); },
+    onRollback(callback) { if (typeof callback !== "function") throw new TypeError("transaction callback must be a function"); rollbacks.push(callback); },
+    onFinalize(callback) { if (typeof callback !== "function") throw new TypeError("transaction callback must be a function"); finalizers.push(callback); },
+    async commit() {
+      if (settled) return;
+      settled = true;
+      for (const callback of commits) await callback();
+    },
+    async rollback() {
+      if (settled) return;
+      settled = true;
+      for (const callback of [...rollbacks].reverse()) await callback();
+    },
+    async finalize(committed) {
+      if (finalized) return;
+      finalized = true;
+      for (const callback of finalizers) await callback({ committed });
+    }
   };
 }
 export const PUBLIC_CATALOG_SEED_LABEL = "飞影公共目录（能力待核验）";
@@ -42,6 +78,39 @@ export function createMemoryAvatarSelectionRepository() {
   const selections = new Map(), heads = new Map(), productHeads = new Map(), receipts = new Map();
   const events = [], audits = [], seededOrganizations = new Set();
   const previewGate = createSerialGate();
+
+  async function withPublicAvatarSync({ organizationId, work } = {}) {
+    if (typeof work !== "function") throw new TypeError("work is required");
+    const release = await previewGate.acquire();
+    const snapshot = {
+      assets: [...assets.entries()].map(([key, value]) => [key, clone(value)]),
+      versions: [...versions.entries()].map(([key, value]) => [key, clone(value)]),
+      capabilities: [...capabilities.entries()].map(([key, value]) => [key, clone(value)]),
+      audits: clone(audits)
+    };
+    const transactionClient = createMemoryTransaction();
+    let committed = false;
+    transactionClient.onRollback(() => {
+      assets.clear(); for (const [key, value] of snapshot.assets) assets.set(key, value);
+      versions.clear(); for (const [key, value] of snapshot.versions) versions.set(key, value);
+      capabilities.clear(); for (const [key, value] of snapshot.capabilities) capabilities.set(key, value);
+      audits.splice(0, audits.length, ...snapshot.audits);
+    });
+    try {
+      const result = await work({ transactionClient, organizationId });
+      await transactionClient.commit();
+      committed = true;
+      return result;
+    } catch (error) {
+      await transactionClient.rollback();
+      throw error;
+    } finally {
+      // All repository maps are settled before either side's read gate opens.
+      // Release Avatar first and the Asset transaction lock in the same turn.
+      release();
+      await transactionClient.finalize(committed);
+    }
+  }
 
   function receipt(receiptKey, fingerprint) {
     const value = receipts.get(receiptKey);
@@ -82,14 +151,19 @@ export function createMemoryAvatarSelectionRepository() {
       }
       seededOrganizations.add(organizationId);
     },
-    async syncPublicCatalog({ organizationId, entries = [], now } = {}) {
+    async withPublicAvatarSync({ organizationId, work } = {}) {
+      return withPublicAvatarSync({ organizationId, work });
+    },
+    async syncPublicCatalog({ organizationId, entries = [], now, transactionClient = null } = {}) {
+      const sync = async () => {
       const unique = new Map();
       for (const entry of entries) {
-        if (!entry || entry.source_type !== "public" || typeof entry.provider_key !== "string" ||
-          !entry.provider_key.startsWith("hifly-public:") || typeof entry.display_name !== "string" || !entry.display_name.trim()) {
+        const providerKey = typeof entry?.provider_key === "string" ? entry.provider_key.trim() : "";
+        if (!entry || entry.source_type !== "public" || !PUBLIC_AVATAR_PROVIDER_KEY.test(providerKey) ||
+          typeof entry.display_name !== "string" || !entry.display_name.trim()) {
           throw failure("HIFLY_PUBLIC_AVATAR_CATALOG_INVALID");
         }
-        unique.set(entry.provider_key, { provider_key: entry.provider_key, display_name: entry.display_name.trim() });
+        unique.set(providerKey, { provider_key: providerKey, display_name: entry.display_name.trim() });
       }
       let created = 0, updated = 0, unchanged = 0;
       for (const entry of unique.values()) {
@@ -116,24 +190,69 @@ export function createMemoryAvatarSelectionRepository() {
         created += 1;
       }
       return { total: unique.size, created, updated, unchanged };
+      };
+      return transactionClient ? sync() : previewGate(sync);
+    },
+    async bindPublicAvatarMaterial({ organizationId, providerKey, materialAsset, materialVersion, now, transactionClient = null } = {}) {
+      const bind = async () => {
+        const normalizedProviderKey = typeof providerKey === "string" ? providerKey.trim() : "";
+        if (!PUBLIC_AVATAR_PROVIDER_KEY.test(normalizedProviderKey) ||
+            !materialAsset || !materialVersion || materialAsset.organization_id !== organizationId ||
+            materialVersion.organization_id !== organizationId || materialVersion.asset_id !== materialAsset.id ||
+            materialAsset.kind !== "avatar_image" || materialAsset.status !== "active" || materialVersion.status !== "available") {
+          throw failure("AVATAR_MATERIAL_NOT_AVAILABLE");
+        }
+        const avatar = [...assets.values()].find((asset) => asset.organization_id === organizationId &&
+          asset.source_type === "public" && asset.seed_key === normalizedProviderKey && asset.status === "active");
+        if (!avatar) throw failure("AVATAR_ASSET_NOT_FOUND");
+        const duplicate = [...versions.values()].find((version) => version.organization_id === organizationId &&
+          version.material_asset_version_id === materialVersion.id && version.asset_id !== avatar.id);
+        if (duplicate) throw failure("AVATAR_MATERIAL_ALREADY_BOUND");
+        const current = [...versions.values()].filter((version) => version.organization_id === organizationId && version.asset_id === avatar.id)
+          .sort((left, right) => right.version_number - left.version_number)[0];
+        if (current?.material_asset_version_id === materialVersion.id) return { ...catalogEntry(avatar, current), replayed: true };
+        const next = {
+          ...current,
+          id: randomUUID(),
+          version_number: (current?.version_number || 0) + 1,
+          status: "available",
+          materials_accessible: true,
+          material_status: "available",
+          material_asset_version_id: materialVersion.id,
+          preview_kind: "uploaded",
+          created_at: now,
+          updated_at: now
+        };
+        versions.set(next.id, next);
+        capabilities.set(next.id, clone(capabilities.get(current?.id) || []));
+        return { ...catalogEntry(avatar, next), replayed: false };
+      };
+      return transactionClient ? bind() : previewGate(bind);
     },
     async listCatalog(organizationId) {
-      return [...assets.values()].filter((asset) => asset.organization_id === organizationId && asset.status !== "deleted")
+      return previewGate(async () => [...assets.values()]
+        .filter((asset) => asset.organization_id === organizationId && asset.status !== "deleted")
         .map((asset) => {
-          const version = [...versions.values()].find((value) => value.asset_id === asset.id);
+          const version = [...versions.values()].filter((value) => value.asset_id === asset.id)
+            .sort((left, right) => right.version_number - left.version_number)[0];
           return catalogEntry(asset, version);
-        }).sort((left, right) => left.asset.display_name.localeCompare(right.asset.display_name, "zh-CN"));
+        }).sort((left, right) => left.asset.display_name.localeCompare(right.asset.display_name, "zh-CN")));
     },
     async getCatalogVersion(organizationId, assetVersionId) {
-      const version = versions.get(assetVersionId);
-      if (!version || version.organization_id !== organizationId) return null;
-      return catalogEntry(assets.get(version.asset_id), version);
+      return previewGate(async () => {
+        const version = versions.get(assetVersionId);
+        if (!version || version.organization_id !== organizationId) return null;
+        return catalogEntry(assets.get(version.asset_id), version);
+      });
     },
     async getCatalogAsset(organizationId, assetId) {
-      const asset = assets.get(assetId);
-      if (!asset || asset.organization_id !== organizationId || asset.status === "deleted") return null;
-      const version = [...versions.values()].find((value) => value.asset_id === asset.id);
-      return version ? catalogEntry(asset, version) : null;
+      return previewGate(async () => {
+        const asset = assets.get(assetId);
+        if (!asset || asset.organization_id !== organizationId || asset.status === "deleted") return null;
+        const version = [...versions.values()].filter((value) => value.asset_id === asset.id)
+          .sort((left, right) => right.version_number - left.version_number)[0];
+        return version ? catalogEntry(asset, version) : null;
+      });
     },
     async authorizePreview({ organizationId, avatarId, authorizeMaterial }) {
       if (typeof authorizeMaterial !== "function") throw failure("AVATAR_PREVIEW_AUTHORIZATION_UNAVAILABLE");
@@ -236,6 +355,6 @@ export function createMemoryAvatarSelectionRepository() {
     async listEvents(organizationId, productId) {
       return clone(events.filter((value) => value.organization_id === organizationId && value.product_id === productId));
     },
-    async listAuditEvents() { return clone(audits); }
+    async listAuditEvents() { return previewGate(async () => clone(audits)); }
   };
 }

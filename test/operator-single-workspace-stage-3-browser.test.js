@@ -11,6 +11,7 @@ import { createAssetService } from "../src/assets/asset-service.js";
 import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryAvatarSelectionRepository } from "../src/avatar-selection/memory-avatar-selection-repository.js";
+import { createHiflyPublicAvatarThumbnailSource } from "../src/providers/hifly-public-avatar-thumbnail-source.js";
 import { createMemoryCopyGenerationRepository } from "../src/copy-generation/memory-copy-generation-repository.js";
 import { createControlledCopyProvider } from "../src/copy-generation/controlled-provider.js";
 import { createMemoryCopyQualityRepository } from "../src/copy-quality/memory-copy-quality-repository.js";
@@ -29,6 +30,8 @@ const PNG_A = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQ
 const PNG_B = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGP4zwAAAgEBAScY42YAAAAASUVORK5CYII=", "base64");
 const PNG_A_SHA = createHash("sha256").update(PNG_A).digest("hex");
 const PNG_B_SHA = createHash("sha256").update(PNG_B).digest("hex");
+const PUBLIC_PROVIDER_KEY = "hifly-public:stage3-thumbnail";
+const PUBLIC_DISPLAY_NAME = "公共测试人物";
 
 async function uploadImage(assetService, actor, key, filename, kind, body = PNG_A) {
   const checksum = createHash("sha256").update(body).digest("hex");
@@ -89,6 +92,15 @@ async function startWorld(t, portStart = 59400) {
   const productImage = await uploadImage(assetService, actor, "stage-3-product", "商品.png", "product_image");
   const avatarImageA = await uploadImage(assetService, actor, "stage-3-avatar-a", "人物甲.png", "avatar_image", PNG_A);
   const avatarImageB = await uploadImage(assetService, actor, "stage-3-avatar-b", "人物乙.png", "avatar_image", PNG_B);
+  const publicAvatarCatalog = { async list() {
+    return [{ provider_key: PUBLIC_PROVIDER_KEY, display_name: PUBLIC_DISPLAY_NAME, source_type: "public" }];
+  } };
+  const publicAvatarThumbnailSource = createHiflyPublicAvatarThumbnailSource({
+    async read(identity) {
+      return { provider_key: identity.provider_key, title: identity.title, bytes: PNG_A,
+        media_type: "image/png", size: PNG_A.length, checksum_sha256: PNG_A_SHA };
+    }
+  });
 
   const app = await buildApp({
     root, executor: createFakeExecutor(),
@@ -99,7 +111,8 @@ async function startWorld(t, portStart = 59400) {
     copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
     copyQuality: { enabled: true, repository: createMemoryCopyQualityRepository(), evaluator: createControlledQualityEvaluator(), rewriter: createControlledCopyRewriter(), worker: { autoStart: false } },
     copyReview: { enabled: true, repository: createMemoryCopyReviewRepository() },
-    avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository() },
+    avatarSelection: { enabled: true, repository: createMemoryAvatarSelectionRepository(),
+      publicAvatarCatalog, publicAvatarThumbnailSource },
     operatorWorkspace: { enabled: true }
   });
   const project = await app.projectContent.service.createProject({ ...actor, idempotencyKey: "stage-3-project",
@@ -117,6 +130,12 @@ async function startWorld(t, portStart = 59400) {
     materialAssetVersionId: avatarImageA.asset_version.id, displayName: "林小满" });
   const avatarB = await app.avatarSelection.service.registerEnterpriseAvatar({ ...common,
     materialAssetVersionId: avatarImageB.asset_version.id, displayName: "周言" });
+  // Exercise the same explicit admin sync seam that production uses. The source
+  // is a synthetic PNG fixture; this test never contacts Hifly or spends points.
+  await app.avatarSelection.service.syncPublicCatalog({ ...actor, actorRole: "admin", now: "2026-08-25T08:00:00.000Z" });
+  const publicAvatar = (await app.avatarSelection.repository.listCatalog(organizationId))
+    .find((entry) => entry.asset.seed_key === PUBLIC_PROVIDER_KEY);
+  assert.ok(publicAvatar, "the synthetic public thumbnail must be bound before Chrome starts");
 
   try { await app.listen({ host: "127.0.0.1", port }); }
   catch (error) { await app.close(); if (error.code === "EPERM") return null; throw error; }
@@ -131,7 +150,7 @@ async function startWorld(t, portStart = 59400) {
     throw error;
   }
   t.after(() => browser.close());
-  return { app, browser, origin, project, first, second, firstCopy, secondCopy, avatarA, avatarB, avatarImageA, avatarImageB,
+  return { app, browser, origin, project, first, second, firstCopy, secondCopy, avatarA, avatarB, publicAvatar, avatarImageA, avatarImageB,
     actor, assetRepository, objectStore };
 }
 
@@ -264,7 +283,7 @@ async function refreshAvatarWorkspace(page) {
 test("Stage 3 shows exact secure previews and confirms an explicit Avatar selection", async (t) => {
   const setup = await startWorld(t);
   if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
-  const { app, browser, origin, project, first, avatarA } = setup;
+  const { app, browser, origin, project, first, avatarA, publicAvatar } = setup;
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await authenticate(page, origin);
   let selectionWrites = 0;
@@ -274,6 +293,17 @@ test("Stage 3 shows exact secure previews and confirms an explicit Avatar select
   await page.goto(workspaceUrl(origin, project.id, first.product.id));
   await page.getByRole("heading", { name: "选择并确认人物" }).waitFor();
   await expectAction(page, "select_avatar", "选择人物");
+  const publicButton = page.locator(`[data-avatar-id="${publicAvatar.asset.id}"]`);
+  await publicButton.locator("img").waitFor();
+  const publicThumbnailSource = await publicButton.locator("img").getAttribute("src");
+  assert.equal(await responseSha(page, origin, publicThumbnailSource), PNG_A_SHA,
+    "Stage 3 must render the exact synthetic PNG imported by the public sync");
+  await publicButton.click();
+  await page.getByRole("heading", { name: PUBLIC_DISPLAY_NAME }).waitFor();
+  const publicDetailSource = await page.locator("#avatarPreviewImage").getAttribute("src");
+  assert.equal(publicDetailSource, publicThumbnailSource, "public card and detail must reuse one short-lived grant");
+  assert.equal(await responseSha(page, origin, publicDetailSource), PNG_A_SHA);
+  assert.equal(await page.locator("body").textContent().then((value) => value.includes(PUBLIC_PROVIDER_KEY)), false);
   const avatarButton = page.locator(`[data-avatar-id="${avatarA.asset.id}"]`);
   await avatarButton.locator("img").waitFor();
   assert.equal(selectionWrites, 0);

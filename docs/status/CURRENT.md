@@ -1,15 +1,15 @@
 # 项目当前状态
 
 > 最后更新：2026-08-27
-> 当前 Goal：REL-001 可信 TLS 与每日备份仓库门禁
-> 当前结论：Stage 0–5、Post-stage 作品库与素材中心/移动收口及 Issue #254 视觉与交互升级已由 PR #255 合并进入 `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`，但该 head 尚未部署、连接真实 Provider 或完成客户验收。PR #253 公共人物缩略图同步仍为独立 Draft，不属于本 Goal。REL-001 当前形成可信 TLS 与每日备份仓库候选，并完成当前旧部署既有 Work 的登录鉴权下载复验；Fidelity 环境 blocker、MBL 后其余生产化和正式域名/严格 CA 仍保持原边界。
+> 当前 Goal：Issue #257 MBL-PROD-001 内部生产化
+> 当前结论：Stage 0–5、Post-stage 作品库、素材中心/移动收口及视觉与交互升级已进入仓库，但最新前端尚未部署或完成客户验收。REL-001 PR #256 已由 Owner 授权管理员 squash 合并为 `main@4c8c27fca76ed5deaa6fb2f4f2ef348484feec23`；可信 TLS 与每日备份仍未部署、安装或通过正式域名/严格 CA 门禁。PR #253 公共人物缩略图同步正在吸收该基线；真实 Hifly 只读校准只证明图片字节存在，开发者 API 到 cover 的官方精确绑定仍缺失，真实 source 保持 disabled。MBL 内部生产化依次收口候选、部署内部版本、完成无积分运营验收；真实生成仍需后续单独积分授权。Fidelity 环境 blocker 与正式域名/TLS 上线保持原边界。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
 
-## REL-001 可信 TLS 仓库门禁（独立候选，2026-08-27）
+## REL-001 可信 TLS 仓库门禁（已合并，未部署，2026-08-27）
 
-- 固定基线：`4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；实现分支：`codex/rel-001-trusted-tls`。本候选尚未合并、部署或改变当前运行入口。
+- 固定基线：`4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；实现分支：`codex/rel-001-trusted-tls`；PR #256 已由 Owner 授权管理员 squash 合并为 `main@4c8c27fca76ed5deaa6fb2f4f2ef348484feec23`。该仓库实现尚未部署或改变当前运行入口。
 - Production Compose 将 Nginx 配置作为 `/etc/nginx/templates/default.conf.template` 只读模板挂载，Proxy 只传入
   `PUBLIC_HOST`，`NGINX_ENVSUBST_FILTER` 精确限制为 `^PUBLIC_HOST$`。公网 80 对精确 Host 统一 308 到固定
   `https://${PUBLIC_HOST}$request_uri`，未知 Host 命中 default server `444`，不反射 `$host`。
@@ -33,9 +33,22 @@
   发送 `43,425,097` bytes。输出卷源文件只读复核为同一大小，SHA-256 为
   `0becaab1076a8af1124ed4f10f8eac5fc93b21d41af3adb8db5b59213f1ab96b`；页面仍为待检查、尚无交付记录。
 
-## Issue #254 单任务工作区视觉与交互升级
+## Issue #252 公共数字人缩略图同步（2026-08-26，真实只读校准）
 
-- 固定基线为 `main@831c92719cf2e6da1680d07de654e82741960939`。本轮沿用已确认原型方向：深色指挥顶栏、
+- 已在独立 worktree 的 fixed `main@831c927` 实现只读 thumbnail source seam 与素材中心导入/绑定闭环：source 输出只含受控 bytes、media、size、SHA-256；provider identity、真实 MIME、claimed size/SHA、10 MB cap 均服务端 fail closed。
+- sync source 预取另有最多 100 个条目 / 64 MiB 的聚合内存上限；超限条目仍保留官方列表分页结果但中性计为 `thumbnail_unavailable`，不进行 Asset 写入，避免恶意目录导致无界 Buffer 累积。
+- Memory sync barrier 期间普通 Assets/Avatar list/get/version 与 generic download authorization 经过 read gate，commit/rollback 完成后同一 turn 才放行；provisional Asset/AvatarVersion 不进入普通 projection。Provider key 额外拒绝 DEL/C1（`U+007F–U+009F`）。
+- 现有管理员显式同步入口复用，不新增 endpoint/migration；普通目录/workspace 读保持零 Provider 调用。稳定 provider key+checksum 重放不新增版本，checksum 变化追加 `avatar_image` AssetVersion 并绑定公共 Avatar 当前版本，历史保留；memory 串行 gate 与 PostgreSQL advisory lock/同事务边界覆盖组织隔离、并发和 rollback。
+- Owner 于 2026-08-26 明确授权只读登录飞影并校准公共数字人缩略图，禁止创建任务、点击生成、消耗积分或执行 Provider 写操作。实页 `/avatar` 的「公用数字人」卡片确认加载真实 `hfcdn.lingverse.co` 图片；代表人物「周景行」页面图片与公开数字人市场 cover 为同一 JPEG（1,987,252 bytes，SHA-256 `e15b88a3880967db06d0b5ceae12cfd738b19223a5ace610188f652369d6f91d`）。全程 0 task / 0 generate / 0 Provider write / 0 points。
+- 该只读校准证明真实缩略图字节存在且公开 CDN 可读，但尚未提供可安全启用的 runtime source：开发者公共人物 API 仍只有 `avatar/kind/title`；页面 DOM 与公开市场响应没有给出 `avatar` 到 cover 的官方精确绑定，公开市场 737 条中还有 31 组重名。产品合同禁止按姓名猜图，因此真实 source 继续 disabled，管理员 sync 未调用；不能把“真实图可见”过称为“已完成自动导入”。
+- LocalObjectStore 的 `put/head/get/remove` 以 body+metadata 完整提交为可见边界：metadata 序列化失败清理本调用 body；重启在 body bytes 与请求精确相同时恢复 body-only 或损坏 metadata partial，异 bytes 不覆盖并 fail closed；同进程 per-key lock 与独立 Node 进程的唯一临时 metadata + 固定 `.metadata.v2.json` hard-link 原子不覆盖 publish 保证单一完整赢家，legacy `.metadata.json` 永不 unlink，普通 `get` 不暴露未提交 body。
+- 主控最新 default `npm test` 为 1229 total / 1213 pass / 15 skipped / 1 failed；唯一失败是未修改的 Works browser line 599 在并行负载下失败，default 仍不是绿色。随后该文件 isolated rerun 自然通过 1/1；该 isolated 通过不抵消 default 失败。
+- final candidate default `npm test` 另一次运行超过 2 分钟后，Node 与本次 Playwright Chrome 均为 0% CPU 且无新增 TAP 输出；仅终止本次命令自身。该 run 非绿色但没有产品断言失败，属于测试/浏览器 harness 无进展；此前 1229/1213/15/1 与 isolated Works 1/1 仍是历史证据，不得过称。
+
+## Issue #254 单任务工作区视觉与交互升级（已合并，未部署）
+
+- 固定基线为 `main@831c92719cf2e6da1680d07de654e82741960939`。Issue #254 / PR #255 沿用已确认原型方向并合并为
+  `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`：深色指挥顶栏、
   1440 商品队列 / 当前任务 / 服务端详情三栏、768 两栏、390 单任务详情，以及浅色固定底栏中的单一蓝色推荐动作。
 - Stage 1–5 的 route、公共选择器、action registry、URL/history、Dialog、409/503、权限和写命令保持不变；不新增 API、
   数据库、领域状态或 Provider 推断。页面内辅助按钮与页签降为中性样式，底部 `#workspacePrimaryAction` 保持唯一品牌主动作，

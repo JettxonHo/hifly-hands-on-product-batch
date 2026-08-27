@@ -83,12 +83,14 @@ D-025 只在产品规格层固化质检与批准门禁，不代表任何质检�
 
 仍待确认：
 
-- 当前账号权限（是否拥有该 API 的 Token 与调用权限）
+- 当前账号是否拥有开发者 API Token 与真实调用权限（本轮只验证网页登录态，未读取或使用 API Token）
 - 更新频率
 - 下架处理
 - Provider ID 稳定性
 
 已由官方文档确认：分页请求使用 `page`、`size` 与 `kind=2`；响应条目只有 `avatar`、`kind`、`title`，没有预览字段或人物素材/“手里有货”能力证据。仓库已实现 fake-only 分页收集与管理员显式同步，但未进行真实调用。
+
+Issue #252 的缩略图导入已先收口为离线 source seam。2026-08-26 的 Owner 授权只读校准确认：飞影 `/avatar`「公用数字人」确有真实 CDN 图片，且代表人物页面图片与公开市场 cover 的 JPEG bytes/SHA 完全一致；没有创建任务、生成、写入或积分消耗。但开发者 API 的 `avatar` 与网页/CDN cover 没有官方精确映射，公开市场还存在重名，不能按姓名猜图。离线闭环只接受服务端校验后的 bytes/media/size/SHA-256，并复用既有短时 preview；真实 source 在 exact identity→thumbnail 合同确认前继续 disabled。
 
 影响：素材中心数据新鲜度与合规边界。
 

@@ -295,6 +295,41 @@ test("Assets canonical routes restore exact type and Asset while invalid routes 
   await assertNoSelectedAuthority(page);
 });
 
+test("synced public avatar thumbnail keeps exact PNG bytes in the Assets center at all viewports", async (t) => {
+  const world = await createWorld(t);
+  if (world.skipped) return t.skip(world.skipped);
+  const publicThumbnail = await world.app.assets.service.registerPublicAvatarThumbnail({
+    organizationId: ORGANIZATION_ID,
+    providerKey: "hifly-public:assets-browser-thumbnail",
+    displayName: "公共同步人物",
+    bytes: PNG_A,
+    mediaType: "image/png",
+    size: PNG_A.length,
+    checksumSha256: sha256(PNG_A)
+  });
+  const page = await world.browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await authenticate(page, world.origin);
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(assetsUrl(world.origin, "avatar_image"));
+    await waitForAssetList(page);
+    const row = page.locator(`button.asset-row[data-asset-id="${publicThumbnail.asset.id}"]`);
+    await row.click();
+    await page.getByRole("heading", { name: "公共同步人物", exact: true }).waitFor();
+    await page.locator('#assetDetail [data-preview-state="ready"]').waitFor();
+    const source = await page.locator("#assetPreviewImage").getAttribute("src");
+    assert.match(source, /^\/api\/assets\/downloads\//);
+    assert.equal(await responseSha(page, world.origin, source), sha256(PNG_A));
+    assert.equal(await page.locator("body").textContent().then((value) => value.includes("hifly-public:assets-browser-thumbnail")), false);
+    assert.equal(await page.locator("body").textContent().then((value) => value.includes("object_key")), false);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    assert.equal(await page.evaluate((assetId) => document.activeElement?.dataset.assetId === assetId ||
+      document.activeElement?.id === "assetDetailTitle", publicThumbnail.asset.id), true);
+  }
+});
+
 test("avatar list and detail reuse one real generic download grant and ignore stale preview authority", async (t) => {
   const world = await createWorld(t);
   if (world.skipped) return t.skip(world.skipped);

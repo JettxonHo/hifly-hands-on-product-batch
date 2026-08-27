@@ -300,6 +300,15 @@ function apiError(error, request = null) {
   if (["HIFLY_PUBLIC_AVATAR_CATALOG_INVALID", "HIFLY_PUBLIC_AVATAR_CATALOG_KEY_CONFLICT"].includes(error?.code)) {
     return { statusCode: error.code === "HIFLY_PUBLIC_AVATAR_CATALOG_KEY_CONFLICT" ? 409 : 502, code: error.code };
   }
+  if (["HIFLY_PUBLIC_AVATAR_THUMBNAIL_UNAVAILABLE", "PUBLIC_AVATAR_THUMBNAIL_STORAGE_UNAVAILABLE"].includes(error?.code)) {
+    return { statusCode: 503, code: error.code };
+  }
+  if (["INVALID_PUBLIC_AVATAR_THUMBNAIL", "HIFLY_PUBLIC_AVATAR_THUMBNAIL_ID_INVALID"].includes(error?.code)) {
+    return { statusCode: 400, code: error.code };
+  }
+  if (["PUBLIC_AVATAR_THUMBNAIL_ASSET_CONFLICT", "AVATAR_MATERIAL_ALREADY_BOUND"].includes(error?.code)) {
+    return { statusCode: 409, code: error.code };
+  }
   if (error?.code === "UPLOAD_AUTHORIZATION_EXPIRED") return { statusCode: 410, code: "UPLOAD_AUTHORIZATION_EXPIRED" };
   if (["INVALID_ASSET_PAYLOAD", "ASSET_TYPE_NOT_ALLOWED", "ASSET_SIZE_NOT_ALLOWED", "INVALID_ASSET_CHECKSUM", "INVALID_ASSET_ID", "INVALID_ASSET_ACTOR", "INVALID_ASSET_DISPLAY_NAME", "INVALID_ASSET_REVISION", "INVALID_UPLOAD_BODY", "UPLOAD_CONTENT_TYPE_MISMATCH", "ASSET_KIND_NOT_ALLOWED", "ASSET_KIND_CONFLICT", "INVALID_IDEMPOTENCY_KEY"].includes(error?.code)) {
     return { statusCode: 400, code: error.code };
@@ -662,6 +671,7 @@ export async function buildApp({
     const service = createAvatarSelectionService({ repository, copyApprovalPort,
       productRevisionPort: avatarSelectionOptions.productRevisionPort || app.projectContent?.productRevisionPort, now,
       publicAvatarCatalog: avatarSelectionOptions.publicAvatarCatalog || null,
+      publicAvatarThumbnailSource: avatarSelectionOptions.publicAvatarThumbnailSource || null,
       materialAssetPort: avatarSelectionOptions.materialAssetPort || assetService });
     app.decorate("avatarSelection", { repository, service, copyApprovalPort });
     app.addHook("onClose", async () => repository.close?.());

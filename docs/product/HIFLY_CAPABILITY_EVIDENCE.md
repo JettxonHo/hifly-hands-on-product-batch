@@ -2,7 +2,7 @@
 
 > 状态：Accepted structure / Evidence continuously updated（台账结构已接受；证据随调研持续更新）
 > Owner：owner（JettxonHo）
-> 最后更新：2026-08-19
+> 最后更新：2026-08-26
 > 适用范围：记录飞影 Provider 各能力的当前实际确认状态，是 DSE 体系中的 Evidence 文档
 > 非目标：本文件不是营销功能列表；不自行改变产品决策（决策见 [DECISION_LOG.md](DECISION_LOG.md)）；不把「产品目标」误写为「已经实现」
 
@@ -32,6 +32,21 @@
 ```
 
 每项能力记录以下字段：capability ID、产品目标、API 文档状态、当前账号权限、真实调用状态、Adapter 状态、SaaS 产品状态、已知输入、已知输出、异步任务与状态、授权要求、消耗或积分影响、当前证据来源、未解决问题、最后验证日期。
+
+### 0.2 avatar.public_thumbnail_read（公共数字人缩略图只读同步）
+
+- **产品目标**：是（Issue #252 素材中心公共人物预览闭环）
+- **API 文档状态**：公共列表字段已确认仅 `avatar`、`kind`、`title`；官方开发者 API 中 `avatar` 到缩略图的精确字段/端点仍未确认
+- **当前账号权限**：已在 Owner 明确授权下只读登录飞影网页并访问「公用数字人」；未获得或读取 API Token，不读取 cookie/localStorage
+- **真实调用状态**：真实网页/公开目录/CDN 只读 GET 已验证；没有创建任务、生成内容、雇佣人物或执行 Provider 写入，0 积分
+- **Adapter 状态**：已实现离线受控 source seam；只接受精确 provider key/title 输入，返回受控 bytes/media/size/SHA-256，并校验 MIME、claimed metadata 与大小上限
+- **SaaS 产品状态**：离线导入闭环已实现：既有管理员显式 sync、`avatar_image` AssetVersion、同组织原子 material 绑定、checksum 幂等与历史版本保留；普通读取零 Provider 调用。source 预取最多 100 项 / 64 MiB 聚合 bytes，超限条目中性计为 unavailable 且不写 Asset，不改变官方列表分页合同
+- **已知输入 / 输出**：输入为 provider-neutral key/title；Browser/public projection 与 source upward bytes result 不含 Provider key、URL、cookie、token 或 object key；provider_key 仅保留在 server-side identity/audit 边界。真实网页 `/avatar` 的「公用数字人」卡片会加载 `hfcdn.lingverse.co` 图片；代表人物「周景行」页面图片与公开市场 cover 字节完全一致（JPEG，1,987,252 bytes，SHA-256 `e15b88a3880967db06d0b5ceae12cfd738b19223a5ace610188f652369d6f91d`）
+- **异步任务与状态**：同步管理员命令；不创建 Worker、调度或自动重试
+- **授权要求 / 消耗**：真实 Provider read/login 已取得本次一次性只读授权；任务/生成/写入/积分仍明确禁止。离线 fixture 与公开 CDN GET 均不消耗生成积分
+- **当前证据来源**：Issue #252 合同、fake/disabled source 测试、memory 导入/回放/变更/rollback 测试；Owner 授权的真实 `/avatar-market` 与 `/avatar` 只读 DOM 校准；公开 marketplace JSON 与 CDN exact bytes/SHA 校验
+- **未解决问题**：开发者 API 的 `avatar` 与网页/CDN cover 没有官方 exact foreign-key。公开市场当前 737 条中 31 组重名，按 `title/name` 连接会产生错绑风险；真实 source 必须继续 disabled，直到飞影提供 exact identity→thumbnail 合同
+- **最后验证日期**：2026-08-26（真实只读页面/CDN已验证；自动身份绑定未验证）
 
 ---
 

@@ -12,8 +12,13 @@ const APPEARANCE_CANDIDATE_EXTENSIONS = new Map([
 ]);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PUBLIC_AVATAR_PROVIDER_KEY = /^hifly-public:[^\u0000-\u001f\u007f-\u009f]{1,256}$/u;
 const fail = (code) => { throw Object.assign(new Error(code), { code }); };
 const validCandidatePart = (value) => typeof value === "string" && /^[A-Za-z0-9._-]{1,120}$/.test(value);
+const normalizePublicAvatarProviderKey = (value) => {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return PUBLIC_AVATAR_PROVIDER_KEY.test(normalized) ? normalized : null;
+};
 
 function validateCreate(input) {
   if (typeof input.filename !== "string" || !input.filename.trim() || input.filename.length > 255) fail("INVALID_ASSET_PAYLOAD");
@@ -42,6 +47,14 @@ function uploadFingerprint(input) {
 function normalizeDisplayName(value) {
   if (typeof value !== "string" || !value.trim() || value.trim().length > 120) fail("INVALID_ASSET_DISPLAY_NAME");
   return value.trim();
+}
+
+export function publicAvatarThumbnailObjectKey(organizationId, providerKey, checksumSha256) {
+  const normalizedProviderKey = normalizePublicAvatarProviderKey(providerKey);
+  if (typeof organizationId !== "string" || !organizationId || !normalizedProviderKey ||
+      !/^[a-f0-9]{64}$/.test(checksumSha256 || "")) fail("INVALID_PUBLIC_AVATAR_THUMBNAIL");
+  const safeProviderKey = Buffer.from(normalizedProviderKey, "utf8").toString("base64url");
+  return `${organizationId}/public-avatar-thumbnails/${safeProviderKey}/${checksumSha256}`;
 }
 
 export function createAssetService({ repository, objectStore, now = Date.now, uploadTtlMs = 600000, downloadTtlMs = 300000 } = {}) {
@@ -307,6 +320,63 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
     registerVerifiedOutput: (input) => repository.registerVerifiedOutput(input)
   };
 
+  async function registerPublicAvatarThumbnail({ organizationId, providerKey, displayName, bytes,
+    mediaType, size, checksumSha256, transactionClient = null } = {}) {
+    if (typeof displayName !== "string" || !displayName.trim() || displayName.trim().length > 120 ||
+        !Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > MAX_IMAGE_BYTES ||
+        !ALLOWED_TYPES.has(mediaType) || !Number.isInteger(size) || size !== bytes.length ||
+        !/^[a-f0-9]{64}$/.test(checksumSha256 || "")) fail("INVALID_PUBLIC_AVATAR_THUMBNAIL");
+    let detected;
+    try { detected = await fileTypeFromBuffer(bytes); }
+    catch { fail("INVALID_PUBLIC_AVATAR_THUMBNAIL"); }
+    if (!detected || detected.mime !== mediaType || createHash("sha256").update(bytes).digest("hex") !== checksumSha256) {
+      fail("INVALID_PUBLIC_AVATAR_THUMBNAIL");
+    }
+    const normalizedProviderKey = normalizePublicAvatarProviderKey(providerKey);
+    if (!normalizedProviderKey) fail("INVALID_PUBLIC_AVATAR_THUMBNAIL");
+    const objectKey = publicAvatarThumbnailObjectKey(organizationId, normalizedProviderKey, checksumSha256);
+    let wroteObject = false;
+    const verifyExistingObject = async () => {
+      const head = await objectStore.head(objectKey);
+      if (!head || head.metadata?.organizationId !== organizationId || head.contentType !== mediaType || head.size !== bytes.length) {
+        fail("PUBLIC_AVATAR_THUMBNAIL_STORAGE_UNAVAILABLE");
+      }
+      const body = await objectStore.get(objectKey);
+      if (!Buffer.isBuffer(body) || body.length !== bytes.length ||
+          createHash("sha256").update(body).digest("hex") !== checksumSha256 || !body.equals(bytes)) {
+        fail("PUBLIC_AVATAR_THUMBNAIL_STORAGE_UNAVAILABLE");
+      }
+    };
+    let objectAlreadyExists = false;
+    try { objectAlreadyExists = Boolean(await objectStore.head(objectKey)); }
+    catch { /* A failed head is not a proof that the object exists. */ }
+    if (objectAlreadyExists) await verifyExistingObject();
+    else {
+      try {
+        await objectStore.put({ key: objectKey, body: bytes, contentType: mediaType, metadata: { organizationId } });
+        wroteObject = true;
+      } catch (error) {
+        if (!(["OBJECT_ALREADY_EXISTS", "EEXIST"].includes(error?.code))) fail("PUBLIC_AVATAR_THUMBNAIL_STORAGE_UNAVAILABLE");
+        await verifyExistingObject();
+      }
+    }
+    const rollbackObject = async () => { if (wroteObject) await objectStore.remove(objectKey).catch(() => undefined); };
+    if (transactionClient?.onRollback) transactionClient.onRollback(rollbackObject);
+    try {
+      const result = await repository.registerPublicAvatarThumbnail({ organizationId, providerKey: normalizedProviderKey,
+        displayName: displayName.trim(), objectKey, mediaType, size, checksumSha256,
+        actorMemberId: null, now: timestamp(), transactionClient });
+      if (typeof repository.updatePublicAvatarThumbnailDisplayName === "function" && result.asset?.display_name !== displayName.trim()) {
+        result.asset = await repository.updatePublicAvatarThumbnailDisplayName({ organizationId, assetId: result.asset.id,
+          displayName: displayName.trim(), now: timestamp(), transactionClient });
+      }
+      return { ...result, object_key: objectKey };
+    } catch (error) {
+      if (!transactionClient?.onRollback) await rollbackObject();
+      throw error;
+    }
+  }
+
   async function getPublicAsset(organizationId, assetId) {
     const asset = await repository.getAsset(organizationId, assetId);
     if (!PUBLIC_ASSET_KINDS.has(asset.kind)) fail("ASSET_NOT_FOUND");
@@ -398,6 +468,8 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
         verified_checksum_sha256: grant.verified_checksum_sha256
       };
     },
-    assetReferencePort, sourceProductImagePort, appearanceCandidateAssetPort, verifiedOutputAssetPort
+    assetReferencePort, sourceProductImagePort, appearanceCandidateAssetPort, verifiedOutputAssetPort,
+    registerPublicAvatarThumbnail,
+    publicAvatarThumbnailAssetPort: { register: registerPublicAvatarThumbnail }
   };
 }

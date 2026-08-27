@@ -15,8 +15,9 @@ function validPageSize(value) {
 }
 
 function providerAvatarKey(value) {
-  if (typeof value === "string" && value.trim()) return `hifly-public:${value.trim()}`;
-  if (Number.isSafeInteger(value) && value >= 0) return `hifly-public:${value}`;
+  const candidate = typeof value === "string" && value.trim() ? value.trim() : Number.isSafeInteger(value) && value >= 0 ? String(value) : "";
+  const normalized = `hifly-public:${candidate}`;
+  if (/^hifly-public:[^\u0000-\u001f\u007f-\u009f]{1,256}$/u.test(normalized)) return normalized;
   throw failure("HIFLY_API_RESPONSE_INVALID");
 }
 

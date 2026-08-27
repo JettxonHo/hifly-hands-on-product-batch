@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { createAssetService } from "../src/assets/asset-service.js";
@@ -20,6 +20,8 @@ import { runProjectContentMigrations } from "../src/project-content/postgres.js"
 const connectionString = process.env.TEST_DATABASE_URL || process.env.IDENTITY_TEST_DATABASE_URL;
 const isolatedUrl = (value, schema) => { const url = new URL(value); url.searchParams.set("options", `-c search_path=${schema}`); return url.toString(); };
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const THUMBNAIL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+const THUMBNAIL_SHA256 = createHash("sha256").update(THUMBNAIL_PNG).digest("hex");
 
 async function waitForLockWait(pool, queryFragment, timeoutMs = 2000) {
   const deadline = Date.now() + timeoutMs;
@@ -122,6 +124,106 @@ test("clean PostgreSQL avatar migration seeds controlled catalog and serializes 
   assert.equal(synced.asset_version.materials_accessible, false);
   assert.equal(synced.asset_version.capability_status, "unverified");
   assert.deepEqual(synced.capabilities, []);
+
+  const thumbnailAssetRepository = createPostgresAssetRepository({ pool });
+  const thumbnailAssetService = createAssetService({ repository: thumbnailAssetRepository, objectStore: createMemoryObjectStore(),
+    now: () => Date.parse("2026-08-24T00:00:00.000Z") });
+  // The base64url prefix for U+00BF contains '_' while U+00BE has '-' at the
+  // same position. Register the literal '-' key first so a LIKE-based lookup
+  // would incorrectly reuse it for the underscore key.
+  const wildcardProviderEntries = [
+    { provider_key: "hifly-public:\u00be-wild", display_name: "PG 前缀短横线", source_type: "public" },
+    { provider_key: "hifly-public:\u00bf-wild", display_name: "PG 前缀下划线", source_type: "public" }
+  ];
+  const wildcardImports = [];
+  for (const entry of wildcardProviderEntries) {
+    wildcardImports.push(await thumbnailAssetService.registerPublicAvatarThumbnail({ organizationId: "org-avatar-pg",
+      providerKey: entry.provider_key, displayName: entry.display_name, bytes: THUMBNAIL_PNG,
+      mediaType: "image/png", size: THUMBNAIL_PNG.length, checksumSha256: THUMBNAIL_SHA256 }));
+  }
+  assert.notEqual(wildcardImports[0].asset.id, wildcardImports[1].asset.id,
+    "base64url '_' must not act as a SQL LIKE wildcard in provider prefix matching");
+  const wildcardAssets = (await thumbnailAssetRepository.listAssets("org-avatar-pg"))
+    .filter((asset) => wildcardProviderEntries.some((entry) => entry.display_name === asset.display_name));
+  assert.equal(wildcardAssets.length, 2);
+  assert.deepEqual(wildcardAssets.map((asset) => asset.versions.length).sort(), [1, 1]);
+  const thumbnailSyncService = createAvatarSelectionService({ repository, materialAssetPort: thumbnailAssetService,
+    publicAvatarCatalog: { async list() { return [publicEntries[0]]; } },
+    publicAvatarThumbnailSource: { async read({ provider_key, title }) {
+      return { provider_key, title, bytes: THUMBNAIL_PNG, media_type: "image/png", size: THUMBNAIL_PNG.length, checksum_sha256: THUMBNAIL_SHA256 };
+    } }, copyApprovalPort: { async getCurrentApprovedCopy() { return null; } }, now: () => Date.parse("2026-08-24T00:00:00.000Z") });
+  const previousPublicVersionId = synced.asset_version.id;
+  const imported = await thumbnailSyncService.syncPublicCatalog({ organizationId: "org-avatar-pg", actorMemberId: seeded.member.id, actorRole: "admin" });
+  assert.equal(imported.thumbnail_imported, 1);
+  const thumbnailCatalog = (await repository.listCatalog("org-avatar-pg")).filter((entry) => entry.asset.seed_key === publicEntries[0].provider_key);
+  assert.equal(thumbnailCatalog.length, 1, "listCatalog must project one current version per public avatar");
+  assert.equal(thumbnailCatalog[0].asset_version.version_number, 2);
+  assert.equal(thumbnailCatalog[0].asset_version.materials_accessible, true);
+  const historicalPublicVersion = await repository.getCatalogVersion("org-avatar-pg", previousPublicVersionId);
+  assert.ok(historicalPublicVersion, "historical public AvatarVersion remains addressable by exact id");
+  assert.equal(historicalPublicVersion.asset_version.id, previousPublicVersionId);
+  assert.equal(historicalPublicVersion.asset_version.version_number, 1);
+  const replayedImport = await thumbnailSyncService.syncPublicCatalog({ organizationId: "org-avatar-pg", actorMemberId: seeded.member.id, actorRole: "admin" });
+  assert.equal(replayedImport.thumbnail_unchanged, 1);
+  assert.equal((await repository.listCatalog("org-avatar-pg")).filter((entry) => entry.asset.seed_key === publicEntries[0].provider_key).length, 1);
+  assert.equal((await thumbnailAssetRepository.listAssets("org-avatar-pg")).filter((asset) => asset.kind === "avatar_image" && asset.display_name === "PG 公共人物").length, 1);
+
+  const concurrentEntry = { provider_key: "hifly-public:pg-concurrent", display_name: "PG 并发人物", source_type: "public" };
+  const concurrentSyncService = createAvatarSelectionService({ repository, materialAssetPort: thumbnailAssetService,
+    publicAvatarCatalog: { async list() { return [concurrentEntry]; } },
+    publicAvatarThumbnailSource: { async read({ provider_key, title }) {
+      return { provider_key, title, bytes: THUMBNAIL_PNG, media_type: "image/png", size: THUMBNAIL_PNG.length, checksum_sha256: THUMBNAIL_SHA256 };
+    } }, copyApprovalPort: { async getCurrentApprovedCopy() { return null; } }, now: () => Date.parse("2026-08-24T00:00:00.000Z") });
+  const [concurrentLeft, concurrentRight] = await Promise.all([
+    concurrentSyncService.syncPublicCatalog({ organizationId: "org-avatar-pg", actorMemberId: seeded.member.id, actorRole: "admin" }),
+    concurrentSyncService.syncPublicCatalog({ organizationId: "org-avatar-pg", actorMemberId: seeded.member.id, actorRole: "admin" })
+  ]);
+  assert.deepEqual([concurrentLeft.thumbnail_imported, concurrentLeft.thumbnail_unchanged].sort(), [0, 1]);
+  assert.deepEqual([concurrentRight.thumbnail_imported, concurrentRight.thumbnail_unchanged].sort(), [0, 1]);
+  const concurrentCatalog = (await repository.listCatalog("org-avatar-pg"))
+    .filter((entry) => entry.asset.seed_key === concurrentEntry.provider_key);
+  assert.equal(concurrentCatalog.length, 1);
+  assert.equal(concurrentCatalog[0].asset_version.version_number, 2);
+  assert.equal((await thumbnailAssetRepository.listAssets("org-avatar-pg"))
+    .filter((asset) => asset.kind === "avatar_image" && asset.display_name === concurrentEntry.display_name).length, 1);
+
+  const rollbackProviderKey = "hifly-public:pg-bind-rollback";
+  const rollbackEntry = { provider_key: rollbackProviderKey, display_name: "PG 回滚人物", source_type: "public" };
+  const rollbackRepository = createPostgresAvatarSelectionRepository({ pool });
+  await rollbackRepository.initialize();
+  const originalBind = rollbackRepository.bindPublicAvatarMaterial.bind(rollbackRepository);
+  rollbackRepository.bindPublicAvatarMaterial = async (input) => {
+    await originalBind(input);
+    throw Object.assign(new Error("PG_BIND_FAILURE"), { code: "PG_BIND_FAILURE" });
+  };
+  const rollbackStore = createMemoryObjectStore();
+  const rollbackAssetRepository = createPostgresAssetRepository({ pool });
+  const rollbackAssetService = createAssetService({ repository: rollbackAssetRepository, objectStore: rollbackStore,
+    now: () => Date.parse("2026-08-24T00:00:00.000Z") });
+  const rollbackService = createAvatarSelectionService({ repository: rollbackRepository, materialAssetPort: rollbackAssetService,
+    publicAvatarCatalog: { async list() { return [rollbackEntry]; } },
+    publicAvatarThumbnailSource: { async read({ provider_key, title }) {
+      return { provider_key, title, bytes: THUMBNAIL_PNG, media_type: "image/png", size: THUMBNAIL_PNG.length, checksum_sha256: THUMBNAIL_SHA256 };
+    } }, copyApprovalPort: { async getCurrentApprovedCopy() { return null; } }, now: () => Date.parse("2026-08-24T00:00:00.000Z") });
+  await assert.rejects(rollbackService.syncPublicCatalog({ organizationId: "org-avatar-pg", actorMemberId: seeded.member.id, actorRole: "admin" }),
+    { code: "PG_BIND_FAILURE" });
+  assert.equal((await rollbackRepository.listCatalog("org-avatar-pg"))
+    .filter((entry) => entry.asset.seed_key === rollbackProviderKey).length, 0);
+  assert.equal((await rollbackAssetRepository.listAssets("org-avatar-pg"))
+    .filter((asset) => asset.display_name === rollbackEntry.display_name).length, 0);
+  const rollbackObjectKey = `org-avatar-pg/public-avatar-thumbnails/${Buffer.from(rollbackProviderKey).toString("base64url")}/${THUMBNAIL_SHA256}`;
+  assert.equal(await rollbackStore.head(rollbackObjectKey), null);
+  assert.equal((await rollbackAssetRepository.listAuditEvents())
+    .filter((event) => event.organization_id === "org-avatar-pg" && event.metadata?.provider_key === rollbackProviderKey).length, 0);
+
+  let rollbackHookRan = false;
+  await assert.rejects(repository.withPublicAvatarSync({ organizationId: "org-avatar-pg", work: async ({ transactionClient }) => {
+    transactionClient.onRollback(() => { rollbackHookRan = true; });
+    transactionClient.onCommit(() => { throw Object.assign(new Error("COMMIT_CALLBACK_FAILURE"), { code: "COMMIT_CALLBACK_FAILURE" }); });
+    return { committed: true };
+  } }), { code: "COMMIT_CALLBACK_FAILURE" });
+  assert.equal(rollbackHookRan, false, "a post-COMMIT callback failure must not run rollback hooks");
+
   const catalog = await repository.listCatalog("org-avatar-pg");
   assert.ok(catalog.length >= 6);
   assert.deepEqual(new Set(catalog.map((entry) => entry.asset.source_type)), new Set(["public", "enterprise"]));

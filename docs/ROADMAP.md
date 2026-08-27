@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-27
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并并部署到内部验收环境。Fidelity-C5/C5a 仍无 accepted environment lane，六项 blocker 与 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0–5、Post-stage 作品库、素材中心/移动收口及 Issue #254 视觉与交互升级已由 PR #255 合并进入 `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`，但该 head 尚未部署、连接 Provider 或完成客户验收。PR #253 公共人物缩略图同步是独立 Draft。系统保持 disabled/fail-closed；可信 TLS 与每日备份的 REL-001 仓库候选当前进行中，仍未部署/安装或通过正式域名/严格 CA 门禁。
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并并部署到内部验收环境。Fidelity-C5/C5a 仍无 accepted environment lane，六项 blocker 与 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0–5、Post-stage 作品库、素材中心/移动收口及 Issue #254 视觉与交互升级已进入 `main`，但最新前端仍未部署或完成客户验收。REL-001 PR #256 已合并为 `main@4c8c27fca76ed5deaa6fb2f4f2ef348484feec23`，可信 TLS 与每日备份仍未部署、安装或通过正式域名/严格 CA 门禁。PR #253 公共人物缩略图同步正在吸收该基线；真实页面校准仅证明图片字节存在，开发者 API 到 cover 的官方精确绑定仍缺失，runtime source 保持 disabled。Issue #257 已启动 MBL 内部生产化；系统继续 disabled/fail-closed。
 
 ## 1. 已完成基线
 
@@ -34,7 +34,7 @@ P0.1  云端飞影登录并证明 Profile 重启保留（已完成）
 P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成）
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
 P0.4  3 条严格串行、受控内部试运行（已完成）
-P0.5  release-readiness：REL-001 仓库 TLS 与每日备份候选（固定 Host、loopback health、保守 HSTS、systemd daily+Persistent）已完成测试，仍未合并/部署/安装；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
+P0.5  release-readiness：REL-001 仓库 TLS 与每日备份候选（固定 Host、loopback health、保守 HSTS、systemd daily+Persistent）已合并，仍未部署/安装；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
 UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到内部验收环境）
     → 内部问题审计（已完成）→ 定向外部工作台研究（已完成）
     → V2 独立设计合同（#174，已完成）
@@ -43,7 +43,7 @@ P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
 P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228/#229 synthetic harness implemented → #230/#231 C5a 首轮 Evidence accepted（lane blocked）→ #232/#233 archive/license/security blocker Evidence accepted → #234/#235 patched lane/fixed model successor Evidence accepted（lane blocked）→ Owner/upstream inputs → C5b 未授权 → 受控 benchmark 未授权 → Fidelity-C～E 未开始
-P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product API gate（已完成）→ #238/#239 Stage 1 商品资料（已完成）→ #240/#241 Stage 2 文案（已完成）→ #242/#243 Stage 3 人物（已完成）→ #244/#245 Stage 4 视频方案（已完成）→ #246/#247 Stage 5 生产（已完成）→ #248/#249 Post-stage 作品库（已完成）→ #250/#251 素材中心/移动收口（已完成）→ #254/#255 视觉与交互升级（已合并，未部署）→ MBL 后生产化（REL-001 当前阶段）
+P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product API gate（已完成）→ #238/#239 Stage 1 商品资料（已完成）→ #240/#241 Stage 2 文案（已完成）→ #242/#243 Stage 3 人物（已完成）→ #244/#245 Stage 4 视频方案（已完成）→ #246/#247 Stage 5 生产（已完成）→ #248/#249 Post-stage 作品库（已完成）→ #250/#251 素材中心/移动收口（已完成）→ #254/#255 视觉与交互升级（已合并、未部署）→ #252/#253 公共数字人缩略图候选（真实字节已校准、exact API binding 缺失、source disabled）→ REL-001（仓库候选已合并、未部署）→ #257 MBL 内部生产化
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
