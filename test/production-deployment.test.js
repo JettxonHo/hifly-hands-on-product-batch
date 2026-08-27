@@ -155,6 +155,12 @@ test("production package and container contracts are explicit and isolated", asy
   assert.match(compose, /hifly_pilot_backups/);
   assert.match(compose, /healthcheck:/);
   assert.match(compose, /mem_limit:/);
+  const proxyBlock = serviceBlock(compose, "proxy");
+  assert.match(proxyBlock, /PUBLIC_HOST:\s*\$\{PUBLIC_HOST:-pilot\.example\.invalid\}/);
+  assert.match(proxyBlock, /^\s+NGINX_ENVSUBST_FILTER:\s+"\^PUBLIC_HOST\$"\s*$/m);
+  assert.match(proxyBlock, /default\.conf\.template:ro/);
+  assert.match(proxyBlock, /wget -q --spider http:\/\/127\.0\.0\.1:8080\/healthz/);
+  assert.doesNotMatch(proxyBlock, /8080:8080/);
 
   const dockerfile = await readFile(new URL("../Dockerfile", import.meta.url), "utf8");
   assert.match(dockerfile, /FROM node:22-slim/);
@@ -176,6 +182,18 @@ test("production package and container contracts are explicit and isolated", asy
   assert.match(nginx, /proxy_pass http:\/\/app:3000/);
   assert.match(nginx, /proxy_set_header Host \$host/);
   assert.match(nginx, /client_max_body_size 128m/);
+  assert.match(nginx, /listen 127\.0\.0\.1:8080;/);
+  assert.match(nginx, /server_name 127\.0\.0\.1;/);
+  assert.match(nginx, /server_name \$\{PUBLIC_HOST\};/);
+  assert.match(nginx, /return 308 https:\/\/\$\{PUBLIC_HOST\}\$request_uri;/);
+  assert.doesNotMatch(nginx, /return 30[127] https:\/\/\$host\$request_uri/);
+  assert.match(nginx, /listen 80 default_server;/);
+  assert.match(nginx, /listen 443 ssl default_server;/);
+  assert.match(nginx, /return 444;/);
+  assert.match(nginx, /Strict-Transport-Security[^\n]*max-age=31536000/);
+  assert.doesNotMatch(nginx, /Strict-Transport-Security[^\n]*includeSubDomains/i);
+  assert.doesNotMatch(nginx, /Strict-Transport-Security[^\n]*preload/i);
+  assert.equal((nginx.match(/location = \/healthz/g) || []).length, 1, "public HTTP/HTTPS must not bypass trusted Host/Origin checks");
 
   const envExample = await readFile(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(envExample, /DATABASE_URL=/);

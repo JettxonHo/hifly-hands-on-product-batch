@@ -1,11 +1,26 @@
 # 项目当前状态
 
 > 最后更新：2026-08-27
-> 当前 Goal：Issue #254 单任务工作区视觉与交互升级
-> 当前结论：Stage 0–5、Post-stage 作品库与素材中心/移动收口已进入精确 `main@831c92719cf2e6da1680d07de654e82741960939`。Issue #254 正在该基线上落实 Owner 已确认的精细化运营界面；当前只形成仓库候选，不表示已合并、部署、连接真实 Provider 或完成客户验收。PR #253 公共人物缩略图同步仍为独立 Draft，不属于本 Goal。Fidelity 环境 blocker、可信 TLS 和 MBL 后生产化均保持原边界。
+> 当前 Goal：REL-001 可信 TLS 仓库门禁
+> 当前结论：Stage 0–5、Post-stage 作品库与素材中心/移动收口及 Issue #254 视觉与交互升级已由 PR #255 合并进入 `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`，但该 head 尚未部署、连接真实 Provider 或完成客户验收。PR #253 公共人物缩略图同步仍为独立 Draft，不属于本 Goal。REL-001 当前只形成可信 TLS 仓库候选；Fidelity 环境 blocker、MBL 后生产化和正式域名/严格 CA 仍保持原边界。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## REL-001 可信 TLS 仓库门禁（独立候选，2026-08-27）
+
+- 固定基线：`4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；实现分支：`codex/rel-001-trusted-tls`。本候选尚未合并、部署或改变当前运行入口。
+- Production Compose 将 Nginx 配置作为 `/etc/nginx/templates/default.conf.template` 只读模板挂载，Proxy 只传入
+  `PUBLIC_HOST`，`NGINX_ENVSUBST_FILTER` 精确限制为 `^PUBLIC_HOST$`。公网 80 对精确 Host 统一 308 到固定
+  `https://${PUBLIC_HOST}$request_uri`，未知 Host 命中 default server `444`，不反射 `$host`。
+- Proxy 健康检查改为容器 loopback `127.0.0.1:8080/healthz`，8080 不发布；公网 HTTPS（含 `/healthz`）走普通 App proxy，
+  继续由既有 trusted Host/Origin gate fail-closed。HTTPS 只增加 `Strict-Transport-Security: max-age=31536000`，未启用
+  `includeSubDomains`/`preload`，Secure Cookie 与身份逻辑未改动。
+- 固定 base 的 RED 为 production-deployment `5 pass / 1 fail`；实现后 focused production tests `21/21`、`npm run check`
+  检查 248 个 JS 文件、`git diff --check` 均通过。完整证据见
+  `docs/status/sessions/2026-08-27-rel-001-trusted-tls.md`。
+- 当前公网仍是 IP + 自签证书内部试运行；正式域名、DNS、可信证书、严格 CA/browser 验收与任何部署动作均未完成。
+  本轮 Hifly=0、points=0、无 SSH、无部署、无生产写入、无 Cloud Executor/Worker/Local Agent。
 
 ## Issue #254 单任务工作区视觉与交互升级
 
@@ -17,8 +32,9 @@
 - 当前系统 Chrome 证据为 Stage 1 2/2、Stage 2 3/3、Stage 3 3/3、Stage 4 9/9、Stage 5 6/6；
   1440x900、768x900、390x844 临时截图已人工查看。人物为安全测试 PNG，只证明授权/bytes/layout，不是飞影真实人物视觉。
   default `npm test` 自然结束为 1213 total / 1197 pass / 15 existing environment skip / 1 fail；唯一失败在未修改的 Assets
-  移动焦点旧回归，isolated 1/1 通过，但本地 default 仍不记 GREEN。implementation candidate `555fa7b4` 的 CI run
-  `33002289425` 首次自然三绿；doc-only final head 仍须自己的 exact-head required CI。
+  移动焦点旧回归，isolated 1/1 通过，因此该次本地 default 不记 GREEN。PR #255 fixed head
+  `86e779c6743e3cf8caff45f5d869a3d9cae6e2ab` 的 required CI run `33002623021` 三绿，随后已 squash 合并为
+  `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；该 main head 的 CI run `33029333736` 也已通过，但尚未部署。
 - 本轮没有访问 Hifly/Provider、创建任务、点击生成、运行 Worker/Local Agent、部署、写生产数据或消耗积分。完整 allowlist、
   RED/GREEN 与边界见 `docs/status/sessions/2026-08-27-frontend-visual-upgrade.md`。
 

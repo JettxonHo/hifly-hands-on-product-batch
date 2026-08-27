@@ -10,6 +10,28 @@
 - 证书和私钥必须位于仓库外，由 `TLS_CERT_DIR` 只读挂载；不得进入 Git、镜像、日志或工单。
 - 本次发布就绪工作不修改 Nginx 的既有证书文件合同：`fullchain.pem` 与 `privkey.pem`。
 
+## REL-001 仓库候选（尚未部署）
+
+当前分支只提供可审查的仓库候选，不改变正在运行的入口。候选的
+`deploy/nginx/default.conf` 是官方 Nginx `templates` envsubst 模板，Compose 将它只读挂载到
+`/etc/nginx/templates/default.conf.template`，并仅向 envsubst 暴露锚定变量过滤器
+`NGINX_ENVSUBST_FILTER=^PUBLIC_HOST$`。因此 Nginx 的 `$host`、`$request_uri` 等运行时变量不会被
+容器启动脚本误替换。
+
+- 公网 HTTP 只为精确配置的 `PUBLIC_HOST` 提供 `308 https://${PUBLIC_HOST}$request_uri`；未知 Host
+  命中 default server 并以 `444` 关闭连接，绝不把请求 Host 反射进重定向。
+- `/healthz` 的容器健康检查只监听 Proxy 容器 loopback `127.0.0.1:8080`，Compose proxy
+  healthcheck 也只访问该地址；8080 不发布到宿主机。公网 HTTPS（包括 `/healthz`）走普通 App proxy，
+  不再覆盖 Host/Origin，由既有 trusted Host/Origin gate 决定是否放行。
+- 精确 HTTPS server 仅增加 `Strict-Transport-Security: max-age=31536000`；本候选不启用
+  `includeSubDomains` 或 `preload`。App 的 Secure Cookie 与身份逻辑保持原合同。
+
+这组规则只有仓库测试与静态 Compose/Nginx 配置证据；没有在当前 IP 自签入口部署或做严格 CA 验收。
+当前 IP 自签部署仍属于内部试运行状态。正式域名、DNS、可信证书和严格 CA/browser 验收完成前，不能把
+该候选称为公网生产入口。
+包含 HSTS 的 Nginx 候选必须与正式可信证书在同一维护窗口一次性部署；不得先把 HSTS 候选部署到当前
+IP 自签入口，也不得以关闭严格 CA 校验来代替正式证书验收。
+
 ## 1. Owner 前置输入
 
 开始签发前必须由 Owner 或部署负责人提供并确认：
