@@ -3,6 +3,12 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-27 MBL-PROD-001 内部生产化启动
+
+- Owner 固定项目用语：MBL 指“最小业务闭环”；今后未另行指定目标时，“下一步要做什么”默认是继续完成 MBL 内部生产化，不能只回答某个孤立基础设施切片。持久跟踪入口为 Issue #257。
+- 当前执行顺序为：终审并收口 REL-001 PR #256；更新并复审公共数字人缩略图 PR #253；冻结并部署不含域名/TLS 上线的内部发布版本；完成运营人员无积分流程验收；最后仅在 Owner 另行明确授权积分后执行一个新商品的真实生产验收。
+- 正式域名、DNS、可信证书、HTTP→HTTPS 与 HSTS 因备案延期，不阻塞内部部署、每日备份、监控和无积分运营验收。Cloud Executor/Local Agent 继续保持 disabled/fail-closed；未获新积分授权前不得创建或执行真实视频任务。
+
 ## 2026-08-25 Issue #252 公共数字人缩略图同步（离线端口/导入闭环）
 
 - 在固定 `main@831c927` 上完成 allowlist 内的公共缩略图 source seam、`avatar_image` AssetVersion 幂等导入、当前公共 Avatar material 原子绑定，以及 memory/PostgreSQL 适配器路径。官方列表仍只读 `avatar/kind/title`；普通目录/workspace 读取保持零 Provider 调用；同步仍由现有管理员 `POST /api/avatar-catalog/hifly-public/sync` 显式触发。source 预取设有最多 100 项 / 64 MiB 聚合上限，超限条目保留列表但中性计为 unavailable、无 Asset 写入。
@@ -12,6 +18,25 @@
 - LocalObjectStore slice：body 成功后 metadata 序列化失败会清理本调用 body；重启在请求 bytes 精确相同时可 adopt body-only 或损坏 metadata partial，异 bytes 保留并 `EEXIST` fail closed；完整同 key replay 不覆盖；同进程 32-way per-key lock 与独立 Node 进程的唯一临时 metadata + 固定 `.metadata.v2.json` hard-link 原子不覆盖 publish 均只有一个完整赢家，legacy `.metadata.json` 永不 unlink，loser 不删除赢家，`get` 只返回可解析 metadata 已提交对象。
 - 主控最新 default `npm test` 为 1229 total / 1213 pass / 15 skipped / 1 failed；唯一失败是未修改的 Works browser line 599 在并行负载下失败，故 default 不记为绿色。随后该文件 isolated rerun 自然通过 1/1；该单文件通过不抵消 default 的失败。该结果不涉及真实 Provider 或积分。
 - final candidate 上再次运行 default `npm test` 超过 2 分钟后，Node 与本次 Playwright Chrome 均为 0% CPU 且无新增 TAP 输出；仅终止本次命令自身。该 run 非绿色但没有产品断言失败，属于测试/浏览器 harness 无进展；此前 1229/1213/15/1 与 isolated Works 1/1 证据仍保留，不得过称为绿色。
+
+## 2026-08-27 单任务工作区视觉与交互升级（已合并，未部署）
+
+- Issue #250 / PR #251 的素材中心与移动收口已合并进入精确
+  `main@831c92719cf2e6da1680d07de654e82741960939`。Issue #254 / PR #255 随后落实并合并了 Owner 已确认的视觉方向：深色指挥顶栏、
+  1440 商品队列 / 当前任务 / 服务端详情三栏、768 两栏、390 单任务详情，以及浅色固定底栏中的唯一蓝色推荐动作。
+- 本轮只调整 `workspace.html` / `workspace.css` 的结构与表现，复用 Stage 1–5 已有公共选择器、action registry、URL/history、
+  Dialog、409/503、权限和写命令；没有新增 API、数据库、领域状态或运行时推断。
+- 公共系统 Chrome 回归当前为 Stage 1 2/2、Stage 2 3/3、Stage 3 3/3、Stage 4 9/9、Stage 5 6/6。Stage 2/3/4
+  新增视觉合同，锁定唯一可见可执行品牌动作、深浅层级、16px 主按钮、三视口 composition、焦点与无横向溢出。
+  default `npm test` 自然结束为 1213 total / 1197 pass / 15 existing environment skip / 1 fail；唯一失败是未修改 Assets
+  旧回归的移动详情标题焦点，isolated 1/1 通过，因此本地 default 仍不记 GREEN。implementation candidate `555fa7b4`
+  的 CI run `33002289425` 首次自然三绿；本次 doc-only closeout 后仍以最终头自己的 required CI 为终态。
+- 临时 1440x900、768x900、390x844 截图已人工查看。人物截图使用 1x1 黑/白安全 fixture，只证明受控授权、字节和布局，
+  不是飞影真实人物视觉；本轮也没有伪造商品缩略图。
+- PR #253 公共人物缩略图同步仍是独立 Draft，不属于 Issue #254。视觉升级 merge commit 为
+  `4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`，但尚未部署。本轮没有访问 Hifly/Provider、创建任务、点击生成、
+  运行 Worker/Local Agent、部署、写生产数据或消耗积分。完整 scope、RED/GREEN 与验证见
+  `docs/status/sessions/2026-08-27-frontend-visual-upgrade.md`。
 
 ## 2026-08-25 素材中心与移动收口 fixed candidate
 

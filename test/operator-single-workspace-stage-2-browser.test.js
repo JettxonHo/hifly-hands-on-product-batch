@@ -132,6 +132,37 @@ async function expectAction(page, code, label) {
   assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
 }
 
+async function expectOneVisibleBrandAction(page) {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.waitForTimeout(180);
+  const actions = await page.evaluate(() => {
+    const visible = (element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return !element.hidden && style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    };
+    const colorValue = (token) => {
+      const probe = document.createElement("span");
+      probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    const brandColors = ["--brand", "--brand-hover", "--brand-pressed"].map(colorValue);
+    const primary = document.querySelector("#workspacePrimaryAction");
+    const primaryStyle = getComputedStyle(primary);
+    const competitors = [...document.querySelectorAll("button:not(:disabled), a[href]")].filter((element) => {
+      const style = getComputedStyle(element);
+      return element !== primary && visible(element) && brandColors.includes(style.backgroundColor) && style.color === "rgb(255, 255, 255)";
+    }).map((element) => ({ id: element.id, text: element.textContent.trim() }));
+    return { primaryIsBrand: visible(primary) && brandColors.includes(primaryStyle.backgroundColor) && primaryStyle.color === "rgb(255, 255, 255)",
+      primary: { visible: visible(primary), background: primaryStyle.backgroundColor, color: primaryStyle.color, brandColors }, competitors };
+  });
+  assert.equal(actions.primaryIsBrand, true, JSON.stringify(actions.primary));
+  assert.deepEqual(actions.competitors, [], `Copy must not visually duplicate the fixed recommended action: ${JSON.stringify(actions.competitors)}`);
+}
+
 test("Stage 2 keeps Copy generation, QC, and human approval separate in one workspace", async (t) => {
   const setup = await startWorld(t, 59200);
   if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
@@ -141,6 +172,7 @@ test("Stage 2 keeps Copy generation, QC, and human approval separate in one work
   await page.goto(url(origin, project.id, first.product.id));
   await page.getByRole("heading", { name: "完善并审核文案" }).waitFor();
   await expectAction(page, "request_copy_generation", "生成文案");
+  await expectOneVisibleBrandAction(page);
   assert.equal(await page.locator("body").getAttribute("data-workspace-stage"), "copy");
   assert.equal(await page.locator('[data-stage-code="avatar"]').first().getAttribute("href"), `/avatar.html?project=${project.id}&product=${first.product.id}`);
 

@@ -20,16 +20,19 @@
   <body class="operator-task-page single-workspace-page" data-shell-page="projects" data-workspace-stage="product_content">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
     <div class="app-shell">
-      <aside class="app-sidebar">
-        <a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a>
+      <header class="app-sidebar workspace-command-header">
+        <div class="workspace-brand-context">
+          <a class="app-brand" href="/projects.html"><span class="app-brand-mark" aria-hidden="true">飞</span>飞影工作台</a>
+          <span class="workspace-console-name">精细化运营控制台</span>
+        </div>
         <nav class="app-nav" aria-label="主导航">
           <a href="/projects.html" data-page="projects" data-feature="project-content" hidden>项目</a>
           <a href="/assets.html" data-page="assets" data-feature="assets" hidden>素材中心</a>
           <a href="/members.html" data-page="members" data-role="admin" hidden>成员管理</a>
         </nav>
-      </aside>
+        <div class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></div>
+      </header>
       <div class="app-frame workspace-frame">
-        <header class="app-topbar"><div class="identity-context"><strong data-shell-organization>企业工作台</strong><span data-shell-member>正在读取身份</span></div><button class="identity-logout" type="button" data-shell-logout>退出</button></header>
         <main id="mainContent" class="page-content workspace-content">
           <header class="workspace-object-header">
             <div><p class="eyebrow"><a href="/projects.html">项目</a> / 单任务工作区</p><h1 id="projectName">正在加载...</h1><p class="page-description">一个商品、一个当前阶段、一个清晰下一步。</p></div>
@@ -256,7 +259,7 @@
 
             <aside class="workspace-panel workspace-context-panel" data-workspace-panel="supporting-context" aria-labelledby="taskSummaryTitle">
               <section class="workspace-task-summary" aria-label="当前任务摘要" aria-live="polite">
-                <div><p class="eyebrow">辅助上下文</p><h2 id="taskSummaryTitle">载入商品工作区</h2></div>
+                <div><p class="eyebrow">当前任务详情</p><h2 id="taskSummaryTitle">载入商品工作区</h2></div>
                 <dl class="workspace-facts">
                   <div><dt>当前对象</dt><dd id="taskContext">正在读取项目</dd></div>
                   <div><dt>业务状态</dt><dd id="taskStatus" class="state upload_pending">正在加载</dd></div>

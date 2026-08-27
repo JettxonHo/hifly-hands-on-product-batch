@@ -187,6 +187,90 @@ async function responseSha(page, origin, value) {
   return createHash("sha256").update(await response.body()).digest("hex");
 }
 
+async function assertAcceptedVisualUpgrade(page, viewport) {
+  const visual = await page.evaluate(({ width }) => {
+    const visible = (element) => Boolean(element && !element.hidden && getComputedStyle(element).display !== "none" &&
+      getComputedStyle(element).visibility !== "hidden" && element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0);
+    const header = document.querySelector(".workspace-command-header");
+    const actionBar = document.querySelector("#workspaceActionBar");
+    const primary = document.querySelector("#workspacePrimaryAction");
+    const layout = document.querySelector(".single-workspace-layout");
+    const content = document.querySelector(".workspace-content");
+    const frame = document.querySelector(".workspace-frame");
+    const taskPanel = document.querySelector("[data-workspace-panel='current-task']:not([hidden]), .workspace-avatar-panel:not([hidden])");
+    const productPanel = document.querySelector("[data-workspace-panel='product-list']");
+    const colorValue = (token) => {
+      const probe = document.createElement("span");
+      probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+      document.body.append(probe);
+      const value = getComputedStyle(probe).color;
+      probe.remove();
+      return value;
+    };
+    const brandColors = ["--brand", "--brand-hover", "--brand-pressed"].map(colorValue);
+    const enabledBrandActions = [...document.querySelectorAll("button:not(:disabled), a[href]")].filter((element) => {
+      if (!visible(element)) return false;
+      const style = getComputedStyle(element);
+      return brandColors.includes(style.backgroundColor) && style.color === "rgb(255, 255, 255)";
+    }).length;
+    return {
+      width,
+      innerWidth: window.innerWidth,
+      mobileMedia: matchMedia("(max-width: 680px)").matches,
+      headerExists: Boolean(header),
+      headerBackground: header ? getComputedStyle(header).backgroundColor : null,
+      headerGradient: header ? getComputedStyle(header).backgroundImage : null,
+      headerWidth: header?.getBoundingClientRect().width || 0,
+      layoutColumns: layout ? getComputedStyle(layout).gridTemplateColumns.split(" ").filter(Boolean).length : 0,
+      layoutRect: layout ? { left: Math.round(layout.getBoundingClientRect().left), right: Math.round(layout.getBoundingClientRect().right),
+        width: Math.round(layout.getBoundingClientRect().width), columns: getComputedStyle(layout).gridTemplateColumns } : null,
+      contentRect: content ? { left: Math.round(content.getBoundingClientRect().left), right: Math.round(content.getBoundingClientRect().right),
+        width: Math.round(content.getBoundingClientRect().width), cssWidth: getComputedStyle(content).width,
+        maxWidth: getComputedStyle(content).maxWidth } : null,
+      frameRect: frame ? { left: Math.round(frame.getBoundingClientRect().left), right: Math.round(frame.getBoundingClientRect().right),
+        width: Math.round(frame.getBoundingClientRect().width), display: getComputedStyle(frame).display } : null,
+      actionBarBackground: actionBar ? getComputedStyle(actionBar).backgroundColor : null,
+      primaryRadius: primary ? getComputedStyle(primary).borderRadius : null,
+      primaryHeight: primary?.getBoundingClientRect().height || 0,
+      enabledBrandActions,
+      taskVisible: visible(taskPanel),
+      productVisible: visible(productPanel),
+      mobileLayer: document.body.dataset.mobileLayer || null,
+      noHorizontalOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      overflowNodes: [...document.querySelectorAll("body *")].filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return visible(element) && (rect.right > window.innerWidth + 1 || rect.left < -1);
+      }).slice(0, 8).map((element) => ({ tag: element.tagName, id: element.id, className: element.className,
+        left: Math.round(element.getBoundingClientRect().left), right: Math.round(element.getBoundingClientRect().right),
+        scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }))
+    };
+  }, viewport);
+
+  assert.equal(visual.headerExists, true, "the accepted dark command header must be present");
+  assert.equal(visual.headerBackground, "rgb(7, 17, 31)");
+  assert.equal(visual.headerGradient, "none", "the accepted interface does not use gradients");
+  assert.ok(visual.headerWidth >= viewport.width - 1, "the command header must span the viewport");
+  assert.match(visual.actionBarBackground, /^rgba?\(255, 255, 255(?:, 0\.\d+)?\)$/);
+  assert.equal(visual.primaryRadius, "16px");
+  assert.ok(visual.primaryHeight >= 48, "the bottom primary action must remain comfortably tappable");
+  assert.equal(visual.enabledBrandActions, 1, "each state must expose one visible enabled brand action");
+  assert.equal(visual.noHorizontalOverflow, true, `workspace must not overflow at ${viewport.width}px: ${JSON.stringify(visual)}`);
+  if (viewport.width >= 1200) {
+    assert.equal(visual.layoutColumns, 3, "desktop keeps queue, task, and server-truth columns");
+    assert.equal(visual.productVisible, true);
+    assert.equal(visual.taskVisible, true);
+  } else if (viewport.width >= 681) {
+    assert.equal(visual.layoutColumns, 2, "tablet keeps the queue and task as two usable columns");
+    assert.equal(visual.productVisible, true);
+    assert.equal(visual.taskVisible, true);
+  } else {
+    assert.equal(visual.mobileLayer, "detail");
+    assert.equal(visual.productVisible, false, "mobile detail must not stack the product queue above the task");
+    assert.equal(visual.taskVisible, true);
+  }
+}
+
 async function refreshAvatarWorkspace(page) {
   const response = page.waitForResponse((value) => value.request().method() === "GET" &&
     new URL(value.url()).pathname.endsWith("/operator-workspace"));
@@ -245,6 +329,16 @@ test("Stage 3 shows exact secure previews and confirms an explicit Avatar select
   await page.getByText("人物已确认", { exact: true }).first().waitFor();
   await expectAction(page, "continue_to_video_plan", "进入视频方案");
 
+  const screenshotDir = process.env.STAGE_3_SCREENSHOTS_DIR;
+  if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
+  await assertAcceptedVisualUpgrade(page, { width: 1440, height: 900 });
+  if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, "stage-3-avatar-1440x900.png") });
+
+  await page.setViewportSize({ width: 768, height: 900 });
+  await page.waitForFunction(() => window.innerWidth === 768 && window.innerHeight === 900);
+  await assertAcceptedVisualUpgrade(page, { width: 768, height: 900 });
+  if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, "stage-3-avatar-768x900.png") });
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator("#mobileAvatarProductBack").click();
   await page.locator(`[data-product-id="${first.product.id}"]`).click();
@@ -256,18 +350,10 @@ test("Stage 3 shows exact secure previews and confirms an explicit Avatar select
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.emulateMedia({ reducedMotion: "reduce" });
   assert.equal(await page.locator("#workspaceActionBar").evaluate((element) => Number.parseFloat(getComputedStyle(element).transitionDuration) <= 0.001), true);
-
-  const screenshotDir = process.env.STAGE_3_SCREENSHOTS_DIR;
-  if (screenshotDir) {
-    await mkdir(screenshotDir, { recursive: true });
-    for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
-      await page.setViewportSize(viewport);
-      const image = await page.screenshot({ path: path.join(screenshotDir, `stage-3-avatar-${viewport.width}x${viewport.height}.png`) });
-      assert.equal(image.readUInt32BE(16), viewport.width);
-      assert.equal(image.readUInt32BE(20), viewport.height);
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
-    }
-  }
+  await avatarButton.click();
+  await page.waitForFunction(() => document.activeElement === document.querySelector("#avatarDetailHeading"));
+  await assertAcceptedVisualUpgrade(page, { width: 390, height: 844 });
+  if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, "stage-3-avatar-390x844.png") });
   assert.equal((await app.avatarSelection.repository.getSelectionState("org_single_workspace_stage_3", first.product.id)).current_selection.status, "confirmed");
 });
 
