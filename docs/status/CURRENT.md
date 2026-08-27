@@ -2,14 +2,28 @@
 
 > 最后更新：2026-08-27
 > 当前 Goal：Issue #257 MBL-PROD-001 内部生产化
-> 当前结论：Stage 0–5、Post-stage 作品库、素材中心/移动收口及视觉与交互升级已进入仓库，但最新前端尚未部署或完成客户验收。REL-001 PR #256 已由 Owner 授权管理员 squash 合并为 `main@4c8c27fca76ed5deaa6fb2f4f2ef348484feec23`；可信 TLS 与每日备份仍未部署、安装或通过正式域名/严格 CA 门禁。PR #253 公共人物缩略图同步正在吸收该基线；真实 Hifly 只读校准只证明图片字节存在，开发者 API 到 cover 的官方精确绑定仍缺失，真实 source 保持 disabled。MBL 内部生产化依次收口候选、部署内部版本、完成无积分运营验收；真实生成仍需后续单独积分授权。Fidelity 环境 blocker 与正式域名/TLS 上线保持原边界。
+> 当前结论：Issue #257 的内部发布步骤已完成。PR #256/#253 已由 Owner 授权管理员 squash 合并，最终 `main@d0d4cc84b99ea2c88962fd7e1f93b8d1d33e8fa4` 的 App 已部署到阿里云内部验收环境；Stage 0–5、作品库、素材中心与视觉升级静态文件已与该提交逐字节一致。每日数据库备份已安装、成功手动运行并启用 timer；正式域名、DNS、可信证书、HTTP→HTTPS 与 HSTS 仍因备案延期，Proxy 没有重建，HSTS 仍未激活。Cloud Executor/Local Agent 继续 disabled/fail-closed，eligible/waiting/active attempt 全为 0，Hifly=0、points=0。公共人物真实 thumbnail source 仍 disabled，不使用姓名猜测 cover。下一步是运营人员在零积分下从新建项目走到“可创建生产工单”门前；真实生成仍需 Owner 另行单条积分授权。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
 
-## REL-001 可信 TLS 仓库门禁（已合并，未部署，2026-08-27）
+## Issue #257 MBL 内部发布（2026-08-27）
 
-- 固定基线：`4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；实现分支：`codex/rel-001-trusted-tls`；PR #256 已由 Owner 授权管理员 squash 合并为 `main@4c8c27fca76ed5deaa6fb2f4f2ef348484feec23`。该仓库实现尚未部署或改变当前运行入口。
+- 内部 App 运行镜像 OCI revision 为精确 `d0d4cc84b99ea2c88962fd7e1f93b8d1d33e8fa4`，image
+  `sha256:56a16567b50e5188e37fefbd42d02d492aa02cb583bab4d37c6f640c6fda15b5`。服务器使用独立干净 release checkout
+  `/opt/hifly-releases/d0d4cc84b99e`；原 `/opt/hifly-pilot` 保留在 `8787b60c` 专供旧 Compose/Proxy 运行合同，避免把已合并的域名/TLS/HSTS 候选提前激活。
+- 部署前备份为 `/var/backups/hifly/hifly-20260827T101509Z-pre-d0d4cc8.dump`，624,070 bytes、mode 600，`pg_restore --list` 成功；旧 App 镜像保留为
+  `hifly-pilot-app:rollback-8787b60c-pre-d0d4cc8-20260827T101509Z`。14 组 production migration 成功，只重建 App；PostgreSQL 与 Proxy `StartedAt` 未变。
+- 公网 `/healthz`、`workspace.html` 与 `login.html` 均为 200/ok，`workspace.html`、`workspace.css`、`assets.js`、`works.js` 四个公开字节哈希与目标镜像一致；App/PostgreSQL/Proxy 全部 healthy，App 最近日志未见 error/fatal/unhandled/exception。
+- `hifly-pilot-backup.service/timer` 已安装；因 App 发布目录与保留的旧 Compose 目录分离，systemd drop-in 只将
+  `ExecStart` 指向该精确 release 中的 runner，runner 仍只调用 `/opt/hifly-pilot/docker-compose.production.yml` 中已运行的 App。首次手动运行 `success/0`，生成
+  `/var/backups/hifly/hifly-systemd-20260827T102118Z-618654.dump`，670,552 bytes、mode 600，并由 exact `pg_restore --list` 验证；timer 已 `enabled/active`。异机副本与新备份的完整恢复演练仍是未完成项，不将 archive list 校验过称为异机恢复。
+- 部署前后均为 `waiting_orders=0 / eligible_orders=0 / active_attempts=0 / total_attempts=17`；Cloud Executor 容器保持 `created/false/0`，Local Agent 关闭，无 Hifly token、无 Provider 请求、无生产业务对象新增、无视频任务与积分动作。完整证据见
+  `docs/status/sessions/2026-08-27-mbl-prod-001-internal-deployment.md`。
+
+## REL-001 可信 TLS 仓库门禁（已合并，域名/TLS 未部署，2026-08-27）
+
+- 固定基线：`4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；实现分支：`codex/rel-001-trusted-tls`；PR #256 已由 Owner 授权管理员 squash 合并为 `main@4c8c27fca76ed5deaa6fb2f4f2ef348484feec23`。其每日备份候选已在 Issue #257 内部发布中安装并验证；域名/TLS/HSTS 配置明确未激活，当前运行入口仍是 IP + 自签证书。
 - Production Compose 将 Nginx 配置作为 `/etc/nginx/templates/default.conf.template` 只读模板挂载，Proxy 只传入
   `PUBLIC_HOST`，`NGINX_ENVSUBST_FILTER` 精确限制为 `^PUBLIC_HOST$`。公网 80 对精确 Host 统一 308 到固定
   `https://${PUBLIC_HOST}$request_uri`，未知 Host 命中 default server `444`，不反射 `$host`。
@@ -19,22 +33,14 @@
 - 固定 base 的 RED 为 production-deployment `5 pass / 1 fail`；实现后 focused production tests `21/21`、`npm run check`
   检查 248 个 JS 文件、`git diff --check` 均通过。完整证据见
   `docs/status/sessions/2026-08-27-rel-001-trusted-tls.md`。
-- 当前公网仍是 IP + 自签证书内部试运行；正式域名、DNS、可信证书、严格 CA/browser 验收与任何部署动作均未完成。
-  2026-08-27 无登录字节复核确认公网 Works/Assets 六个静态文件逐项精确匹配
-  `8787b60c82f928a1277467b95868ae47d011ec64`，并与 `main@4ae506e` 全部不同；新 workspace 静态资源仍为 404。
-  因而当前只可把公网 Web bundle 认定为旧部署，不能把已合并视觉升级或本 TLS 候选记作已上线；后端/数据库精确版本仍需获授权的只读 SSH 审计。
-  Owner 已允许继续域名以外的生产化工作；严格只读 SSH 确认服务器 Git 与 App OCI revision 均为精确 `8787b60c`、工作树干净，
-  app/postgres/proxy healthy 且零重启，Cloud Executor 容器不存在，Local Agent/Cloud Executor 均 disabled、执行器 fail-closed。
-  最新 `hifly-20260824T132240Z.dump` 已在无网络的独立 PostgreSQL 15 临时容器完整恢复出 92 张 public tables 与 13 个 migration ledger，
-  临时容器/volume 已精确删除，生产服务未停止或改变。当前仍缺已部署的自动/异机备份、监控告警、主机防火墙与 SSH 最小权限收口；
-  `ufw` inactive，SSH 为 key-only 但允许 root、X11 与 TCP forwarding。本轮 Hifly=0、points=0、无部署、无生产业务状态写入、无 Worker/Local Agent。
-  REL-001 同时新增每日数据库备份的 systemd 仓库候选（service/timer/runner），但尚未安装、enable、start 或做真实备份验收；当前主机仍无该 timer/cron。
+- Issue #257 部署前的历史只读基线确认：当时公网 Web bundle 为 `8787b60c`，新 workspace 静态资源为 404；服务器 Git 与 App OCI revision 均为精确 `8787b60c`，app/postgres/proxy healthy，Local Agent/Cloud Executor disabled/fail-closed。当时已用无网络的独立 PostgreSQL 15 临时容器恢复旧备份为 92 张 public tables 与 13 个 migration ledger，但 systemd timer 尚未安装。该基线已被上方 Issue #257 的 `d0d4cc8` App 发布与备份证据更新；监控告警、异机备份、主机防火墙与 SSH 最小权限收口仍是未完成项。
   Owner 手动登录后，对既有 Work `80958749-9f92-40e6-a30e-7c886b555ef6` 的短时下载授权为 POST 201；Proxy 记录完整 GET 200、
   发送 `43,425,097` bytes。输出卷源文件只读复核为同一大小，SHA-256 为
   `0becaab1076a8af1124ed4f10f8eac5fc93b21d41af3adb8db5b59213f1ab96b`；页面仍为待检查、尚无交付记录。
 
 ## Issue #252 公共数字人缩略图同步（2026-08-26，真实只读校准）
 
+- PR #253 已合并并随 `main@d0d4cc8` App 部署；部署的是默认关闭的安全导入边界，不是真实 Provider source 启用。
 - 已在独立 worktree 的 fixed `main@831c927` 实现只读 thumbnail source seam 与素材中心导入/绑定闭环：source 输出只含受控 bytes、media、size、SHA-256；provider identity、真实 MIME、claimed size/SHA、10 MB cap 均服务端 fail closed。
 - sync source 预取另有最多 100 个条目 / 64 MiB 的聚合内存上限；超限条目仍保留官方列表分页结果但中性计为 `thumbnail_unavailable`，不进行 Asset 写入，避免恶意目录导致无界 Buffer 累积。
 - Memory sync barrier 期间普通 Assets/Avatar list/get/version 与 generic download authorization 经过 read gate，commit/rollback 完成后同一 turn 才放行；provisional Asset/AvatarVersion 不进入普通 projection。Provider key 额外拒绝 DEL/C1（`U+007F–U+009F`）。
@@ -45,7 +51,7 @@
 - 主控最新 default `npm test` 为 1229 total / 1213 pass / 15 skipped / 1 failed；唯一失败是未修改的 Works browser line 599 在并行负载下失败，default 仍不是绿色。随后该文件 isolated rerun 自然通过 1/1；该 isolated 通过不抵消 default 失败。
 - final candidate default `npm test` 另一次运行超过 2 分钟后，Node 与本次 Playwright Chrome 均为 0% CPU 且无新增 TAP 输出；仅终止本次命令自身。该 run 非绿色但没有产品断言失败，属于测试/浏览器 harness 无进展；此前 1229/1213/15/1 与 isolated Works 1/1 仍是历史证据，不得过称。
 
-## Issue #254 单任务工作区视觉与交互升级（已合并，未部署）
+## Issue #254 单任务工作区视觉与交互升级（已合并并随 `d0d4cc8` App 部署）
 
 - 固定基线为 `main@831c92719cf2e6da1680d07de654e82741960939`。Issue #254 / PR #255 沿用已确认原型方向并合并为
   `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`：深色指挥顶栏、
@@ -58,7 +64,7 @@
   default `npm test` 自然结束为 1213 total / 1197 pass / 15 existing environment skip / 1 fail；唯一失败在未修改的 Assets
   移动焦点旧回归，isolated 1/1 通过，因此该次本地 default 不记 GREEN。PR #255 fixed head
   `86e779c6743e3cf8caff45f5d869a3d9cae6e2ab` 的 required CI run `33002623021` 三绿，随后已 squash 合并为
-  `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；该 main head 的 CI run `33029333736` 也已通过，但尚未部署。
+  `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；该 main head 的 CI run `33029333736` 也已通过。该前端已随 `main@d0d4cc8` App 部署，但还未完成运营人员的真实无积分流程验收。
 - 本轮没有访问 Hifly/Provider、创建任务、点击生成、运行 Worker/Local Agent、部署、写生产数据或消耗积分。完整 allowlist、
   RED/GREEN 与边界见 `docs/status/sessions/2026-08-27-frontend-visual-upgrade.md`。
 
