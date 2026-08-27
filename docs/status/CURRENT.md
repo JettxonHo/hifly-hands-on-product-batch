@@ -1,11 +1,37 @@
 # 项目当前状态
 
 > 最后更新：2026-08-27
-> 当前 Goal：Issue #254 单任务工作区视觉与交互升级
-> 当前结论：Stage 0–5、Post-stage 作品库与素材中心/移动收口已进入精确 `main@831c92719cf2e6da1680d07de654e82741960939`。Issue #254 正在该基线上落实 Owner 已确认的精细化运营界面；当前只形成仓库候选，不表示已合并、部署、连接真实 Provider 或完成客户验收。PR #253 公共人物缩略图同步仍为独立 Draft，不属于本 Goal。Fidelity 环境 blocker、可信 TLS 和 MBL 后生产化均保持原边界。
+> 当前 Goal：REL-001 可信 TLS 与每日备份仓库门禁
+> 当前结论：Stage 0–5、Post-stage 作品库与素材中心/移动收口及 Issue #254 视觉与交互升级已由 PR #255 合并进入 `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`，但该 head 尚未部署、连接真实 Provider 或完成客户验收。PR #253 公共人物缩略图同步仍为独立 Draft，不属于本 Goal。REL-001 当前形成可信 TLS 与每日备份仓库候选，并完成当前旧部署既有 Work 的登录鉴权下载复验；Fidelity 环境 blocker、MBL 后其余生产化和正式域名/严格 CA 仍保持原边界。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## REL-001 可信 TLS 仓库门禁（独立候选，2026-08-27）
+
+- 固定基线：`4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；实现分支：`codex/rel-001-trusted-tls`。本候选尚未合并、部署或改变当前运行入口。
+- Production Compose 将 Nginx 配置作为 `/etc/nginx/templates/default.conf.template` 只读模板挂载，Proxy 只传入
+  `PUBLIC_HOST`，`NGINX_ENVSUBST_FILTER` 精确限制为 `^PUBLIC_HOST$`。公网 80 对精确 Host 统一 308 到固定
+  `https://${PUBLIC_HOST}$request_uri`，未知 Host 命中 default server `444`，不反射 `$host`。
+- Proxy 健康检查改为容器 loopback `127.0.0.1:8080/healthz`，8080 不发布；公网 HTTPS（含 `/healthz`）走普通 App proxy，
+  继续由既有 trusted Host/Origin gate fail-closed。HTTPS 只增加 `Strict-Transport-Security: max-age=31536000`，未启用
+  `includeSubDomains`/`preload`，Secure Cookie 与身份逻辑未改动。
+- 固定 base 的 RED 为 production-deployment `5 pass / 1 fail`；实现后 focused production tests `21/21`、`npm run check`
+  检查 248 个 JS 文件、`git diff --check` 均通过。完整证据见
+  `docs/status/sessions/2026-08-27-rel-001-trusted-tls.md`。
+- 当前公网仍是 IP + 自签证书内部试运行；正式域名、DNS、可信证书、严格 CA/browser 验收与任何部署动作均未完成。
+  2026-08-27 无登录字节复核确认公网 Works/Assets 六个静态文件逐项精确匹配
+  `8787b60c82f928a1277467b95868ae47d011ec64`，并与 `main@4ae506e` 全部不同；新 workspace 静态资源仍为 404。
+  因而当前只可把公网 Web bundle 认定为旧部署，不能把已合并视觉升级或本 TLS 候选记作已上线；后端/数据库精确版本仍需获授权的只读 SSH 审计。
+  Owner 已允许继续域名以外的生产化工作；严格只读 SSH 确认服务器 Git 与 App OCI revision 均为精确 `8787b60c`、工作树干净，
+  app/postgres/proxy healthy 且零重启，Cloud Executor 容器不存在，Local Agent/Cloud Executor 均 disabled、执行器 fail-closed。
+  最新 `hifly-20260824T132240Z.dump` 已在无网络的独立 PostgreSQL 15 临时容器完整恢复出 92 张 public tables 与 13 个 migration ledger，
+  临时容器/volume 已精确删除，生产服务未停止或改变。当前仍缺已部署的自动/异机备份、监控告警、主机防火墙与 SSH 最小权限收口；
+  `ufw` inactive，SSH 为 key-only 但允许 root、X11 与 TCP forwarding。本轮 Hifly=0、points=0、无部署、无生产业务状态写入、无 Worker/Local Agent。
+  REL-001 同时新增每日数据库备份的 systemd 仓库候选（service/timer/runner），但尚未安装、enable、start 或做真实备份验收；当前主机仍无该 timer/cron。
+  Owner 手动登录后，对既有 Work `80958749-9f92-40e6-a30e-7c886b555ef6` 的短时下载授权为 POST 201；Proxy 记录完整 GET 200、
+  发送 `43,425,097` bytes。输出卷源文件只读复核为同一大小，SHA-256 为
+  `0becaab1076a8af1124ed4f10f8eac5fc93b21d41af3adb8db5b59213f1ab96b`；页面仍为待检查、尚无交付记录。
 
 ## Issue #254 单任务工作区视觉与交互升级
 
@@ -17,8 +43,9 @@
 - 当前系统 Chrome 证据为 Stage 1 2/2、Stage 2 3/3、Stage 3 3/3、Stage 4 9/9、Stage 5 6/6；
   1440x900、768x900、390x844 临时截图已人工查看。人物为安全测试 PNG，只证明授权/bytes/layout，不是飞影真实人物视觉。
   default `npm test` 自然结束为 1213 total / 1197 pass / 15 existing environment skip / 1 fail；唯一失败在未修改的 Assets
-  移动焦点旧回归，isolated 1/1 通过，但本地 default 仍不记 GREEN。implementation candidate `555fa7b4` 的 CI run
-  `33002289425` 首次自然三绿；doc-only final head 仍须自己的 exact-head required CI。
+  移动焦点旧回归，isolated 1/1 通过，因此该次本地 default 不记 GREEN。PR #255 fixed head
+  `86e779c6743e3cf8caff45f5d869a3d9cae6e2ab` 的 required CI run `33002623021` 三绿，随后已 squash 合并为
+  `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`；该 main head 的 CI run `33029333736` 也已通过，但尚未部署。
 - 本轮没有访问 Hifly/Provider、创建任务、点击生成、运行 Worker/Local Agent、部署、写生产数据或消耗积分。完整 allowlist、
   RED/GREEN 与边界见 `docs/status/sessions/2026-08-27-frontend-visual-upgrade.md`。
 

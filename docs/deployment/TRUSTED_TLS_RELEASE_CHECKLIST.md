@@ -9,6 +9,48 @@
 - 在域名、DNS 和可信证书完成前，不得对客户宣称公网生产就绪。
 - 证书和私钥必须位于仓库外，由 `TLS_CERT_DIR` 只读挂载；不得进入 Git、镜像、日志或工单。
 - 本次发布就绪工作不修改 Nginx 的既有证书文件合同：`fullchain.pem` 与 `privkey.pem`。
+- 2026-08-27 只读 SSH 审计确认当前主机没有 Hifly backup timer/cron，`ufw` 为 inactive；现有 SSH 虽禁用密码，
+  仍允许 root key login、X11 和 TCP forwarding。正式客户生产前需补自动与异机备份、监控告警，并在确认云安全组真值后
+  收敛主机防火墙和 SSH 权限；不得因域名发布暂缓而忽略这些非域名门禁。
+
+## REL-001 仓库候选（尚未部署）
+
+当前分支只提供可审查的仓库候选，不改变正在运行的入口。候选的
+`deploy/nginx/default.conf` 是官方 Nginx `templates` envsubst 模板，Compose 将它只读挂载到
+`/etc/nginx/templates/default.conf.template`，并仅向 envsubst 暴露锚定变量过滤器
+`NGINX_ENVSUBST_FILTER=^PUBLIC_HOST$`。因此 Nginx 的 `$host`、`$request_uri` 等运行时变量不会被
+容器启动脚本误替换。
+
+- 公网 HTTP 只为精确配置的 `PUBLIC_HOST` 提供 `308 https://${PUBLIC_HOST}$request_uri`；未知 Host
+  命中 default server 并以 `444` 关闭连接，绝不把请求 Host 反射进重定向。
+- `/healthz` 的容器健康检查只监听 Proxy 容器 loopback `127.0.0.1:8080`，Compose proxy
+  healthcheck 也只访问该地址；8080 不发布到宿主机。公网 HTTPS（包括 `/healthz`）走普通 App proxy，
+  不再覆盖 Host/Origin，由既有 trusted Host/Origin gate 决定是否放行。
+- 精确 HTTPS server 仅增加 `Strict-Transport-Security: max-age=31536000`；本候选不启用
+  `includeSubDomains` 或 `preload`。App 的 Secure Cookie 与身份逻辑保持原合同。
+
+这组规则只有仓库测试与静态 Compose/Nginx 配置证据；没有在当前 IP 自签入口部署或做严格 CA 验收。
+当前 IP 自签部署仍属于内部试运行状态。正式域名、DNS、可信证书和严格 CA/browser 验收完成前，不能把
+该候选称为公网生产入口。
+包含 HSTS 的 Nginx 候选必须与正式可信证书在同一维护窗口一次性部署；不得先把 HSTS 候选部署到当前
+IP 自签入口，也不得以关闭严格 CA 校验来代替正式证书验收。
+
+## 每日数据库备份仓库候选（尚未安装）
+
+同一 REL-001 分支另提供每日备份的 systemd 仓库候选：
+`hifly-pilot-backup.service`、`hifly-pilot-backup.timer` 和
+`run-hifly-backup.sh`。service 固定工作目录 `/opt/hifly-pilot`，仅在 Docker 排序之后运行（不由 timer
+拉起 Docker），使用 `UMask=0077`、`NoNewPrivileges=true` 和有界 `TimeoutStartSec=900s`；timer 使用 `OnCalendar=daily`、
+`Persistent=true` 与有限 `RandomizedDelaySec=15m`。
+
+脚本为每次运行生成唯一的 `/var/backups/hifly/hifly-systemd-<UTC timestamp>-<pid>.dump` 路径，在既有 Compose
+`app` 容器内显式 `umask 077` 后调用 `npm run db:backup -- --output <exact path>`，随后在同一容器对该 exact
+路径执行 `pg_restore --list`；任一步失败均返回非零。候选不包含删除/保留清理、
+外部上传或直接生产数据库连接。当前主机仍没有该 timer/cron；systemd 文件的安装、enable、start 及实际备份验收必须等待
+PR 合并和单独维护窗口授权，不能把仓库候选当作已部署自动备份。正式域名、DNS、可信证书与严格 CA 仍按上文门禁 deferred。
+容器内 `umask 077` 的目标是让新建 dump 按常规 `0666 & ~umask` 形成 `0600`，不改变既有 volume 或历史备份权限。
+当前生产 App 容器的只读兼容检查记录 `find (GNU findutils) 4.9.0` 与 `pg_restore (PostgreSQL) 15.18`；exact-path runner 不依赖目录扫描，
+仅使用后者做归档校验。该检查没有运行备份、读取数据库内容或修改服务。
 
 ## 1. Owner 前置输入
 
