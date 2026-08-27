@@ -1,0 +1,14 @@
+[Unit]
+Description=Hifly Pilot database backup and archive validation
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/hifly-pilot
+ExecStart=/opt/hifly-pilot/deploy/systemd/run-hifly-backup.sh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+TimeoutStartSec=900s

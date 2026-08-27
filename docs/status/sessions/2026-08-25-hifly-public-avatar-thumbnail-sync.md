@@ -41,3 +41,9 @@
 Changed tracked files: `docs/CALIBRATION.md`, `docs/PROJECT_HANDOFF.md`, `docs/ROADMAP.md`, `docs/product/DECISION_LOG.md`, `docs/product/HIFLY_CAPABILITY_EVIDENCE.md`, `docs/product/OPEN_QUESTIONS.md`, `docs/status/CURRENT.md`, `src/assets/asset-service.js`, `src/assets/local-object-store.js`, `src/assets/memory-asset-repository.js`, `src/assets/postgres-asset-repository.js`, `src/avatar-selection/avatar-selection-service.js`, `src/avatar-selection/hifly-public-avatar-catalog.js`, `src/avatar-selection/memory-avatar-selection-repository.js`, `src/avatar-selection/postgres-avatar-selection-repository.js`, `src/server/app.js`, `test/assets-service.test.js`, `test/avatar-selection-api.test.js`, `test/avatar-selection-postgres.integration.test.js`, `test/avatar-selection-service.test.js`, `test/hifly-public-avatar-catalog.test.js`, `test/operator-single-workspace-assets-mobile-closeout-browser.test.js`, `test/operator-single-workspace-stage-3-browser.test.js`.
 
 Added allowlisted files: `src/providers/hifly-public-avatar-thumbnail-source.js`, `test/hifly-public-avatar-thumbnail-source.test.js`, `test/local-object-store.test.js`, this session document.
+
+## 2026-08-27 MBL 合并门禁更新
+
+- Owner 明确授权管理员绕过非作者审批并合并。REL-001 PR #256 已先 squash 合并为 `main@4c8c27fca76ed5deaa6fb2f4f2ef348484feec23`；PR #253 随后吸收该基线。仅 `docs/ROADMAP.md` 与 `docs/status/CURRENT.md` 发生内容冲突，按 Issue #257 MBL 当前 Goal、REL-001 已合并但未部署、真实 thumbnail source 继续 disabled 三项事实组合解决。
+- 合并基线后的本地聚焦验证：发布门禁 `23/23`；source/catalog/Assets/Avatar/API/LocalObjectStore `83/83`；`npm run check` 检查 249 个 JavaScript 文件；`git diff --check` 通过。该验证不访问 Hifly/Provider，不创建任务或视频，不启动 Worker/Local Agent，也不消耗积分。
+- PR #253 必须以本次新 head 自己的 Ubuntu、Windows、identity-postgres 三项 required CI 为最终合并证据；旧 head 的三绿不替代新 head。

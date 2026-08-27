@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Hifly Pilot database backup daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+Unit=hifly-pilot-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -164,6 +164,30 @@ test("production build disables database startup migrations but still checks rep
 
   const untrustedHealth = await app.inject({ method: "GET", url: "/healthz", headers: { host: "untrusted.test" } });
   assert.equal(untrustedHealth.statusCode, 403);
+  assert.deepEqual(untrustedHealth.json(), { error: "TRUSTED_HOST_REQUIRED" });
+
+  const untrustedOrigin = await app.inject({
+    method: "GET",
+    url: "/healthz",
+    headers: { host: "pilot.test", origin: "https://attacker.invalid" }
+  });
+  assert.equal(untrustedOrigin.statusCode, 403);
+  assert.deepEqual(untrustedOrigin.json(), { error: "TRUSTED_ORIGIN_REQUIRED" });
+
+  const intent = await app.inject({ method: "GET", url: "/api/auth/intent", headers: { host: "pilot.test" } });
+  const setCookies = Array.isArray(intent.headers["set-cookie"])
+    ? intent.headers["set-cookie"]
+    : [String(intent.headers["set-cookie"] || "")];
+  const cookieFor = (name) => setCookies.find((value) => value.startsWith(`${name}=`)) || "";
+  const identityCookie = cookieFor("hifly_identity");
+  const csrfCookie = cookieFor("hifly_identity_csrf");
+  assert.notEqual(identityCookie, "");
+  assert.notEqual(csrfCookie, "");
+  assert.match(identityCookie, /;\s*HttpOnly(?:;|$)/);
+  assert.match(identityCookie, /;\s*Secure(?:;|$)/);
+  assert.match(identityCookie, /;\s*SameSite=Strict(?:;|$)/);
+  assert.match(csrfCookie, /;\s*Secure(?:;|$)/);
+  assert.match(csrfCookie, /;\s*SameSite=Strict(?:;|$)/);
 });
 
 test("web app owns only the Cloud Executor control plane and never polls or starts its Worker runtime", async (t) => {
