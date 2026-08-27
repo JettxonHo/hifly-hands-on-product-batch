@@ -9,6 +9,9 @@
 - 在域名、DNS 和可信证书完成前，不得对客户宣称公网生产就绪。
 - 证书和私钥必须位于仓库外，由 `TLS_CERT_DIR` 只读挂载；不得进入 Git、镜像、日志或工单。
 - 本次发布就绪工作不修改 Nginx 的既有证书文件合同：`fullchain.pem` 与 `privkey.pem`。
+- 2026-08-27 只读 SSH 审计确认当前主机没有 Hifly backup timer/cron，`ufw` 为 inactive；现有 SSH 虽禁用密码，
+  仍允许 root key login、X11 和 TCP forwarding。正式客户生产前需补自动与异机备份、监控告警，并在确认云安全组真值后
+  收敛主机防火墙和 SSH 权限；不得因域名发布暂缓而忽略这些非域名门禁。
 
 ## REL-001 仓库候选（尚未部署）
 

@@ -23,7 +23,11 @@
   2026-08-27 无登录字节复核确认公网 Works/Assets 六个静态文件逐项精确匹配
   `8787b60c82f928a1277467b95868ae47d011ec64`，并与 `main@4ae506e` 全部不同；新 workspace 静态资源仍为 404。
   因而当前只可把公网 Web bundle 认定为旧部署，不能把已合并视觉升级或本 TLS 候选记作已上线；后端/数据库精确版本仍需获授权的只读 SSH 审计。
-  本轮 Hifly=0、points=0、无 SSH、无部署、无生产写入、无 Cloud Executor/Worker/Local Agent。
+  Owner 已允许继续域名以外的生产化工作；严格只读 SSH 确认服务器 Git 与 App OCI revision 均为精确 `8787b60c`、工作树干净，
+  app/postgres/proxy healthy 且零重启，Cloud Executor 容器不存在，Local Agent/Cloud Executor 均 disabled、执行器 fail-closed。
+  最新 `hifly-20260824T132240Z.dump` 已在无网络的独立 PostgreSQL 15 临时容器完整恢复出 92 张 public tables 与 13 个 migration ledger，
+  临时容器/volume 已精确删除，生产服务未停止或改变。当前仍缺自动/异机备份、监控告警、主机防火墙与 SSH 最小权限收口；
+  `ufw` inactive，SSH 为 key-only 但允许 root、X11 与 TCP forwarding。本轮 Hifly=0、points=0、无部署、无生产业务写入、无 Worker/Local Agent。
 
 ## Issue #254 单任务工作区视觉与交互升级
 

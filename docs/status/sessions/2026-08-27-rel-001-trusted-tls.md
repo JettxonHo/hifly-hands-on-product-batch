@@ -5,7 +5,7 @@
 - 固定 base：`4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`
 - 工作分支：`codex/rel-001-trusted-tls`
 - 本轮只触及 REL-001 allowlist：Nginx 模板、Production Compose、两组生产测试、发布清单、当前状态、Roadmap 和本接力记录。
-- 这是仓库候选，不是部署动作。没有 SSH、没有部署、没有访问 Hifly/Provider、没有创建任务或消耗积分（Hifly=0，points=0）；没有启动 Cloud Executor、Worker 或 Local Agent。
+- 这是仓库候选，不是部署动作。Owner 后续允许域名以外的生产化工作，因此完成了一次严格只读 SSH 审计和隔离备份恢复演练；没有部署、重启或修改生产服务，没有访问 Hifly/Provider、创建任务或消耗积分（Hifly=0，points=0），没有启动 Cloud Executor、Worker 或 Local Agent。
 
 ## 合同实现
 
@@ -56,7 +56,7 @@ Compose 使用 `POSTGRES_PASSWORD` 的一次性非敏感占位值和 `PUBLIC_HOS
 
 ## 运行时与发布边界
 
-当前部署仍是 IP + 自签证书的内部试运行；本轮没有替换其配置、证书或流量，也没有声称严格 CA、浏览器信任、正式域名 DNS 或 HTTP→HTTPS 已在公网运行。正式域名、DNS、可信证书、维护窗口和 SSH/部署授权仍需由 Owner/部署负责人另行提供后，按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 验收。
+当前部署仍是 IP + 自签证书的内部试运行；本轮没有替换其配置、证书或流量，也没有声称严格 CA、浏览器信任、正式域名 DNS 或 HTTP→HTTPS 已在公网运行。Owner 明确表示备案尚未完成，域名相关部署暂不执行；待备案、正式域名、DNS 与可信证书条件具备后，再按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 安排维护窗口和发布验收。
 候选中的 HSTS 只能与正式可信证书在同一维护窗口部署；不得先部署到当前自签 IP 入口，也不得用关闭严格 CA 校验替代证书验收。
 
 2026-08-27 对当前公网入口 `8.163.60.0` 的无登录只读复核进一步确认：
@@ -69,5 +69,28 @@ Compose 使用 `POSTGRES_PASSWORD` 的一次性非敏感占位值和 `PUBLIC_HOS
   `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`。`workspace.html`、`workspace.css` 与各 Stage workspace 脚本在公网均为 404，
   与旧提交中尚无单任务工作区资源一致。
 
-这组证据只证明当前公网静态 Web bundle 与 `8787b60c` 一致，不能单独证明后端进程、数据库 migration、Worker、Profile 或 volume
-的精确运行版本；但足以排除 `main@4ae506e` 和本 PR 已经部署的误判。全程没有 SSH、身份登录或生产写入。
+这组公网证据只证明当前静态 Web bundle 与 `8787b60c` 一致，不能单独证明后端进程、数据库 migration、Worker、Profile 或 volume
+的精确运行版本；但足以排除 `main@4ae506e` 和本 PR 已经部署的误判。该公网探针没有身份登录或生产写入；后续只读 SSH 证据见下节。
+
+## Owner 授权的非域名只读 SSH 与恢复演练
+
+Owner 在说明备案暂不可做后，明确允许继续域名以外的生产化工作。使用现有 `hifly-pilot` SSH 别名、BatchMode、严格 host-key
+校验完成只读审计；没有读取或输出 secret、Cookie、Token、密码或私钥内容。
+
+- `/opt/hifly-pilot` 为干净 `main@8787b60c82f928a1277467b95868ae47d011ec64`；运行中 App 镜像 OCI revision 也是该精确提交。
+  App、PostgreSQL、Proxy 均为 healthy、restart count=0；Cloud Executor 容器不存在。
+- 运行标志为 `PRODUCTION_EXECUTOR=fail_closed`、`LOCAL_AGENT_ENABLED=false`、`CLOUD_EXECUTOR_ENABLED=false`。
+  宿主机只监听 22/80/443；App 3000、PostgreSQL 5432 和任何 Executor/noVNC 端口均未发布。
+- 当前 Nginx 仍是旧配置：公网 HTTP 使用 `$host` 301，公开 `/healthz` 覆盖为内部 Host，未启用 HSTS。证书仍是
+  `CN=8.163.60.0` 自签，2026-09-08 到期；与前述公网严格 CA 失败一致。
+- 生产数据库有 92 张 public tables、13 个 schema migration ledger；各 ledger 版本与当前部署代码一致。
+- 受保护备份 volume 中最新文件为 `hifly-20260824T132240Z.dump`（620806 bytes），`pg_restore --list` 可读。
+  服务器没有 Hifly backup systemd timer 或 cron 证据，因此目前仍是人工备份，且本轮没有证明异机/异地副本。
+- 使用缓存的 `postgres:15-alpine`、`--network none`、独立临时容器和独立临时 volume 对该最新备份做完整恢复演练；恢复结果为
+  92 张 public tables 和 13 个 migration ledger。演练后精确删除 `hifly-rel001-restore-verify-20260827` 容器及
+  `hifly-rel001-restore-verify-data-20260827` volume，生产数据库与三项服务始终未停止且继续 healthy。
+- 当前 App 回滚镜像与多代历史回滚镜像仍在本机；本轮没有切换镜像。主机 `ufw` 为 inactive，SSH 禁用密码但允许 root key login、
+  X11 与 TCP forwarding；这些配置是否由云安全组充分补偿尚无 Provider 控制台证据，属于非域名生产 hardening 后续项。
+
+尚未完成的非域名项包括：自动与异机备份、监控/告警、主机防火墙及 SSH 最小权限收口，以及使用既有身份会话完成一次
+不创建新作品的 Work 鉴权下载复验。它们不得用本次只读审计或隔离恢复演练冒充已完成。
