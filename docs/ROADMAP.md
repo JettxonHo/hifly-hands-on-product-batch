@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-25
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并，并随 `main@8787b60c` 部署到内部验收环境。新单条 `small` Provider 复验的商品呈现大小 PASS，但外观保真 FAIL，Work 已登记返工且没有交付或重试。Fidelity-C5/C5a 仍无 accepted environment lane，六项 blocker 和 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 至 Stage 5 及 Issue #248 / PR #249 的 Post-stage 作品库已进入精确 `main@255569deaba294807b3348a985277a850be3dce2`；Issue #250 是素材中心/移动收口的独立 Draft acceptance gate，只有 exact-head CI、独立 Review 与合并后才计为仓库实现，不代表部署、生产数据、真实人物视觉或客户验收。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并并部署到内部验收环境。Fidelity-C5/C5a 仍无 accepted environment lane，六项 blocker 与 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0–5、Post-stage 作品库和素材中心/移动收口已进入精确 `main@831c92719cf2e6da1680d07de654e82741960939`。Issue #254 正在落实 Owner 已确认的视觉与交互升级；当前仅为仓库候选，不代表部署、Provider、生产数据或客户验收。PR #253 公共人物缩略图同步是独立 Draft。系统保持 disabled/fail-closed；可信 TLS 仍待独立门禁。
 
 ## 1. 已完成基线
 
@@ -43,7 +43,7 @@ P1 UI  部署后条件通过收口：#190 → #191 → 统一内部部署/真实
 P1 Product  #193 实物尺寸 + 飞影原生呈现大小（新单条复验：尺寸 PASS、技术闭环 PASS、外观保真 FAIL、Work 返工）
 P1 Runtime  #200 Provider 选档真值 → #201 heartbeat/report 竞态 → #202 failed 工单首屏终态（均已实现、Review、合并、部署并完成单条复验）
 P1 Fidelity #208 DSE accepted → #210 Fidelity-0 Evidence accepted → #212 Fidelity-A designed → #214 Fidelity-B repository implemented（默认 disabled、same-gate-only observation）→ #216 Fidelity-C0 gate → #218/#219 shortlist accepted → #220 readiness blocker audit accepted → #222/#223 受控数据/独立七维真值准入合同 → #224/#225 Fidelity-C4 数据/人工真值 accepted → #226/#227 Fidelity-C5 环境/harness 合同 accepted → #228/#229 synthetic harness implemented → #230/#231 C5a 首轮 Evidence accepted（lane blocked）→ #232/#233 archive/license/security blocker Evidence accepted → #234/#235 patched lane/fixed model successor Evidence accepted（lane blocked）→ Owner/upstream inputs → C5b 未授权 → 受控 benchmark 未授权 → Fidelity-C～E 未开始
-P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product API gate（已完成）→ #238/#239 Stage 1 商品资料（已完成）→ #240/#241 Stage 2 文案（已完成）→ #242/#243 Stage 3 人物（已完成）→ #244/#245 Stage 4 视频方案（已完成）→ #246/#247 Stage 5 生产（已完成）→ #248/#249 Post-stage 作品库（已完成）→ #250 素材中心/移动收口（独立 Draft gate）→ 独立视觉 refinement/research Goal（仅在 #250 Review 合并后）
+P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product API gate（已完成）→ #238/#239 Stage 1 商品资料（已完成）→ #240/#241 Stage 2 文案（已完成）→ #242/#243 Stage 3 人物（已完成）→ #244/#245 Stage 4 视频方案（已完成）→ #246/#247 Stage 5 生产（已完成）→ #248/#249 Post-stage 作品库（已完成）→ #250/#251 素材中心/移动收口（已完成）→ #254 视觉与交互升级（当前候选）→ MBL 后生产化（另行 Product/API/运行时门禁）
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
@@ -190,18 +190,15 @@ PostgreSQL read port 在单个 `REPEATABLE READ` 事务内完成有界六项分�
 receipt，未收口前阻止跨作品/分页/筛选/Back；确定性 409 才换最新 binding/new key。390/768 每态最多一个可见可执行
 主操作，不可用/已撤回 Work 零写。下载 token 必须绑定
 exact Work/AssetVersion 与已核验 bytes，inspection/delivery 跨代读取必须 fail closed。
-Issue #250 是素材中心/移动收口独立 Draft gate：公共目录只承认三种服务端 Asset kind，`work_video` 服务端只读；
+Issue #250 / PR #251 已把素材中心/移动收口合并进入 `main@831c9271`：公共目录只承认三种服务端 Asset kind，`work_video` 服务端只读；
 ProductRevision 图片绑定以 memory UoW reservation 与 PostgreSQL parent-Asset-first 行锁关闭 delete/bind 交错。Assets
 人物预览只复用 exact successful list snapshot 的 available+verified `avatar_image` 与既有 same-origin 短时授权；URL/history、
 list/preview/action epoch、503、409、bfcache 和 1440/768/390 焦点/布局均 fail closed；迟到下载、过期 mutation intent、
 隐藏移动列表 preview 与 desktop-to-mobile resize 均有真实 Chrome 回归。现有删除引用门禁只覆盖 ProductRevision
 `asset_references`，跨领域人物/Work 历史引用仍需独立 Product/API + migration gate，不能过称已全链保护。
-当前 Draft candidate 本地 focused、PostgreSQL、closeout、兼容与 Stage/Works 分文件矩阵已绿，但三次本地 default 没有形成
-最终绿色（两次各一个不同浏览器时序失败，一次 0% CPU hang 后人工终止）；A14 的已证实入队竞态已做 test-only 同步并
-stress 3/3；Stage 5 committed-503 harness 也由测试 server 的公开 POST handler 先 commit、再一次性直接返回 503，取代会
-阻塞 recovery GET 的 Playwright transport re-entry，仍保留真实 commit + 浏览器 503 + 自动重读合同。全量终态只接受 Draft PR exact-head
-required CI，不能用旧 head CI 或单文件 GREEN 代替。
-任何仓库实现均不自动部署。Issue #250 经独立 Review 合并后，才另开独立视觉 refinement/research gate。PC 1440 主工作区与 768 收敛、移动
+其 fixed-head required CI 与独立 Review 已完成并合并；该事实仍不表示部署、生产数据或真实人物视觉。
+Issue #254 是其后的独立视觉与交互升级 gate：只收敛 workspace 信息层级、密度与样式，保持 Stage 1–5 行为合同、
+服务端真值和唯一推荐动作。PC 1440 主工作区与 768 收敛、移动
 390 列表/详情分层须作为并行的一等合同：两端共享业务真值、动作和状态词，但 composition 可以不同；不得描述移动
 高于 PC，也不得把桌面实现为放大的移动布局。两端都必须有真实 Chrome 行为/截图和人工视觉 acceptance 后才能合并
 视觉实现；设计站点仅按 Hifly 自身工作流选择性取证，不复制不适合运营清晰度的实验交互。

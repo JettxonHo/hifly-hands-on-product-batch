@@ -3,6 +3,24 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-27 单任务工作区视觉与交互升级候选
+
+- Issue #250 / PR #251 的素材中心与移动收口已合并进入精确
+  `main@831c92719cf2e6da1680d07de654e82741960939`。Issue #254 在该基线上落实 Owner 已确认的视觉方向：深色指挥顶栏、
+  1440 商品队列 / 当前任务 / 服务端详情三栏、768 两栏、390 单任务详情，以及浅色固定底栏中的唯一蓝色推荐动作。
+- 本轮只调整 `workspace.html` / `workspace.css` 的结构与表现，复用 Stage 1–5 已有公共选择器、action registry、URL/history、
+  Dialog、409/503、权限和写命令；没有新增 API、数据库、领域状态或运行时推断。
+- 公共系统 Chrome 回归当前为 Stage 1 2/2、Stage 2 3/3、Stage 3 3/3、Stage 4 9/9、Stage 5 6/6。Stage 2/3/4
+  新增视觉合同，锁定唯一可见可执行品牌动作、深浅层级、16px 主按钮、三视口 composition、焦点与无横向溢出。
+  default `npm test` 自然结束为 1213 total / 1197 pass / 15 existing environment skip / 1 fail；唯一失败是未修改 Assets
+  旧回归的移动详情标题焦点，isolated 1/1 通过，因此本地 default 仍不记 GREEN。implementation candidate `555fa7b4`
+  的 CI run `33002289425` 首次自然三绿；本次 doc-only closeout 后仍以最终头自己的 required CI 为终态。
+- 临时 1440x900、768x900、390x844 截图已人工查看。人物截图使用 1x1 黑/白安全 fixture，只证明受控授权、字节和布局，
+  不是飞影真实人物视觉；本轮也没有伪造商品缩略图。
+- PR #253 公共人物缩略图同步仍是独立 Draft，不属于 Issue #254。本轮没有访问 Hifly/Provider、创建任务、点击生成、
+  运行 Worker/Local Agent、部署、写生产数据或消耗积分。完整 scope、RED/GREEN 与验证见
+  `docs/status/sessions/2026-08-27-frontend-visual-upgrade.md`。
+
 ## 2026-08-25 素材中心与移动收口 fixed candidate
 
 - Issue #248 / PR #249 的 Post-stage 作品库已进入固定基线

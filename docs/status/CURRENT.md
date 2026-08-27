@@ -1,11 +1,26 @@
 # 项目当前状态
 
-> 最后更新：2026-08-25
-> 当前 Goal：下一代运营单任务工作区严格串行 Stage Goals
-> 当前结论：CE-08 单条闭环与 P0.4 三条严格串行内部试运行均已通过；Issues #200/#201/#202 已合并，并随精确 `main@8787b60c82f928a1277467b95868ae47d011ec64` 部署到内部验收环境。一条新工单完成获授权的真实 Provider `small` 复验：尺寸控件与技术闭环通过，但外观保真失败，Work 已登记 `rework_required`。Fidelity-0 Evidence、Fidelity-A 设计、Fidelity-B 默认关闭的 capture/storage/API、Fidelity-C0 能力门禁、shortlist、受控数据/人工真值 acceptance、Fidelity-C5 合同与 synthetic harness，以及 C5a 许可证、依赖、安全和 patched-lane successor Evidence 已进入精确 `main@677d79c2cc8256b7cb6661972b934b289c3b456d`。环境继续保持 `BLOCKED_ENVIRONMENT_ARTIFACT_LICENSE_AND_DEPENDENCY_CONFLICT`，`BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0 至 Stage 5 与 Issue #248 / PR #249 Post-stage 作品库已严格串行进入精确 `main@255569deaba294807b3348a985277a850be3dce2`；Issue #250 是素材中心/移动收口独立 Draft acceptance gate，只有 exact-head CI、独立 Review 与合并后才计为仓库实现，不代表部署、运行时、生产数据、真实人物视觉或客户验收。可信 TLS 仍是独立发布门禁。
+> 最后更新：2026-08-27
+> 当前 Goal：Issue #254 单任务工作区视觉与交互升级
+> 当前结论：Stage 0–5、Post-stage 作品库与素材中心/移动收口已进入精确 `main@831c92719cf2e6da1680d07de654e82741960939`。Issue #254 正在该基线上落实 Owner 已确认的精细化运营界面；当前只形成仓库候选，不表示已合并、部署、连接真实 Provider 或完成客户验收。PR #253 公共人物缩略图同步仍为独立 Draft，不属于本 Goal。Fidelity 环境 blocker、可信 TLS 和 MBL 后生产化均保持原边界。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## Issue #254 单任务工作区视觉与交互升级
+
+- 固定基线为 `main@831c92719cf2e6da1680d07de654e82741960939`。本轮沿用已确认原型方向：深色指挥顶栏、
+  1440 商品队列 / 当前任务 / 服务端详情三栏、768 两栏、390 单任务详情，以及浅色固定底栏中的单一蓝色推荐动作。
+- Stage 1–5 的 route、公共选择器、action registry、URL/history、Dialog、409/503、权限和写命令保持不变；不新增 API、
+  数据库、领域状态或 Provider 推断。页面内辅助按钮与页签降为中性样式，底部 `#workspacePrimaryAction` 保持唯一品牌主动作，
+  高度 52px（移动 50px）、圆角 16px。
+- 当前系统 Chrome 证据为 Stage 1 2/2、Stage 2 3/3、Stage 3 3/3、Stage 4 9/9、Stage 5 6/6；
+  1440x900、768x900、390x844 临时截图已人工查看。人物为安全测试 PNG，只证明授权/bytes/layout，不是飞影真实人物视觉。
+  default `npm test` 自然结束为 1213 total / 1197 pass / 15 existing environment skip / 1 fail；唯一失败在未修改的 Assets
+  移动焦点旧回归，isolated 1/1 通过，但本地 default 仍不记 GREEN。implementation candidate `555fa7b4` 的 CI run
+  `33002289425` 首次自然三绿；doc-only final head 仍须自己的 exact-head required CI。
+- 本轮没有访问 Hifly/Provider、创建任务、点击生成、运行 Worker/Local Agent、部署、写生产数据或消耗积分。完整 allowlist、
+  RED/GREEN 与边界见 `docs/status/sessions/2026-08-27-frontend-visual-upgrade.md`。
 
 ## Issue #250 素材中心与移动收口
 

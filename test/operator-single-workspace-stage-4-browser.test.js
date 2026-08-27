@@ -170,6 +170,37 @@ async function expectAction(page, code, label) {
   assert.equal(await page.locator('[data-recommended-action="true"]').count(), 1);
 }
 
+async function expectOneVisibleBrandAction(page) {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.waitForTimeout(180);
+  const actions = await page.evaluate(() => {
+    const visible = (element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return !element.hidden && style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    };
+    const colorValue = (token) => {
+      const probe = document.createElement("span");
+      probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    const brandColors = ["--brand", "--brand-hover", "--brand-pressed"].map(colorValue);
+    const primary = document.querySelector("#workspacePrimaryAction");
+    const primaryStyle = getComputedStyle(primary);
+    const competitors = [...document.querySelectorAll("button:not(:disabled), a[href]")].filter((element) => {
+      const style = getComputedStyle(element);
+      return element !== primary && visible(element) && brandColors.includes(style.backgroundColor) && style.color === "rgb(255, 255, 255)";
+    }).map((element) => ({ id: element.id, text: element.textContent.trim() }));
+    return { primaryIsBrand: visible(primary) && brandColors.includes(primaryStyle.backgroundColor) && primaryStyle.color === "rgb(255, 255, 255)",
+      primary: { visible: visible(primary), background: primaryStyle.backgroundColor, color: primaryStyle.color, brandColors }, competitors };
+  });
+  assert.equal(actions.primaryIsBrand, true, JSON.stringify(actions.primary));
+  assert.deepEqual(actions.competitors, [], `VideoPlan must not visually duplicate the fixed recommended action: ${JSON.stringify(actions.competitors)}`);
+}
+
 async function createPlanInBrowser(page, { instructions = "竖版产品说明", size = "small" } = {}) {
   await page.locator("#firstInstructions").fill(instructions);
   await page.locator("#firstPresentationSize").selectOption(size);
@@ -280,6 +311,8 @@ test("Stage 4 preserves local input through 409 and keeps preflight separate fro
 
   const planId = await createPlanInBrowser(page, { instructions: "先展示使用场景，再说明清爽卖点", size: "small" });
   assert.equal(await page.locator("#presentationSize").inputValue(), "small");
+  await expectAction(page, "run_video_plan_preflight", "开始预检");
+  await expectOneVisibleBrandAction(page);
 
   const authoritative = await app.videoPlanning.service.getWorkspace({ ...actor, productId: first.product.id, planId });
   await app.videoPlanning.service.saveDraft({ ...actor, productId: first.product.id, planId,
