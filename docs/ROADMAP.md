@@ -1,7 +1,7 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-27
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并并部署到内部验收环境。Fidelity-C5/C5a 仍无 accepted environment lane，六项 blocker 与 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0–5、Post-stage 作品库、素材中心/移动收口及 Issue #254 视觉与交互升级已由 PR #255 合并进入 `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`，但该 head 尚未部署、连接 Provider 或完成客户验收。PR #253 公共人物缩略图同步是独立 Draft。系统保持 disabled/fail-closed；可信 TLS 的 REL-001 仓库候选当前进行中，仍未部署或通过正式域名/严格 CA 门禁。
+> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并并部署到内部验收环境。Fidelity-C5/C5a 仍无 accepted environment lane，六项 blocker 与 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0–5、Post-stage 作品库、素材中心/移动收口及 Issue #254 视觉与交互升级已由 PR #255 合并进入 `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`，但该 head 尚未部署、连接 Provider 或完成客户验收。PR #253 公共人物缩略图同步是独立 Draft。系统保持 disabled/fail-closed；可信 TLS 与每日备份的 REL-001 仓库候选当前进行中，仍未部署/安装或通过正式域名/严格 CA 门禁。
 
 ## 1. 已完成基线
 
@@ -34,7 +34,7 @@ P0.1  云端飞影登录并证明 Profile 重启保留（已完成）
 P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成）
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
 P0.4  3 条严格串行、受控内部试运行（已完成）
-P0.5  release-readiness：REL-001 仓库 TLS 候选（固定 Host、loopback health、保守 HSTS）已完成测试，仍未合并/部署；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
+P0.5  release-readiness：REL-001 仓库 TLS 与每日备份候选（固定 Host、loopback health、保守 HSTS、systemd daily+Persistent）已完成测试，仍未合并/部署/安装；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
 UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到内部验收环境）
     → 内部问题审计（已完成）→ 定向外部工作台研究（已完成）
     → V2 独立设计合同（#174，已完成）

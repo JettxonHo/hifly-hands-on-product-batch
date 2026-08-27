@@ -28,6 +28,7 @@
   最新 `hifly-20260824T132240Z.dump` 已在无网络的独立 PostgreSQL 15 临时容器完整恢复出 92 张 public tables 与 13 个 migration ledger，
   临时容器/volume 已精确删除，生产服务未停止或改变。当前仍缺自动/异机备份、监控告警、主机防火墙与 SSH 最小权限收口；
   `ufw` inactive，SSH 为 key-only 但允许 root、X11 与 TCP forwarding。本轮 Hifly=0、points=0、无部署、无生产业务写入、无 Worker/Local Agent。
+  REL-001 同时新增每日数据库备份的 systemd 仓库候选（service/timer/runner），但尚未安装、enable、start 或做真实备份验收；当前主机仍无该 timer/cron。
 
 ## Issue #254 单任务工作区视觉与交互升级
 

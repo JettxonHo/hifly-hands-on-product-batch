@@ -4,7 +4,7 @@
 
 - 固定 base：`4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`
 - 工作分支：`codex/rel-001-trusted-tls`
-- 本轮只触及 REL-001 allowlist：Nginx 模板、Production Compose、两组生产测试、发布清单、当前状态、Roadmap 和本接力记录。
+- 本轮只触及 REL-001 allowlist：Nginx 模板、Production Compose、生产测试、systemd 每日备份候选、发布清单、当前状态、Roadmap 和本接力记录。
 - 这是仓库候选，不是部署动作。Owner 后续允许域名以外的生产化工作，因此完成了一次严格只读 SSH 审计和隔离备份恢复演练；没有部署、重启或修改生产服务，没有访问 Hifly/Provider、创建任务或消耗积分（Hifly=0，points=0），没有启动 Cloud Executor、Worker 或 Local Agent。
 
 ## 合同实现
@@ -58,6 +58,45 @@ Compose 使用 `POSTGRES_PASSWORD` 的一次性非敏感占位值和 `PUBLIC_HOS
 
 当前部署仍是 IP + 自签证书的内部试运行；本轮没有替换其配置、证书或流量，也没有声称严格 CA、浏览器信任、正式域名 DNS 或 HTTP→HTTPS 已在公网运行。Owner 明确表示备案尚未完成，域名相关部署暂不执行；待备案、正式域名、DNS 与可信证书条件具备后，再按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 安排维护窗口和发布验收。
 候选中的 HSTS 只能与正式可信证书在同一维护窗口部署；不得先部署到当前自签 IP 入口，也不得用关闭严格 CA 校验替代证书验收。
+
+## 每日数据库备份仓库候选 RED → GREEN
+
+固定 base 在加入备份 seam 后先运行：
+
+```text
+node --test test/production-deployment.test.js
+6 pass / 1 fail
+```
+
+唯一失败为三个 systemd 候选文件尚不存在（`ENOENT deploy/systemd/hifly-pilot-backup.service`）。实现后：
+
+```text
+node --test test/production-deployment.test.js
+8 pass / 0 fail
+sh -n deploy/systemd/run-hifly-backup.sh
+PASS
+git diff --check
+PASS
+```
+
+与既有生产启动门禁合并运行的 focused 结果为 `23 pass / 0 fail`。
+
+行为测试使用临时 PATH fake `docker` 实际 spawn runner：backup 返回非零时只发生一次 app exec 且不会进入校验；校验返回非零时两次 app exec 后整体返回该错误；全绿时恰好两次固定 Compose `exec -T app`。临时 fake 文件在测试结束后清理，不接触生产容器或数据库。
+
+Review 收紧 service 不拉起 Docker、取消静默 `ConditionPathExists`，并改为每轮 exact artifact 后，旧候选在同一测试 seam 为 `6 pass / 2 fail`；修复后回到 `8 pass / 0 fail`。
+
+service 固定 `/opt/hifly-pilot`，仅在 Docker 排序之后运行（不由 timer 拉起 Docker），设置 `UMask=0077`、
+`NoNewPrivileges=true` 和 `TimeoutStartSec=900s`；timer 使用 `OnCalendar=daily`、`Persistent=true`、
+`RandomizedDelaySec=15m`。runner 每次生成唯一 `/var/backups/hifly/hifly-systemd-<UTC timestamp>-<pid>.dump`，
+在既有 `app` 容器内显式 `umask 077` 后执行 `npm run db:backup -- --output <exact path>`，再在同一容器对该 exact
+路径运行 `pg_restore --list`，不含删除/保留清理、上传、直接生产连接或自动重试。
+容器内 `umask 077` 的目标是让新建 dump 按常规 `0666 & ~umask` 形成 `0600`，不改变既有 volume 或历史备份权限。
+
+对当前生产 App 容器做的只读版本检查记录 `find (GNU findutils) 4.9.0` 与 `pg_restore (PostgreSQL) 15.18`；exact-path runner 不依赖目录扫描，
+仅使用后者做归档校验；本次检查没有运行备份、读取数据库内容或修改服务。
+
+本轮只做仓库候选和静态/语法验证；没有在服务器安装、enable、start 或运行该 timer，没有生成/恢复生产备份。
+当前主机无该 timer/cron 的事实仍保持；正式域名、DNS、可信证书和严格 CA 仍 deferred。
 
 2026-08-27 对当前公网入口 `8.163.60.0` 的无登录只读复核进一步确认：
 

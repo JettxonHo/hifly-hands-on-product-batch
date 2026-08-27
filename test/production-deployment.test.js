@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { readFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { restoreProductionDatabase } from "../scripts/restore-production-db.mjs";
 
 import {
@@ -216,4 +220,126 @@ test("production package and container contracts are explicit and isolated", asy
   const gitignore = await readFile(new URL("../.gitignore", import.meta.url), "utf8");
   assert.match(gitignore, /^\.env$/m);
   assert.match(gitignore, /^!\.env\.example$/m);
+});
+
+test("daily database backup candidate is bounded, app-container-only, and non-destructive", async () => {
+  const servicePath = new URL("../deploy/systemd/hifly-pilot-backup.service", import.meta.url);
+  const timerPath = new URL("../deploy/systemd/hifly-pilot-backup.timer", import.meta.url);
+  const scriptPath = new URL("../deploy/systemd/run-hifly-backup.sh", import.meta.url);
+  const service = await readFile(servicePath, "utf8");
+  const timer = await readFile(timerPath, "utf8");
+  const script = await readFile(scriptPath, "utf8");
+
+  assert.match(service, /^\[Unit\]/m);
+  assert.match(service, /^After=docker\.service$/m);
+  assert.doesNotMatch(service, /^(?:Requires|Wants|BindsTo)=/m, "timer must not pull Docker or restart containers");
+  assert.doesNotMatch(service, /^ConditionPathExists=/m, "missing paths must fail the runner, not silently skip the timer");
+  assert.match(service, /^WorkingDirectory=\/opt\/hifly-pilot$/m);
+  assert.match(service, /^ExecStart=\/opt\/hifly-pilot\/deploy\/systemd\/run-hifly-backup\.sh$/m);
+  assert.match(service, /^Type=oneshot$/m);
+  assert.match(service, /^UMask=0077$/m);
+  assert.match(service, /^NoNewPrivileges=true$/m);
+  assert.match(service, /^TimeoutStartSec=900s$/m);
+
+  assert.match(timer, /^OnCalendar=daily$/m);
+  assert.match(timer, /^Persistent=true$/m);
+  assert.match(timer, /^RandomizedDelaySec=15m$/m);
+  assert.match(timer, /^Unit=hifly-pilot-backup\.service$/m);
+
+  assert.match(script, /^#!\/bin\/sh$/m);
+  assert.match(script, /^set -eu$/m);
+  assert.match(script, /backup_path="\/var\/backups\/hifly\/hifly-systemd-\$\(date -u \+%Y%m%dT%H%M%SZ\)-\$\$\.dump"/);
+  assert.match(script, /docker compose[\s\S]*-f "?\/opt\/hifly-pilot\/docker-compose\.production\.yml"?[\s\S]*exec -T app sh -ceu/);
+  assert.match(script, /umask 077[\s\S]*exec npm run db:backup -- --output "\$1"[\s\S]*backup "\$backup_path"/);
+  assert.match(script, /docker compose[\s\S]*-f "?\/opt\/hifly-pilot\/docker-compose\.production\.yml"?[\s\S]*exec -T app pg_restore --list "\$backup_path"/);
+  assert.doesNotMatch(script, /\b(?:find|ls|sort|sed|latest)\b|\/var\/backups\/hifly\/\*\.dump/);
+  assert.doesNotMatch(script, /\b(?:rm|rmdir|delete|prune|upload|scp|rsync|curl|wget|pg_dump|psql)\b/i);
+  assert.doesNotMatch(script, /(?:docker\s+cp|docker\s+push|DATABASE_URL|postgresql:\/\/)/i);
+  if (process.platform !== "win32") assert.ok((await stat(scriptPath)).mode & 0o111, "backup runner must be executable");
+});
+
+test("daily backup runner stops on backup or validation failure and runs exactly two app execs on success", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("runner contract requires a POSIX shell");
+    return;
+  }
+
+  const runner = fileURLToPath(new URL("../deploy/systemd/run-hifly-backup.sh", import.meta.url));
+  const fakeDockerSource = [
+    "#!/bin/sh",
+    "set -eu",
+    "count=0",
+    'if [ -f "$FAKE_DOCKER_COUNT" ]; then count="$(cat "$FAKE_DOCKER_COUNT")"; fi',
+    "count=$((count + 1))",
+    'printf "%s\\n" "$count" > "$FAKE_DOCKER_COUNT"',
+    'printf "%s\\n" "$count" >> "$FAKE_DOCKER_LOG"',
+    '[ "$1" = "compose" ]',
+    '[ "$2" = "-p" ]',
+    '[ "$3" = "hifly-pilot" ]',
+    '[ "$4" = "-f" ]',
+    '[ "$5" = "/opt/hifly-pilot/docker-compose.production.yml" ]',
+    '[ "$6" = "exec" ]',
+    '[ "$7" = "-T" ]',
+    '[ "$8" = "app" ]',
+    'if [ "$count" -eq 1 ]; then',
+    '  [ "$9" = "sh" ]',
+    '  [ "${10:-}" = "-ceu" ]',
+    '  printf "%s" "${11:-}" | grep -F "umask 077" >/dev/null',
+    "  printf \"%s\" \"${11:-}\" | grep -F 'exec npm run db:backup -- --output \"$1\"' >/dev/null",
+    '  [ "${12:-}" = "backup" ]',
+    '  backup_path="${13:-}"',
+    '  case "$backup_path" in /var/backups/hifly/hifly-systemd-????????T??????Z-[0-9]*.dump) ;; *) exit 65 ;; esac',
+    '  printf "%s\\n" "$backup_path" > "$FAKE_DOCKER_PATH"',
+    '  exit "${FAKE_BACKUP_EXIT:-0}"',
+    "fi",
+    '[ "$9" = "pg_restore" ]',
+    '[ "${10:-}" = "--list" ]',
+    '[ "${11:-}" = "$(cat "$FAKE_DOCKER_PATH")" ]',
+    'exit "${FAKE_VALIDATE_EXIT:-0}"'
+  ].join("\n");
+
+  async function run({ backupExit = 0, validateExit = 0 } = {}) {
+    const root = await mkdtemp(path.join(os.tmpdir(), "hifly-backup-run-"));
+    const fakeDocker = path.join(root, "docker");
+    const countFile = path.join(root, "count");
+    const logFile = path.join(root, "calls");
+    const pathFile = path.join(root, "backup-path");
+    try {
+      await writeFile(fakeDocker, `${fakeDockerSource}\n`, "utf8");
+      await chmod(fakeDocker, 0o755);
+      const result = await new Promise((resolve, reject) => {
+        const child = spawn(runner, [], {
+          cwd: root,
+          stdio: "ignore",
+          env: {
+            ...process.env,
+            PATH: `${root}${path.delimiter}${process.env.PATH || ""}`,
+            FAKE_DOCKER_COUNT: countFile,
+            FAKE_DOCKER_LOG: logFile,
+            FAKE_DOCKER_PATH: pathFile,
+            FAKE_BACKUP_EXIT: String(backupExit),
+            FAKE_VALIDATE_EXIT: String(validateExit)
+          }
+        });
+        child.once("error", reject);
+        child.once("close", (code, signal) => resolve({ code, signal }));
+      });
+      const calls = (await readFile(logFile, "utf8")).trim().split("\n").filter(Boolean);
+      return { ...result, calls };
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  const backupFailure = await run({ backupExit: 17 });
+  assert.equal(backupFailure.code, 17);
+  assert.deepEqual(backupFailure.calls, ["1"], "validation must not run after backup failure");
+
+  const validationFailure = await run({ validateExit: 23 });
+  assert.equal(validationFailure.code, 23);
+  assert.deepEqual(validationFailure.calls, ["1", "2"], "validation failure must still propagate after backup");
+
+  const success = await run();
+  assert.equal(success.code, 0);
+  assert.deepEqual(success.calls, ["1", "2"], "a successful run has exactly backup and validation app execs");
 });

@@ -35,6 +35,23 @@
 包含 HSTS 的 Nginx 候选必须与正式可信证书在同一维护窗口一次性部署；不得先把 HSTS 候选部署到当前
 IP 自签入口，也不得以关闭严格 CA 校验来代替正式证书验收。
 
+## 每日数据库备份仓库候选（尚未安装）
+
+同一 REL-001 分支另提供每日备份的 systemd 仓库候选：
+`hifly-pilot-backup.service`、`hifly-pilot-backup.timer` 和
+`run-hifly-backup.sh`。service 固定工作目录 `/opt/hifly-pilot`，仅在 Docker 排序之后运行（不由 timer
+拉起 Docker），使用 `UMask=0077`、`NoNewPrivileges=true` 和有界 `TimeoutStartSec=900s`；timer 使用 `OnCalendar=daily`、
+`Persistent=true` 与有限 `RandomizedDelaySec=15m`。
+
+脚本为每次运行生成唯一的 `/var/backups/hifly/hifly-systemd-<UTC timestamp>-<pid>.dump` 路径，在既有 Compose
+`app` 容器内显式 `umask 077` 后调用 `npm run db:backup -- --output <exact path>`，随后在同一容器对该 exact
+路径执行 `pg_restore --list`；任一步失败均返回非零。候选不包含删除/保留清理、
+外部上传或直接生产数据库连接。当前主机仍没有该 timer/cron；systemd 文件的安装、enable、start 及实际备份验收必须等待
+PR 合并和单独维护窗口授权，不能把仓库候选当作已部署自动备份。正式域名、DNS、可信证书与严格 CA 仍按上文门禁 deferred。
+容器内 `umask 077` 的目标是让新建 dump 按常规 `0666 & ~umask` 形成 `0600`，不改变既有 volume 或历史备份权限。
+当前生产 App 容器的只读兼容检查记录 `find (GNU findutils) 4.9.0` 与 `pg_restore (PostgreSQL) 15.18`；exact-path runner 不依赖目录扫描，
+仅使用后者做归档校验。该检查没有运行备份、读取数据库内容或修改服务。
+
 ## 1. Owner 前置输入
 
 开始签发前必须由 Owner 或部署负责人提供并确认：
