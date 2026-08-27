@@ -58,3 +58,16 @@ Compose 使用 `POSTGRES_PASSWORD` 的一次性非敏感占位值和 `PUBLIC_HOS
 
 当前部署仍是 IP + 自签证书的内部试运行；本轮没有替换其配置、证书或流量，也没有声称严格 CA、浏览器信任、正式域名 DNS 或 HTTP→HTTPS 已在公网运行。正式域名、DNS、可信证书、维护窗口和 SSH/部署授权仍需由 Owner/部署负责人另行提供后，按 `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md` 验收。
 候选中的 HSTS 只能与正式可信证书在同一维护窗口部署；不得先部署到当前自签 IP 入口，也不得用关闭严格 CA 校验替代证书验收。
+
+2026-08-27 对当前公网入口 `8.163.60.0` 的无登录只读复核进一步确认：
+
+- `http://8.163.60.0/healthz` 返回 200 且没有 HTTPS redirect；`https://8.163.60.0/healthz` 只有在跳过证书校验时返回 200，
+  严格校验为 curl 60 / verify result 18。
+- 证书 subject 与 issuer 均为 `CN=8.163.60.0`，有效期为 2026-08-09 至 2026-09-08，属于自签证书；公网响应没有 HSTS。
+- 公网 `works.js`、`works.css`、`works.html`、`assets.js`、`assets.css`、`assets.html` 六个文件的字节 SHA-256
+  逐项精确匹配 `8787b60c82f928a1277467b95868ae47d011ec64`，并逐项不同于当前
+  `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`。`workspace.html`、`workspace.css` 与各 Stage workspace 脚本在公网均为 404，
+  与旧提交中尚无单任务工作区资源一致。
+
+这组证据只证明当前公网静态 Web bundle 与 `8787b60c` 一致，不能单独证明后端进程、数据库 migration、Worker、Profile 或 volume
+的精确运行版本；但足以排除 `main@4ae506e` 和本 PR 已经部署的误判。全程没有 SSH、身份登录或生产写入。
