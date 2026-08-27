@@ -1,8 +1,8 @@
 # 项目当前状态
 
 > 最后更新：2026-08-27
-> 当前 Goal：REL-001 可信 TLS 仓库门禁
-> 当前结论：Stage 0–5、Post-stage 作品库与素材中心/移动收口及 Issue #254 视觉与交互升级已由 PR #255 合并进入 `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`，但该 head 尚未部署、连接真实 Provider 或完成客户验收。PR #253 公共人物缩略图同步仍为独立 Draft，不属于本 Goal。REL-001 当前只形成可信 TLS 仓库候选；Fidelity 环境 blocker、MBL 后生产化和正式域名/严格 CA 仍保持原边界。
+> 当前 Goal：REL-001 可信 TLS 与每日备份仓库门禁
+> 当前结论：Stage 0–5、Post-stage 作品库与素材中心/移动收口及 Issue #254 视觉与交互升级已由 PR #255 合并进入 `main@4ae506e2250d0b0e457ab4d10d3c8c8d11550b76`，但该 head 尚未部署、连接真实 Provider 或完成客户验收。PR #253 公共人物缩略图同步仍为独立 Draft，不属于本 Goal。REL-001 当前形成可信 TLS 与每日备份仓库候选，并完成当前旧部署既有 Work 的登录鉴权下载复验；Fidelity 环境 blocker、MBL 后其余生产化和正式域名/严格 CA 仍保持原边界。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
@@ -26,9 +26,12 @@
   Owner 已允许继续域名以外的生产化工作；严格只读 SSH 确认服务器 Git 与 App OCI revision 均为精确 `8787b60c`、工作树干净，
   app/postgres/proxy healthy 且零重启，Cloud Executor 容器不存在，Local Agent/Cloud Executor 均 disabled、执行器 fail-closed。
   最新 `hifly-20260824T132240Z.dump` 已在无网络的独立 PostgreSQL 15 临时容器完整恢复出 92 张 public tables 与 13 个 migration ledger，
-  临时容器/volume 已精确删除，生产服务未停止或改变。当前仍缺自动/异机备份、监控告警、主机防火墙与 SSH 最小权限收口；
-  `ufw` inactive，SSH 为 key-only 但允许 root、X11 与 TCP forwarding。本轮 Hifly=0、points=0、无部署、无生产业务写入、无 Worker/Local Agent。
+  临时容器/volume 已精确删除，生产服务未停止或改变。当前仍缺已部署的自动/异机备份、监控告警、主机防火墙与 SSH 最小权限收口；
+  `ufw` inactive，SSH 为 key-only 但允许 root、X11 与 TCP forwarding。本轮 Hifly=0、points=0、无部署、无生产业务状态写入、无 Worker/Local Agent。
   REL-001 同时新增每日数据库备份的 systemd 仓库候选（service/timer/runner），但尚未安装、enable、start 或做真实备份验收；当前主机仍无该 timer/cron。
+  Owner 手动登录后，对既有 Work `80958749-9f92-40e6-a30e-7c886b555ef6` 的短时下载授权为 POST 201；Proxy 记录完整 GET 200、
+  发送 `43,425,097` bytes。输出卷源文件只读复核为同一大小，SHA-256 为
+  `0becaab1076a8af1124ed4f10f8eac5fc93b21d41af3adb8db5b59213f1ab96b`；页面仍为待检查、尚无交付记录。
 
 ## Issue #254 单任务工作区视觉与交互升级
 
