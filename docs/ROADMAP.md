@@ -1,14 +1,22 @@
 # 项目 Roadmap
 
 > 最后更新：2026-08-29
-> 当前状态：RBV-GOAL-001 / Issue #259 仅处于 Stage 1「合同与人工门禁」；`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 为唯一执行合同，D-037 为对应产品决策。真实 Calibration 与批次运行尚未获 Owner Gate，Provider/飞影/积分/生产部署保持 fail-closed。
+> 当前状态：RBV-GOAL-001 / Issue #261 `Readiness Freeze` active（Stage 1「合同与人工门禁」已完成历史）；`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 为唯一执行合同，D-037 为对应产品决策，当前记录为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`。真实 Calibration 与批次运行尚未获 Owner Gate，Provider/飞影/积分/生产部署保持 fail-closed；唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。
 
-## RBV-001 Stage 1 路线门禁（2026-08-29）
+## RBV-002 Calibration Readiness Freeze 路线门禁（2026-08-29）
 
-- Goal：[`RBV-GOAL-001`](../GOAL.md)；Decision：[`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)；Pilot Contract：[`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)。三者构成当前唯一事实链，CURRENT 与 PROJECT_HANDOFF 只引用同一链路。
-- Stage 1 只建立合同、自动治理测试与人工门禁，不运行真实 Provider，不填写或伪造 roster、素材权利、非作者运营、成本、运行、发布或反馈证据。
+- Goal：[`RBV-GOAL-001`](../GOAL.md)；Decision：[`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)；Pilot Contract：[`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)；Readiness Record：[`RBV_CALIBRATION_READINESS_FREEZE.md`](status/RBV_CALIBRATION_READINESS_FREEZE.md)。当前唯一 active stage 为 `Readiness Freeze`，Stage 1 已完成历史。
+- `RBV-CAL-001` 冻结 5 个 SKU 的 source-aligned identity、fixture 分离、素材元数据、网页图片权利、人工目标、候选人物、Provider 输入、预算、Evidence alias/relative ref 与 Stop Rules；五个 SKU 均为 `BLOCKED`，唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。
+- Owner facts 固定为 `OP-CAL-001`、batch cap `6000`、per SKU `1200`、concurrency `1`、`automatic_retry=false`、2026-08-29 / `Asia/Shanghai` / Owner confirmation → `23:59:59+08:00`。上限是 maximum exposure，不是 spend authorization；non-author operator 仍 `pending`，不阻塞 Calibration readiness 但阻塞 Repeatable。
+- 候选人物仅使用 alias `RBV_PRIVATE_EVIDENCE_ROOT` 与 relative ref；人物内部/Provider 上传权限、登录/runtime、上游商品/文案/人物/方案/订单 readiness 均未授权或未核验。Evidence 目录只在 Git 外保留 mode `0700` 空骨架，不产生真实运行 evidence。
+- 不运行 Provider/Hifly，不登录、上传、生成、下载、创建 ProductionOrder/attempt、部署、发布或消耗积分；现有 Playwright 直接人物+商品上传仅为工程 baseline。独立 Reviewer 与 Owner Gate 前保持 fail-closed。
+
+## 历史：RBV-001 Stage 1 路线门禁（2026-08-29）
+
+- 本段为 Stage 1 的历史路线门禁。Goal：[`RBV-GOAL-001`](../GOAL.md)；Decision：[`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)；Pilot Contract：[`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)。三者仍构成事实链，CURRENT 与 PROJECT_HANDOFF 只引用同一链路。
+- Stage 1 只建立合同、自动治理测试与人工门禁，不运行真实 Provider，不填写或伪造 roster、素材权利、非作者运营、成本、运行、发布或反馈证据；该阶段已完成历史。
 - 后续顺序固定为：Owner 提供并确认 Calibration roster/权利/非作者运营者/积分与成本上限/登录窗口/证据脱敏规则 → 独立 Reviewer `APPROVED` → Draft PR 停在 Owner Gate → 获得逐动作授权后才可另开后续 Calibration。成本不合理必须停门，不得缩样；真实业务完成还需可复现至少 10 条、连续 5 条作业无生产代码修改、非作者第二批及真实视频交付/展示/运营使用。
-- 文档、测试、fixture/fake/mock/controlled provider/本地 demo 仅是工程证据，不能把 MBL 或 RBV 标记完成。任何飞影、Provider、Secret、积分、客户素材、公开发布、生产部署或破坏性操作均保持 fail-closed。
+- 文档、测试、fixture/fake/mock/controlled provider/本地 demo 仅是工程证据，不能把 MBL 或 RBV 标记完成。任何飞影、Provider、Secret、积分、客户素材、公开发布、生产部署或破坏性操作均保持 fail-closed；这些规则继续约束当前 Readiness Freeze。
 
 ## 1. 已完成基线
 

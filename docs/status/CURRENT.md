@@ -1,19 +1,28 @@
 # 项目当前状态
 
 > 最后更新：2026-08-29
-> 当前 Goal：RBV-GOAL-001 / Issue #259 Real Batch Production Validation（仅 Stage 1）
-> 当前结论：Stage 1 只固化 Pilot Contract 与人工门禁；Calibration roster、素材权利、非作者运营者、积分/成本上限、登录窗口及证据脱敏规则均待 Owner Gate，未运行真实 Provider、未消耗积分、未发布或部署。下游文档统一引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`，不得把文档、测试或代码宣称为 MBL/RBV 完成。
+> 当前 Goal：RBV-GOAL-001 / Issue #261 RBV-002 Calibration Readiness Freeze（Stage 1 已完成历史）
+> 当前阶段：Readiness Freeze；当前结论：`RBV-CAL-001` 五个 SKU 均为 `BLOCKED`，唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。仅登记脱敏事实与证据边界，不运行真实 Provider、未消耗积分、未发布或部署。当前记录为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，下游文档统一引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
 
-## Issue #259 RBV-001 Stage 1：合同与人工门禁（2026-08-29）
+## Issue #261 RBV-002 Calibration Readiness Freeze（2026-08-29）
 
-- 唯一现行 Goal 为 [`RBV-GOAL-001`](../../GOAL.md)，产品决策为 [`D-037`](../../docs/product/DECISION_LOG.md#d-037-real-batch-production-validation)，执行合同为 [`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](../../docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)。旧 P0 Goal 仅保留在 [`docs/status/archive/GOAL-cloud-executor-p0-complete-2026-08-13.md`](archive/GOAL-cloud-executor-p0-complete-2026-08-13.md) 作为历史事实。
-- 当前只激活 Stage 1。合同锁定 3–5 个真实或已授权去标识化商品、至少 2 个品类、至少 1 次人工修正；不预设成功率。后续真实批次须达到可复现的至少 10 条，连续 5 条作业期间不得修改生产代码；成本不合理时停在 Owner Gate，不得自行缩样。
-- 在真实运行前，Owner 必须逐项确认 Calibration roster、每个素材的权利/用途/留存与脱敏、非作者运营者、可接受积分/成本上限、允许登录窗口及证据红线。当前没有 roster、素材、成本、运行、发布或反馈结果可记录。
-- 真实业务门禁还要求至少一名非作者运营者启动第二批，以及至少一条真实视频已交付、展示或用于运营；fixture/fake/mock/controlled provider/本地 demo 只能作为工程证据。Provider、飞影、Secret、积分、客户素材、公开发布、生产部署与破坏性操作均 fail-closed，按动作等待 Owner 明确授权。
-- Stage 1 验收要求独立 Reviewer 标记 `APPROVED`；实现者不得自审或批准。Draft PR 在 Owner Gate 停止，不合并、不开始 Calibration。治理测试、验证结果和本轮边界记录在 [`2026-08-29-rbv-001-calibration-contract.md`](sessions/2026-08-29-rbv-001-calibration-contract.md)。
+- 唯一现行 Goal 为 [`RBV-GOAL-001`](../../GOAL.md)；Stage 1 合同与人工门禁（Issue #259 / PR #260）已完成历史。当前 Readiness Freeze 记录为 [`RBV_CALIBRATION_READINESS_FREEZE.md`](RBV_CALIBRATION_READINESS_FREEZE.md)，唯一结论 `BLOCKED_PRE_REAL_RUN`。
+- `RBV-CAL-001` 冻结 `SKU-CAL-001` ～ `SKU-CAL-005` 的 source-aligned identity、fixture 分离、图片数量/格式/尺寸/构图、网页图片权利、人工目标、候选人物、Provider 输入、`max_points=1200`、Evidence alias/relative ref 与逐 SKU blocker；五项 gate status 均为 `BLOCKED`。
+- Owner facts：`OP-CAL-001`、batch hard cap `6000`、per SKU `1200`、concurrency `1`、`automatic_retry=false`、日期 `2026-08-29`、时区 `Asia/Shanghai`、窗口 Owner confirmation → `23:59:59+08:00`。上限是最大暴露，不是消费授权；non-author operator 继续 `pending`，不阻塞 Calibration readiness 但阻塞 Repeatable。
+- 候选人物只引用 `RBV_PRIVATE_EVIDENCE_ROOT/avatar/rbv-avatar-placeholder-frontend-v1.png`；PNG `1122x1402`、`1666036` bytes、mode `0600`、SHA-256 `0887c7e4748caf2f9735e7d7d1afd6788d2f3b6e4d3a9a53a9c88f1767093b10`，文件与七个 Evidence 目录骨架均在 Git 外。内部/Provider 上传权限与 live upload 未授权；不创建 Hifly avatar。
+- 当前 real run 另受 `LOGIN_RUNTIME_UNVERIFIED`、`UPSTREAM_PRODUCT_FACTS_UNVERIFIED`、`UPSTREAM_COPY_NOT_VERIFIED`、`AVATAR_SELECTION_NOT_VERIFIED`、`VIDEO_PLAN_NOT_VERIFIED`、`ORDER_READINESS_NOT_VERIFIED`、`PERSON_INTERNAL_UPLOAD_PERMISSION_UNAUTHORIZED`、`PROVIDER_UPLOAD_GENERATE_UNAUTHORIZED`、`POINTS_SPEND_UNAUTHORIZED` 阻塞。现有 Playwright 直接人物+商品上传仅是工程基线；不创建 ProductionOrder/attempt，不登录、上传、生成、下载或消耗积分。
+- 本轮不修改 UI/API/DB/Cloud Executor，不访问 Provider/Hifly，不部署、不发布；Evidence 目录 mode `0700` 且无真实 evidence。独立 Reviewer 与 Owner Gate 前保持停止。
+
+## 历史：Issue #259 RBV-001 Stage 1：合同与人工门禁（2026-08-29）
+
+- 当时唯一现行 Goal 为 [`RBV-GOAL-001`](../../GOAL.md)，产品决策为 [`D-037`](../../docs/product/DECISION_LOG.md#d-037-real-batch-production-validation)，执行合同为 [`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](../../docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)。该 Stage 1 快照现为历史；旧 P0 Goal 仅保留在 [`docs/status/archive/GOAL-cloud-executor-p0-complete-2026-08-13.md`](archive/GOAL-cloud-executor-p0-complete-2026-08-13.md) 作为历史事实。
+- Stage 1 合同锁定 3–5 个真实或已授权去标识化商品、至少 2 个品类、至少 1 次人工修正；不预设成功率。后续真实批次须达到可复现的至少 10 条，连续 5 条作业期间不得修改生产代码；成本不合理时停在 Owner Gate，不得自行缩样。上述规则继续约束当前 Readiness Freeze。
+- 当时真实运行前，Owner 必须逐项确认 Calibration roster、每个素材的权利/用途/留存与脱敏、非作者运营者、可接受积分/成本上限、允许登录窗口及证据红线；当时没有 roster、素材、成本、运行、发布或反馈结果可记录。
+- 当时真实业务门禁还要求至少一名非作者运营者启动第二批，以及至少一条真实视频已交付、展示或用于运营；fixture/fake/mock/controlled provider/本地 demo 只能作为工程证据。Provider、飞影、Secret、积分、客户素材、公开发布、生产部署与破坏性操作均 fail-closed，按动作等待 Owner 明确授权。
+- Stage 1 历史验收要求独立 Reviewer 标记 `APPROVED`；实现者不得自审或批准。Draft PR 在 Owner Gate 停止，不合并、不开始 Calibration。治理测试、验证结果和本阶段边界记录在 [`2026-08-29-rbv-001-calibration-contract.md`](sessions/2026-08-29-rbv-001-calibration-contract.md)。
 
 ## REL-001 可信 TLS 仓库门禁（已合并，未部署，2026-08-27）
 
@@ -537,6 +546,8 @@
 
 ## 历史：P0.5 内部验收环境部署（2026-08-13）
 
+- `docs/product/CLOUD_EXECUTOR_P0.md` 是已完成 P0 的历史合同（非现行），仅作为历史事实查阅。
+
 - 2026-08-13 将内部验收环境从 `main@40e92414d4ef4a4015da9bb3f709f775c67843b6`
   更新到精确 `main@5e449021eee6802b51a220009a8a3620d9bd40f4`；服务器 Git 工作树保持 clean。
 - 因阿里云到 GitHub 的直连历史不稳定，本次使用本地验证过、仅包含 `40e9241..5e449021` 的 Git bundle
@@ -671,11 +682,11 @@
 ## 权威文档与恢复顺序
 
 1. `AGENTS.md`：范围、积分、文件和协作安全门禁。
-2. `GOAL.md`、`docs/product/DECISION_LOG.md`（D-037）、`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`：RBV-GOAL-001 Stage 1 当前合同与门禁。
-3. `docs/product/CLOUD_EXECUTOR_P0.md`：历史 P0 合同和完成定义（非现行权威）。
-4. `docs/ROADMAP.md`：RBV-GOAL-001 Stage 1 当前路线与后续 Owner Gate。
-5. 本文件：当前 RBV-001 状态；历史过程见 archive 和 sessions。
-6. `docs/PROJECT_HANDOFF.md`：接力背景，不能覆盖当前 Goal。
+2. `GOAL.md`、`docs/product/DECISION_LOG.md`（D-037）、`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`：RBV-GOAL-001 当前 Readiness Freeze 合同与门禁；Stage 1 合同与人工门禁已完成历史。
+3. `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`：Issue #261 当前 Readiness Freeze record、五 SKU 状态、Evidence alias 和唯一 verdict `BLOCKED_PRE_REAL_RUN`。
+4. `docs/ROADMAP.md`：RBV-GOAL-001 当前 Readiness Freeze roadmap 与后续 Owner Gate。
+5. 本文件：当前 RBV-002 状态；历史 Stage 1、P0 与过程见 archive 和 sessions。
+6. `docs/PROJECT_HANDOFF.md`：接力背景，不能覆盖当前 Goal 或 Readiness Freeze record。
 
 ## 历史：里程碑状态（P0）
 

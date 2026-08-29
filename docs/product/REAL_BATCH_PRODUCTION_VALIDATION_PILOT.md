@@ -1,21 +1,24 @@
 # RBV-001 Real Batch Production Validation Pilot Contract
 
-> 状态：`STAGE_1_CONTRACT_PENDING_OWNER_GATE`
+> 状态：`CALIBRATION_READINESS_FREEZE_BLOCKED_PRE_REAL_RUN`
 > Goal：[RBV-GOAL-001](../../GOAL.md)
 > Goal ID：`RBV-GOAL-001`
 > 产品决策：[D-037](DECISION_LOG.md#d-037-real-batch-production-validation)
-> 适用阶段：Stage 1「合同与人工门禁」
+> 适用阶段：`Readiness Freeze`（Issue #261 / `RBV-CAL-001`）
+> Stage 1「合同与人工门禁」：已完成历史（Issue #259 / PR #260）
+> 当前 Readiness Record：[RBV_CALIBRATION_READINESS_FREEZE.md](../status/RBV_CALIBRATION_READINESS_FREEZE.md)
 
-本文件是 Real Batch Production Validation（RBV-001）的执行合同，不是运行报告，也不是完成声明。它只定义后续真实验证必须满足的条件；当前没有登记 Calibration roster、没有授权真实运行，也没有产生新的 Provider、成本、发布或反馈证据。
+本文件是 Real Batch Production Validation（RBV-001）的执行合同，不是运行报告，也不是完成声明。它只定义后续真实验证必须满足的条件；当前已登记脱敏 Readiness Freeze roster 与元数据，但五个 SKU 均为 `BLOCKED`；没有授权真实运行，也没有产生新的 Provider、成本、发布或反馈证据。唯一当前 verdict 为 `BLOCKED_PRE_REAL_RUN`。
 
 ## 1. 权威链与术语
 
 唯一事实链为：
 
 ```text
-GOAL.md (RBV-GOAL-001, Stage 1)
+GOAL.md (RBV-GOAL-001, Readiness Freeze)
   → D-037 (docs/product/DECISION_LOG.md)
   → 本 Pilot Contract
+  → docs/status/RBV_CALIBRATION_READINESS_FREEZE.md (RBV-CAL-001)
   → docs/status/CURRENT.md / docs/ROADMAP.md / docs/PROJECT_HANDOFF.md
 ```
 
@@ -26,7 +29,7 @@ GOAL.md (RBV-GOAL-001, Stage 1)
 | contract_key | locked_value |
 |---|---|
 | goal_id | RBV-GOAL-001 |
-| active_stage | Stage 1 |
+| active_stage | Readiness Freeze |
 | calibration_roster_count | 3–5 |
 | calibration_categories_min | 2 |
 | calibration_manual_correction_min | 1 |
@@ -37,7 +40,7 @@ GOAL.md (RBV-GOAL-001, Stage 1)
 | consecutive_jobs_without_production_code_changes | 5 |
 | owner_authorization_per_real_run | true |
 | production_provider_access | fail_closed |
-| contract_status | pending_owner_gate |
+| contract_status | readiness_freeze_active_blocked |
 
 这些数字是合同阈值，不是已经完成的样本数量、成功率或成本统计。任何低于阈值的样本都只能报告为未满足门禁，不能通过重写文档、缩小样本或替换为测试替身来宣称通过。
 
@@ -79,15 +82,15 @@ If cost is unreasonable, stop at Owner Gate; do not shrink the sample or reuse a
 
 每一次真实动作都需要当次 Owner 授权并记录安全摘要；一次授权不延续到下一批次、下一 SKU 或下一阶段。任何授权缺失、成本上限不明、登录态不明、证据脱敏失败或首失败，都必须停止，不得替换 Provider、重试或扩大范围。
 
-## 7. Stage 1 Acceptance 与停止条件
+## 7. Stage 1 Acceptance 与停止条件（历史已完成）
 
-Stage 1 只交付治理合同：
+Stage 1 只交付治理合同，现已完成并保留为历史；本节规则继续约束当前 Readiness Freeze：
 
 1. 旧 P0 `GOAL.md` 原事实保存在只读归档，并保留 `GOAL_COMPLETE`；新的 `GOAL.md` 是唯一现行 Goal，不静默改写旧历史。
 2. `GOAL.md → D-037 → 本 Pilot Contract → CURRENT / ROADMAP / HANDOFF` 的 Goal ID、合同链接和停止条件一致。
 3. 自动治理测试锁定本文件的 Goal ID、Calibration/Repeatable 阈值、非作者运营、真实交付/使用、连续 5 单不改生产代码和人工门禁。
 4. Draft PR 必须先经独立 Reviewer 审查并给出 `APPROVED`；实现 Agent 不得批准或合并自己的成果。
-5. Stage 1 完成后 Draft PR 停止，等待 Owner Gate；不合并、不激活 Calibration、不访问 Provider、不消耗积分。
+5. Stage 1 完成后 Draft PR 停止，等待 Owner Gate；不合并、不激活 Calibration、不访问 Provider、不消耗积分。当前 Readiness Freeze 仍按同一停止边界执行。
 
 Stage 1 的 `APPROVED` 是独立 Review 对治理变更的结论，不是 MBL、RBV、真实业务或生产就绪的结论。
 
@@ -102,7 +105,7 @@ Stage 1 的 `APPROVED` 是独立 Review 对治理变更的结论，不是 MBL、
 - 允许的真实登录窗口、Provider 范围、证据采集与脱敏规则；
 - 运行期间生产代码冻结和变更后的计数归零规则。
 
-在上述输入全部齐备并经 Owner 明确授权前，`contract_status` 保持 `pending_owner_gate`，不得填写真实 roster，不得开始 Calibration 或 Repeatable。
+在上述输入全部齐备并经 Owner 明确授权前，真实运行授权仍保持 `pending_owner_gate`；本轮 Readiness Freeze 只登记脱敏 roster 元数据，不得开始 Calibration 或 Repeatable。
 
 ## 9. Current Production Truth（历史基线，不是 RBV Calibration）
 
@@ -222,19 +225,23 @@ Evidence Package 是后续真实运行的脱敏交付结构，不是本阶段已
 
 Git 禁止项：`Secret`、`Profile`、`Token`、客户素材（customer materials）和 raw downloaded video 均不得进入 Git；同样不得提交 Cookie、未脱敏页面/日志、永久下载 URL、服务器路径或可还原凭据。原始下载视频只允许留在受控、获授权的外部保存边界，不是本仓库 Evidence Package。
 
-## 13. Issue / Stage map（串行、单一 active）
+## 13. Issue / Stage map（current）
 
-Stage 顺序固定为 `Contract → Readiness Freeze → Calibration Run → one blocker per Issue → Repeatable Readiness → Repeatable Run → Delivery/Report`。只有 Stage 1/Contract 当前 active；其余阶段均 deferred，必须在前置 Owner Gate、独立审查和可观测结果满足后逐项开启。
+Stage 顺序固定为 `Contract → Readiness Freeze → Calibration Run → one blocker per Issue → Repeatable Readiness → Repeatable Run → Delivery/Report`。Stage 1/Contract 已完成历史；当前仅激活 Readiness Freeze。其余阶段均 deferred，必须在前置 Owner Gate、独立审查和可观测结果满足后逐项开启。
 
 | stage_key | stage | status | observable_outcome |
 |---|---|---|---|
-| stage_contract | Contract | active | 合同参数、停止条件和治理测试可机器核对 |
-| stage_readiness_freeze | Readiness Freeze | deferred | roster、权利、预算、登录窗口和证据红线冻结 |
+| stage_contract | Contract | completed | 合同参数、停止条件和治理测试可机器核对（Stage 1 历史） |
+| stage_readiness_freeze | Readiness Freeze | active | RBV-CAL-001 roster、权利、预算、登录窗口和证据红线冻结 |
 | stage_calibration_run | Calibration Run | deferred | 每个授权商品有结果、人工修正和失败分类 |
 | stage_one_blocker_per_issue | one blocker per Issue | deferred | 每个 Issue 只有一个可观察 blocker outcome |
 | stage_repeatable_readiness | Repeatable Readiness | deferred | 至少 10 条批次、成本和代码 revision/streak 可核对 |
 | stage_repeatable_run | Repeatable Run | deferred | 串行运行、重试/恢复和逐条证据完整 |
 | stage_delivery_report | Delivery/Report | deferred | 真实视频交付/展示/运营使用及脱敏报告可追溯 |
+
+### Stage 1 historical contract snapshot（not current）
+
+上一阶段 Stage 1「合同与人工门禁」已完成并保留为历史，不改变 current map。历史合同状态为 completed；历史 Readiness Freeze、Calibration Run、one blocker per Issue、Repeatable Readiness、Repeatable Run 和 Delivery/Report 均为 deferred。该历史描述不是当前 stage schema，也不构成当前 active 或真实运行证据。
 
 每个 Issue 必须声明一个 observable outcome；不能把多个 blocker 收容在模糊的“整体完成”中。任一阶段失败或授权失效都停止在当前 Gate，不自动跳级、补跑或合并阶段。
 
