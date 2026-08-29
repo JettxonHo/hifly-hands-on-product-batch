@@ -10,8 +10,12 @@ function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), "utf8");
 }
 
-function readBytes(relativePath) {
-  return fs.readFileSync(path.join(root, relativePath));
+function normalizeCrlf(text) {
+  return text.replace(/\r\n/g, "\n");
+}
+
+function sha256Text(text) {
+  return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
 const goalPath = "GOAL.md";
@@ -37,8 +41,15 @@ test("RBV-001 establishes one current Goal and preserves the old Goal as an arch
   assert.doesNotMatch(goal, /^# 当前 Goal：P0 Cloud Executor 纯云端生产闭环/m);
   assert.match(archive, /^# 当前 Goal：P0 Cloud Executor 纯云端生产闭环/m);
   assert.match(archive, /GOAL_COMPLETE/);
-  const archiveSha256 = createHash("sha256").update(readBytes(archivePath)).digest("hex");
+  const archiveLfText = normalizeCrlf(archive);
+  const archiveSha256 = sha256Text(archiveLfText);
   assert.equal(archiveSha256, exactBaseGoalSha256, "archived Goal must preserve exact-base bytes");
+
+  const simulatedCrlfProjection = archiveLfText.replace(/\n/g, "\r\n");
+  assert.match(simulatedCrlfProjection, /\r\n/, "CRLF projection must exercise the Windows newline path");
+  const normalizedCrlfSha256 = sha256Text(normalizeCrlf(simulatedCrlfProjection));
+  assert.equal(normalizedCrlfSha256, exactBaseGoalSha256, "normalizing a CRLF archive must preserve the fixed LF hash");
+  assert.equal(normalizedCrlfSha256, archiveSha256, "LF and normalized-CRLF archive hashes must agree");
 });
 
 test("the Goal → D-037 → Pilot Contract → status chain uses canonical identifiers and links", () => {

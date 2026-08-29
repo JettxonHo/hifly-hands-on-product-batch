@@ -45,6 +45,12 @@ node --test test/real-batch-validation-governance.test.js
 - Reviewer 复核确认：CURRENT、ROADMAP 与 agent-collaboration 只保留 RBV-GOAL-001 Stage 1 为现行指针，旧 P0/CE-08/P0.5 内容明确为历史；D-037 heading 与所有 active anchor 一致；Pilot 数据 schema 覆盖本 Goal 要求且只能使用真实授权采集，未采集值保持 `unknown`/`pending`。
 - 该批准只覆盖 Issue #259 Stage 1 的治理候选，不代表 Calibration、Repeatable、MBL、RBV、真实交付或生产就绪完成。Draft PR 仍须停止在 Owner Gate。
 
+## Exact-head CI newline 修复循环（Windows RED → normalization）
+
+- Exact-head CI run `run33230035708` 的 Windows job `99041103439` 出现唯一失败：归档 Goal 的 worktree 字节因 CRLF 换行导致实际哈希前缀 `888aa0`，而固定 LF 期望哈希前缀为 `a3d2fc`；Ubuntu 与 `identity-postgres` jobs 为 green。主控已先在 Issue/PR 留下透明 checkpoint。
+- 修复仅限治理测试：先将归档文本的 CRLF 归一化为 LF 再计算固定 SHA-256；同时构造 CRLF 投影并断言归一化后的哈希与固定值及 LF 哈希一致，避免 Linux 换行环境假绿。旧标题和 `GOAL_COMPLETE` 断言保持不变。
+- 本轮修复后本地 targeted `15/15`、`npm run check`（249 JavaScript files）、`git diff --check`、exact-base archive `cmp` 与 allowlist（11 paths / outside=0）均通过；Exact-head CI 需在该修复上重跑，未提前宣称通过。
+
 ## Stage 1 合同事实
 
 - Calibration roster 只允许 3–5 个真实或已授权去标识化商品，至少 2 个品类、至少 1 次人工修正；不预设成功率，也不在本阶段填写商品、素材、权利或结果。
