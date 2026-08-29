@@ -87,7 +87,25 @@ Goal 级最终验收使用另一组状态：`GOAL_APPROVED`、`GOAL_APPROVED_WIT
 Agent 不可用时记录配置与运行时核验结果；未经 Owner 明确许可不得替换 `luna-worker`。环境失败要区分
 代码、测试、CI 和外部依赖。发生并行冲突时暂停受影响合并，由主控确定事实来源、接口归属和合并顺序。
 
-## 8. 当前分配
+## 8. 当前分配（RBV-001 Stage 1）
+
+```text
+当前 Goal：RBV-GOAL-001 / Issue #259 Real Batch Production Validation
+当前阶段：Stage 1 合同与人工门禁（STAGE_1_CONTRACT_PENDING_OWNER_GATE）
+当前 Decision：D-037（docs/product/DECISION_LOG.md#d-037-real-batch-production-validation）
+当前 Pilot Contract：docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md
+当前任务：只固化合同、治理测试和人工门禁；不运行 Provider/飞影、不消耗积分、不部署
+实现分支：codex/rbv-001-calibration-contract
+实现 Agent 请求配置：自定义 Agent luna-worker / gpt-5.6-luna / Max（docs-only）
+实现 Agent 配置状态：CONFIG_VERIFIED
+实现 Agent 运行时状态：UNVERIFIED_RUNTIME_MODEL（当前工具未暴露实际运行模型元数据）
+最终审查配置：主控 ORCHESTRATOR_REVIEWER；实现者不得自审/批准，Draft PR 停在 Owner Gate
+后续：等待 Owner Gate（roster/权利/非作者运营者/成本上限/登录窗口/证据红线）后再决定 Calibration
+```
+
+### 历史分配（CE-08，非现行）
+
+状态：历史/非现行；以下保留当时分配，不覆盖当前 RBV Goal。
 
 ```text
 当前 Goal：P0 Cloud Executor 纯云端生产闭环（GOAL_COMPLETE）

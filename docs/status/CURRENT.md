@@ -1,11 +1,19 @@
 # 项目当前状态
 
-> 最后更新：2026-08-27
-> 当前 Goal：Issue #257 MBL-PROD-001 内部生产化
-> 当前结论：Stage 0–5、Post-stage 作品库、素材中心/移动收口及视觉与交互升级已进入仓库，但最新前端尚未部署或完成客户验收。REL-001 PR #256 已由 Owner 授权管理员 squash 合并为 `main@4c8c27fca76ed5deaa6fb2f4f2ef348484feec23`；可信 TLS 与每日备份仍未部署、安装或通过正式域名/严格 CA 门禁。PR #253 公共人物缩略图同步正在吸收该基线；真实 Hifly 只读校准只证明图片字节存在，开发者 API 到 cover 的官方精确绑定仍缺失，真实 source 保持 disabled。MBL 内部生产化依次收口候选、部署内部版本、完成无积分运营验收；真实生成仍需后续单独积分授权。Fidelity 环境 blocker 与正式域名/TLS 上线保持原边界。
+> 最后更新：2026-08-29
+> 当前 Goal：RBV-GOAL-001 / Issue #259 Real Batch Production Validation（仅 Stage 1）
+> 当前结论：Stage 1 只固化 Pilot Contract 与人工门禁；Calibration roster、素材权利、非作者运营者、积分/成本上限、登录窗口及证据脱敏规则均待 Owner Gate，未运行真实 Provider、未消耗积分、未发布或部署。下游文档统一引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`，不得把文档、测试或代码宣称为 MBL/RBV 完成。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## Issue #259 RBV-001 Stage 1：合同与人工门禁（2026-08-29）
+
+- 唯一现行 Goal 为 [`RBV-GOAL-001`](../../GOAL.md)，产品决策为 [`D-037`](../../docs/product/DECISION_LOG.md#d-037-real-batch-production-validation)，执行合同为 [`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](../../docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)。旧 P0 Goal 仅保留在 [`docs/status/archive/GOAL-cloud-executor-p0-complete-2026-08-13.md`](archive/GOAL-cloud-executor-p0-complete-2026-08-13.md) 作为历史事实。
+- 当前只激活 Stage 1。合同锁定 3–5 个真实或已授权去标识化商品、至少 2 个品类、至少 1 次人工修正；不预设成功率。后续真实批次须达到可复现的至少 10 条，连续 5 条作业期间不得修改生产代码；成本不合理时停在 Owner Gate，不得自行缩样。
+- 在真实运行前，Owner 必须逐项确认 Calibration roster、每个素材的权利/用途/留存与脱敏、非作者运营者、可接受积分/成本上限、允许登录窗口及证据红线。当前没有 roster、素材、成本、运行、发布或反馈结果可记录。
+- 真实业务门禁还要求至少一名非作者运营者启动第二批，以及至少一条真实视频已交付、展示或用于运营；fixture/fake/mock/controlled provider/本地 demo 只能作为工程证据。Provider、飞影、Secret、积分、客户素材、公开发布、生产部署与破坏性操作均 fail-closed，按动作等待 Owner 明确授权。
+- Stage 1 验收要求独立 Reviewer 标记 `APPROVED`；实现者不得自审或批准。Draft PR 在 Owner Gate 停止，不合并、不开始 Calibration。治理测试、验证结果和本轮边界记录在 [`2026-08-29-rbv-001-calibration-contract.md`](sessions/2026-08-29-rbv-001-calibration-contract.md)。
 
 ## REL-001 可信 TLS 仓库门禁（已合并，未部署，2026-08-27）
 
@@ -527,7 +535,7 @@
   不安装或运行模型。
   `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持不变。
 
-## P0.5 内部验收环境部署
+## 历史：P0.5 内部验收环境部署（2026-08-13）
 
 - 2026-08-13 将内部验收环境从 `main@40e92414d4ef4a4015da9bb3f709f775c67843b6`
   更新到精确 `main@5e449021eee6802b51a220009a8a3620d9bd40f4`；服务器 Git 工作树保持 clean。
@@ -576,7 +584,7 @@
 - 完整对象 ID、包哈希、文件大小、SHA-256 和逐轮边界见
   `docs/status/sessions/2026-08-13-cloud-executor-three-product-internal-trial.md`。
 
-## CE-08 生产收尾证据
+## 历史：CE-08 生产收尾证据
 
 - 代码基线为 `main@f519d42db26ef5f59cb8a6a6fb80bf8b68fb7eb3`；PR #155 已 squash merge。
 - Ubuntu、Windows、identity-postgres 三组 CI 均为 green。
@@ -599,7 +607,7 @@
 - 本轮未访问飞影、未启动 Worker、未新增 attempt：`target_attempts=1`、`active=0`、`total=10`；
   积分记录仍只有原 CE-08 真实生成的 650。
 
-## P0 验收结论
+## 历史：P0 验收结论
 
 - 新的零-attempt 工单已经完成
   `Cloud GUI → Cloud Executor → Hifly → 下载 → 云端 artifact → A12 → Work → 用户鉴权下载`。
@@ -607,7 +615,7 @@
 - Worker 仍保持单实例、并发 1、失败即停和默认 disabled/fail-closed；Local Agent 未参与本次闭环。
 - 本结论只证明三条由人工门禁逐轮暴露的严格串行路径，不证明自动队列批量运行、更大规模或长期稳定性，也不宣称公网生产就绪、正式 SLA、高可用或灾备。
 
-## 发布就绪后续
+## 历史：发布就绪后续（P0）
 
 - 现有公网证书仍为自签名，严格 CA 校验失败；仓库已补充
   `docs/deployment/TRUSTED_TLS_RELEASE_CHECKLIST.md`，但正式域名、可信证书签发、部署和严格 CA 验收尚未执行。
@@ -623,7 +631,7 @@
 - #157 的依赖治理已随 `main@5e449021` 部署并通过健康检查，但 Issue 仍保持 OPEN：入口仍为 IP + 自签证书，
   严格 CA、正式域名/DNS 和可信证书尚未完成；当前 HTTP `/healthz` 仍返回 200 而不是跳转到 HTTPS。
 
-## 当前运行时边界
+## 历史：当前运行时边界（P0）
 
 - Cloud Control Plane 负责订单、attempt、交接包、报告、A12、Work 和 Delivery 的业务状态与鉴权。
 - Cloud Executor 是独立执行身份；本轮完成证据来自云端链路，不将其伪装为人工成员或 Local Agent。
@@ -634,7 +642,7 @@
   鉴权下载和人工检查完成后，Worker 已关闭且无 eligible order、waiting order 或 active attempt。
 - Local Agent 继续保留为 legacy fallback；本轮未启动，后续也不得以它作为 P0 生产执行器。
 
-## P0 完成定义映射
+## 历史：P0 完成定义映射
 
 合同第 9 节的 11 项均有当前证据或既有实现覆盖：
 
@@ -650,7 +658,7 @@
 10. 新零-attempt 工单完成 Cloud GUI 到用户下载的完整链路。
 11. 第 10 项完成后进入严格串行、受控内部试运行，而非公网生产。
 
-## 生产操作护栏
+## 历史：生产操作护栏（P0）
 
 - 每条内部试运行在 Worker off 时只准备当前 SKU 的唯一工单和 ready handoff；激活前复核全组织 eligible
   严格等于当前 order、当前 order `attempts=[]`、active attempts=0、审批链、Profile/login readiness 和磁盘门限。
@@ -663,12 +671,13 @@
 ## 权威文档与恢复顺序
 
 1. `AGENTS.md`：范围、积分、文件和协作安全门禁。
-2. `GOAL.md`、`docs/product/CLOUD_EXECUTOR_P0.md`：P0 合同和完成定义。
-3. `docs/ROADMAP.md`：下一阶段内部试运行与 release-readiness 顺序。
-4. 本文件：最新生产事实与边界；历史过程见 archive 和 sessions。
-5. `docs/PROJECT_HANDOFF.md`：仅作历史背景，不覆盖本快照。
+2. `GOAL.md`、`docs/product/DECISION_LOG.md`（D-037）、`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`：RBV-GOAL-001 Stage 1 当前合同与门禁。
+3. `docs/product/CLOUD_EXECUTOR_P0.md`：历史 P0 合同和完成定义（非现行权威）。
+4. `docs/ROADMAP.md`：RBV-GOAL-001 Stage 1 当前路线与后续 Owner Gate。
+5. 本文件：当前 RBV-001 状态；历史过程见 archive 和 sessions。
+6. `docs/PROJECT_HANDOFF.md`：接力背景，不能覆盖当前 Goal。
 
-## 里程碑状态
+## 历史：里程碑状态（P0）
 
 | 里程碑 | 结果 | 状态 |
 |---|---|---|
@@ -682,7 +691,7 @@
 | CE-08 / #143 | 一条纯云端真实出片验收 | 已完成并关闭 |
 | P0.4 / #132 | 三条严格串行 Cloud Executor 内部试运行 | 已完成并关闭 |
 
-## 下一步
+## 历史：下一步（P0/REL-001，当前 Goal 之前）
 
 1. #200/#201/#202 已完成实现、独立 Review、合并、部署与单条真实复验；尺寸选档和技术闭环通过，但 Work 已因瓶盖造型
    失真登记返工。没有新的重试或再次生产授权，保持本单 `rework_required` 且不交付。
@@ -722,7 +731,7 @@
 - 不在本阶段扩展并行生产、Capture HTTP、声音/背景/姿势/动效、复杂对象存储或高可用。
 - Profile、Cookie、素材、视频、Evidence、Token、下载文件和服务器绝对路径不得进入 Git、公共 API 或日志。
 
-## 已执行验证与证据索引
+## 历史：已执行验证与证据索引（P0/CE-08）
 
 - PR #155 的 Ubuntu、Windows、identity-postgres CI 均通过；基线与部署提交一致。
 - App 部署前数据库备份可读且非空；回滚镜像已保留。

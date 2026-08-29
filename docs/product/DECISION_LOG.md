@@ -2,7 +2,7 @@
 
 > 状态：Accepted
 > Owner：owner（JettxonHo）
-> 最后更新：2026-08-06
+> 最后更新：2026-08-29
 > 适用范围：全部产品与架构决策的权威记录；文档冲突时以本文件与 owner 最新决策为准
 > 非目标：本文件不记录实现细节；新决策以追加条目方式记录，不覆盖历史
 
@@ -901,3 +901,22 @@
 - **安全合同**：source 向领域只回传受控 bytes/media/size/SHA-256；provider key/title、真实 MIME、claimed metadata、组织归属与 checksum 在服务端核验。公开投影不带 URL、cookie、token、object key 或 Provider 标识；普通读取零 Provider 调用。
 - **幂等/并发**：provider key+checksum 重放不新增 AssetVersion；内容变化追加新版本并保留旧历史；memory serial gate 与 PostgreSQL advisory-lock/同事务绑定确保组织边界和 rollback。
 - **证据边界**：当前仅 fake/disabled source 与 synthetic PNG 离线证据。真实 Hifly 只读 login、thumbnail 端点/字段校准、Provider 权限与真实 bytes 验收必须取得单独授权；本记录不将离线闭环写成真实能力。
+
+## D-037 Real Batch Production Validation
+
+- **日期**：2026-08-29
+- **状态**：Confirmed（Stage 1 合同与人工门禁；真实运行 pending）
+- **背景（Context）**：P0 Cloud Executor、MBL 内部生产化和既有 UI/工程切片已经形成大量工程与历史运行记录，但这些记录不能单独证明当前真实业务可重复、可交付或被非作者运营采用。需要把真实批次验证从零散操作提升为可审计的产品 Goal，并把费用、素材权利、登录、Provider 和发布风险锁在逐次人工授权内。
+- **决策**：
+  1. 建立唯一现行 Goal `RBV-GOAL-001`，当前只激活 Stage 1「合同与人工门禁」；`GOAL.md`、本 Decision 与 [Real Batch Production Validation Pilot Contract](REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md) 组成权威方向与执行链。
+  2. Calibration 固定为 `3–5` 个真实或获许可脱敏商品，至少覆盖两个品类，至少一个需要人工修正；不预设成功率，不把样本阈值写成已有结果。
+  3. 修复真实阻塞后才可进入 Repeatable，至少验证 `10` 个商品；成本或积分不合理时停在 Owner Gate，不得自行缩样、改变阈值或宣称通过。
+  4. 真实业务证据必须包括至少一名非作者运营人员发起第二批，以及至少一个真实视频实际交付、展示或用于运营；技术成功、下载文件、截图、fake/fixture/mock/controlled provider/本地 demo 只能作为工程证据。
+  5. 连续完成 `5` 个工单期间冻结生产代码；任何生产代码、Provider 行为、配置或授权变化都使计数归零并回到人工门禁。
+  6. 真实 Provider、飞影登录、Secret、客户素材、积分/付费、公开发布、生产部署和破坏性操作默认 fail-closed；每一次具体动作、批次和预算均须取得当次 Owner 授权。首失败、成本不明、登录态不明或证据无法脱敏时立即停止，不自动重试、并行、缩样、替换 Provider 或复用授权。
+  7. Stage 1 只允许建立合同、文档链和自动治理测试；不实现 UI/API/数据库/Cloud Executor，不访问 Provider，不开始 Calibration。Draft PR 在独立 Reviewer `APPROVED` 后仍停止，等待 Owner Gate；实现 Agent 不得批准或合并自己的成果。
+- **原因**：工程绿灯和历史单次运行容易被误读为生产能力；分离 Calibration、Repeatable 与真实业务使用，才能以最小且可逆的人工门禁获得真实证据，同时控制积分、客户素材和部署风险。
+- **影响**：`GOAL.md` 转为 RBV-001 唯一现行 Goal；旧 P0 Goal 只读归档为 `docs/status/archive/GOAL-cloud-executor-p0-complete-2026-08-13.md`；Pilot Contract 成为后续运行的执行阈值；CURRENT、ROADMAP、PROJECT_HANDOFF 与 session 只引用同一事实链。该 Decision 不表示 Calibration、Repeatable、真实交付/使用或 MBL/RBV 已完成。
+- **被否决方案**：以一次真实生成、已有 P0/MBL 工程测试、fake/fixture/mock/本地 demo、作者本人代跑、截图或预设成功率替代真实业务证据；在成本不明时自行缩小样本；在没有 Owner 授权时继续真实运行或部署；把 Calibration 与 Repeatable 合并为一次大批次。
+- **可重新评估条件**：Owner 完成 Stage 1 Gate 后，可根据 Calibration 真实阻塞、费用和运营证据决定是否激活 Repeatable；若需要改变样本阈值、非作者运营要求、交付/使用定义、代码冻结规则或授权边界，必须追加新的 Owner Decision，不得静默改写 D-037。
+- **Specification / Contract**：[REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md](REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)。

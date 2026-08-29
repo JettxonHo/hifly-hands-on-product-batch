@@ -3,6 +3,14 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-08-29 Issue #259 RBV-001 Stage 1 合同与人工门禁
+
+- 当前唯一 Goal：[`RBV-GOAL-001`](../GOAL.md)，对应产品决策 [`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)，执行合同 [`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)。状态为 `STAGE_1_CONTRACT_PENDING_OWNER_GATE`；旧 Cloud Executor P0 Goal 已归档，不被静默改写。
+- 本轮只建立合同、人工门禁和治理测试。Calibration roster、素材权利、非作者运营者、可接受积分/成本上限、允许登录窗口、证据脱敏规则均未提供；没有访问飞影/Provider、SSH/noVNC、Secret、真实素材或生产环境，没有创建任务、上传、生成、下载、发布、部署、写生产数据或消耗积分。
+- 合同阈值固定为：Calibration 3–5 个真实/授权去标识化商品、至少 2 个品类、至少 1 次人工修正且不预设成功率；修复真实 blocker 后可复现至少 10 条，连续 5 条作业不改生产代码；成本不合理停在 Owner Gate，不得缩样；需非作者运营者启动第二批，并有至少一条真实视频已交付/展示/用于运营。fixture/fake/mock/controlled provider/本地 demo 只能作工程证据。
+- 所有真实动作按 fail-closed 处理，须逐动作获得 Owner 明确授权。Stage 1 要求独立 Reviewer 标记 `APPROVED`，实现者不得自审或批准；Draft PR 停在 Owner Gate，不合并、不开始 Calibration。文档和治理测试通过也不能宣布 MBL/RBV 完成。
+- 本轮会话记录、old-head RED、最终 GREEN（如通过）与 allowlist 证据写入 [`docs/status/sessions/2026-08-29-rbv-001-calibration-contract.md`](status/sessions/2026-08-29-rbv-001-calibration-contract.md)。下一 Owner Gate：补齐上述六类运营输入并逐项确认后，另行决定是否开启 Stage 2；在此之前保持停门。
+
 ## 2026-08-27 MBL-PROD-001 内部生产化启动
 
 - Owner 固定项目用语：MBL 指“最小业务闭环”；今后未另行指定目标时，“下一步要做什么”默认是继续完成 MBL 内部生产化，不能只回答某个孤立基础设施切片。持久跟踪入口为 Issue #257。
