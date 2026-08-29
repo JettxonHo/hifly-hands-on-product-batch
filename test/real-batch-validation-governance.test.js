@@ -53,7 +53,7 @@ test("RBV-001 establishes one current Goal and preserves the old Goal as an arch
   assert.equal(normalizedCrlfSha256, archiveSha256, "LF and normalized-CRLF archive hashes must agree");
 });
 
-test("AGENTS current priority follows RBV Stage 1 and demotes Cloud Executor P0", () => {
+test("AGENTS current priority follows Readiness Freeze and keeps Stage 1 as completed history", () => {
   const agents = read(agentsPath);
   const prioritySection = agents.match(/## 当前最高优先级[\s\S]*?(?=## |$)/)?.[0] ?? "";
   const historicalSection = agents.match(/## 历史：Cloud Executor P0[\s\S]*?(?=## |$)/)?.[0] ?? "";
@@ -61,7 +61,9 @@ test("AGENTS current priority follows RBV Stage 1 and demotes Cloud Executor P0"
   assert.match(prioritySection, /RBV-GOAL-001/);
   assert.match(prioritySection, /D-037/);
   assert.match(prioritySection, /REAL_BATCH_PRODUCTION_VALIDATION_PILOT\.md/);
-  assert.match(prioritySection, /Stage 1/);
+  assert.match(prioritySection, /Readiness Freeze/);
+  assert.match(prioritySection, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
+  assert.match(prioritySection, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
   assert.doesNotMatch(prioritySection, /当前正式交付目标[^。\n]*Cloud Executor/);
   assert.doesNotMatch(prioritySection, /D-034[^。\n]*(?:为准|当前)/);
   assert.match(prioritySection, /GUI[^\n]*(?:Deferred|Secondary)/i);
@@ -337,14 +339,19 @@ test("the Pilot defines an Evidence Package and Git exclusion boundary", () => {
   }
 });
 
-test("the Pilot serializes the Issue and Stage map with only Stage 1 active", () => {
+test("the Pilot keeps Stage 1 historical and activates only Readiness Freeze", () => {
   const pilot = read(pilotPath);
+  const currentMap = pilot.match(/## 13\. Issue \/ Stage map（current）[\s\S]*?(?=### Stage 1 historical contract snapshot|## 14\.)/)?.[0] ?? "";
+  const historicalStage = pilot.match(/### Stage 1 historical contract snapshot（not current）[\s\S]*?(?=## 14\.)/)?.[0] ?? "";
 
   assert.match(pilot, /Issue.*Stage map|Stage map.*Issue/i);
-  assert.match(pilot, /active_stage\s*\|\s*Stage 1/i);
+  assert.match(currentMap, /stage_readiness_freeze\s*\|\s*Readiness Freeze\s*\|\s*active/i);
+  assert.match(currentMap, /stage_contract\s*\|[^\n]*\|\s*completed/i);
+  assert.match(historicalStage, /Stage 1[^\n]*(?:已完成|completed|历史)/i);
+  assert.doesNotMatch(pilot, /\|\s*stage_contract\s*\|[^\n]*\|\s*active\s*\|/i);
   for (const [stage, status] of [
-    ["stage_contract", "active"],
-    ["stage_readiness_freeze", "deferred"],
+    ["stage_contract", "completed"],
+    ["stage_readiness_freeze", "active"],
     ["stage_calibration_run", "deferred"],
     ["stage_one_blocker_per_issue", "deferred"],
     ["stage_repeatable_readiness", "deferred"],
@@ -352,7 +359,7 @@ test("the Pilot serializes the Issue and Stage map with only Stage 1 active", ()
     ["stage_delivery_report", "deferred"],
   ]) {
     assert.match(
-      pilot,
+      currentMap,
       new RegExp(`\\|\\s*${stage}\\s*\\|[^\\n]*\\|\\s*${status}\\s*\\|\\s*[^|\\n]+`, "i"),
       `${stage} must have status ${status} and an observable outcome`,
     );
@@ -394,20 +401,23 @@ test("the Pilot bounds allowed fixes and explicit non-goals", () => {
   }
 });
 
-test("current status pointers demote the old Cloud Executor and P0.5 next-step text", () => {
+test("current status pointers follow Readiness Freeze and retain historical P0 text", () => {
   const current = read(currentPath);
   const roadmap = read(roadmapPath);
   const authoritySection = current.match(/## 权威文档与恢复顺序[\s\S]*?(?=## |$)/)?.[0] ?? "";
 
-  assert.match(current, /当前 Goal：RBV-GOAL-001.*Stage 1/);
+  assert.match(current, /当前 Goal：RBV-GOAL-001.*Readiness Freeze/);
   assert.doesNotMatch(current, /^## 下一步$/m, "legacy next-step heading must be historical");
   assert.match(current, /## 历史：下一步[^\n]*当前 Goal 之前/);
   assert.match(current, /历史[^\n]*P0\.5|P0\.5[^\n]*历史/i);
   assert.match(current, /历史[^\n]*CLOUD_EXECUTOR_P0\.md|CLOUD_EXECUTOR_P0\.md[^\n]*历史/i);
-  assert.doesNotMatch(authoritySection, /^\s*2\..*CLOUD_EXECUTOR_P0\.md/m);
-  assert.match(authoritySection, /CLOUD_EXECUTOR_P0\.md[^\n]*历史[^\n]*非现行/i);
+  assert.match(authoritySection, /^\s*2\..*Readiness Freeze.*Stage 1[^\n]*(?:历史|completed|已完成)/m);
+  assert.match(authoritySection, /^\s*3\..*RBV_CALIBRATION_READINESS_FREEZE\.md.*BLOCKED_PRE_REAL_RUN/m);
+  assert.match(authoritySection, /^\s*4\..*ROADMAP\.md[^\n]*Readiness Freeze/m);
+  assert.doesNotMatch(authoritySection, /CLOUD_EXECUTOR_P0\.md[^\n]*当前/);
+  assert.match(authoritySection, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
 
-  assert.match(roadmap, /当前状态：RBV-GOAL-001.*Stage 1/);
+  assert.match(roadmap, /当前状态：RBV-GOAL-001.*Readiness Freeze/);
   assert.doesNotMatch(roadmap, /^## 2\. 当前升级顺序$/m, "legacy current-order heading must be historical");
   assert.doesNotMatch(roadmap, /P0\.5[^\n]*当前阶段/);
   assert.match(roadmap, /历史[^\n]*P0\.5|P0\.5[^\n]*历史/i);
@@ -439,13 +449,16 @@ test("ROADMAP demotes the legacy P0 sections and scope to historical non-current
   assert.doesNotMatch(cloudExecutorLine, /当前|下一阶段|保留但不抢跑|每波次门禁/);
 });
 
-test("agent-collaboration has an RBV Stage 1 current allocation and retains CE-08 as historical", () => {
+test("agent-collaboration has the Issue #261 Readiness Freeze allocation and retains Stage 1/CE-08 as history", () => {
   const collaboration = read(collaborationPath);
   const currentSection = collaboration.match(/## 8\. 当前分配[\s\S]*?(?=###|$)/)?.[0] ?? "";
   const historicalSection = collaboration.match(/### 历史[\s\S]*$/)?.[0] ?? "";
 
   assert.match(currentSection, /RBV-GOAL-001/);
-  assert.match(currentSection, /Stage 1/);
+  assert.match(currentSection, /Issue #261/);
+  assert.match(currentSection, /Readiness Freeze/);
+  assert.match(currentSection, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
+  assert.match(currentSection, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
   assert.match(currentSection, /REAL_BATCH_PRODUCTION_VALIDATION_PILOT\.md/);
   assert.doesNotMatch(currentSection, /当前 Goal：P0 Cloud Executor/);
   assert.match(historicalSection, /CE-08/);

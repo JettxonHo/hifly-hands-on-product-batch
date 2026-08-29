@@ -4,7 +4,7 @@
 
 ## 当前最高优先级
 
-当前唯一现行执行目标是 `RBV-GOAL-001`（Issue #259 Real Batch Production Validation），产品决策为 D-037，执行合同为 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。当前只激活 Stage 1「合同与人工门禁」；Stage 1 只固化合同、治理测试与人工门禁，不开始 Calibration 或其他真实运行。
+当前唯一现行执行目标是 `RBV-GOAL-001`（Issue #261 Calibration Readiness Freeze），产品决策为 D-037，执行合同为 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。当前只激活 `Readiness Freeze`；Stage 1「合同与人工门禁」已完成并保留为历史，不开始 Calibration 或其他真实运行。当前唯一结论是 `BLOCKED_PRE_REAL_RUN`，Readiness Freeze 记录见 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`。
 
 本地 GUI 与 Playwright/Local Agent 链路仍是兼容基线，但在 RBV-001 中为 `Deferred/Secondary`；只有真实 RBV run 以可审计证据证明 GUI 阻塞业务，Owner 才能重新提升其优先级。Provider、飞影、Secret、积分、客户素材、生产部署和破坏性操作继续 fail-closed，等待逐动作 Owner 授权。
 
@@ -27,7 +27,8 @@ GOAL.md                      ← 当前 Goal、里程碑与完成标准
 docs/agent-collaboration.md  ← 多 Agent 角色、权限、交接与 Review 规则
 docs/product/README.md       ← 产品文档权威入口
 docs/product/DECISION_LOG.md ← 当前产品决策（D-037）
-docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md ← 当前 RBV Stage 1 执行合同
+docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md ← 当前 RBV 执行合同（Readiness Freeze 沿用）
+docs/status/RBV_CALIBRATION_READINESS_FREEZE.md ← Issue #261 当前 Readiness Freeze 记录
 docs/product/CLOUD_EXECUTOR_P0.md ← 历史 P0 产品合同（D-034，非现行）
 docs/ROADMAP.md              ← 版本目标与 Issue 依赖
 docs/PROJECT_HANDOFF.md      ← 仅在需要历史背景时阅读
@@ -103,6 +104,8 @@ docs/PROJECT_HANDOFF.md      ← 仅在需要历史背景时阅读
 判断原则：当前状态 → `docs/status/CURRENT.md`；本轮证据 → `docs/status/sessions/`；长期有效的页面行为/调试经验 → `CALIBRATION`；长期有效的环境/运行经验 → `ENVIRONMENT`；生产流程 → `SOP`。
 
 ## 当前关键批次
+
+Issue #261 `RBV-CAL-001` 只冻结脱敏 roster、素材元数据、权利/内部许可、预算和停止条件；五个 SKU 均为 `BLOCKED`，不创建 ProductionOrder/attempt，不登录、上传、生成、下载或消耗积分。Evidence 目录仅在 Git 外保留 0700 骨架，Git 文档只使用 alias 与 relative ref。
 
 Playwright 历史 GUI 排障批次：
 
