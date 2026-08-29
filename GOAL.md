@@ -1,63 +1,34 @@
-# 当前 Goal：P0 Cloud Executor 纯云端生产闭环
+# 当前 Goal：RBV-001 Real Batch Production Validation
 
-> 状态：GOAL_COMPLETE
-> Owner：JettxonHo
-> 启动日期：2026-08-12
-> 权威产品合同：`docs/product/CLOUD_EXECUTOR_P0.md`（D-034）
-> 实施设计与计划：`docs/superpowers/specs/2026-08-12-cloud-executor-p0-design.md`、`docs/superpowers/plans/2026-08-12-cloud-executor-p0.md`
+> Goal ID：`RBV-GOAL-001`
+> 状态：`STAGE_1_CONTRACT_PENDING_OWNER_GATE`
+> 当前只激活：Stage 1「合同与人工门禁」
+> 产品决策：[D-037](docs/product/DECISION_LOG.md#d-037-real-batch-production-validation)
+> 执行合同：[Real Batch Production Validation Pilot Contract](docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)
+> 上一 Goal 历史归档：[P0 Cloud Executor Goal（2026-08-13）](docs/status/archive/GOAL-cloud-executor-p0-complete-2026-08-13.md)
 
-## 最终目标
+## 目标
 
-把当前 Cloud Control Plane + Mac Local Agent 的已验证链路纠偏为不依赖个人电脑在线的纯云端 P0：
+建立一条可审计、可重复、费用受控的真实批次生产验证路径，用于判断当前最小业务闭环（MBL）是否具备真实运营证据。当前阶段只建立合同、事实链和人工门禁；本文件是唯一现行 Goal，不能把文档、测试或代码完成写成 MBL/RBV 完成。
+
+## Stage 1 边界
+
+- 以 D-037 和 Pilot Contract 为唯一产品方向与执行合同。
+- 只固化 Calibration roster、素材权利、非作者运营、成本上限、登录窗口、证据脱敏和后续 Owner Gate 的人工要求。
+- Calibration 运行、真实 Provider/飞影访问、上传/生成/提交/下载、生产部署、公开发布和任何积分消耗均未授权，保持 fail-closed。
+- Repeatable Batch、并行生产、自动重试、通用 Agent、UI/API/数据库/Cloud Executor 修改均不属于 Stage 1。
+
+## 必须满足的后续门禁
+
+Pilot Contract 固定 Calibration 为 3–5 个真实或获许可脱敏商品、至少两个品类、至少一个需要人工修正，且不预设成功率；修复真实阻塞后 Repeatable 至少 10 个商品，成本不合理时停在 Owner Gate，不得自行缩样并宣称通过。至少一名非作者运营发起第二批，且至少一个真实视频实际交付、展示或用于运营；连续完成 5 个工单期间不得修改生产代码。
+
+## 现行事实链
 
 ```text
-Cloud GUI
-→ Cloud Executor Worker（云端 Chrome / Playwright）
-→ Hifly「手里有货」
-→ 云端持久视频
-→ A12
-→ Work / Delivery
-→ 浏览器鉴权预览与下载
+GOAL.md (RBV-GOAL-001, Stage 1)
+  → docs/product/DECISION_LOG.md (D-037)
+  → docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md (Pilot Contract)
+  → docs/status/CURRENT.md / docs/ROADMAP.md / docs/PROJECT_HANDOFF.md
 ```
 
-Local Agent 保留但不再作为 P0 生产路径或验收依据。
-
-## 当前基线
-
-- VSA-A01～A14、P1 DeepSeek adapters、P2 人物目录/登记/推荐已进入 `main`。
-- Cloud Control Plane → Mac Local Agent → Hifly → 回传 → A12 → Work 已有一条真实 Evidence。
-- Cloud Executor Worker、云端持久目录、受控登录入口、Playwright adapter 与控制面均已实现；`main@f519d42db26ef5f59cb8a6a6fb80bf8b68fb7eb3` 已部署到阿里云，PR #155 已 squash merge。
-- CE-07 disabled/fail-closed standby 已实证：heartbeat online、重启恢复、Profile marker 持久、无 claim、无新增 attempt。
-- CE-08 已完成新的零-attempt 纯云端真实闭环：Cloud GUI → Cloud Executor → Hifly → 云端视频 → A12 → Work → 鉴权下载；App 输出卷只读回退修复已部署并实测。
-- Local Agent 默认关闭，仅保留为 legacy fallback，不作为生产路径或验收依据。
-
-## 里程碑
-
-| 阶段 | 结果 | 状态 |
-|---|---|---|
-| CE-01 / #136 | 产品合同、Goal、设计、计划、决策与 Issues | 已完成 |
-| CE-02 / #137 | `cloud_executor` 身份与 fail-closed 串行 Worker | 已完成 |
-| CE-03 / #138 | 复用现有 Hifly Playwright 核心 | 已完成 |
-| CE-04 / #139 | 持久 Profile、可视登录、readiness | 已完成并实证 |
-| CE-05 / #140 | 持久素材/视频、鉴权下载、磁盘门限 | 已完成 |
-| CE-06 / #141 | 控制台 Cloud Executor 状态与作品体验 | 已完成 |
-| CE-07 / #142 | 阿里云无副作用部署、standby 与重启恢复 | 已完成并关闭 Issue |
-| CE-08 / #143 | 一条纯云端真实出片验收 | 已完成并关闭 |
-
-## 执行规则
-
-1. CE-01→CE-08 严格串行，一个 Issue/分支/PR。
-2. 实现 Agent 只使用准确自定义 Agent `luna-worker`；Sol 独立 Review；实现者不得批准或合并自己的 PR。
-3. 每项 TDD、focused tests、`npm run check`、`npm test`、`git diff --check`、CI。
-4. CE-08 已在一次单条真实生成授权下完成；订单、attempt、候选、A12、Work 与鉴权下载均有证据。该授权不延续到后续内部试运行；后续每条都须重新取得明确的单条积分授权，并逐条复核唯一工单、零 attempt、审批链、交接包和云端 readiness；首失败即停，禁止自动重试和第二条。
-5. Cloud Executor 默认 disabled/fail_closed；并发固定为 1；登录/存储未就绪时 claim 前失败关闭。
-6. 不删除 Local Agent，不复制 Hifly DOM 自动化，不把 Cloud Executor 伪装成 Local Agent。
-7. Profile、Cookie、素材、视频、Evidence、Token 和服务器绝对路径不得进入 Git或公共 API。
-8. 完成 Agent 任务后立即关闭对应子智能体。
-9. 验收期间 `LOCAL_AGENT_ENABLED=false`，不得启动 Mac Local Agent；纯云端闭环完成前不扩展文案、人物、背景/姿势、动效、Capture HTTP、并行或高可用。
-
-## Goal 完成标准
-
-`docs/product/CLOUD_EXECUTOR_P0.md` 第 9 节 11 项已由 CE-07/CE-08 实现和生产证据覆盖。新的零-attempt 工单已完成纯云端真实链路，验收及下载复验期间未启动任何 Local Agent；Goal 因此标记 `COMPLETE`，可进入严格串行、受控内部试运行。
-
-`COMPLETE` 只表示本合同的单条内部闭环完成，不表示公网生产就绪。自签名证书与依赖审计项由 #157 跟踪，`works.html` query 选择缺陷由 #156 跟踪；这些 release-readiness/follow-up 不否定 CE-08 闭环。
+下游文档只能引用这条链，不能创造 roster、成功率、成本、运行、发布或反馈事实。Stage 1 结束条件是独立 Reviewer 给出 `APPROVED` 后，Draft PR 停止并等待 Owner Gate；未获得 Owner 明确授权前不合并、不激活 Calibration。

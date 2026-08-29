@@ -1,7 +1,14 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-27
-> 当前状态：Vertical Slice A、CE-08 与 P0.4 已完成；#200/#201/#202 已合并并部署到内部验收环境。Fidelity-C5/C5a 仍无 accepted environment lane，六项 blocker 与 `BLOCKED_CHECK_CAPABILITY_UNSELECTED` 保持。下一代运营工作台 Stage 0–5、Post-stage 作品库、素材中心/移动收口及 Issue #254 视觉与交互升级已进入 `main`，但最新前端仍未部署或完成客户验收。REL-001 PR #256 已合并为 `main@4c8c27fca76ed5deaa6fb2f4f2ef348484feec23`，可信 TLS 与每日备份仍未部署、安装或通过正式域名/严格 CA 门禁。PR #253 公共人物缩略图同步正在吸收该基线；真实页面校准仅证明图片字节存在，开发者 API 到 cover 的官方精确绑定仍缺失，runtime source 保持 disabled。Issue #257 已启动 MBL 内部生产化；系统继续 disabled/fail-closed。
+> 最后更新：2026-08-29
+> 当前状态：RBV-GOAL-001 / Issue #259 仅处于 Stage 1「合同与人工门禁」；`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 为唯一执行合同，D-037 为对应产品决策。真实 Calibration 与批次运行尚未获 Owner Gate，Provider/飞影/积分/生产部署保持 fail-closed。
+
+## RBV-001 Stage 1 路线门禁（2026-08-29）
+
+- Goal：[`RBV-GOAL-001`](../GOAL.md)；Decision：[`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)；Pilot Contract：[`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)。三者构成当前唯一事实链，CURRENT 与 PROJECT_HANDOFF 只引用同一链路。
+- Stage 1 只建立合同、自动治理测试与人工门禁，不运行真实 Provider，不填写或伪造 roster、素材权利、非作者运营、成本、运行、发布或反馈证据。
+- 后续顺序固定为：Owner 提供并确认 Calibration roster/权利/非作者运营者/积分与成本上限/登录窗口/证据脱敏规则 → 独立 Reviewer `APPROVED` → Draft PR 停在 Owner Gate → 获得逐动作授权后才可另开后续 Calibration。成本不合理必须停门，不得缩样；真实业务完成还需可复现至少 10 条、连续 5 条作业无生产代码修改、非作者第二批及真实视频交付/展示/运营使用。
+- 文档、测试、fixture/fake/mock/controlled provider/本地 demo 仅是工程证据，不能把 MBL 或 RBV 标记完成。任何飞影、Provider、Secret、积分、客户素材、公开发布、生产部署或破坏性操作均保持 fail-closed。
 
 ## 1. 已完成基线
 
@@ -27,14 +34,14 @@
   #202 failed 工单持久终态均进入运行时。一条获授权的新 `small` 工单完成唯一 attempt、A12 passed、Work available
   和鉴权真实字节下载；尺寸选档通过，但包装瓶盖几何失真，Work 为 `rework_required`，没有交付或第二工单。
 
-## 2. 当前升级顺序
+## 2. 历史：升级顺序（P0/UX 基线，非当前）
 
 ```text
 P0.1  云端飞影登录并证明 Profile 重启保留（已完成）
 P0.2  激活单实例 Cloud Executor（playwright / concurrency=1）（已完成）
 P0.3  CE-08 一条纯云端真实闭环：Cloud GUI → Hifly → A12 → Work → 鉴权下载（已完成）
 P0.4  3 条严格串行、受控内部试运行（已完成）
-P0.5  release-readiness：REL-001 仓库 TLS 与每日备份候选（固定 Host、loopback health、保守 HSTS、systemd daily+Persistent）已合并，仍未部署/安装；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（当前阶段）
+P0.5  release-readiness：REL-001 仓库 TLS 与每日备份候选（固定 Host、loopback health、保守 HSTS、systemd daily+Persistent）已合并，仍未部署/安装；正式域名、DNS、可信证书、严格 CA 与 HTTP→HTTPS 待执行（历史阶段，非当前）
 UX V1 运营任务流优先：designed → Slice A/B（已合并、已部署到内部验收环境）
     → 内部问题审计（已完成）→ 定向外部工作台研究（已完成）
     → V2 独立设计合同（#174，已完成）
@@ -47,9 +54,9 @@ P1 UX Next  单任务工作区方向 accepted → #236/#237 正式合同/Product
 P1+   上述内部试运行、release-readiness 与获批 UX 切片完成后，再决定产品增强与规模化
 ```
 
-Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EXECUTOR_P0.md`；三条严格串行内部试运行由 #132 跟踪，Issue 已关闭并已补充最终验收证据；release-readiness 由 #156、#157 跟踪。
+历史 P0 Cloud Executor 的权威范围、门禁和完成标准见 `docs/product/CLOUD_EXECUTOR_P0.md`；三条严格串行内部试运行由 #132 跟踪，Issue 已关闭并已补充最终验收证据；release-readiness 由 #156、#157 跟踪。
 
-## 3. 下一阶段
+## 3. 历史：下一阶段（P0/UX 基线，非当前）
 
 `main@8787b60c` 已部署到内部验收环境。#190 的真实管理员只读复验确认 Project 商品图片候选只包含服务端
 `kind=product_image`、Asset `active`、AssetVersion `available` 的交集；5 个商品图片可见，无 `work_video`/mp4，
@@ -214,7 +221,7 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 也不代表客户采用。
 不得以竞品视觉或页面结构反向决定本项目 IA。
 
-## 4. 保留但不抢跑的工作
+## 4. 历史：保留但不抢跑的工作（P0/UX 基线，非当前）
 
 - #190/#191 已完成代码、独立 Review、统一部署与真实管理员只读复验；后续不得为重复确认这两项而启动 Worker 或生成视频。
 - #200/#201/#202 已严格串行完成并部署；不得把本次技术成功、返工 Work 或已下载候选解释为再次生成授权。
@@ -232,7 +239,7 @@ ArrowLeft/ArrowRight/Home/End 的焦点与选中同步。上述实现已部署�
 - Local Agent 保留已验证代码但默认关闭，并从生产主路径/操作说明中退出；纯云端稳定至少 10 条或 1～2 周后再决定是否删除。
 - 当前 2C4G/2C4G 级试运行服务器只证明内部功能闭环，不承诺正式生产 SLA。
 
-## 5. 每波次门禁
+## 5. 历史：每波次门禁（P0/UX 基线，非当前）
 
 1. 上游 Issue 已合并且 CI 通过。
 2. CURRENT、Goal、Roadmap 与 Evidence 结论一致。
