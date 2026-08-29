@@ -51,6 +51,12 @@ node --test test/real-batch-validation-governance.test.js
 - 修复仅限治理测试：先将归档文本的 CRLF 归一化为 LF 再计算固定 SHA-256；同时构造 CRLF 投影并断言归一化后的哈希与固定值及 LF 哈希一致，避免 Linux 换行环境假绿。旧标题和 `GOAL_COMPLETE` 断言保持不变。
 - 本轮修复后本地 targeted `15/15`、`npm run check`（249 JavaScript files）、`git diff --check`、exact-base archive `cmp` 与 allowlist（11 paths / outside=0）均通过；Exact-head CI 需在该修复上重跑，未提前宣称通过。
 
+## PR #260 Owner-authorized治理增量（merge review P1）
+
+- Owner 已授权 PR #260 的本轮治理增量（依据 Issue #259 当前 checkpoint `issuecomment-5461719503`）；merge review P1 仅覆盖 AGENTS 当前指针、既有安全/Provider/积分/Git/多 Agent 规则保留和治理测试，不授权真实 Provider、Readiness、部署或积分动作。
+- allowlist 扩展为 12 个文件，新增 `AGENTS.md`；不扩展其他路径。
+- TDD 先扩治理测试后运行当前 head，真实 RED 为 `16` tests / `15` pass / `1` fail（AGENTS 仍将 Cloud Executor P0/D-034 视为当前优先级）；更新 AGENTS 当前/历史指针后 GREEN 为 `16/16 pass`。
+
 ## Stage 1 合同事实
 
 - Calibration roster 只允许 3–5 个真实或已授权去标识化商品，至少 2 个品类、至少 1 次人工修正；不预设成功率，也不在本阶段填写商品、素材、权利或结果。
@@ -73,8 +79,9 @@ Owner 必须提供并确认：Calibration roster、每个素材的权利/用途/
 7. `docs/ROADMAP.md`：增加 RBV-001 Stage 1 路线门禁，引用同一 Goal→D-037→Pilot 链，并将旧 P0.5 及 §3/§4/§5 明确标为历史。
 8. `docs/PROJECT_HANDOFF.md`：增加本会话最新接力章节、边界和下一 Owner Gate。
 9. `docs/status/sessions/2026-08-29-rbv-001-calibration-contract.md`（本文件）：记录两轮 RED/GREEN、Review 修复和环境边界。
-10. `test/real-batch-validation-governance.test.js`（new）：锁定文档链、阈值、人工门禁、独立审查、禁止项和旧状态指针降级。
+10. `test/real-batch-validation-governance.test.js`（new）：锁定文档链、阈值、人工门禁、独立审查、禁止项、旧状态指针降级和 AGENTS 当前优先级。
 11. `docs/agent-collaboration.md`：将当前分配切到 RBV-GOAL-001/Stage 1，并保留 CE-08 为历史/非现行分配。
+12. `AGENTS.md`：将当前最高优先级切到 RBV-GOAL-001/D-037/Pilot Stage 1，将 Cloud Executor P0/D-034 标为已完成历史并保留原规则。
 
 未修改代码、UI/API/DB/Cloud Executor、部署配置或任何真实批次数据。
 
@@ -87,10 +94,10 @@ Owner 必须提供并确认：Calibration roster、每个素材的权利/用途/
 | 检查 | 状态 |
 |------|------|
 | Old-head governance RED | 已完成：6/6 fail（文档缺失） |
-| Targeted governance test after implementation | 已完成：15/15 pass（`node --test test/real-batch-validation-governance.test.js`；含第二轮完整性、两次 Review 修复与逐项 schema 断言） |
+| Targeted governance test after implementation | 已完成：16/16 pass（`node --test test/real-batch-validation-governance.test.js`；含第二轮完整性、两次 Review 修复、逐项 schema、AGENTS 指针断言与 CRLF 哈希断言） |
 | `npm run check` | 已通过：Checked 249 JavaScript file(s). |
 | `git diff --check` | 已通过（无输出） |
-| Allowlist mechanical check | 已通过：11 个变更路径，outside=0（含 `docs/agent-collaboration.md`） |
+| Allowlist mechanical check | 已通过：12 个变更路径，outside=0（含 `docs/agent-collaboration.md` 与 `AGENTS.md`） |
 | 飞影/Provider/Secret/积分/真实素材/生产部署 | 未访问；积分消耗 0 |
 
 ## 下一 Owner Gate

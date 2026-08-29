@@ -4,6 +4,12 @@
 
 ## 当前最高优先级
 
+当前唯一现行执行目标是 `RBV-GOAL-001`（Issue #259 Real Batch Production Validation），产品决策为 D-037，执行合同为 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。当前只激活 Stage 1「合同与人工门禁」；Stage 1 只固化合同、治理测试与人工门禁，不开始 Calibration 或其他真实运行。
+
+本地 GUI 与 Playwright/Local Agent 链路仍是兼容基线，但在 RBV-001 中为 `Deferred/Secondary`；只有真实 RBV run 以可审计证据证明 GUI 阻塞业务，Owner 才能重新提升其优先级。Provider、飞影、Secret、积分、客户素材、生产部署和破坏性操作继续 fail-closed，等待逐动作 Owner 授权。
+
+## 历史：Cloud Executor P0（D-034，已完成，非现行）
+
 Owner 于 2026-08-12 正式纠偏 P0：当前正式交付目标是 `GOAL.md` 定义的 **Cloud Executor 纯云端生产闭环**，以 D-034 和 `docs/product/CLOUD_EXECUTOR_P0.md` 为准。
 
 Cloud Executor 使用独立 `cloud_executor` 身份和独立进程/Docker service，在云端复用现有 Hifly Playwright 核心；Profile、素材、视频和 Evidence 必须持久化。并发固定为 1，登录/存储未就绪时 claim 前失败关闭，失败立即停止且不自动重试。
@@ -20,7 +26,9 @@ AGENTS.md                    ← 本文件
 GOAL.md                      ← 当前 Goal、里程碑与完成标准
 docs/agent-collaboration.md  ← 多 Agent 角色、权限、交接与 Review 规则
 docs/product/README.md       ← 产品文档权威入口
-docs/product/CLOUD_EXECUTOR_P0.md ← 当前 P0 产品合同
+docs/product/DECISION_LOG.md ← 当前产品决策（D-037）
+docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md ← 当前 RBV Stage 1 执行合同
+docs/product/CLOUD_EXECUTOR_P0.md ← 历史 P0 产品合同（D-034，非现行）
 docs/ROADMAP.md              ← 版本目标与 Issue 依赖
 docs/PROJECT_HANDOFF.md      ← 仅在需要历史背景时阅读
 ```

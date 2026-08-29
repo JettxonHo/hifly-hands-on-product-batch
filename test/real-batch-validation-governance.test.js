@@ -19,6 +19,7 @@ function sha256Text(text) {
 }
 
 const goalPath = "GOAL.md";
+const agentsPath = "AGENTS.md";
 const archivePath = "docs/status/archive/GOAL-cloud-executor-p0-complete-2026-08-13.md";
 const decisionPath = "docs/product/DECISION_LOG.md";
 const pilotPath = "docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md";
@@ -50,6 +51,26 @@ test("RBV-001 establishes one current Goal and preserves the old Goal as an arch
   const normalizedCrlfSha256 = sha256Text(normalizeCrlf(simulatedCrlfProjection));
   assert.equal(normalizedCrlfSha256, exactBaseGoalSha256, "normalizing a CRLF archive must preserve the fixed LF hash");
   assert.equal(normalizedCrlfSha256, archiveSha256, "LF and normalized-CRLF archive hashes must agree");
+});
+
+test("AGENTS current priority follows RBV Stage 1 and demotes Cloud Executor P0", () => {
+  const agents = read(agentsPath);
+  const prioritySection = agents.match(/## 当前最高优先级[\s\S]*?(?=## |$)/)?.[0] ?? "";
+  const historicalSection = agents.match(/## 历史：Cloud Executor P0[\s\S]*?(?=## |$)/)?.[0] ?? "";
+
+  assert.match(prioritySection, /RBV-GOAL-001/);
+  assert.match(prioritySection, /D-037/);
+  assert.match(prioritySection, /REAL_BATCH_PRODUCTION_VALIDATION_PILOT\.md/);
+  assert.match(prioritySection, /Stage 1/);
+  assert.doesNotMatch(prioritySection, /当前正式交付目标[^。\n]*Cloud Executor/);
+  assert.doesNotMatch(prioritySection, /D-034[^。\n]*(?:为准|当前)/);
+  assert.match(prioritySection, /GUI[^\n]*(?:Deferred|Secondary)/i);
+  assert.match(prioritySection, /真实 RBV[^\n]*(?:阻塞业务|blocks business)/i);
+
+  assert.match(historicalSection, /Cloud Executor.*P0/i);
+  assert.match(historicalSection, /D-034/);
+  assert.match(historicalSection, /历史|非现行/i);
+  assert.match(historicalSection, /已完成|completed/i);
 });
 
 test("the Goal → D-037 → Pilot Contract → status chain uses canonical identifiers and links", () => {
