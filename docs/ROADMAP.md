@@ -1,7 +1,16 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-29
-> 当前状态：RBV-GOAL-001 / Issue #261 `Readiness Freeze` active（Stage 1「合同与人工门禁」已完成历史）；`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 为唯一执行合同，D-037 为对应产品决策，当前记录为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`。真实 Calibration 与批次运行尚未获 Owner Gate，Provider/飞影/积分/生产部署保持 fail-closed；唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。
+> 最后更新：2026-08-30
+> 当前状态：RBV-GOAL-001 / Issue #261 `Readiness Freeze` active（Stage 1「合同与人工门禁」已完成历史）；Issue #264 在独立分支推进 production Compose 的 DeepSeek 选择器映射，尚未部署或通过 exact-head CI。`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 为唯一执行合同，D-037 为对应产品决策，当前记录为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`。真实 Calibration 与批次运行尚未获 Owner Gate，Provider/飞影/积分/生产部署保持 fail-closed；唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。
+
+## Issue #264 DeepSeek provider activation deployment mapping（2026-08-30）
+
+- 目标是把 `COPY_GENERATION_PROVIDER`、`COPY_QUALITY_EVALUATOR` 与 `COPY_QUALITY_REWRITER` 映射进 production `app`，三个选择器默认 `phase1_controlled_test_double`；`DEEPSEEK_API_KEY` 仅透传环境值，不提供仓库字面量或默认值。
+- 仓库合同已由 TDD 锁定：old head `0eb52fa` 为 `7 pass / 1 fail` RED；加入最小 Compose 映射后 production deployment 为 `8/8` GREEN，production-start 为 `15/15` GREEN，静态检查检查 `249` 个 JavaScript 文件。
+- 这只是部署配置候选，不会自动选择 DeepSeek、发起模型请求或放宽服务端缺 key 的 fail-closed；部署与 exact-head CI 仍 pending。真实 smoke/认证与费用验证按本 Stage 合同明确 deferred，必须等首个真实 Copy job 的独立授权。
+- 本轮没有访问 Provider/Hifly、没有业务数据或生产部署，积分消耗为 `0`。Owner 已明确授权在独立 Review 与 exact-head CI 通过后进入 deployment/provider activation stage；这些 gates 仍 pending，首个真实 Copy job 仍需另行授权。
+- `.dockerignore` P0 secret-context 排除已闭合（`.env`、`.env.*`，并保留 `!.env.example`）；Issue #264 当前 exact allowlist 为 7 个文件。
+- Activation maintenance gate：旧 App 运行时先构建新镜像；重建前只停止 `app`；App 停止后跨全部组织只读确认 `copy_generation_jobs`、`copy_quality_runs`、`copy_rewrite_jobs` 中 `status IN ('queued', 'running')` 的记录均为 `0`（不因 `attempts` 已达上限而豁免），再启动新 App。任一失败或非零即恢复受控配置/旧 App 并停止。当前只读基线为 generation `succeeded=9, active=0`、quality `succeeded=9, active=0`、rewrite `active=0`。
 
 ## RBV-002 Calibration Readiness Freeze 路线门禁（2026-08-29）
 

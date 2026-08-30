@@ -178,6 +178,9 @@ test("production package and container contracts are explicit and isolated", asy
   assert.match(dockerignore, /node_modules/);
   assert.match(dockerignore, /config\.local\.json/);
   assert.match(dockerignore, /batches/);
+  assert.match(dockerignore, /^\.env$/m);
+  assert.match(dockerignore, /^\.env\.\*$/m);
+  assert.match(dockerignore, /^!\.env\.example$/m);
 
   const nginx = await readFile(new URL("../deploy/nginx/default.conf", import.meta.url), "utf8");
   assert.match(nginx, /listen 443 ssl;/);
@@ -212,6 +215,11 @@ test("production package and container contracts are explicit and isolated", asy
   assert.match(envExample, /HTTPS_PORT=443/);
   assert.doesNotMatch(envExample, /postgresql:\/\/pilot:secret@/);
   assert.match(appBlock, /HIFLY_API_TOKEN:/);
+  assert.match(appBlock, /^\s+COPY_GENERATION_PROVIDER:\s+\$\{COPY_GENERATION_PROVIDER:-phase1_controlled_test_double\}\s*$/m);
+  assert.match(appBlock, /^\s+COPY_QUALITY_EVALUATOR:\s+\$\{COPY_QUALITY_EVALUATOR:-phase1_controlled_test_double\}\s*$/m);
+  assert.match(appBlock, /^\s+COPY_QUALITY_REWRITER:\s+\$\{COPY_QUALITY_REWRITER:-phase1_controlled_test_double\}\s*$/m);
+  assert.match(appBlock, /^\s+DEEPSEEK_API_KEY:\s+\$\{DEEPSEEK_API_KEY\}\s*$/m);
+  assert.doesNotMatch(appBlock, /^\s+DEEPSEEK_API_KEY:\s+\$\{DEEPSEEK_API_KEY:-/m);
   assert.match(appBlock, /LOCAL_AGENT_ENABLED:/);
   assert.match(appBlock, /LOCAL_AGENT_ID:/);
   assert.match(appBlock, /LOCAL_AGENT_ORGANIZATION_ID:/);
