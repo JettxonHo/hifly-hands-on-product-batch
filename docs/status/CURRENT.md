@@ -1,11 +1,20 @@
 # 项目当前状态
 
-> 最后更新：2026-08-29
+> 最后更新：2026-08-30
 > 当前 Goal：RBV-GOAL-001 / Issue #261 RBV-002 Calibration Readiness Freeze（Stage 1 已完成历史）
 > 当前阶段：Readiness Freeze；当前结论：`RBV-CAL-001` 五个 SKU 均为 `BLOCKED`，唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。仅登记脱敏事实与证据边界，不运行真实 Provider、未消耗积分、未发布或部署。当前记录为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，下游文档统一引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## Issue #264 DeepSeek provider activation deployment mapping（2026-08-30）
+
+- Issue #264 当前在独立分支 `codex/rbv-deepseek-provider-activation` 实施，仅收敛 production Compose 的 app 环境映射：`COPY_GENERATION_PROVIDER`、`COPY_QUALITY_EVALUATOR` 与 `COPY_QUALITY_REWRITER` 默认保持 `phase1_controlled_test_double`；`DEEPSEEK_API_KEY` 仅透传 `${DEEPSEEK_API_KEY}`，不在仓库提供字面量或默认值。
+- TDD 证据：旧 head `0eb52fa` 加入部署合同断言后 `node --test test/production-deployment.test.js` 为 `7 pass / 1 fail`（RED）；加入最小 Compose 映射后同一测试为 `8 pass / 0 fail`（GREEN）。
+- `node --test test/production-start.test.js` 为 `15 pass / 0 fail`；`npm run check` 检查 `249` 个 JavaScript 文件。该仓库候选不改变 production-start 的 Provider 选择或 fail-closed 行为。
+- 本轮没有 Provider/DeepSeek 请求、没有业务数据、没有登录、没有飞影、没有部署或 CI 写入，积分消耗为 `0`。生产部署与 exact-head CI 仍 pending；Owner 已明确授权在独立 Review 与 exact-head CI 通过后进入 deployment/provider activation stage。真实 smoke/认证和费用验证在本 Stage 明确 deferred，首个真实 Copy job 仍需另行授权。
+- `.dockerignore` P0 secret-context 排除已闭合：`.env`、`.env.*` 被忽略，`!.env.example` 保留示例配置；当前 exact allowlist 为 7 个文件。
+- Activation maintenance gate 已固定：旧 App 运行时先构建新镜像；重建前只停 `app`，不停止 Proxy/PostgreSQL；App 停止后跨全部组织只读核对 `copy_generation_jobs`、`copy_quality_runs`、`copy_rewrite_jobs` 中 `status IN ('queued', 'running')`，三者均须为 `0`（不因 `attempts` 已达上限而豁免）才能启动新 App。任一失败或非零即恢复受控配置/旧 App 并停止。当前只读基线：generation `succeeded=9, active=0`；quality `succeeded=9, active=0`；rewrite `active=0`。
 
 ## Issue #261 RBV-002 Calibration Readiness Freeze（2026-08-29）
 

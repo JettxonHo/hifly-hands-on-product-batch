@@ -157,6 +157,42 @@ PostgreSQL pool，但分别使用 `identity_schema_migrations`、`asset_schema_m
 `avatar_selection_schema_migrations` 和 `video_planning_schema_migrations`。默认生成器、质检器、改写器和预检器的
 `phase1_controlled_test_double` 只用于 Slice A 本地验收，不访问真实模型或飞影。
 
+### Production Compose provider mapping（Issue #264，仓库候选）
+
+`docker-compose.production.yml` 的 `app` 服务显式映射三个文案选择器：
+`COPY_GENERATION_PROVIDER`、`COPY_QUALITY_EVALUATOR` 与 `COPY_QUALITY_REWRITER`；未指定时均保持
+`phase1_controlled_test_double`。`DEEPSEEK_API_KEY` 只透传 `${DEEPSEEK_API_KEY}`，仓库不提供字面量或
+fallback/default。因而默认 Compose 配置仍使用受控替身；只有部署环境显式选择 DeepSeek 且提供服务端 key 时，
+production-start 才按下述配置合同启用对应适配器，缺 key 仍在启动前 fail closed。
+
+该映射尚未部署或通过 exact-head CI，也未执行真实 DeepSeek smoke；`.dockerignore` 已排除 `.env` 与 `.env.*` 并保留
+`.env.example`，不把本地 Secret 带入 Docker build context。Owner 已明确授权在独立 Review 与 exact-head CI
+通过后进入 deployment/provider activation stage，但首个真实 Copy job 仍需另行授权。本轮没有 Provider 请求、业务数据写入或积分消耗。
+
+#### Provider activation maintenance gate
+
+在触碰 git、env 或 image 前，必须先在现行 App 容器内以 `umask 077` 执行数据库备份；dump 必须为非零字节、mode `0600`，
+并在容器内以 `pg_restore --list` 校验成功。将变更前完整 `.env` 原样复制到仓库与 build context 之外的
+`/opt/hifly-runtime/rbv004-rollback/`，且副本必须为 root-owned、mode `0600`。必须在 build 前捕获运行中 App image ID 并赋予不可变 rollback tag；随后在旧 App 仍运行期间构建新镜像；重建前只停止 `app` 服务，不停止
+Proxy 或 PostgreSQL。App 停止后，必须以只读方式跨**全部组织**核对
+`copy_generation_jobs`、`copy_quality_runs` 与 `copy_rewrite_jobs`：`status IN ('queued', 'running')` 的记录数必须均为
+`0`（不因 `attempts` 已达上限而豁免）；只有该检查为零才可启动新 App。任一检查失败或返回非零时，
+恢复受控选择器配置/旧 App 并停止，不启动新 Provider 路径。启动新 App 只能使用
+`docker compose -f docker-compose.production.yml up -d --no-build --no-deps --force-recreate app`。新 App healthy 后，因既有 Nginx 静态
+`proxy_pass http://app:3000` 可能仍指向旧 Docker IP，必须先执行 `nginx -t`，再在**现有** Proxy 容器内 reload/HUP；
+不得重建 Proxy。随后必须验证公网 HTTPS `/healthz`，并记录 Proxy container ID、`StartedAt` 与 `RestartCount` 均未变化。
+公网 health 失败即回滚；禁止宽泛 `docker compose up proxy`。在 bounded health deadline 内，必须比较 Cloud Executor 的 container ID、
+image ID、`StartedAt`、`RestartCount`，并确认 `CLOUD_EXECUTOR_ENABLED=false`、`CLOUD_EXECUTOR_MODE=fail_closed`、
+standby heartbeat 恢复且 `claim_enabled=false`。同时比较变更前后的 `copy_generation_jobs`、`copy_quality_runs`、`copy_rewrite_jobs` aggregate total 与 status counts；日志仅作补充，
+不能替代数据库聚合。任一 health/invariant 检查失败即自动执行 env+image rollback。当前只读基线为：generation `succeeded=9, active=0`；
+quality `succeeded=9, active=0`；rewrite `active=0`。
+
+回滚必须恢复整份 `.env`，将捕获的 predeploy App image ID 重新 tag 为 Compose service image，然后仅对 `app` 执行
+`docker compose -f docker-compose.production.yml up -d --no-build --no-deps --force-recreate app`；不得重建 Proxy、PostgreSQL 或 Executor。回滚后必须再次确认
+App health、公网 HTTPS `/healthz`，以及 Executor container ID、`StartedAt`、`RestartCount` 均未变化。
+正常回滚仅恢复整份 `.env` 与 App image，不自动恢复数据库 dump。若发现意外 queue/provider delta，应停 App、恢复受控 env/旧 image，
+保留数据库、日志和审计证据；数据库恢复只能在 writers quiesced 后作为单独授权的最后手段，既不能撤销已产生的费用，也可能抹除事故证据。
+
 ### DeepSeek 文案 Provider（P1-01，默认关闭）
 
 生产配置默认保持 `COPY_GENERATION_PROVIDER=phase1_controlled_test_double`，不会访问外部模型。
