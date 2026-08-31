@@ -1,11 +1,20 @@
 # 项目当前状态
 
-> 最后更新：2026-08-30
-> 当前 Goal：RBV-GOAL-001 / Issue #261 RBV-002 Calibration Readiness Freeze（Stage 1 已完成历史）
-> 当前阶段：Readiness Freeze；当前结论：`RBV-CAL-001` 五个 SKU 均为 `BLOCKED`，唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。仅登记脱敏事实与证据边界，不运行真实 Provider、未消耗积分、未发布或部署。当前记录为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，下游文档统一引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。
+> 最后更新：2026-08-31
+> 当前 Goal：RBV-GOAL-001；当前 bounded Stage：Issue #273 RBV-012 Copy Quality One-Attempt Contract Correction（Readiness Freeze 为底层 Goal 门禁，Stage 1 已完成历史）
+> 当前阶段：`QUALITY_ONE_ATTEMPT_CONTRACT_CORRECTION`；当前结论：provider-free candidate 已完成，等待独立 Review 与 Owner Gate。正式新 Quality path 为 at-most-once dispatch/HTTP invocation，未知结果 fail-closed；未运行真实 Provider、未消耗积分、未发布或部署。RBV Readiness Freeze 记录仍为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，产品方向继续引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
+
+## Issue #273 RBV-012 Copy Quality One-Attempt Contract Correction（2026-08-31）
+
+- 在独立分支 `codex/rbv-quality-one-attempt`（基准 `b79dde707461cc785100e0f07d39fda140fad21a`）完成 provider-free bounded correction；正式新 QualityRun 默认 `attempt_policy=provider_at_most_once_v1`、`max_attempts=1`，Rewrite 继续独立使用 `max_attempts=3`。既有数据库行由迁移默认标记 `legacy`，不把历史运行误报为严格一次。
+- QualityRun 新增持久化 dispatch permit 与真实 HTTP invocation 分离计数：`provider_dispatch_count` 与 `provider_http_request_count` 均最多 1，且 HTTP 不得超过 dispatch；dispatch 在执行前提交，HTTP invocation marker 在客户端调用前提交。lease/reclaim/duplicate worker/崩溃均 fail-closed，不会重新进入 Provider。usage/token/charge 使用显式 `reported`/`unknown` 状态和 nullable 字段；local cost 保留 `not_calculated`/`unknown`，不调用 billing API，不保存 prompt/response/secret。
+- DeepSeek semantic evaluator 删除 malformed/schema correction request，要求通过 durable `providerRequest` seam 调用；production selector `deepseek_hybrid`、provider `DeepSeek`、model `deepseek-v4-flash` 分开持久化。Quality 开始时仍冻结待评 v2 以稳定字节，但通过 additive `supersedeParent=false` 保持 parent v1 的 status/body/row_version 不变。
+- Memory/PG repositories 均实现一次性 dispatch、usage/charge/audit、严格过期终止与 per-copy strict unique index；retry endpoint 对 strict run 返回 `QUALITY_ONE_ATTEMPT_RETRY_BLOCKED`，不同 start key 也只回放既有 strict run。Copy quality API 与 operator/browser projection 隐藏 strict retry/start action，显示 Owner-gated stop。
+- TDD 证据：`node --test test/copy-quality-one-attempt.test.js`（27 pass）、`node --test test/copy-quality-api.test.js`（8 pass）、`node --test test/copy-quality-browser.test.js`（2 pass，含桌面/390px strict stop/cancelled/legacy-unknown/invalid stop）、`node --test test/copy-generation-service.test.js`（11 pass，含旧 freeze receipt replay）、`node --test test/copy-quality-evaluators.test.js test/copy-quality-service.test.js test/operator-workspace-service.test.js`（全部 pass）、`node --test test/production-start.test.js`（15 pass）、`npm run check`（249 JS files）。临时 PostgreSQL 16.14 容器 `hifly-quality-one-attempt-pg` 上 `TEST_DATABASE_URL=... node --test test/copy-quality-postgres.integration.test.js` 为 2 pass；迁移版本、legacy nullable counts/active fail-closed/terminal unknown, strict unique race, count/check, usage/charge unknown, completion response gate, lease no-reclaim 均通过。完整 A–J 映射与首轮 RED 见 `docs/status/sessions/2026-08-31-issue-273-quality-one-attempt.md`。
+- 本 Stage 未调用真实 Provider/DeepSeek/Hifly、未发送外部请求、未登录、未部署、未创建真实 QualityRun 或下游对象，积分与 Provider tokens/cost 为 `0`。Issue #273 仍等待独立 Review/Owner Gate；不得在本 Stage 自动执行真实 Quality Evaluation。
 
 ## Issue #264 DeepSeek provider activation deployment mapping（2026-08-30）
 

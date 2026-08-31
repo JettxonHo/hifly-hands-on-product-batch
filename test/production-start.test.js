@@ -609,15 +609,20 @@ test("production wiring independently selects a DeepSeek hybrid quality evaluato
   assert.equal(fetchCalls, 0);
   assert.equal(buildOptions.copyGeneration.provider.kind, "phase1_controlled_test_double");
   assert.equal(buildOptions.copyQuality.evaluator.kind, "hybrid_quality_qc");
+  let providerDispatch;
 
   const result = await buildOptions.copyQuality.evaluator.evaluate({
     copyVersion: { body: "这款商品全网最好。" },
     productRevision: {
       product_name: "测试商品",
       selling_points: [{ text: "轻便", confirmed: true }]
-    }
+    },
+    providerRequest: async (request) => { providerDispatch = request; return request.execute(); }
   });
   assert.equal(fetchCalls, 1);
+  assert.equal(providerDispatch.providerName, "DeepSeek");
+  assert.equal(providerDispatch.providerKind, "deepseek_hybrid");
+  assert.equal(providerDispatch.model, "deepseek-v4-flash");
   const semanticFinding = result.findings.find((finding) => finding.rule_source === "llm_semantic_qc");
   assert.equal(semanticFinding?.kind, "review");
   assert.equal(semanticFinding?.code, "SEMANTIC_REVIEW_1");

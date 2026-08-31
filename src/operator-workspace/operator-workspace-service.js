@@ -141,6 +141,9 @@ function publicQuality(details) {
     status: run.status,
     attempts: run.attempts,
     max_attempts: run.max_attempts,
+    ...(run.attempt_policy ? { attempt_policy: run.attempt_policy } : {}),
+    ...(run.failure_code ? { failure_code: run.failure_code } : {}),
+    ...(run.provider_request_outcome ? { provider_request_outcome: run.provider_request_outcome } : {}),
     conclusion: result?.effective_conclusion || result?.conclusion || null,
     current_valid: result?.current_valid ?? null,
     invalidation_reason: result?.invalidation_reason || null,
@@ -802,6 +805,7 @@ function copyState({ revision, copy, currentCopyId, versions, generation, qualit
   let blockerCodes = ["COPY_REQUIRED"];
   let action = null;
   const historical = Boolean(copy && currentCopyId && copy.id !== currentCopyId);
+  const providerOutcomeUnknown = quality.failure_code === "QUALITY_PROVIDER_OUTCOME_UNKNOWN" || quality.provider_request_outcome === "unknown";
 
   if (revision.status !== "ready") {
     businessStatus = "商品资料尚未就绪";
@@ -811,6 +815,12 @@ function copyState({ revision, copy, currentCopyId, versions, generation, qualit
     businessStatus = "历史文案版本";
     blockerCodes = ["COPY_VERSION_HISTORICAL"];
     action = { code: "return_to_current_copy_version", stage: "copy", kind: "navigate" };
+  } else if (providerOutcomeUnknown || quality.attempt_policy === "provider_at_most_once_v1" &&
+    (quality.current_valid === false || ["failed", "timed_out", "cancelled"].includes(quality.status))) {
+    businessStatus = providerOutcomeUnknown ? "质检结果未知，等待新的 Owner 授权" : quality.status === "cancelled" ? "一次性质检已取消，等待新的 Owner 授权" :
+      quality.current_valid === false ? "一次性质检结论已失效，等待新的 Owner 授权" : "一次性质检已停止，等待新的 Owner 授权";
+    blockerCodes = ["COPY_QUALITY_ONE_ATTEMPT_STOPPED"];
+    action = null;
   } else if (!copy) {
     if (activeGeneration) {
       businessStatus = generationStatus === "queued" ? "文案生成已排队" : "正在生成文案";
@@ -834,6 +844,14 @@ function copyState({ revision, copy, currentCopyId, versions, generation, qualit
     businessStatus = reviewStatus === "changes_requested" ? "审核要求修改文案" : "文案批准已失效";
     blockerCodes = [reviewStatus === "changes_requested" ? "COPY_CHANGES_REQUIRED" : "COPY_APPROVAL_REVOKED"];
     action = { code: "derive_copy_draft", stage: "copy", kind: "focus" };
+  } else if (quality.status === "cancelled" && quality.attempt_policy === "provider_at_most_once_v1") {
+    businessStatus = "一次性质检已取消，等待新的 Owner 授权";
+    blockerCodes = ["COPY_QUALITY_ONE_ATTEMPT_STOPPED"];
+    action = null;
+  } else if (quality.current_valid === false && quality.attempt_policy === "provider_at_most_once_v1") {
+    businessStatus = "一次性质检结论已失效，等待新的 Owner 授权";
+    blockerCodes = ["COPY_QUALITY_ONE_ATTEMPT_STOPPED"];
+    action = null;
   } else if (quality.current_valid === false) {
     businessStatus = "质检结论已失效";
     blockerCodes = ["COPY_QUALITY_INVALIDATED"];
@@ -842,9 +860,10 @@ function copyState({ revision, copy, currentCopyId, versions, generation, qualit
     businessStatus = quality.status === "queued" ? "文案质检已排队" : "正在质检文案";
     blockerCodes = ["COPY_QUALITY_IN_PROGRESS"];
   } else if (["failed", "timed_out"].includes(quality.status)) {
-    businessStatus = "文案质检未完成";
-    blockerCodes = ["COPY_QUALITY_FAILED"];
-    action = quality.status === "failed" && quality.attempts < quality.max_attempts
+    const oneAttempt = quality.attempt_policy === "provider_at_most_once_v1";
+    businessStatus = oneAttempt ? "一次性质检已停止，等待新的 Owner 授权" : "文案质检未完成";
+    blockerCodes = [oneAttempt ? "COPY_QUALITY_ONE_ATTEMPT_STOPPED" : "COPY_QUALITY_FAILED"];
+    action = oneAttempt ? null : quality.status === "failed" && quality.attempts < quality.max_attempts
       ? { code: "retry_copy_quality", stage: "copy", kind: "command" }
       : { code: "start_copy_quality", stage: "copy", kind: "command" };
   } else if (quality.conclusion === "passed" && review.can_submit) {

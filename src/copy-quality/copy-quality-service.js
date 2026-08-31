@@ -6,6 +6,9 @@ const failure = (code) => Object.assign(new Error(code), { code });
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const stableJson = (value) => Array.isArray(value) ? `[${value.map(stableJson).join(",")}]` :
   value && typeof value === "object" ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}` : JSON.stringify(value);
+const STRICT_ATTEMPT_POLICY = "provider_at_most_once_v1";
+const QUALITY_PROVIDER_REQUEST_OUTCOMES = new Set(["success", "response_received", "http_error", "parse_failure",
+  "schema_failure", "semantic_failure", "timeout", "network_failure", "not_dispatched", "unknown"]);
 
 function requireContext(input) {
   if (!clean(input.organizationId) || !clean(input.actorMemberId)) throw failure("COPY_QUALITY_CONTEXT_REQUIRED");
@@ -23,11 +26,53 @@ function conclusionFor(evaluation) {
   return "passed";
 }
 
+function token(value) {
+  return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function providerUsage(response) {
+  const usage = response?.usage;
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) {
+    return { status: "unknown", inputTokens: null, outputTokens: null, totalTokens: null };
+  }
+  const inputTokens = token(usage.prompt_tokens ?? usage.input_tokens);
+  const outputTokens = token(usage.completion_tokens ?? usage.output_tokens);
+  const totalTokens = token(usage.total_tokens);
+  const reported = inputTokens !== null || outputTokens !== null || totalTokens !== null;
+  return { status: reported ? "reported" : "unknown", inputTokens, outputTokens, totalTokens };
+}
+
+function providerCharge(response) {
+  const charge = response?.charge || response?.cost;
+  if (!charge || typeof charge !== "object" || Array.isArray(charge)) {
+    return { status: "unknown", amount: null, currency: null };
+  }
+  const amount = typeof charge.amount === "number" && Number.isFinite(charge.amount) && charge.amount >= 0 ? charge.amount : null;
+  const currency = clean(charge.currency) || null;
+  return { status: amount !== null && currency ? "reported" : "unknown", amount, currency: currency || null };
+}
+
+function outcomeForError(error) {
+  const code = error?.code;
+  if (code === "DEEPSEEK_RESPONSE_INVALID") return "schema_failure";
+  if (code === "QUALITY_EVALUATION_OUTPUT_INVALID" || code === "QUALITY_EVALUATION_OUTPUT_MALFORMED") return "parse_failure";
+  if (code === "QUALITY_EVALUATION_SCHEMA_INVALID") return "schema_failure";
+  if (code === "QUALITY_EVALUATION_INVALID") return "semantic_failure";
+  if (["DEEPSEEK_AUTH_INVALID", "DEEPSEEK_RATE_LIMITED", "DEEPSEEK_REQUEST_FAILED"].includes(code)) return "http_error";
+  if (["DEEPSEEK_UNAVAILABLE", "LLM_TRANSPORT_UNAVAILABLE", "QUALITY_EVALUATOR_TEMPORARY_FAILURE"].includes(code)) return "unknown";
+  return QUALITY_PROVIDER_REQUEST_OUTCOMES.has(code) ? code : "unknown";
+}
+
 export function createCopyQualityService({ repository, copyService,
   profileResolver = createStaticQualityProfileResolver(), reviewInvalidationCoordinator,
-  now = () => Date.now(), maxAttempts = 3 } = {}) {
+  now = () => Date.now(), qualityMaxAttempts = 1, maxAttempts = 3, rewriteMaxAttempts = maxAttempts,
+  attemptPolicy = STRICT_ATTEMPT_POLICY } = {}) {
   if (!repository || !copyService) throw new TypeError("repository and copyService are required");
   if (!profileResolver?.resolve) throw new TypeError("profileResolver is required");
+  if (!Number.isInteger(qualityMaxAttempts) || qualityMaxAttempts < 1) throw new TypeError("qualityMaxAttempts must be a positive integer");
+  if (!Number.isInteger(rewriteMaxAttempts) || rewriteMaxAttempts < 1) throw new TypeError("rewriteMaxAttempts must be a positive integer");
+  if (!["legacy", STRICT_ATTEMPT_POLICY].includes(attemptPolicy)) throw new TypeError("attemptPolicy is invalid");
+  if (attemptPolicy === STRICT_ATTEMPT_POLICY && qualityMaxAttempts !== 1) throw new TypeError("strict quality attempt policy requires qualityMaxAttempts=1");
   const timestamp = () => new Date(now()).toISOString();
 
   async function currentRevision(input, copy) {
@@ -87,7 +132,8 @@ export function createCopyQualityService({ repository, copyService,
       if (copy.status === "draft") {
         try {
           copy = await copyService.freezeCopyVersion({ ...input, copyVersionId: copy.id,
-            expectedRevision: input.expectedRevision, idempotencyKey: `quality-freeze:${key}` });
+            expectedRevision: input.expectedRevision, supersedeParent: false,
+            idempotencyKey: `quality-freeze:${key}` });
         } catch (error) {
           if (error?.code !== "COPY_VERSION_CONFLICT") throw error;
           copy = await copyService.getCopyVersion({ ...input, copyVersionId: input.copyVersionId });
@@ -100,9 +146,17 @@ export function createCopyQualityService({ repository, copyService,
         id: randomUUID(), organization_id: input.organizationId, copy_version_id: copy.id,
         product_revision_id: copy.product_revision_id, profile_version: profileVersion, rule_version: ruleVersion,
         input_snapshot: { copy_version: copy, product_revision: productRevision, profile_version: profileVersion, rule_version: ruleVersion },
-        status: "queued", attempts: 0, max_attempts: maxAttempts, quality_result_id: null,
-        failure_code: null, lease_token: null, started_at: null, heartbeat_at: null,
-        lease_expires_at: null, completed_at: null, created_at: at, updated_at: at
+        status: "queued", attempts: 0, max_attempts: qualityMaxAttempts, attempt_policy: attemptPolicy,
+        quality_result_id: null, failure_code: null, lease_token: null, started_at: null, heartbeat_at: null,
+        lease_expires_at: null, completed_at: null, created_at: at, updated_at: at,
+        provider_name: null, provider_kind: null, provider_model: null, provider_dispatch_count: 0,
+        provider_http_request_count: 0, provider_request_state: "not_started", provider_request_outcome: null,
+        provider_dispatch_reserved_at: null, provider_request_started_at: null, provider_request_completed_at: null,
+        provider_usage_status: "not_applicable", provider_input_tokens: null,
+        provider_output_tokens: null, provider_total_tokens: null,
+        provider_charge_status: "not_applicable", provider_charge_amount: null,
+        provider_charge_currency: null, provider_local_cost_status: "not_calculated",
+        provider_local_cost_amount: null, provider_local_cost_currency: null
       };
       const created = await repository.createRun({
         receiptKey: `${input.organizationId}:quality-start:${key}`,
@@ -113,6 +167,51 @@ export function createCopyQualityService({ repository, copyService,
           metadata: { profile_version: profileVersion, rule_version: ruleVersion }, created_at: at }
       });
       return { copy_version: copy, quality_run: created };
+    },
+    async executeProviderRequest({ run, providerName, providerKind, model, execute } = {}) {
+      if (!run?.id || !run?.lease_token || typeof execute !== "function") throw failure("QUALITY_PROVIDER_REQUEST_INVALID");
+      const at = timestamp();
+      const reserved = await repository.beginProviderRequest({ runId: run.id, leaseToken: run.lease_token,
+        providerName: clean(providerName) || null, providerKind: clean(providerKind) || clean(providerName) || null,
+        model: clean(model) || null, now: at,
+        audit: { id: randomUUID(), organization_id: run.organization_id,
+          event_type: "copy.quality_provider_dispatch_reserved", copy_version_id: run.copy_version_id,
+          quality_run_id: run.id, metadata: { provider_name: clean(providerName) || null,
+            provider_kind: clean(providerKind) || clean(providerName) || null, provider_model: clean(model) || null,
+            provider_dispatch_count: 1 }, created_at: at } });
+      if (!reserved) throw failure("QUALITY_PROVIDER_REQUEST_ALREADY_USED");
+      const startedAt = timestamp();
+      const requestStarted = await repository.markProviderHttpRequestStarted({ runId: run.id, leaseToken: run.lease_token,
+        now: startedAt,
+        audit: { id: randomUUID(), organization_id: run.organization_id,
+          event_type: "copy.quality_provider_http_request_started", copy_version_id: run.copy_version_id,
+          quality_run_id: run.id, metadata: { provider_name: clean(providerName) || null,
+            provider_kind: clean(providerKind) || clean(providerName) || null, provider_model: clean(model) || null,
+            provider_http_request_count: 1 }, created_at: startedAt } });
+      if (!requestStarted) throw failure("QUALITY_PROVIDER_REQUEST_ALREADY_USED");
+      let response;
+      try {
+        response = await execute();
+      } catch (error) {
+        const outcome = outcomeForError(error), responseAt = timestamp();
+        await repository.recordProviderResponse({ runId: run.id, leaseToken: run.lease_token,
+          outcome, usage: null, charge: null, now: responseAt,
+          audit: { id: randomUUID(), organization_id: run.organization_id,
+            event_type: "copy.quality_provider_response_recorded", copy_version_id: run.copy_version_id,
+            quality_run_id: run.id, metadata: { outcome, usage_status: "unknown", charge_status: "unknown" }, created_at: responseAt } }).catch((recordError) => {
+          if (recordError?.code !== "QUALITY_RUN_LEASE_LOST") throw recordError;
+        });
+        throw error;
+      }
+      const usage = providerUsage(response), charge = providerCharge(response);
+      const responseAt = timestamp();
+      await repository.recordProviderResponse({ runId: run.id, leaseToken: run.lease_token,
+        outcome: "response_received", usage, charge, now: responseAt,
+        audit: { id: randomUUID(), organization_id: run.organization_id,
+          event_type: "copy.quality_provider_response_recorded", copy_version_id: run.copy_version_id,
+          quality_run_id: run.id, metadata: { outcome: "response_received", usage_status: usage.status,
+            charge_status: charge.status }, created_at: responseAt } });
+      return response;
     },
     async getQualityRun(input) {
       requireContext(input);
@@ -147,6 +246,14 @@ export function createCopyQualityService({ repository, copyService,
     async completeQualityRun({ run, evaluation }) {
       const copy = await copyService.getCopyVersion({ organizationId: run.organization_id,
         actorMemberId: "copy-quality-worker", copyVersionId: run.copy_version_id });
+      const currentRun = await repository.getRun(run.organization_id, run.id);
+      if (!currentRun) throw failure("QUALITY_RUN_NOT_FOUND");
+      if (Number(currentRun.provider_dispatch_count || 0) > 0 && Number(currentRun.provider_http_request_count || 0) === 0) {
+        throw failure("QUALITY_PROVIDER_REQUEST_NOT_STARTED");
+      }
+      if (Number(currentRun.provider_dispatch_count || 0) > 0 && currentRun.provider_request_state !== "response_received") {
+        throw failure("QUALITY_PROVIDER_RESPONSE_NOT_READY");
+      }
       const productRevision = await currentRevision({ organizationId: run.organization_id,
         actorMemberId: "copy-quality-worker" }, copy);
       const policy = await currentPolicy({ organizationId: run.organization_id,
@@ -167,6 +274,7 @@ export function createCopyQualityService({ repository, copyService,
         created_at: at
       }));
       await repository.completeRun({ runId: run.id, leaseToken: run.lease_token, result, findingRows, now: at,
+        providerOutcome: run.provider_http_request_count > 0 ? "success" : null,
         audit: { id: randomUUID(), organization_id: run.organization_id, event_type: "copy.quality_succeeded",
           copy_version_id: run.copy_version_id, quality_run_id: run.id, quality_result_id: result.id,
           metadata: { conclusion, finding_count: findingRows.length }, created_at: at } });
@@ -176,7 +284,15 @@ export function createCopyQualityService({ repository, copyService,
     },
     async failQualityRun({ run, failureCode = "QUALITY_EVALUATION_FAILED" }) {
       const at = timestamp();
-      return repository.failRun({ runId: run.id, leaseToken: run.lease_token, failureCode, now: at,
+      const current = await repository.getRun(run.organization_id, run.id);
+      const dispatchReserved = Number(current?.provider_dispatch_count || 0) > 0;
+      const httpDispatched = Number(current?.provider_http_request_count || run.provider_http_request_count || 0) > 0;
+      const providerOutcome = dispatchReserved ? (httpDispatched
+        ? (['terminal', 'unknown'].includes(current?.provider_request_state) && current?.provider_request_outcome
+          ? current.provider_request_outcome : outcomeForError({ code: failureCode }))
+        : "not_dispatched") : null;
+      return repository.failRun({ runId: run.id, leaseToken: run.lease_token, failureCode,
+        providerOutcome, now: at,
         audit: { id: randomUUID(), organization_id: run.organization_id, event_type: "copy.quality_failed",
           copy_version_id: run.copy_version_id, quality_run_id: run.id, metadata: { failure_code: failureCode }, created_at: at } });
     },
@@ -184,6 +300,13 @@ export function createCopyQualityService({ repository, copyService,
       requireContext(input);
       const current = await repository.getRun(input.organizationId, input.qualityRunId);
       if (!current) throw failure("QUALITY_RUN_NOT_FOUND");
+      if (current.attempt_policy === STRICT_ATTEMPT_POLICY || (current.attempt_policy == null && current.max_attempts === 1)) {
+        throw failure("QUALITY_ONE_ATTEMPT_RETRY_BLOCKED");
+      }
+      if (current.provider_request_state === "unknown" || current.provider_request_outcome === "unknown" ||
+        current.failure_code === "QUALITY_PROVIDER_OUTCOME_UNKNOWN") {
+        throw failure("QUALITY_ONE_ATTEMPT_RETRY_BLOCKED");
+      }
       if (current.status !== "failed") throw failure("QUALITY_RUN_RETRY_BLOCKED");
       const copy = await copyService.getCopyVersion({ ...input, copyVersionId: current.copy_version_id });
       await currentRevision(input, copy);
@@ -239,7 +362,7 @@ export function createCopyQualityService({ repository, copyService,
       const at = timestamp();
       const job = { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId,
         source_copy_version_id: copy.id, finding_id: finding?.id || null, scope, instruction,
-        status: "queued", attempts: 0, max_attempts: maxAttempts, output_copy_version_id: null,
+        status: "queued", attempts: 0, max_attempts: rewriteMaxAttempts, output_copy_version_id: null,
         quality_run_id: null, rewritten_body: null, failure_code: null, lease_token: null, started_at: null, heartbeat_at: null,
         lease_expires_at: null, completed_at: null, created_at: at, updated_at: at };
       const created = await repository.createRewriteJob({ receiptKey, fingerprint, job,
@@ -330,6 +453,9 @@ export function createCopyQualityService({ repository, copyService,
       requireContext(input);
       const current = await repository.getRun(input.organizationId, input.qualityRunId);
       if (!current) throw failure("QUALITY_RUN_NOT_FOUND");
+      if (current.attempt_policy === STRICT_ATTEMPT_POLICY && Number(current.provider_dispatch_count || 0) > 0) {
+        throw failure("QUALITY_ONE_ATTEMPT_CANCEL_BLOCKED");
+      }
       const at = timestamp();
       const cancelled = await repository.cancelRun({ organizationId: input.organizationId, runId: current.id, now: at,
         audit: { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId,

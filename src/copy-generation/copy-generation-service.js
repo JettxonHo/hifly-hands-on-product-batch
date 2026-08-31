@@ -111,17 +111,21 @@ export function createCopyGenerationService({ repository, productRevisionPort, r
     async freezeCopyVersion(input) {
       context(input);
       const key = idempotencyKey(input.idempotencyKey);
+      const supersedeParent = input.supersedeParent !== false;
       if (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 1) throw failure("INVALID_COPY_REVISION");
       const at = timestamp();
+      const fingerprint = supersedeParent
+        ? stableJson({ copy_version_id: input.copyVersionId, expected_revision: input.expectedRevision })
+        : stableJson({ copy_version_id: input.copyVersionId, expected_revision: input.expectedRevision, supersede_parent: false });
       const result = await repository.freezeCopy({
         organizationId: input.organizationId, copyVersionId: input.copyVersionId, expectedRevision: input.expectedRevision,
-        receiptKey: `${input.organizationId}:freeze:${key}`,
-        fingerprint: stableJson({ copy_version_id: input.copyVersionId, expected_revision: input.expectedRevision }), now: at,
+        supersedeParent, receiptKey: `${input.organizationId}:freeze:${key}`,
+        fingerprint, now: at,
         audit: { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId,
           event_type: "copy.frozen", copy_version_id: input.copyVersionId, created_at: at }
       });
       if (!result) throw failure("COPY_VERSION_NOT_FOUND");
-      if (result.parent_copy_version_id) await reviewInvalidationCoordinator?.copyVersionChanged({
+      if (supersedeParent && result.parent_copy_version_id) await reviewInvalidationCoordinator?.copyVersionChanged({
         organizationId: input.organizationId, actorMemberId: input.actorMemberId,
         copyVersionId: result.parent_copy_version_id });
       return result;

@@ -2,7 +2,7 @@
 
 > 状态：Accepted
 > Owner：owner（JettxonHo）
-> 最后更新：2026-08-29
+> 最后更新：2026-08-31
 > 适用范围：本项目全部产品设计、Issue 拆分、PR 审查与技术架构决策
 > 非目标：本目录不包含任何代码、测试、配置或运行时行为变更
 
@@ -46,6 +46,7 @@
 - [PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md](PRODUCT_APPEARANCE_CONTROLLED_DATASET_ACCEPTANCE.md)
 - [PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md](PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md)
 - [REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md](REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)
+- [COPY_QUALITY_ONE_ATTEMPT.md](COPY_QUALITY_ONE_ATTEMPT.md)
 
 ### Evidence
 
@@ -75,6 +76,7 @@
 16. PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md
 17. PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md
 18. REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md
+19. COPY_QUALITY_ONE_ATTEMPT.md
 ```
 
 | 文档 | 内容 |
@@ -101,6 +103,7 @@
 | [PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md](PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md) | Issue #226 / PR #227 已接受的 Fidelity-C5 合同与 Issue #228 / PR #229 synthetic-only seam：锁定环境、缓存、输入绑定、盲评、逐维 Evidence 和失败关闭；当前 artifact/license/security gate 仍 blocked，不代表已安装、运行 benchmark 或选择能力 |
 | [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：[D-037](DECISION_LOG.md#d-037-real-batch-production-validation) Real Batch Production Validation（RBV-001） |
 | [REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md](REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md) | D-037 / RBV-001 的 Stage 1 Pilot Contract；人工门禁待 Owner Gate，不代表真实批次已运行 |
+| [COPY_QUALITY_ONE_ATTEMPT.md](COPY_QUALITY_ONE_ATTEMPT.md) | Issue #273 的 bounded QualityRun at-most-once contract；只记录工程状态机与 provider-free gate，不代表真实 Provider 已调用 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决，Q-018 已由 D-032 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 | [PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md](PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md) | Issue #232 的官方 Evidence 台账：固定 PP-OCRv6 archive/参数许可边界、两架构 dependency metadata、OpenCV contrib 4.10 第三方义务与静态解码安全阻断；不建立 accepted environment lane |

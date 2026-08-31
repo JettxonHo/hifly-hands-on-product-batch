@@ -11,7 +11,8 @@ export function createCopyQualityWorker({ service, evaluator, pollIntervalMs = 5
     try {
       const evaluation = await evaluator.evaluate({ qualityRun: run,
         copyVersion: run.input_snapshot.copy_version, productRevision: run.input_snapshot.product_revision,
-        profileVersion: run.profile_version, ruleVersion: run.rule_version });
+        profileVersion: run.profile_version, ruleVersion: run.rule_version,
+        providerRequest: (request) => service.executeProviderRequest({ run, ...request }) });
       const nonempty = (value) => typeof value === "string" && value.trim().length > 0;
       if (typeof evaluation?.checks_complete !== "boolean" || !Array.isArray(evaluation.findings) ||
         evaluation.findings.some((finding) => !["review", "hard_block", "fact_gate"].includes(finding?.kind) ||

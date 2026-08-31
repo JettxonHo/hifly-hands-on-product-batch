@@ -61,5 +61,5 @@ export function createDeepSeekClient({
     return result.body;
   }
 
-  return { kind: "deepseek_official", complete };
+  return { kind: "deepseek_official", providerName: "DeepSeek", model: model.trim(), complete };
 }

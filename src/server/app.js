@@ -152,10 +152,12 @@ function apiError(error, request = null) {
   if (["QUALITY_RUN_NOT_FOUND", "QUALITY_FINDING_NOT_FOUND", "COPY_REWRITE_JOB_NOT_FOUND"].includes(error?.code)) return { statusCode: 404, code: error.code };
   if (error?.code === "COPY_REVIEW_NOT_FOUND") return { statusCode: 404, code: error.code };
   if (["COPY_VERSION_CONFLICT", "COPY_VERSION_IMMUTABLE", "COPY_GENERATION_RETRY_BLOCKED", "COPY_GENERATION_ABORT_BLOCKED", "COPY_GENERATION_LEASE_LOST", "COPY_GENERATION_RETRY_EXHAUSTED"].includes(error?.code)) return { statusCode: 409, code: error.code };
-  if (["QUALITY_RUN_RETRY_BLOCKED", "QUALITY_RUN_CANCEL_BLOCKED", "QUALITY_RUN_LEASE_LOST", "COPY_REWRITE_REQUIRES_FROZEN_VERSION", "COPY_REWRITE_RETRY_BLOCKED", "COPY_REWRITE_LEASE_LOST"].includes(error?.code)) return { statusCode: 409, code: error.code };
+  if (["QUALITY_RUN_RETRY_BLOCKED", "QUALITY_ONE_ATTEMPT_RETRY_BLOCKED", "QUALITY_PROVIDER_REQUEST_ALREADY_USED",
+    "QUALITY_PROVIDER_REQUEST_NOT_STARTED", "QUALITY_PROVIDER_RESPONSE_NOT_READY", "QUALITY_PROVIDER_RESPONSE_ALREADY_RECORDED", "QUALITY_PROVIDER_OUTCOME_UNKNOWN", "QUALITY_ONE_ATTEMPT_LEGACY_RUN_ACTIVE", "QUALITY_ONE_ATTEMPT_LEGACY_OUTCOME_UNKNOWN", "QUALITY_ONE_ATTEMPT_CANCEL_BLOCKED", "QUALITY_RUN_CANCEL_BLOCKED",
+    "QUALITY_RUN_LEASE_LOST", "COPY_REWRITE_REQUIRES_FROZEN_VERSION", "COPY_REWRITE_RETRY_BLOCKED", "COPY_REWRITE_LEASE_LOST"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (["COPY_REVIEW_CONFLICT", "COPY_REVIEW_ACTIVE_EXISTS"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (["COPY_GENERATION_CONTEXT_REQUIRED", "COPY_BODY_REQUIRED", "INVALID_COPY_REVISION"].includes(error?.code)) return { statusCode: 400, code: error.code };
-  if (["COPY_QUALITY_CONTEXT_REQUIRED", "QUALITY_PROFILE_REQUIRED", "QUALITY_FINDING_RESOLUTION_INVALID", "QUALITY_FINDING_REASON_REQUIRED", "QUALITY_FINDING_ACCEPT_BLOCKED", "COPY_REWRITE_EMPTY_RESULT", "COPY_REWRITE_NO_CHANGE", "COPY_REWRITE_SCOPE_INVALID", "COPY_REWRITE_INSTRUCTION_REQUIRED"].includes(error?.code)) return { statusCode: 400, code: error.code };
+  if (["COPY_QUALITY_CONTEXT_REQUIRED", "QUALITY_PROFILE_REQUIRED", "QUALITY_PROVIDER_REQUEST_INVALID", "QUALITY_FINDING_RESOLUTION_INVALID", "QUALITY_FINDING_REASON_REQUIRED", "QUALITY_FINDING_ACCEPT_BLOCKED", "COPY_REWRITE_EMPTY_RESULT", "COPY_REWRITE_NO_CHANGE", "COPY_REWRITE_SCOPE_INVALID", "COPY_REWRITE_INSTRUCTION_REQUIRED"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (["COPY_REVIEW_CONTEXT_REQUIRED", "COPY_REVIEW_REASON_REQUIRED"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (error?.code === "COPY_REVIEW_FORBIDDEN") return { statusCode: 403, code: error.code };
   if (error?.code === "COPY_REVIEW_GATE_BLOCKED") return { statusCode: 422, code: error.code, reasons: error.details || [] };
@@ -633,7 +635,9 @@ export async function buildApp({
     });
     const service = createCopyQualityService({ repository, copyService: app.copyGeneration.service,
       profileResolver, reviewInvalidationCoordinator, now,
-      maxAttempts: copyQualityOptions.worker?.maxAttempts });
+      qualityMaxAttempts: copyQualityOptions.worker?.qualityMaxAttempts ?? 1,
+      rewriteMaxAttempts: copyQualityOptions.worker?.maxAttempts ?? 3,
+      attemptPolicy: copyQualityOptions.attemptPolicy || "provider_at_most_once_v1" });
     const worker = createCopyQualityWorker({ service, evaluator,
       pollIntervalMs: copyQualityOptions.worker?.pollIntervalMs,
       leaseMs: copyQualityOptions.worker?.leaseMs,

@@ -55,7 +55,7 @@ function copyQualityEvaluator(config, deepseekFetch) {
     });
     return createHybridQualityEvaluator({
       deterministicEvaluator: createDeterministicQualityEvaluator(),
-      semanticEvaluator: createDeepSeekQualityEvaluator({ client })
+      semanticEvaluator: createDeepSeekQualityEvaluator({ client, providerKind: config.copyQuality.evaluator })
     });
   }
   throw Object.assign(new Error("COPY_QUALITY_EVALUATOR_UNSUPPORTED"), { code: "COPY_QUALITY_EVALUATOR_UNSUPPORTED" });

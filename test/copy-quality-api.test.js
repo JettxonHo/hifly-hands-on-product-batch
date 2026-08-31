@@ -101,6 +101,159 @@ test("formal QC API restores async state, resolves findings, and isolates organi
   assert.ok((await qualityRepository.listAuditEvents()).some((event) => event.event_type === "copy.quality_finding_resolved"));
 });
 
+test("strict QC API projects one-attempt provider truth and forbids retry or second logical run", async (t) => {
+  const qualityRepository = createMemoryCopyQualityRepository();
+  let providerCalls = 0;
+  const evaluator = {
+    kind: "fake_provider",
+    async evaluate({ providerRequest }) {
+      await providerRequest({ providerName: "DeepSeek", providerKind: "deepseek_hybrid", model: "deepseek-v4-flash", execute: async () => {
+        providerCalls += 1;
+        if (providerCalls > 1) throw Object.assign(new Error("ambiguous provider failure"), { code: "DEEPSEEK_UNAVAILABLE" });
+        return { choices: [{ message: { content: '{"findings":[]}' } }], usage: { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 }, secret: "must-not-project" };
+      } });
+      return { checks_complete: true, findings: [] };
+    }
+  };
+  const { app } = await identityApp(t, {
+    projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
+    copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
+    copyQuality: { enabled: true, repository: qualityRepository, evaluator, worker: { autoStart: false } }
+  });
+  const auth = await activateAdmin(app);
+  const seeded = await seedCopy(app, auth);
+  const start = await app.inject({ method: "POST", url: `/api/copy-versions/${seeded.copy.id}/quality-runs`,
+    headers: { ...seeded.headers, "idempotency-key": "strict-api-start" },
+    payload: { expected_revision: seeded.copy.row_version } });
+  assert.equal(start.statusCode, 202, start.body);
+  const initial = start.json().quality_run;
+  assert.equal(initial.attempt_policy, "provider_at_most_once_v1");
+  assert.equal(initial.max_attempts, 1);
+  assert.equal(initial.provider_dispatch_count, 0);
+  assert.equal(initial.provider_http_request_count, 0);
+  assert.equal(initial.provider_usage_status, "not_applicable");
+  assert.equal(initial.provider_charge_status, "not_applicable");
+
+  const duplicate = await app.inject({ method: "POST", url: `/api/copy-versions/${seeded.copy.id}/quality-runs`,
+    headers: { ...seeded.headers, "idempotency-key": "strict-api-start-other" },
+    payload: { expected_revision: start.json().copy_version.row_version } });
+  assert.equal(duplicate.statusCode, 202, duplicate.body);
+  assert.equal(duplicate.json().quality_run.id, initial.id);
+
+  await app.copyQuality.worker.runNext();
+  const details = await app.inject({ method: "GET", url: `/api/quality-runs/${initial.id}`,
+    headers: identityHeaders({ cookies: auth.cookies }) });
+  assert.equal(details.statusCode, 200, details.body);
+  const projected = details.json();
+  assert.equal(projected.quality_run.provider_dispatch_count, 1);
+  assert.equal(projected.quality_run.provider_http_request_count, 1);
+  assert.equal(projected.quality_run.provider_usage_status, "reported");
+  assert.equal(projected.quality_run.provider_input_tokens, 4);
+  assert.equal(projected.quality_run.provider_output_tokens, 3);
+  assert.equal(projected.quality_run.provider_total_tokens, 7);
+  assert.equal(projected.quality_run.provider_charge_status, "unknown");
+  assert.equal(JSON.stringify(projected).includes("must-not-project"), false);
+  assert.equal(JSON.stringify(projected).includes("providerRequest"), false);
+  assert.equal(JSON.stringify(projected).includes("secret"), false);
+  assert.equal((await app.copyQuality.service.listQualityRuns({ organizationId: auth.body.organization.id,
+    actorMemberId: auth.body.member.id, copyVersionId: seeded.copy.id })).length, 1);
+
+  const currentCopy = await app.copyGeneration.service.getCopyVersion({ organizationId: auth.body.organization.id,
+    actorMemberId: auth.body.member.id, copyVersionId: seeded.copy.id });
+  const child = await app.copyGeneration.service.editCopyVersion({ organizationId: auth.body.organization.id,
+    actorMemberId: auth.body.member.id, copyVersionId: currentCopy.id, expectedRevision: currentCopy.row_version,
+    body: "严格 API 第二版文案" });
+  const childStart = await app.inject({ method: "POST", url: `/api/copy-versions/${child.id}/quality-runs`,
+    headers: { ...seeded.headers, "idempotency-key": "strict-api-failure" },
+    payload: { expected_revision: child.row_version } });
+  assert.equal(childStart.statusCode, 202, childStart.body);
+  await app.copyQuality.worker.runNext();
+  const childRetry = await app.inject({ method: "POST", url: `/api/quality-runs/${childStart.json().quality_run.id}/retry`,
+    headers: { ...seeded.headers, "idempotency-key": "strict-api-retry" }, payload: {} });
+  assert.equal(childRetry.statusCode, 409, childRetry.body);
+  assert.equal(childRetry.json().error, "QUALITY_ONE_ATTEMPT_RETRY_BLOCKED");
+  assert.equal(providerCalls, 2);
+});
+
+test("strict QC API rejects cancellation after a provider dispatch reservation", async (t) => {
+  const qualityRepository = createMemoryCopyQualityRepository();
+  const { app } = await identityApp(t, {
+    projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
+    copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
+    copyQuality: { enabled: true, repository: qualityRepository, worker: { autoStart: false } }
+  });
+  const auth = await activateAdmin(app);
+  const seeded = await seedCopy(app, auth);
+  const started = await app.inject({ method: "POST", url: `/api/copy-versions/${seeded.copy.id}/quality-runs`,
+    headers: { ...seeded.headers, "idempotency-key": "strict-api-cancel-start" },
+    payload: { expected_revision: seeded.copy.row_version } });
+  assert.equal(started.statusCode, 202);
+  const lease = await app.copyQuality.service.claimNextQualityRun({ leaseMs: 30_000 });
+  await qualityRepository.beginProviderRequest({ runId: lease.id, leaseToken: lease.lease_token,
+    providerName: "DeepSeek", providerKind: "deepseek_hybrid", model: "deepseek-v4-flash", now: new Date().toISOString() });
+  const cancelled = await app.inject({ method: "POST", url: `/api/quality-runs/${lease.id}/cancel`, headers: seeded.headers, payload: {} });
+  assert.equal(cancelled.statusCode, 409, cancelled.body);
+  assert.equal(cancelled.json().error, "QUALITY_ONE_ATTEMPT_CANCEL_BLOCKED");
+  const details = await app.inject({ method: "GET", url: `/api/quality-runs/${lease.id}`, headers: identityHeaders({ cookies: auth.cookies }) });
+  assert.equal(details.json().quality_run.status, "running");
+  assert.equal(details.json().quality_run.provider_dispatch_count, 1);
+  assert.equal(details.json().quality_run.provider_http_request_count, 0);
+});
+
+test("strict QC API refuses migrated legacy unknown runs and cannot retry them", async (t) => {
+  const qualityRepository = createMemoryCopyQualityRepository();
+  const { app } = await identityApp(t, {
+    projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
+    copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
+    copyQuality: { enabled: true, repository: qualityRepository, worker: { autoStart: false } }
+  });
+  const auth = await activateAdmin(app);
+  const seeded = await seedCopy(app, auth);
+  const legacyRun = { id: "legacy-api-unknown", organization_id: auth.body.organization.id, copy_version_id: seeded.copy.id,
+    product_revision_id: seeded.revision.id, profile_version: "legacy-profile", rule_version: "legacy-rules", status: "failed",
+    attempts: 1, max_attempts: 3, attempt_policy: "legacy", provider_request_state: "unknown",
+    provider_request_outcome: "unknown", failure_code: "QUALITY_PROVIDER_OUTCOME_UNKNOWN" };
+  await qualityRepository.createRun({ receiptKey: "legacy-api-unknown", fingerprint: "legacy-api-unknown", run: legacyRun,
+    audit: { id: "legacy-api-unknown-audit", organization_id: auth.body.organization.id, event_type: "copy.quality_provider_outcome_unknown" } });
+
+  const start = await app.inject({ method: "POST", url: `/api/copy-versions/${seeded.copy.id}/quality-runs`,
+    headers: { ...seeded.headers, "idempotency-key": "strict-api-after-legacy-unknown" }, payload: { expected_revision: seeded.copy.row_version } });
+  assert.equal(start.statusCode, 409, start.body);
+  assert.equal(start.json().error, "QUALITY_ONE_ATTEMPT_LEGACY_OUTCOME_UNKNOWN");
+  const retry = await app.inject({ method: "POST", url: `/api/quality-runs/${legacyRun.id}/retry`,
+    headers: { ...seeded.headers, "idempotency-key": "legacy-api-unknown-retry" }, payload: {} });
+  assert.equal(retry.statusCode, 409, retry.body);
+  assert.equal(retry.json().error, "QUALITY_ONE_ATTEMPT_RETRY_BLOCKED");
+  assert.equal((await app.copyQuality.service.listQualityRuns({ organizationId: auth.body.organization.id,
+    actorMemberId: auth.body.member.id, copyVersionId: seeded.copy.id })).length, 1);
+});
+
+test("strict QC API owner-gates an invalid terminal result without a new retry", async (t) => {
+  const qualityRepository = createMemoryCopyQualityRepository();
+  const evaluator = { kind: "controlled_test_double", async evaluate() { return { checks_complete: false, findings: [] }; } };
+  const { app } = await identityApp(t, {
+    projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
+    copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
+    copyQuality: { enabled: true, repository: qualityRepository, evaluator, worker: { autoStart: false } }
+  });
+  const auth = await activateAdmin(app);
+  const seeded = await seedCopy(app, auth);
+  const started = await app.inject({ method: "POST", url: `/api/copy-versions/${seeded.copy.id}/quality-runs`,
+    headers: { ...seeded.headers, "idempotency-key": "strict-api-invalid-start" }, payload: { expected_revision: seeded.copy.row_version } });
+  await app.copyQuality.worker.runNext();
+  const details = await app.inject({ method: "GET", url: `/api/quality-runs/${started.json().quality_run.id}`,
+    headers: identityHeaders({ cookies: auth.cookies }) });
+  assert.equal(details.json().quality_run.attempt_policy, "provider_at_most_once_v1");
+  assert.equal(details.json().quality_run.max_attempts, 1);
+  assert.equal(details.json().quality_result.effective_conclusion, "invalid");
+  assert.equal(details.json().quality_run.provider_dispatch_count, 0);
+  assert.equal(details.json().quality_run.provider_http_request_count, 0);
+  const retry = await app.inject({ method: "POST", url: `/api/quality-runs/${started.json().quality_run.id}/retry`,
+    headers: { ...seeded.headers, "idempotency-key": "strict-api-invalid-retry" }, payload: {} });
+  assert.equal(retry.statusCode, 409, retry.body);
+  assert.equal(retry.json().error, "QUALITY_ONE_ATTEMPT_RETRY_BLOCKED");
+});
+
 test("QC API uses server-owned policy and returns a stable stale-facts error", async (t) => {
   const qualityRepository = createMemoryCopyQualityRepository();
   const projectRepository = createMemoryProjectContentRepository();
@@ -109,7 +262,8 @@ test("QC API uses server-owned policy and returns a stable stale-facts error", a
     projectContent: { enabled: true, repository: projectRepository, assetReferencePort },
     copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
     copyQuality: { enabled: true, repository: qualityRepository,
-      profileResolver: { async resolve() { return { ...policy }; } }, worker: { autoStart: false } }
+      profileResolver: { async resolve() { return { ...policy }; } }, attemptPolicy: "legacy",
+      worker: { autoStart: false, qualityMaxAttempts: 3, maxAttempts: 3 } }
   });
   const auth = await activateAdmin(app);
   const seeded = await seedCopy(app, auth);

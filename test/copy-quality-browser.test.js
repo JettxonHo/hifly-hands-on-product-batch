@@ -63,7 +63,8 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
     projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort: assetService.assetReferencePort },
     copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
     copyQuality: { enabled: true, repository: createMemoryCopyQualityRepository(), evaluator,
-      profileResolver: { async resolve() { return { ...qualityPolicy }; } }, worker: { autoStart: false } },
+      profileResolver: { async resolve() { return { ...qualityPolicy }; } }, attemptPolicy: "legacy",
+      worker: { autoStart: false, qualityMaxAttempts: 3, maxAttempts: 3 } },
     copyReview: { enabled: true, repository: createMemoryCopyReviewRepository() }
   });
   const actor = { organizationId, actorMemberId: seeded.member.id };
@@ -179,7 +180,7 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   await page.getByText("文案已批准 · 本人审核").waitFor();
   await page.getByText("审核历史（2）").waitFor();
   await page.getByRole("tab", { name: "质检" }).click();
-  await page.locator("#copyVersions").getByRole("button", { name: /v1.*已被替代/ }).click();
+  await page.locator("#copyVersions").getByRole("button", { name: /v1.*已冻结/ }).click();
   await page.getByRole("tab", { name: "质检" }).click();
   await page.getByText("历史质检（2）").waitFor();
   await page.locator("#copyVersions").getByRole("button", { name: /v2.*已冻结/ }).click();
@@ -225,4 +226,94 @@ test("copy quality workspace restores failures, resolves findings, rewrites, and
   if (process.env.A05_SCREENSHOT_DIR) {
     await page.screenshot({ path: path.join(process.env.A05_SCREENSHOT_DIR, "copy-quality-mobile.png"), fullPage: true });
   }
+});
+
+test("strict one-attempt quality failure shows an owner-gated stop with no retry or start action", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-copy-quality-one-attempt-browser-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const port = await findAvailablePort(57700), host = `127.0.0.1:${port}`, origin = `http://${host}`;
+  const organizationId = "org_quality_one_attempt_browser";
+  const identityRepository = createMemoryIdentityRepository();
+  const seeded = await seedInitialAdmin(identityRepository, { organizationId, organizationName: "Quality One Attempt Browser", adminEmail: ADMIN_EMAIL, adminDisplayName: "Quality Admin", adminTempPassword: ADMIN_TEMP_PASSWORD });
+  const projectRepository = createMemoryProjectContentRepository();
+  let qualityFailureMode = "temporary";
+  const app = await buildApp({ root, executor: createFakeExecutor(),
+    identity: { enabled: true, repository: identityRepository, trustedHosts: [host], trustedOrigins: [origin], cookieSecure: false, seed: { enabled: false } },
+    projectContent: { enabled: true, repository: projectRepository, assetReferencePort: { async bindAvailableVersion(input) { return { reference: input }; } } },
+    copyGeneration: { enabled: true, repository: createMemoryCopyGenerationRepository(), provider: createControlledCopyProvider(), worker: { autoStart: false } },
+    copyQuality: { enabled: true, repository: createMemoryCopyQualityRepository(), evaluator: {
+      kind: "controlled_test_double", async evaluate() {
+        if (qualityFailureMode === "invalid") return { checks_complete: false, findings: [] };
+        throw Object.assign(new Error("one-attempt failure"), { code: "QUALITY_EVALUATOR_TEMPORARY_FAILURE" });
+      }
+    }, worker: { autoStart: false } },
+    copyReview: { enabled: true, repository: createMemoryCopyReviewRepository() }
+  });
+  const actor = { organizationId, actorMemberId: seeded.member.id };
+  const project = await app.projectContent.service.createProject({ ...actor, idempotencyKey: "one-attempt-browser-project", name: "一次性质检项目" });
+  const created = await app.projectContent.service.createProduct({ ...actor, projectId: project.id, idempotencyKey: "one-attempt-browser-product", productName: "一次性质检商品" });
+  let revision = await app.projectContent.service.saveRevision({ ...actor, productRevisionId: created.revision.id, expectedRevision: 1,
+    productName: "一次性质检商品", sellingPoints: [{ text: "轻便" }], assetVersionIds: ["asset-one-attempt"] });
+  revision = await app.projectContent.service.confirmSellingPoint({ ...actor, productRevisionId: revision.id, pointId: revision.selling_points[0].id, expectedRevision: revision.revision_number });
+  revision = await app.projectContent.service.readyRevision({ ...actor, productRevisionId: revision.id, expectedRevision: revision.revision_number, idempotencyKey: "one-attempt-browser-ready" });
+  await app.copyGeneration.service.requestGeneration({ ...actor, productRevisionId: revision.id, intent: "product_recommendation", idempotencyKey: "one-attempt-browser-copy" });
+  await app.copyGeneration.worker.runNext();
+  await app.listen({ host: "127.0.0.1", port });
+  t.after(() => app.close());
+  let browser;
+  const systemChrome = process.env.IDENTITY_BROWSER_EXECUTABLE || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  try { browser = await chromium.launch({ headless: true, executablePath: systemChrome }); } catch (error) { return t.skip(`system Chrome unavailable: ${error.message}`); }
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL); await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
+  await page.locator("#newPassword").fill("Quality-One-Attempt-Password-9!"); await page.getByRole("button", { name: "保存并进入工作台" }).click(); await page.waitForURL(`${origin}/projects.html`);
+  await page.goto(`${origin}/copy.html?project=${project.id}&revision=${revision.id}`);
+  await page.getByRole("button", { name: "开始质检" }).click(); await page.getByText("质检中，可离开本页").waitFor();
+  await app.copyQuality.worker.runNext();
+  await page.getByText("本次一次性质检已停止，等待新的 Owner 授权").waitFor();
+  assert.equal(await page.locator("#retryQuality").isHidden(), true);
+  assert.equal(await page.locator("#startQuality").isHidden(), true);
+  await page.setViewportSize({ width: 390, height: 844 }); await page.reload();
+  await page.getByText("本次一次性质检已停止，等待新的 Owner 授权").waitFor();
+  assert.equal(await page.locator("#retryQuality").isHidden(), true);
+  assert.equal(await page.locator("#startQuality").isHidden(), true);
+
+  const currentCopy = (await app.copyGeneration.service.listCopyVersions({ ...actor, productRevisionId: revision.id })).find((copy) => copy.status === "frozen");
+  const child = await app.copyGeneration.service.editCopyVersion({ ...actor, copyVersionId: currentCopy.id,
+    expectedRevision: currentCopy.row_version, body: "取消测试文案" });
+  const cancelled = await app.copyQuality.service.startQualityCheck({ ...actor, copyVersionId: child.id,
+    expectedRevision: child.row_version, idempotencyKey: "one-attempt-browser-cancelled" });
+  await app.copyQuality.service.cancelQualityCheck({ ...actor, qualityRunId: cancelled.quality_run.id });
+  await page.reload();
+  await page.getByText("一次性质检已取消，等待新的 Owner 授权").waitFor();
+  assert.equal(await page.locator("#retryQuality").isHidden(), true);
+  assert.equal(await page.locator("#startQuality").isHidden(), true);
+
+  const blockedChild = await app.copyGeneration.service.editCopyVersion({ ...actor, copyVersionId: child.id,
+    expectedRevision: (await app.copyGeneration.service.getCopyVersion({ ...actor, copyVersionId: child.id })).row_version,
+    body: "迁移未知结果文案" });
+  await app.copyQuality.repository.createRun({ receiptKey: "one-attempt-browser-legacy-unknown",
+    fingerprint: "one-attempt-browser-legacy-unknown", run: {
+      id: "legacy-browser-unknown", organization_id: organizationId, copy_version_id: blockedChild.id,
+      product_revision_id: revision.id, profile_version: "legacy-profile", rule_version: "legacy-rules", status: "failed",
+      attempts: 1, max_attempts: 3, attempt_policy: "legacy", failure_code: "QUALITY_PROVIDER_OUTCOME_UNKNOWN",
+      provider_request_state: "unknown", provider_request_outcome: "unknown"
+    }, audit: { id: "legacy-browser-unknown-audit", organization_id: organizationId,
+      event_type: "copy.quality_provider_outcome_unknown", copy_version_id: blockedChild.id } });
+  await page.reload();
+  await page.getByText("本次一次性质检已停止，等待新的 Owner 授权").waitFor();
+  assert.equal(await page.locator("#retryQuality").isHidden(), true);
+  assert.equal(await page.locator("#startQuality").isHidden(), true);
+
+  qualityFailureMode = "invalid";
+  const invalidChild = await app.copyGeneration.service.editCopyVersion({ ...actor, copyVersionId: currentCopy.id,
+    expectedRevision: (await app.copyGeneration.service.getCopyVersion({ ...actor, copyVersionId: currentCopy.id })).row_version,
+    body: "严格无效结论文案" });
+  const invalidRun = await app.copyQuality.service.startQualityCheck({ ...actor, copyVersionId: invalidChild.id,
+    expectedRevision: invalidChild.row_version, idempotencyKey: "one-attempt-browser-invalid" });
+  await app.copyQuality.worker.runNext();
+  await page.reload();
+  await page.locator("#qualityConclusionText").getByText("质检结果无效", { exact: true }).waitFor();
+  assert.equal(await page.locator("#retryQuality").isHidden(), true);
+  assert.equal(await page.locator("#startQuality").isHidden(), true);
 });

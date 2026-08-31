@@ -1,6 +1,7 @@
-const SAFE_FAILURE_CODES = new Set(["QUALITY_EVALUATION_FAILED", "QUALITY_EVALUATION_INVALID",
-  "QUALITY_EVALUATOR_TEMPORARY_FAILURE", "QUALITY_RUN_TIMED_OUT", "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT",
-  "COPY_QUALITY_POLICY_CHANGED"]);
+const SAFE_FAILURE_CODES = new Set(["QUALITY_EVALUATION_FAILED", "QUALITY_EVALUATION_INVALID", "QUALITY_EVALUATION_OUTPUT_MALFORMED",
+  "QUALITY_EVALUATION_SCHEMA_INVALID", "DEEPSEEK_RESPONSE_INVALID", "QUALITY_PROVIDER_REQUEST_REQUIRED", "QUALITY_PROVIDER_RESPONSE_NOT_READY", "QUALITY_PROVIDER_REQUEST_ALREADY_USED", "QUALITY_ONE_ATTEMPT_LEGACY_RUN_ACTIVE", "QUALITY_ONE_ATTEMPT_LEGACY_OUTCOME_UNKNOWN",
+  "QUALITY_EVALUATOR_TEMPORARY_FAILURE", "QUALITY_RUN_TIMED_OUT", "QUALITY_ONE_ATTEMPT_NOT_DISPATCHED",
+  "QUALITY_PROVIDER_OUTCOME_UNKNOWN", "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT", "COPY_QUALITY_POLICY_CHANGED"]);
 const SAFE_REWRITE_FAILURE_CODES = new Set(["COPY_REWRITER_TEMPORARY_FAILURE", "COPY_REWRITE_EMPTY_RESULT",
   "COPY_REWRITE_NO_CHANGE", "COPY_REWRITE_OUTPUT_INVALID", "COPY_REWRITE_TIMED_OUT",
   "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT"]);
@@ -13,7 +14,23 @@ function publicRun(run) {
   return {
     id: run.id, copy_version_id: run.copy_version_id, product_revision_id: run.product_revision_id,
     profile_version: run.profile_version, rule_version: run.rule_version, status: run.status,
-    attempts: run.attempts, max_attempts: run.max_attempts, quality_result_id: run.quality_result_id,
+    attempts: run.attempts, max_attempts: run.max_attempts, attempt_policy: run.attempt_policy || "legacy",
+    quality_result_id: run.quality_result_id,
+    provider_name: run.provider_name || null, provider_kind: run.provider_kind || null, provider_model: run.provider_model || null,
+    provider_dispatch_count: run.provider_dispatch_count ?? null,
+    provider_http_request_count: run.provider_http_request_count ?? null,
+    provider_request_state: run.provider_request_state || "not_started", provider_request_outcome: run.provider_request_outcome || null,
+    provider_dispatch_reserved_at: run.provider_dispatch_reserved_at || null,
+    provider_request_started_at: run.provider_request_started_at || null,
+    provider_request_completed_at: run.provider_request_completed_at || null,
+    provider_usage_status: run.provider_usage_status || "unknown",
+    provider_input_tokens: run.provider_input_tokens ?? null, provider_output_tokens: run.provider_output_tokens ?? null,
+    provider_total_tokens: run.provider_total_tokens ?? null,
+    provider_charge_status: run.provider_charge_status || "unknown", provider_charge_amount: run.provider_charge_amount ?? null,
+    provider_charge_currency: run.provider_charge_currency || null,
+    provider_local_cost_status: run.provider_local_cost_status || "not_calculated",
+    provider_local_cost_amount: run.provider_local_cost_amount ?? null,
+    provider_local_cost_currency: run.provider_local_cost_currency || null,
     failure_code: run.failure_code ? (SAFE_FAILURE_CODES.has(run.failure_code) ? run.failure_code : "QUALITY_EVALUATION_FAILED") : null,
     started_at: run.started_at, completed_at: run.completed_at, created_at: run.created_at, updated_at: run.updated_at
   };

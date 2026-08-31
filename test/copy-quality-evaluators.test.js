@@ -66,7 +66,8 @@ test("deterministic evaluator uses only confirmed boolean facts and retains hard
       suggestion: "删除绝对化表达"
     }]
   });
-  const result = await evaluator.evaluate({ copyVersion, productRevision });
+  const result = await evaluator.evaluate({ copyVersion, productRevision,
+    providerRequest: async ({ execute }) => execute() });
 
   assert.equal(result.checks_complete, true);
   assert.equal(result.findings.some((finding) => finding.code === "FACT_NUMERIC_UNSUPPORTED" && finding.kind === "fact_gate"), true);
@@ -112,7 +113,8 @@ test("DeepSeek semantic evaluator projects allowed snapshots and converts model 
     })); } }
   });
   const evaluator = createDeepSeekQualityEvaluator({ client });
-  const result = await evaluator.evaluate({ copyVersion, productRevision });
+  const result = await evaluator.evaluate({ copyVersion, productRevision,
+    providerRequest: async ({ execute }) => execute() });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].body.thinking.type, "disabled");
@@ -135,7 +137,7 @@ test("DeepSeek semantic evaluator projects allowed snapshots and converts model 
   assert.equal(result.findings[0].evidence_reference.includes("model-secret"), false);
 });
 
-test("DeepSeek semantic evaluator retries exactly once for malformed output", async () => {
+test("DeepSeek semantic evaluator fails closed after one malformed output", async () => {
   let calls = 0;
   const client = createDeepSeekClient({
     apiKey: "server-only-key",
@@ -145,12 +147,12 @@ test("DeepSeek semantic evaluator retries exactly once for malformed output", as
     } }
   });
   const evaluator = createDeepSeekQualityEvaluator({ client });
-  const result = await evaluator.evaluate({ copyVersion, productRevision });
-  assert.equal(calls, 2);
-  assert.deepEqual(result, { checks_complete: true, findings: [] });
+  await assert.rejects(evaluator.evaluate({ copyVersion, productRevision,
+    providerRequest: async ({ execute }) => execute() }), { code: "QUALITY_EVALUATION_OUTPUT_MALFORMED" });
+  assert.equal(calls, 1);
 });
 
-test("DeepSeek semantic evaluator fails safely after the second structural failure", async () => {
+test("DeepSeek semantic evaluator fails safely after one structural failure", async () => {
   let calls = 0;
   const client = createDeepSeekClient({
     apiKey: "server-only-key",
@@ -161,8 +163,9 @@ test("DeepSeek semantic evaluator fails safely after the second structural failu
   });
   const evaluator = createDeepSeekQualityEvaluator({ client });
 
-  await assert.rejects(evaluator.evaluate({ copyVersion, productRevision }), { code: "QUALITY_EVALUATION_INVALID" });
-  assert.equal(calls, 2);
+  await assert.rejects(evaluator.evaluate({ copyVersion, productRevision,
+    providerRequest: async ({ execute }) => execute() }), { code: "QUALITY_EVALUATION_SCHEMA_INVALID" });
+  assert.equal(calls, 1);
 });
 
 test("DeepSeek provider failures do not retry and use a stable evaluator error", async () => {
@@ -172,7 +175,8 @@ test("DeepSeek provider failures do not retry and use a stable evaluator error",
     transport: { async request() { calls += 1; return response("temporary", 503); } }
   });
   const evaluator = createDeepSeekQualityEvaluator({ client });
-  await assert.rejects(evaluator.evaluate({ copyVersion, productRevision }), { code: "QUALITY_EVALUATOR_TEMPORARY_FAILURE" });
+  await assert.rejects(evaluator.evaluate({ copyVersion, productRevision,
+    providerRequest: async ({ execute }) => execute() }), { code: "QUALITY_EVALUATOR_TEMPORARY_FAILURE" });
   assert.equal(calls, 1);
 });
 

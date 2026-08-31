@@ -77,7 +77,7 @@ export function createMemoryCopyGenerationRepository() {
       audits.push(clone(audit));
       return clone(childCopyVersion);
     },
-    async freezeCopy({ organizationId, copyVersionId, expectedRevision, receiptKey, fingerprint, audit, now }) {
+    async freezeCopy({ organizationId, copyVersionId, expectedRevision, supersedeParent = true, receiptKey, fingerprint, audit, now }) {
       const receipt = receipts.get(receiptKey);
       if (receipt) {
         if (receipt.fingerprint !== fingerprint) throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { code: "IDEMPOTENCY_CONFLICT" });
@@ -89,7 +89,7 @@ export function createMemoryCopyGenerationRepository() {
       if (current.status !== "draft") throw Object.assign(new Error("COPY_VERSION_IMMUTABLE"), { code: "COPY_VERSION_IMMUTABLE" });
       Object.assign(current, { status: "frozen", row_version: current.row_version + 1, frozen_at: now, updated_at: now });
       const parent = current.parent_copy_version_id ? copies.get(current.parent_copy_version_id) : null;
-      if (parent?.status === "frozen") Object.assign(parent, { status: "superseded", row_version: parent.row_version + 1, updated_at: now });
+      if (supersedeParent && parent?.status === "frozen") Object.assign(parent, { status: "superseded", row_version: parent.row_version + 1, updated_at: now });
       receipts.set(receiptKey, { fingerprint, copyVersionId: current.id });
       audits.push(clone(audit));
       return clone(current);

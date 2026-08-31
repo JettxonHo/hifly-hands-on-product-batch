@@ -87,22 +87,22 @@ Goal 级最终验收使用另一组状态：`GOAL_APPROVED`、`GOAL_APPROVED_WIT
 Agent 不可用时记录配置与运行时核验结果；未经 Owner 明确许可不得替换 `luna-worker`。环境失败要区分
 代码、测试、CI 和外部依赖。发生并行冲突时暂停受影响合并，由主控确定事实来源、接口归属和合并顺序。
 
-## 8. 当前分配（RBV-002 Calibration Readiness Freeze）
+## 8. 当前分配（Issue #273 RBV-012 One-Attempt Contract Correction）
 
 ```text
-当前 Goal：RBV-GOAL-001 / Issue #261 RBV-002 Calibration Readiness Freeze
-当前阶段：Readiness Freeze（BLOCKED_PRE_REAL_RUN）
+当前 Goal：RBV-GOAL-001；当前 bounded Stage：Issue #273 RBV-012 Copy Quality One-Attempt Contract Correction
+当前阶段：QUALITY_ONE_ATTEMPT_CONTRACT_CORRECTION（provider-free candidate，等待独立 Review/Owner Gate）
 当前 Decision：D-037（docs/product/DECISION_LOG.md#d-037-real-batch-production-validation）
 当前 Pilot Contract：docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md
-当前 Readiness Record：docs/status/RBV_CALIBRATION_READINESS_FREEZE.md
-当前任务：冻结 RBV-CAL-001 五 SKU 的事实、素材、权利、候选人物、Provider 输入、预算、窗口与证据边界；不运行 Provider/飞影、不消耗积分、不部署
+当前 Readiness Record：docs/status/RBV_CALIBRATION_READINESS_FREEZE.md（底层 Goal 门禁仍为 BLOCKED_PRE_REAL_RUN）
+当前任务：把正式 Copy Quality path 修正为 one authorization → one logical run → at-most-one dispatch/HTTP request，持久化 usage/charge truth，lease/reclaim/retry fail-closed，并保持 parent Copy v1 不被 Quality start supersede；provider-free only
 Stage 1 状态：合同与人工门禁已完成历史（Issue #259 / PR #260），不再是当前 active stage
-实现分支：codex/rbv-calibration-readiness-freeze
-实现 Agent 请求配置：自定义 Agent luna-worker / gpt-5.6-luna / Max（docs-only）
+实现分支：codex/rbv-quality-one-attempt
+实现 Agent 请求配置：自定义 Agent luna-worker / gpt-5.6-luna / Max（provider-free bounded implementation）
 实现 Agent 配置状态：CONFIG_VERIFIED
 实现 Agent 运行时状态：UNVERIFIED_RUNTIME_MODEL（当前工具未暴露实际运行模型元数据）
 最终审查配置：主控 ORCHESTRATOR_REVIEWER；实现者不得自审/批准，Draft PR 停在 Owner Gate
-后续：五个 SKU 均 BLOCKED；等待独立 Review 与 Owner Gate 后再决定是否进入 Calibration Run；Repeatable non-author operator 继续 pending
+后续：候选停止于独立 Review 与 Owner Gate；不得自动执行真实 Quality Evaluation；后续真实 DeepSeek run 必须重新取得逐动作 Owner Authorization
 ```
 
 ### 历史分配（CE-08，非现行）
