@@ -107,7 +107,9 @@ test("upstream commands proactively append review invalidation without a review 
   await app.copyQuality.service.startQualityCheck({ ...actor, copyVersionId: qualitySeed.copy.id,
     expectedRevision: qualitySeed.copy.row_version, idempotencyKey: "coord-new-quality" });
   await app.copyQuality.worker.runNext();
-  assert.equal((await reviewRepository.getReview("org_test", qualityApproval.current_review.id)).status, "revoked");
+  assert.equal((await reviewRepository.getReview("org_test", qualityApproval.current_review.id)).status, "approved");
+  assert.equal((await reviewRepository.listReviews("org_test", qualitySeed.copy.id)).length, 1,
+    "quality start must not auto-create a child review");
 
   const copySeed = await seedPassedCopy(app, auth, "copy");
   const copyApproval = await approveSeed(app, actor, copySeed, "copy");

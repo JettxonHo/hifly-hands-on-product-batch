@@ -126,7 +126,7 @@ test("RBV-CAL-001 readiness record activates Readiness Freeze and has one blocke
   assert.doesNotMatch(readiness, /^\|\s*(?:status|gate_status)\s*\|\s*READY_FOR_REAL_RUN_GATE\s*\|/m);
 });
 
-test("active documents point at RBV-002 while preserving Stage 1 only as history", () => {
+test("active Issue #273 pointers preserve the underlying Readiness Freeze gate and Stage 1 history", () => {
   const agents = read(agentsPath);
   const goal = read(goalPath);
   const collaboration = read(collaborationPath);
@@ -136,27 +136,36 @@ test("active documents point at RBV-002 while preserving Stage 1 only as history
 
   const activePriority = agents.match(/## 当前最高优先级[\s\S]*?(?=## |$)/)?.[0] ?? "";
   const currentAllocation = collaboration.match(/## 8\. 当前分配[\s\S]*?(?=###|$)/)?.[0] ?? "";
-  const currentSnapshot = sectionBetween(current, "# 项目当前状态", "## Issue #261");
-  const currentRoadmap = sectionBetween(roadmap, "# 项目 Roadmap", "## RBV-002");
+  const currentSnapshot = sectionBetween(current, "# 项目当前状态", "## Issue #273");
+  const currentRoadmap = sectionBetween(roadmap, "# 项目 Roadmap", "## Issue #273");
   const authorityRecovery = sectionBetween(current, "## 权威文档与恢复顺序", "## 历史：里程碑状态（P0）");
 
   for (const [label, content] of [
     ["AGENTS current priority", activePriority],
-    ["GOAL", goal],
     ["agent allocation", currentAllocation],
-    ["Pilot", pilot],
     ["CURRENT snapshot", currentSnapshot],
     ["ROADMAP snapshot", currentRoadmap],
   ]) {
     assert.match(content, /RBV-GOAL-001/, `${label} must name the current Goal`);
-    assert.match(content, /Readiness Freeze/, `${label} must activate Readiness Freeze`);
+    assert.match(content, /Issue #273/, `${label} must name the current bounded Stage`);
+  }
+
+  for (const [label, content] of [
+    ["AGENTS", agents],
+    ["GOAL", goal],
+    ["agent allocation", collaboration],
+    ["Pilot", pilot],
+    ["CURRENT", current],
+    ["ROADMAP", roadmap],
+  ]) {
     assert.match(content, /RBV_CALIBRATION_READINESS_FREEZE\.md/, `${label} must link the readiness record`);
+    assert.match(content, /BLOCKED_PRE_REAL_RUN/, `${label} must preserve the blocked readiness verdict`);
   }
 
   assert.match(activePriority, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
   assert.match(currentAllocation, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
   assert.match(currentSnapshot, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
-  assert.match(currentRoadmap, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
+  assert.match(roadmap, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
   assert.match(goal, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
 
   assert.match(authorityRecovery, /Readiness Freeze/);
@@ -343,10 +352,13 @@ test("session records luna-worker configuration and honest runtime model status"
   assert.match(session, /no.*Provider|未.*Provider/i);
 });
 
-test("all current pointers name the unique blocked verdict and readiness record", () => {
+test("all current pointers name Issue #273 and preserve the unique blocked readiness verdict", () => {
   for (const relativePath of [agentsPath, goalPath, collaborationPath, pilotPath, currentPath, roadmapPath, readinessPath, sessionPath]) {
     const content = read(relativePath);
-    assert.match(content, /RBV-CAL-001|RBV-002/);
+    assert.match(content, /RBV-GOAL-001|RBV-CAL-001|RBV-002/);
     assert.match(content, /BLOCKED_PRE_REAL_RUN/);
+  }
+  for (const relativePath of [agentsPath, collaborationPath, currentPath, roadmapPath]) {
+    assert.match(read(relativePath), /Issue #273/);
   }
 });
