@@ -852,16 +852,17 @@
       return body?.current_plan?.id || body?.workspace?.current_plan?.id || body?.review?.current_review?.video_plan_version_id || null;
     }
 
-    async function sendCommand(code, { url, method = "POST", payload = {}, nextPlanId = planId, preserveLocal = false } = {}) {
+    async function sendCommand(code, { url, method = "POST", payload = {}, nextPlanId = planId, preserveLocal = false, idempotencyKey } = {}) {
       if (busy) return false;
       const local = preserveLocal || dirty ? captureDraft() : null;
+      const requestIdempotencyKey = idempotencyKey === undefined ? crypto.randomUUID() : idempotencyKey;
       busy = true;
       renderPlanEditor();
       renderTaskSummary();
       try {
         const body = await request(url, {
           method,
-          headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+          headers: { "content-type": "application/json", "idempotency-key": requestIdempotencyKey },
           body: JSON.stringify(payload)
         });
         const responseId = responsePlanId(body);
@@ -872,7 +873,10 @@
         if (code === "create_video_plan" || code === "derive_video_plan_draft") setNotice(node("#videoPlanEditorNotice"), code === "create_video_plan" ? "视频方案已创建。" : "已创建新的方案草稿。", "success");
         return true;
       } catch (error) {
-        if (error.status === 409) {
+        if (code === "create_video_plan") {
+          const status = [409, 422].includes(error.status) ? `（${error.status}）` : "";
+          setNotice(node("#videoPlanCreateNotice"), status ? `创建未完成${status}。请先只读核对结果；未经授权不要更改标识或再次创建。` : "创建结果不明确。请先只读核对结果；未经授权不要更改标识或再次创建。", "blocked");
+        } else if (error.status === 409) {
           conflict = true;
           if (local) {
             draftBuffer = local;
@@ -905,10 +909,21 @@
         node("#firstInstructions").focus();
         return false;
       }
+      let idempotencyKey;
+      try {
+        idempotencyKey = window.HiflyVideoPlanCreateIdempotency.resolve(node("#firstIdempotencyKey")?.value);
+        if (node("#firstIdempotencyKey")) node("#firstIdempotencyKey").value = idempotencyKey;
+      } catch (error) {
+        if (error?.message !== "VIDEO_PLAN_CREATE_IDEMPOTENCY_KEY_INVALID") throw error;
+        setNotice(node("#videoPlanCreateNotice"), "创建请求标识无效，请输入 1-128 个非空白字符。", "blocked");
+        node("#firstIdempotencyKey")?.focus();
+        return false;
+      }
       return sendCommand("create_video_plan", {
         url: commandUrl("create_video_plan"),
         payload: { output_instructions: value.output.trim(), presentation_size_code: value.size, expected_head_revision: planWorkspace?.head_revision },
-        nextPlanId: null
+        nextPlanId: null,
+        idempotencyKey
       });
     }
 

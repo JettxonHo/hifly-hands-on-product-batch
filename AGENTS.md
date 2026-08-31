@@ -4,9 +4,9 @@
 
 ## 当前最高优先级
 
-`RBV-GOAL-001` 仍是唯一现行产品 Goal（Issue #261 Calibration Readiness Freeze），产品决策为 D-037，执行合同为 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。当前唯一 active bounded engineering Stage 是 Issue #273 RBV-012；Readiness Freeze 是底层 RBV blocked gate，Stage 1「合同与人工门禁」已完成并保留为历史，不开始 Calibration 或其他真实运行。当前 RBV 结论是 `BLOCKED_PRE_REAL_RUN`，Readiness Freeze 记录见 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`。
+`RBV-GOAL-001` 仍是唯一现行产品 Goal（Issue #261 Calibration Readiness Freeze），产品决策为 D-037，执行合同为 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。当前唯一 active bounded engineering Stage 是 Issue #275 VideoPlan Create Idempotency-Key Seam；Issue #273 RBV-012 的工程阶段已完成并仅保留为历史，GitHub Issue 仍为 OPEN。Readiness Freeze 是底层 RBV blocked gate，Stage 1「合同与人工门禁」已完成并保留为历史，不开始 Calibration 或其他真实运行。当前 RBV 结论是 `BLOCKED_PRE_REAL_RUN`，Readiness Freeze 记录见 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`。
 
-当前独立 bounded engineering Stage 为 Issue #273 RBV-012 Copy Quality One-Attempt Contract Correction：仅修正 provider-free 的 at-most-once QualityRun/dispatch/HTTP 计数、UNKNOWN fail-closed、usage/charge 审计与 parent-preserving freeze。候选完成后必须停在独立 Review 与 Owner Gate；不得调用真实 Provider、DeepSeek/Hifly、登录、部署、真实 QualityRun 或消耗积分。
+当前独立 bounded engineering Stage 为 Issue #275 VideoPlan Create Idempotency-Key Seam：仅为 legacy Plan 与 integrated workspace 的 VideoPlan 创建操作提供可选、可审计、原样透传的 Idempotency-Key，并保留普通 UUID fallback；其他命令继续使用既有生成 key。候选须先经独立 Review 与 exact-head CI；两者通过后可按现有 Owner 工程授权合并并执行零业务变更部署。真实 Plan Create、Provider、DeepSeek/Hifly、登录、真实 QualityRun 或积分动作仍禁止，下一 Owner Gate 仅为一次真实 Plan Create。
 
 本地 GUI 与 Playwright/Local Agent 链路仍是兼容基线，但在 RBV-001 中为 `Deferred/Secondary`；只有真实 RBV run 以可审计证据证明 GUI 阻塞业务，Owner 才能重新提升其优先级。Provider、飞影、Secret、积分、客户素材、生产部署和破坏性操作继续 fail-closed，等待逐动作 Owner 授权。
 
@@ -30,7 +30,7 @@ docs/agent-collaboration.md  ← 多 Agent 角色、权限、交接与 Review �
 docs/product/README.md       ← 产品文档权威入口
 docs/product/DECISION_LOG.md ← 当前产品决策（D-037）
 docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md ← 当前 RBV 执行合同（Readiness Freeze 沿用）
-docs/product/COPY_QUALITY_ONE_ATTEMPT.md ← Issue #273 当前 bounded Quality contract（provider-free candidate）
+docs/product/COPY_QUALITY_ONE_ATTEMPT.md ← Issue #273 历史 bounded Quality contract（provider-free candidate）
 docs/status/RBV_CALIBRATION_READINESS_FREEZE.md ← Issue #261 当前 Readiness Freeze 记录
 docs/product/CLOUD_EXECUTOR_P0.md ← 历史 P0 产品合同（D-034，非现行）
 docs/ROADMAP.md              ← 版本目标与 Issue 依赖

@@ -13,6 +13,7 @@
     <script src="/shell.js" defer></script>
     <script src="/workspace-copy.js" defer></script>
     <script src="/workspace-avatar.js" defer></script>
+    <script src="/video-plan-create-idempotency.js" defer></script>
     <script src="/workspace-plan.js" defer></script>
     <script src="/workspace-production.js" defer></script>
     <script src="/project.js" defer></script>
@@ -171,6 +172,8 @@
                   <div><h3>还没有视频方案</h3><p>基于当前已批准文案和已确认人物，填写制作说明并创建第一版方案。</p></div>
                   <form id="videoPlanCreateForm" class="workspace-plan-form">
                     <label for="firstInstructions">制作说明<textarea id="firstInstructions" maxlength="4000" rows="5" required placeholder="例如：竖版商品种草口播，先展示使用场景，再突出核心卖点。"></textarea></label>
+                    <label for="firstIdempotencyKey">创建请求标识（可选）<input id="firstIdempotencyKey" type="text" maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+                    <p class="muted">留空会自动生成；如果结果不明确，请保留该标识，先只读核对结果；未经授权不要更改标识或再次创建。</p>
                     <label for="firstPresentationSize">商品呈现大小<select id="firstPresentationSize"><option value="smart_fit">智能适配</option><option value="extra_large">超大</option><option value="large">大</option><option value="medium">中</option><option value="small">小</option><option value="extra_small">超小</option></select></label>
                     <p class="muted">这是飞影画面中的原生大小档位，不代表商品外观保真；瓶盖、包装和标签仍需在作品检查中核对。</p>
                     <div class="actions"><p id="videoPlanCreateNotice" class="notice" role="status"></p><button id="createPlan" type="submit">创建视频方案</button></div>
