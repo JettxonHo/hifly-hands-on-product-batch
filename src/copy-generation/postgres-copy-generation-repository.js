@@ -69,7 +69,7 @@ export function createPostgresCopyGenerationRepository({ pool, ownsPool = false 
         return result;
       });
     },
-    async freezeCopy({ organizationId, copyVersionId, expectedRevision, receiptKey, fingerprint, audit, now }) {
+    async freezeCopy({ organizationId, copyVersionId, expectedRevision, supersedeParent = true, receiptKey, fingerprint, audit, now }) {
       return withTransaction(pool, async (client) => {
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`copy-generation:${receiptKey}`]);
         const receipt = one(await client.query("SELECT * FROM copy_generation_idempotency_receipts WHERE receipt_key=$1", [receiptKey]));
@@ -82,7 +82,7 @@ export function createPostgresCopyGenerationRepository({ pool, ownsPool = false 
         if (current.row_version !== expectedRevision) throw failure("COPY_VERSION_CONFLICT");
         if (current.status !== "draft") throw failure("COPY_VERSION_IMMUTABLE");
         const result = copy(one(await client.query("UPDATE copy_versions SET status='frozen',row_version=row_version+1,frozen_at=$2,updated_at=$2 WHERE id=$1 RETURNING *", [current.id,now])));
-        if (current.parent_copy_version_id) await client.query("UPDATE copy_versions SET status='superseded',row_version=row_version+1,updated_at=$2 WHERE id=$1 AND status='frozen'", [current.parent_copy_version_id,now]);
+        if (supersedeParent && current.parent_copy_version_id) await client.query("UPDATE copy_versions SET status='superseded',row_version=row_version+1,updated_at=$2 WHERE id=$1 AND status='frozen'", [current.parent_copy_version_id,now]);
         await client.query("INSERT INTO copy_generation_idempotency_receipts(receipt_key,payload_fingerprint,copy_version_id,created_at) VALUES ($1,$2,$3,$4)", [receiptKey,fingerprint,result.id,now]);
         await appendAudit(client, audit);
         return result;

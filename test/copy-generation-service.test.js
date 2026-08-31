@@ -135,6 +135,21 @@ test("editing a frozen copy creates a new draft and preserves immutable history"
   }), { code: "COPY_VERSION_CONFLICT" });
 });
 
+test("default freeze replays pre-one-attempt idempotency receipts without conflict", async () => {
+  const ctx = world();
+  const draft = await generatedDraft(ctx, "legacy-freeze-receipt");
+  const at = new Date().toISOString();
+  const oldReceiptKey = `${actor.organizationId}:freeze:legacy-freeze-replay`;
+  await ctx.repository.freezeCopy({ organizationId: actor.organizationId, copyVersionId: draft.id,
+    expectedRevision: draft.row_version, receiptKey: oldReceiptKey,
+    fingerprint: `{"copy_version_id":"${draft.id}","expected_revision":${draft.row_version}}`,
+    audit: { id: "legacy-freeze-audit", organization_id: actor.organizationId, event_type: "copy.frozen", copy_version_id: draft.id, created_at: at }, now: at });
+  const replay = await ctx.service.freezeCopyVersion({ ...actor, copyVersionId: draft.id,
+    expectedRevision: draft.row_version, idempotencyKey: "legacy-freeze-replay" });
+  assert.equal(replay.id, draft.id);
+  assert.equal(replay.status, "frozen");
+});
+
 test("editing an older frozen copy allocates the next repository version", async () => {
   const ctx = world();
   const firstDraft = await generatedDraft(ctx, "version-one");

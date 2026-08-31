@@ -1,7 +1,15 @@
 # 项目 Roadmap
 
-> 最后更新：2026-08-30
-> 当前状态：RBV-GOAL-001 / Issue #261 `Readiness Freeze` active（Stage 1「合同与人工门禁」已完成历史）；Issue #264 在独立分支推进 production Compose 的 DeepSeek 选择器映射，尚未部署或通过 exact-head CI。`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 为唯一执行合同，D-037 为对应产品决策，当前记录为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`。真实 Calibration 与批次运行尚未获 Owner Gate，Provider/飞影/积分/生产部署保持 fail-closed；唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。
+> 最后更新：2026-08-31
+> 当前状态：RBV-GOAL-001 下 Issue #273 `QUALITY_ONE_ATTEMPT_CONTRACT_CORRECTION` provider-free candidate 已完成，等待独立 Review 与 Owner Gate。`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 仍为 RBV 执行合同，D-037 为产品决策；真实 Calibration、DeepSeek Quality Evaluation 与批次运行尚未授权，Provider/飞影/积分/生产部署保持 fail-closed。
+
+## Issue #273 RBV-012 Copy Quality One-Attempt Contract Correction（2026-08-31）
+
+- 新 QualityRun 默认 `provider_at_most_once_v1` / `max_attempts=1`；Rewrite 保留独立 `max_attempts=3`。历史行迁移为 `legacy`，不回填虚假的严格一次事实；同一 CopyVersion 的 strict run 由服务端/PG partial unique index 限制为最多一个。
+- Provider dispatch permit 与真实 HTTP invocation 分开持久化：`provider_dispatch_count`、`provider_http_request_count` 均受 `≤1` 约束且 HTTP 不得超过 dispatch。dispatch 先提交，HTTP marker 紧邻客户端调用前提交；malformed/schema/semantic/timeout/network/crash/lease/duplicate worker 不得再入 Provider。
+- usage/token/charge 使用 reported/unknown 与 nullable 字段；local cost 仅为 not_calculated/unknown，不调用 billing API。Provider request/response/unknown/not-dispatched audit 只保存脱敏 metadata，不保存 prompt/response/key。
+- Quality start 为稳定评估字节仍可冻结 v2，但传 `supersedeParent=false`，parent v1 保持 frozen、body 与 row_version；显式旧 freeze/promotion 行为不变。strict retry endpoint 和 UI retry/start action 均 fail-closed。
+- A–J provider-free TDD、API/browser/PG migration regression、production selector mapping 均通过；本候选不执行真实 Quality、下游对象、部署或积分动作。详见 [`COPY_QUALITY_ONE_ATTEMPT.md`](product/COPY_QUALITY_ONE_ATTEMPT.md) 与 [`2026-08-31-issue-273-quality-one-attempt.md`](status/sessions/2026-08-31-issue-273-quality-one-attempt.md)。
 
 ## Issue #264 DeepSeek provider activation deployment mapping（2026-08-30）
 
@@ -14,7 +22,7 @@
 
 ## RBV-002 Calibration Readiness Freeze 路线门禁（2026-08-29）
 
-- Goal：[`RBV-GOAL-001`](../GOAL.md)；Decision：[`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)；Pilot Contract：[`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)；Readiness Record：[`RBV_CALIBRATION_READINESS_FREEZE.md`](status/RBV_CALIBRATION_READINESS_FREEZE.md)。当前唯一 active stage 为 `Readiness Freeze`，Stage 1 已完成历史。
+- Goal：[`RBV-GOAL-001`](../GOAL.md)；Decision：[`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)；Pilot Contract：[`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)；Readiness Record：[`RBV_CALIBRATION_READINESS_FREEZE.md`](status/RBV_CALIBRATION_READINESS_FREEZE.md)。`Readiness Freeze` 仍是底层 RBV blocked gate（Stage 1 已完成历史），当前 active bounded engineering Stage 由 Issue #273 RBV-012 承担。
 - `RBV-CAL-001` 冻结 5 个 SKU 的 source-aligned identity、fixture 分离、素材元数据、网页图片权利、人工目标、候选人物、Provider 输入、预算、Evidence alias/relative ref 与 Stop Rules；五个 SKU 均为 `BLOCKED`，唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。
 - Owner facts 固定为 `OP-CAL-001`、batch cap `6000`、per SKU `1200`、concurrency `1`、`automatic_retry=false`、2026-08-29 / `Asia/Shanghai` / Owner confirmation → `23:59:59+08:00`。上限是 maximum exposure，不是 spend authorization；non-author operator 仍 `pending`，不阻塞 Calibration readiness 但阻塞 Repeatable。
 - 候选人物仅使用 alias `RBV_PRIVATE_EVIDENCE_ROOT` 与 relative ref；人物内部/Provider 上传权限、登录/runtime、上游商品/文案/人物/方案/订单 readiness 均未授权或未核验。Evidence 目录只在 Git 外保留 mode `0700` 空骨架，不产生真实运行 evidence。

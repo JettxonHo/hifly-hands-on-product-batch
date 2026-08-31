@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { runAssetMigrations } from "../src/assets/postgres.js";
@@ -35,7 +36,7 @@ test("clean isolated PostgreSQL quality migration preserves immutable results an
   t.after(async () => { await pool.end(); await adminPool.query(`DROP SCHEMA "${schema}" CASCADE`); await adminPool.end(); });
   await runIdentityMigrations(pool); await runAssetMigrations(pool); await runProjectContentMigrations(pool);
   await runCopyGenerationMigrations(pool); await runCopyQualityMigrations(pool);
-  assert.equal((await pool.query("SELECT max(version)::integer version FROM copy_quality_schema_migrations")).rows[0].version, 1);
+  assert.equal((await pool.query("SELECT max(version)::integer version FROM copy_quality_schema_migrations")).rows[0].version, 2);
 
   const seeded = await seedInitialAdmin(createPostgresIdentityRepository({ pool, ownsPool: false }), {
     organizationId: "org_quality_pg", organizationName: "Quality PG", adminEmail: "quality@example.test",
@@ -71,6 +72,7 @@ test("clean isolated PostgreSQL quality migration preserves immutable results an
   await repository.initialize();
   let policy = { profileVersion: "commerce-cn-v1", ruleVersion: "rules-2026-08" };
   const service = createCopyQualityService({ repository, copyService,
+    qualityMaxAttempts: 3, rewriteMaxAttempts: 3, attemptPolicy: "legacy",
     profileResolver: { async resolve() { return { ...policy }; } } });
   const worker = createCopyQualityWorker({ service, evaluator: createControlledQualityEvaluator({ async evaluate() { return { checks_complete: true, findings: [{
     code: "TONE_REVIEW", kind: "review", severity: "medium", title: "语气待判断", matched_text: "全网最好",
@@ -127,4 +129,134 @@ test("clean isolated PostgreSQL quality migration preserves immutable results an
   assert.equal(invalidated.quality_result.conclusion, "needs_review");
   assert.equal(invalidated.quality_result.current_valid, false);
   assert.equal(invalidated.quality_result.invalidation_reason, "product_revision_changed");
+
+  const strictAt = "2000-01-01T00:00:00.000Z";
+  const legacyHistoricalId = randomUUID();
+  await pool.query(`INSERT INTO copy_quality_runs(id,organization_id,copy_version_id,product_revision_id,profile_version,rule_version,input_snapshot,status,attempts,max_attempts,quality_result_id,failure_code,lease_token,started_at,heartbeat_at,lease_expires_at,completed_at,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,'legacy-profile','legacy-rules',$5,'failed',1,3,NULL,'QUALITY_EVALUATION_FAILED',NULL,NULL,NULL,NULL,$6,$6,$6)`,
+  [legacyHistoricalId, actor.organizationId, copy.id, revision.id, JSON.stringify({ copy_version: copy, product_revision: revision }), strictAt]);
+  const legacyHistorical = await repository.getRun(actor.organizationId, legacyHistoricalId);
+  assert.equal(legacyHistorical.attempt_policy, "legacy");
+  assert.equal(legacyHistorical.provider_dispatch_count, null);
+  assert.equal(legacyHistorical.provider_http_request_count, null);
+  const strictRun = {
+    id: randomUUID(), organization_id: actor.organizationId, copy_version_id: copy.id,
+    product_revision_id: revision.id, profile_version: "strict-profile", rule_version: "strict-rules",
+    input_snapshot: { copy_version: copy, product_revision: revision }, status: "queued", attempts: 0,
+    max_attempts: 1, attempt_policy: "provider_at_most_once_v1", quality_result_id: null,
+    failure_code: null, lease_token: null, started_at: null, heartbeat_at: null, lease_expires_at: null,
+    completed_at: null, created_at: strictAt, updated_at: strictAt, provider_name: null, provider_kind: null,
+    provider_model: null, provider_dispatch_count: 0, provider_http_request_count: 0, provider_request_state: "not_started",
+    provider_request_outcome: null, provider_dispatch_reserved_at: null, provider_request_started_at: null, provider_request_completed_at: null,
+    provider_usage_status: "not_applicable", provider_input_tokens: null, provider_output_tokens: null,
+    provider_total_tokens: null, provider_charge_status: "not_applicable", provider_charge_amount: null,
+    provider_charge_currency: null, provider_local_cost_status: "not_calculated", provider_local_cost_amount: null,
+    provider_local_cost_currency: null
+  };
+  await assert.rejects(repository.createRun({ receiptKey: "quality-pg-strict-over-legacy", fingerprint: "strict-over-legacy",
+    run: { ...strictRun, id: randomUUID(), copy_version_id: rewriteDetails.copy_version.id },
+    audit: { id: randomUUID(), organization_id: actor.organizationId, event_type: "copy.quality_requested",
+      copy_version_id: rewriteDetails.copy_version.id, quality_run_id: strictRun.id, created_at: strictAt } }),
+  { code: "QUALITY_ONE_ATTEMPT_LEGACY_RUN_ACTIVE" });
+  const [strictCreated, strictDuplicate] = await Promise.all([
+    repository.createRun({ receiptKey: "quality-pg-strict-1", fingerprint: "strict-1", run: strictRun,
+      audit: { id: randomUUID(), organization_id: actor.organizationId, event_type: "copy.quality_requested",
+        copy_version_id: copy.id, quality_run_id: strictRun.id, created_at: strictAt } }),
+    repository.createRun({ receiptKey: "quality-pg-strict-2", fingerprint: "strict-2", run: { ...strictRun, id: randomUUID(), created_at: strictAt },
+      audit: { id: randomUUID(), organization_id: actor.organizationId, event_type: "copy.quality_requested",
+        copy_version_id: copy.id, quality_run_id: strictRun.id, created_at: strictAt } })
+  ]);
+  assert.equal(strictDuplicate.id, strictCreated.id);
+  assert.equal((await repository.getRun(actor.organizationId, strictCreated.id)).created_at, strictAt);
+  const strictLease = await repository.claimNextRun({ now: strictAt, leaseExpiresAt: new Date(Date.parse(strictAt) + 1_000).toISOString(), leaseToken: randomUUID() });
+  await repository.beginProviderRequest({ runId: strictLease.id, leaseToken: strictLease.lease_token,
+    providerName: "DeepSeek", providerKind: "deepseek_hybrid", model: "deepseek-v4-flash", now: strictAt });
+  await repository.markProviderHttpRequestStarted({ runId: strictLease.id, leaseToken: strictLease.lease_token, now: strictAt });
+  await assert.rejects(pool.query("UPDATE copy_quality_runs SET provider_http_request_count=2 WHERE id=$1", [strictLease.id]), /copy_quality_provider_(request_count|http_not_over_dispatch)_ck/);
+  await repository.recordProviderResponse({ runId: strictLease.id, leaseToken: strictLease.lease_token,
+    outcome: "unknown", usage: { status: "unknown", inputTokens: null, outputTokens: null, totalTokens: null },
+    charge: { status: "unknown", amount: null, currency: null }, now: strictAt });
+  await assert.rejects(repository.completeRun({ runId: strictLease.id, leaseToken: strictLease.lease_token,
+    result: { id: randomUUID(), organization_id: actor.organizationId, quality_run_id: strictLease.id,
+      copy_version_id: copy.id, profile_version: "strict-profile", rule_version: "strict-rules", conclusion: "passed", created_at: strictAt },
+    findingRows: [], audit: { id: randomUUID(), organization_id: actor.organizationId, event_type: "copy.quality_succeeded",
+      copy_version_id: copy.id, quality_run_id: strictLease.id, created_at: strictAt }, now: strictAt }),
+  { code: "QUALITY_PROVIDER_RESPONSE_NOT_READY" });
+  const expiredAt = new Date(Date.parse(strictAt) + 2_000).toISOString();
+  const reclaimed = await repository.claimNextRun({ now: expiredAt, leaseExpiresAt: new Date(Date.parse(expiredAt) + 1_000).toISOString(), leaseToken: randomUUID() });
+  assert.notEqual(reclaimed?.id, strictLease.id);
+  const strictFinal = await repository.getRun(actor.organizationId, strictLease.id);
+  assert.equal(strictFinal.status, "failed");
+  assert.equal(strictFinal.failure_code, "QUALITY_PROVIDER_OUTCOME_UNKNOWN");
+  assert.equal(strictFinal.provider_http_request_count, 1);
+  assert.equal(strictFinal.provider_dispatch_count, 1);
+  assert.equal(strictFinal.provider_usage_status, "unknown");
+  assert.equal(strictFinal.provider_charge_status, "unknown");
+});
+
+test("copy quality migration closes pre-upgrade active legacy runs without inventing counts", { skip: !connectionString }, async (t) => {
+  const schema = `copy_quality_upgrade_${randomUUID().replaceAll("-", "")}`;
+  const adminPool = createIdentityPool({ connectionString });
+  await adminPool.query(`CREATE SCHEMA "${schema}"`);
+  const pool = createIdentityPool({ connectionString: isolatedUrl(connectionString, schema) });
+  t.after(async () => { await pool.end(); await adminPool.query(`DROP SCHEMA "${schema}" CASCADE`); await adminPool.end(); });
+  await runIdentityMigrations(pool); await runAssetMigrations(pool); await runProjectContentMigrations(pool); await runCopyGenerationMigrations(pool);
+  await pool.query("CREATE TABLE copy_quality_schema_migrations (version integer PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())");
+  await pool.query(await readFile(new URL("../src/copy-quality/migrations/001_vsa_a05_copy_quality.sql", import.meta.url), "utf8"));
+  await pool.query("INSERT INTO copy_quality_schema_migrations(version,name) VALUES (1,'001_vsa_a05_copy_quality.sql')");
+
+  const seeded = await seedInitialAdmin(createPostgresIdentityRepository({ pool, ownsPool: false }), {
+    organizationId: "org_quality_upgrade", organizationName: "Quality Upgrade", adminEmail: "quality-upgrade@example.test",
+    adminDisplayName: "Quality Upgrade Admin", adminTempPassword: "Temporary-Quality-Upgrade-9!"
+  });
+  const organizationId = "org_quality_upgrade", memberId = seeded.member.id;
+  const projectId = randomUUID(), productId = randomUUID(), revisionId = randomUUID(), copyId = randomUUID();
+  const at = "2000-01-01T00:00:00.000Z";
+  await pool.query(`INSERT INTO project_content_projects(id,organization_id,name,description,delivery_date,created_by_member_id,created_at,updated_at)
+    VALUES ($1,$2,'升级项目',NULL,NULL,$3,$4,$4)`, [projectId, organizationId, memberId, at]);
+  await pool.query(`INSERT INTO project_content_products(id,organization_id,project_id,current_revision_id,created_by_member_id,created_at,updated_at)
+    VALUES ($1,$2,$3,NULL,$4,$5,$5)`, [productId, organizationId, projectId, memberId, at]);
+  await pool.query(`INSERT INTO project_content_product_revisions(id,organization_id,project_id,product_id,status,revision_number,product_name,product_description,primary_category,content_brief,asset_version_ids,selling_points,parent_revision_id,created_by_member_id,created_at,updated_at,ready_at)
+    VALUES ($1,$2,$3,$4,'ready',1,'升级商品',NULL,'general',NULL,'[]'::jsonb,$5::jsonb,NULL,$6,$7,$7,$7)`,
+  [revisionId, organizationId, projectId, productId, JSON.stringify([{ text: "卖点", confirmed: true }]), memberId, at]);
+  await pool.query("UPDATE project_content_products SET current_revision_id=$2 WHERE id=$1", [productId, revisionId]);
+  await pool.query(`INSERT INTO copy_versions(id,organization_id,project_id,product_id,product_revision_id,generation_job_id,intent,status,version_number,row_version,body,parent_copy_version_id,created_by_member_id,created_at,updated_at,frozen_at)
+    VALUES ($1,$2,$3,$4,$5,NULL,'product_recommendation','frozen',1,2,'升级文案',NULL,$6,$7,$7,$7)`,
+  [copyId, organizationId, projectId, productId, revisionId, memberId, at]);
+  const inputSnapshot = JSON.stringify({ copy_version: { id: copyId, body: "升级文案" }, product_revision: { id: revisionId, product_name: "升级商品" } });
+  const runningId = randomUUID(), queuedId = randomUUID();
+  await pool.query(`INSERT INTO copy_quality_runs(id,organization_id,copy_version_id,product_revision_id,profile_version,rule_version,input_snapshot,status,attempts,max_attempts,quality_result_id,failure_code,lease_token,started_at,heartbeat_at,lease_expires_at,completed_at,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,'legacy-profile','legacy-rules',$5,'running',1,3,NULL,NULL,$6,$7,$7,$7,NULL,$7,$7)`,
+  [runningId, organizationId, copyId, revisionId, inputSnapshot, randomUUID(), at]);
+  await pool.query(`INSERT INTO copy_quality_runs(id,organization_id,copy_version_id,product_revision_id,profile_version,rule_version,input_snapshot,status,attempts,max_attempts,quality_result_id,failure_code,lease_token,started_at,heartbeat_at,lease_expires_at,completed_at,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,'legacy-profile-queued','legacy-rules-queued',$5,'queued',0,3,NULL,NULL,NULL,NULL,NULL,NULL,NULL,$6,$6)`,
+  [queuedId, organizationId, copyId, revisionId, inputSnapshot, at]);
+
+  await runCopyQualityMigrations(pool);
+  const repository = createPostgresCopyQualityRepository({ pool });
+  await repository.initialize();
+  const running = await repository.getRun(organizationId, runningId);
+  const queued = await repository.getRun(organizationId, queuedId);
+  assert.equal(running.status, "failed");
+  assert.equal(running.failure_code, "QUALITY_PROVIDER_OUTCOME_UNKNOWN");
+  assert.equal(running.provider_request_state, "unknown");
+  assert.equal(running.provider_request_outcome, "unknown");
+  assert.equal(running.provider_dispatch_count, null);
+  assert.equal(running.provider_http_request_count, null);
+  assert.equal(queued.status, "failed");
+  assert.equal(queued.failure_code, "QUALITY_ONE_ATTEMPT_NOT_DISPATCHED");
+  assert.equal(queued.provider_request_state, "terminal");
+  assert.equal(queued.provider_request_outcome, "not_dispatched");
+  assert.equal(queued.provider_dispatch_count, null);
+  assert.equal(queued.provider_http_request_count, null);
+  await assert.rejects(repository.createRun({ receiptKey: "upgrade-strict-after-unknown", fingerprint: "upgrade-strict-after-unknown", run: {
+    id: randomUUID(), organization_id: organizationId, copy_version_id: copyId, product_revision_id: revisionId,
+    profile_version: "strict-profile", rule_version: "strict-rules", input_snapshot: { copy_version: { id: copyId } },
+    status: "queued", attempts: 0, max_attempts: 1, attempt_policy: "provider_at_most_once_v1",
+    provider_dispatch_count: 0, provider_http_request_count: 0, provider_request_state: "not_started",
+    provider_usage_status: "not_applicable", provider_charge_status: "not_applicable", provider_local_cost_status: "not_calculated",
+    created_at: at, updated_at: at
+  }, audit: { id: randomUUID(), organization_id: organizationId, event_type: "copy.quality_requested",
+    copy_version_id: copyId, quality_run_id: randomUUID(), created_at: at } }),
+  { code: "QUALITY_ONE_ATTEMPT_LEGACY_OUTCOME_UNKNOWN" });
 });

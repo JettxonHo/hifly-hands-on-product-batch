@@ -110,31 +110,41 @@ function requestFor(projected) {
   };
 }
 
-function structuralFailure() {
-  return failure("QUALITY_EVALUATION_OUTPUT_INVALID");
+function malformedOutput() {
+  return failure("QUALITY_EVALUATION_OUTPUT_MALFORMED");
+}
+
+function schemaFailure() {
+  return failure("QUALITY_EVALUATION_SCHEMA_INVALID");
 }
 
 function parseModelOutput(response) {
   const content = response?.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim()) throw structuralFailure();
+  if (typeof content !== "string" || !content.trim()) throw malformedOutput();
 
   let parsed;
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw structuralFailure();
+    throw malformedOutput();
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(parsed.findings)) {
-    throw structuralFailure();
+    throw schemaFailure();
   }
 
   return parsed.findings.map((finding) => {
-    requireObject(finding, "QUALITY_EVALUATION_OUTPUT_INVALID");
+    requireObject(finding, "QUALITY_EVALUATION_SCHEMA_INVALID");
     const normalized = {};
-    for (const field of MODEL_FINDING_STRING_FIELDS) normalized[field] = requiredModelText(finding[field]);
+    for (const field of MODEL_FINDING_STRING_FIELDS) {
+      try {
+        normalized[field] = requiredModelText(finding[field]);
+      } catch {
+        throw schemaFailure();
+      }
+    }
     if (!Array.isArray(finding.evidence_refs) ||
       finding.evidence_refs.some((reference) => typeof reference !== "string")) {
-      throw structuralFailure();
+      throw schemaFailure();
     }
     normalized.evidence_refs = finding.evidence_refs.map((reference) => reference.trim());
     return normalized;
@@ -143,7 +153,7 @@ function parseModelOutput(response) {
 
 function requiredModelText(value) {
   const normalized = cleanText(value);
-  if (!normalized) throw structuralFailure();
+  if (!normalized) throw schemaFailure();
   return normalized;
 }
 
@@ -171,8 +181,23 @@ function toPublicFinding(finding, body, semanticIndex) {
   };
 }
 
-export function createDeepSeekQualityEvaluator({ client } = {}) {
+export function createDeepSeekQualityEvaluator({ client, providerKind = "deepseek" } = {}) {
   if (!client || typeof client.complete !== "function") throw new TypeError("client.complete is required");
+
+  const providerName = cleanText(client.providerName) || "DeepSeek";
+  const providerModel = cleanText(client.model) || "unknown";
+  const resolvedProviderKind = cleanText(providerKind) || "deepseek";
+
+  async function requestOnce(input, request) {
+    if (typeof input.providerRequest !== "function") throw failure("QUALITY_PROVIDER_REQUEST_REQUIRED");
+    return input.providerRequest({
+      providerName,
+      providerKind: resolvedProviderKind,
+      model: providerModel,
+      request,
+      execute: () => client.complete(request)
+    });
+  }
 
   return {
     kind: "deepseek_semantic_qc",
@@ -180,29 +205,24 @@ export function createDeepSeekQualityEvaluator({ client } = {}) {
       const projected = projectInput(input);
       const request = requestFor(projected);
       const body = projected.copy.body;
-
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        let response;
-        try {
-          response = await client.complete(request);
-        } catch {
-          throw failure("QUALITY_EVALUATOR_TEMPORARY_FAILURE");
-        }
-
-        try {
-          const modelFindings = parseModelOutput(response);
-          return {
-            checks_complete: true,
-            findings: modelFindings.map((finding, index) => toPublicFinding(finding, body, index + 1))
-          };
-        } catch (error) {
-          if (error?.code !== "QUALITY_EVALUATION_OUTPUT_INVALID" || attempt === 1) {
-            throw failure("QUALITY_EVALUATION_INVALID");
-          }
-        }
+      let response;
+      try {
+        response = await requestOnce(input, request);
+      } catch (error) {
+        if (error?.code?.startsWith("QUALITY_PROVIDER_")) throw error;
+        throw failure("QUALITY_EVALUATOR_TEMPORARY_FAILURE");
       }
 
-      throw failure("QUALITY_EVALUATION_INVALID");
+      try {
+        const modelFindings = parseModelOutput(response);
+        return {
+          checks_complete: true,
+          findings: modelFindings.map((finding, index) => toPublicFinding(finding, body, index + 1))
+        };
+      } catch (error) {
+        if (["QUALITY_EVALUATION_OUTPUT_MALFORMED", "QUALITY_EVALUATION_SCHEMA_INVALID"].includes(error?.code)) throw error;
+        throw failure("QUALITY_EVALUATION_INVALID");
+      }
     }
   };
 }

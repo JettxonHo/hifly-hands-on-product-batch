@@ -132,6 +132,7 @@
     const run = latestQuality?.quality_run;
     const result = latestQuality?.quality_result;
     const factsStale = run?.failure_code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT" || result?.invalidation_reason === "product_revision_changed";
+    const providerOutcomeUnknown = run?.failure_code === "QUALITY_PROVIDER_OUTCOME_UNKNOWN" || run?.provider_request_outcome === "unknown";
     const reviewStatus = reviewState?.current_review?.status || "not_submitted";
     const reviewReasons = reviewState?.gate?.reasons || [];
     const reviewBlocker = reviewReasons.map((reason) => gateReasonLabels[reason] || "审核门禁未满足").join("；");
@@ -158,16 +159,24 @@
       task = { title: "文案草稿待质检", description: "自动质检会冻结当前文案版本。", status: "待质检", statusClass: "draft", next: "开始质检", blocker: "", action: element("#startQuality") };
     } else if (["queued", "running"].includes(run.status)) {
       task = { title: "文案正在质检", description: "质检结果会由服务端保存，重新进入后可继续。", status: "质检中", statusClass: "running", next: "等待质检完成，可离开后返回", blocker: "", action: null };
+    } else if (run.status === "cancelled" && run.attempt_policy === "provider_at_most_once_v1") {
+      task = { title: "一次性质检已取消", description: "本次授权不能再次发起质检。", status: "等待 Owner 授权", statusClass: "blocked", next: "等待新的 Owner 授权", blocker: "本次一次性质检已取消，不能重试或再次发起本次授权。", action: null };
     } else if (run.status === "failed") {
+      const oneAttempt = run.attempt_policy === "provider_at_most_once_v1" || providerOutcomeUnknown;
       task = factsStale
         ? { title: "商品资料已变化", description: "当前质检已停止，不能继续使用旧商品资料。", status: "需要处理", statusClass: "blocked", next: "返回商品资料确认最新内容", blocker: "商品资料已有新版本，请完成确认后再质检。", action: element("#productFactsLink") }
-        : { title: "质检未完成", description: "没有形成可用的自动质检结论。", status: "质检失败", statusClass: "failure", next: "重新质检", blocker: "技术原因导致本次质检失败，不能提交人工审核。", action: element("#retryQuality") };
+        : oneAttempt
+          ? { title: providerOutcomeUnknown ? "质检结果未知" : "一次性质检已停止", description: "本次授权不能再次发起质检。", status: "等待 Owner 授权", statusClass: "blocked", next: "等待新的 Owner 授权", blocker: "Provider 请求结果已终止或未知，不能重试或再次发起本次授权。", action: null }
+          : { title: "质检未完成", description: "没有形成可用的自动质检结论。", status: "质检失败", statusClass: "failure", next: "重新质检", blocker: "技术原因导致本次质检失败，不能提交人工审核。", action: element("#retryQuality") };
     } else if (!result) {
       task = { title: "质检未形成结论", description: "当前文案还没有可用的自动质检结果。", status: "需要处理", statusClass: "blocked", next: "重新质检", blocker: "没有可用质检结果，不能提交人工审核。", action: element("#startQuality") };
     } else if (result.current_valid === false) {
+      const oneAttempt = run.attempt_policy === "provider_at_most_once_v1" || providerOutcomeUnknown;
       task = factsStale
         ? { title: "质检结论已失效", description: "商品事实发生变化，旧结论不能继续使用。", status: "已失效", statusClass: "blocked", next: "返回商品事实确认最新内容", blocker: "请确认当前商品快照，再为最新文案完整质检。", action: element("#productFactsLink") }
-        : { title: "质检规则已更新", description: "历史质检仍保留，但不再是当前有效结论。", status: "已失效", statusClass: "blocked", next: "按当前规则重新质检", blocker: "质检规则或质检配置已变化，需要重新完整质检。", action: element("#startQuality") };
+        : oneAttempt
+          ? { title: "一次性质检结论已失效", description: "本次授权不能再次发起质检。", status: "等待 Owner 授权", statusClass: "blocked", next: "等待新的 Owner 授权", blocker: "本次一次性质检不能重试或再次发起。", action: null }
+          : { title: "质检规则已更新", description: "历史质检仍保留，但不再是当前有效结论。", status: "已失效", statusClass: "blocked", next: "按当前规则重新质检", blocker: "质检规则或质检配置已变化，需要重新完整质检。", action: element("#startQuality") };
     } else if (result.effective_conclusion !== "passed") {
       const unresolved = latestQuality.quality_findings.filter((finding) => finding.kind === "review" && finding.resolutions.at(-1)?.state !== "accepted_with_reason").length;
       task = result.effective_conclusion === "needs_review"
@@ -460,6 +469,8 @@
     const latest = qualityDetails.at(-1), run = latest?.quality_run, result = latest?.quality_result;
     const runState = element("#qualityRunState"), conclusion = element("#qualityConclusion");
     const start = element("#startQuality"), retry = element("#retryQuality"), cancel = element("#cancelQuality");
+    const oneAttempt = run?.attempt_policy === "provider_at_most_once_v1";
+    const providerOutcomeUnknown = run?.failure_code === "QUALITY_PROVIDER_OUTCOME_UNKNOWN" || run?.provider_request_outcome === "unknown";
     if (!run || !["queued", "running"].includes(run.status)) setNotice(element("#qualityNotice"));
     retry.hidden = true; cancel.hidden = true; start.hidden = false;
     start.disabled = dirty || deriveMode || !copyVersion || !["draft", "frozen"].includes(copyVersion.status);
@@ -482,13 +493,21 @@
     stopQualityPolling();
     if (run.status === "failed") {
       const factsStale = run.failure_code === "COPY_QUALITY_PRODUCT_REVISION_NOT_CURRENT";
+      const oneAttempt = run.attempt_policy === "provider_at_most_once_v1" || providerOutcomeUnknown;
       conclusion.className = factsStale ? "state blocked" : "state failed";
       conclusion.textContent = factsStale ? "商品事实已失效" : "技术失败";
-      element("#qualityConclusionText").textContent = factsStale ? "商品事实已更新，当前质检已停止" : "质检未完成（技术原因）";
+      element("#qualityConclusionText").textContent = factsStale ? "商品事实已更新，当前质检已停止" :
+        oneAttempt ? "本次一次性质检已停止，等待新的 Owner 授权" : "质检未完成（技术原因）";
       element("#qualityGuidance").textContent = factsStale ?
         "请返回商品事实确认最新快照，再为最新商品版本生成文案并重新质检。" :
-        "没有形成业务质检结论，可以安全重新质检。";
-      start.hidden = true; retry.hidden = factsStale; renderTaskSummary(); return;
+        oneAttempt ? "Provider 请求结果未知或已终止，不能重试或再次发起本次授权。" : "没有形成业务质检结论，可以安全重新质检。";
+      start.hidden = true; retry.hidden = factsStale || oneAttempt; renderTaskSummary(); return;
+    }
+    if (run.status === "cancelled" && run.attempt_policy === "provider_at_most_once_v1") {
+      conclusion.className = "state blocked"; conclusion.textContent = "已停止";
+      element("#qualityConclusionText").textContent = "一次性质检已取消，等待新的 Owner 授权";
+      element("#qualityGuidance").textContent = "本次授权不能重试或再次发起。";
+      start.hidden = true; retry.hidden = true; renderTaskSummary(); return;
     }
     if (!result) {
       conclusion.className = "state"; conclusion.textContent = qualityRunLabels[run.status] || "未完成";
@@ -498,14 +517,15 @@
     }
     if (result.current_valid === false) {
       const factsChanged = result.invalidation_reason === "product_revision_changed";
+      const oneAttempt = run.attempt_policy === "provider_at_most_once_v1" || providerOutcomeUnknown;
       conclusion.className = "state blocked"; conclusion.textContent = "结论已失效";
-      element("#qualityConclusionText").textContent = factsChanged ?
+      element("#qualityConclusionText").textContent = oneAttempt ? "一次性质检结论已失效，等待新的 Owner 授权" : factsChanged ?
         "质检结论已失效：商品事实已有新版本，请重新确认后质检。" :
         "质检结论已失效：质检规则已更新，请重新完整质检。";
-      element("#qualityGuidance").textContent = factsChanged ?
+      element("#qualityGuidance").textContent = oneAttempt ? "本次一次性质检不能重试或再次发起。" : factsChanged ?
         "请返回商品事实确认当前版本，再为最新文案执行完整质检。" :
         "历史结论已保留，但不能继续使用；请按当前规则重新质检。";
-      start.textContent = "重新质检"; start.hidden = factsChanged;
+      start.textContent = "重新质检"; start.hidden = factsChanged || oneAttempt;
       element("#reviewReminder").hidden = true; renderTaskSummary(); return;
     }
     const unresolved = latest.quality_findings.filter((finding) => finding.kind === "review" &&
@@ -521,7 +541,7 @@
     };
     element("#qualityGuidance").textContent = guidance[result.effective_conclusion];
     start.textContent = "重新质检";
-    start.hidden = !["invalid"].includes(result.effective_conclusion);
+    start.hidden = oneAttempt || !["invalid"].includes(result.effective_conclusion);
     element("#reviewReminder").hidden = result.effective_conclusion !== "passed";
     renderTaskSummary();
   }

@@ -51,7 +51,7 @@ async function world({ evaluate, rewrite, now = () => Date.parse("2026-08-07T08:
     profileResolver: { async resolve() { return { ...activePolicy }; } },
     rewriter: { async rewrite(input) {
     return rewrite ? rewrite(input) : { body: `${input.copyVersion.body}\n已按质检建议完成改写。` };
-  } }, now, maxAttempts });
+  } }, now, qualityMaxAttempts: maxAttempts, rewriteMaxAttempts: maxAttempts, attemptPolicy: "legacy" });
   const evaluator = createControlledQualityEvaluator({ evaluate });
   const worker = createCopyQualityWorker({ service, evaluator, pollIntervalMs: 5 });
   const rewriteWorker = createCopyRewriteWorker({ service, rewriter: { async rewrite(input) {

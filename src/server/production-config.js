@@ -90,7 +90,8 @@ function workerOptions() {
     pollIntervalMs: 1000,
     leaseMs: 30_000,
     heartbeatIntervalMs: 5_000,
-    maxAttempts: 3
+    maxAttempts: 3,
+    qualityMaxAttempts: 1
   };
 }
 

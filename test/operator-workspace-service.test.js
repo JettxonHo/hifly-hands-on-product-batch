@@ -261,6 +261,81 @@ test("projects the exact current CopyVersion while keeping QC and human approval
   assert.deepEqual(downstreamReads, { avatar: 0, videoPlan: 0, production: 0 });
 });
 
+test("strict one-attempt quality failure projects an owner-gated stop without retry action", async () => {
+  const revision = {
+    id: "revision-one-attempt", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    status: "ready", product_name: "商品", asset_version_ids: ["asset-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: {
+      async listCopyVersions() { return [{ id: "copy-one-attempt", organization_id: "org-a", project_id: "project-a", product_id: "product-a", product_revision_id: revision.id, status: "frozen", version_number: 2, row_version: 2, body: "文案" }]; },
+      async listGenerationJobs() { return []; }
+    },
+    qualityService: {
+      async listQualityRuns() { return [{ id: "quality-one-attempt", copy_version_id: "copy-one-attempt", status: "failed", attempts: 1, max_attempts: 1, attempt_policy: "provider_at_most_once_v1" }]; },
+      async getQualityRun() { return { quality_run: { id: "quality-one-attempt", copy_version_id: "copy-one-attempt", status: "failed", attempts: 1, max_attempts: 1, attempt_policy: "provider_at_most_once_v1" }, quality_result: null, quality_findings: [] }; }
+    },
+    reviewService: { async getReviewState() { return { current_review: null, gate: { can_submit: false, can_approve: false, reasons: [] } }; } }
+  });
+
+  const result = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", projectId: "project-a", productId: "product-a", stage: "copy" });
+  assert.deepEqual(result.recommended_action, null);
+  assert.equal(result.stages[1].business_status, "一次性质检已停止，等待新的 Owner 授权");
+  assert.deepEqual(result.stages[1].blocker_codes, ["COPY_QUALITY_ONE_ATTEMPT_STOPPED"]);
+  assert.equal(result.stages[1].quality.attempt_policy, "provider_at_most_once_v1");
+});
+
+test("strict cancelled quality run remains owner-gated without a new start action", async () => {
+  const revision = {
+    id: "revision-one-attempt-cancelled", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    status: "ready", product_name: "商品", asset_version_ids: ["asset-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: {
+      async listCopyVersions() { return [{ id: "copy-one-attempt-cancelled", organization_id: "org-a", project_id: "project-a", product_id: "product-a", product_revision_id: revision.id, status: "frozen", version_number: 2, row_version: 2, body: "文案" }]; },
+      async listGenerationJobs() { return []; }
+    },
+    qualityService: {
+      async listQualityRuns() { return [{ id: "quality-one-attempt-cancelled", copy_version_id: "copy-one-attempt-cancelled", status: "cancelled", attempts: 0, max_attempts: 1, attempt_policy: "provider_at_most_once_v1" }]; },
+      async getQualityRun() { return { quality_run: { id: "quality-one-attempt-cancelled", copy_version_id: "copy-one-attempt-cancelled", status: "cancelled", attempts: 0, max_attempts: 1, attempt_policy: "provider_at_most_once_v1" }, quality_result: null, quality_findings: [] }; }
+    },
+    reviewService: { async getReviewState() { return { current_review: null, gate: { can_submit: false, can_approve: false, reasons: [] } }; } }
+  });
+
+  const result = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", projectId: "project-a", productId: "product-a", stage: "copy" });
+  assert.deepEqual(result.recommended_action, null);
+  assert.equal(result.stages[1].business_status, "一次性质检已取消，等待新的 Owner 授权");
+  assert.deepEqual(result.stages[1].blocker_codes, ["COPY_QUALITY_ONE_ATTEMPT_STOPPED"]);
+  assert.equal(result.stages[1].quality.attempt_policy, "provider_at_most_once_v1");
+});
+
+test("migrated legacy unknown quality outcome remains owner-gated without retry or start action", async () => {
+  const revision = {
+    id: "revision-legacy-unknown", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    status: "ready", product_name: "商品", asset_version_ids: ["asset-a"], selling_points: [{ text: "卖点", confirmed: true }]
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: { async getProject() { return { id: "project-a", products: [{ id: "product-a", current_revision_id: revision.id, revision }] }; } },
+    copyService: {
+      async listCopyVersions() { return [{ id: "copy-legacy-unknown", organization_id: "org-a", project_id: "project-a", product_id: "product-a", product_revision_id: revision.id, status: "frozen", version_number: 1, row_version: 2, body: "文案" }]; },
+      async listGenerationJobs() { return []; }
+    },
+    qualityService: {
+      async listQualityRuns() { return [{ id: "quality-legacy-unknown", copy_version_id: "copy-legacy-unknown", status: "failed", attempts: 1, max_attempts: 3, attempt_policy: "legacy", failure_code: "QUALITY_PROVIDER_OUTCOME_UNKNOWN", provider_request_outcome: "unknown" }]; },
+      async getQualityRun() { return { quality_run: { id: "quality-legacy-unknown", copy_version_id: "copy-legacy-unknown", status: "failed", attempts: 1, max_attempts: 3, attempt_policy: "legacy", failure_code: "QUALITY_PROVIDER_OUTCOME_UNKNOWN", provider_request_outcome: "unknown" }, quality_result: null, quality_findings: [] }; }
+    },
+    reviewService: { async getReviewState() { return { current_review: null, gate: { can_submit: false, can_approve: false, reasons: [] } }; } }
+  });
+
+  const result = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", projectId: "project-a", productId: "product-a", stage: "copy" });
+  assert.deepEqual(result.recommended_action, null);
+  assert.equal(result.stages[1].business_status, "质检结果未知，等待新的 Owner 授权");
+  assert.deepEqual(result.stages[1].blocker_codes, ["COPY_QUALITY_ONE_ATTEMPT_STOPPED"]);
+  assert.equal(result.stages[1].quality.failure_code, "QUALITY_PROVIDER_OUTCOME_UNKNOWN");
+});
+
 test("selects only an exact CopyVersion deep link from the current product revision", async () => {
   const copies = [
     { id: "copy-history", organization_id: "org-a", project_id: "project-a", product_id: "product-a", product_revision_id: "revision-a", status: "superseded", version_number: 1, row_version: 3, body: "历史文案" },
