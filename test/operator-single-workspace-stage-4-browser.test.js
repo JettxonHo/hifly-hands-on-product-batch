@@ -201,9 +201,10 @@ async function expectOneVisibleBrandAction(page) {
   assert.deepEqual(actions.competitors, [], `VideoPlan must not visually duplicate the fixed recommended action: ${JSON.stringify(actions.competitors)}`);
 }
 
-async function createPlanInBrowser(page, { instructions = "竖版产品说明", size = "small" } = {}) {
+async function createPlanInBrowser(page, { instructions = "竖版产品说明", size = "small", idempotencyKey } = {}) {
   await page.locator("#firstInstructions").fill(instructions);
   await page.locator("#firstPresentationSize").selectOption(size);
+  if (idempotencyKey !== undefined) await page.locator("#firstIdempotencyKey").fill(idempotencyKey);
   await expectAction(page, "create_video_plan", "创建视频方案");
   await page.locator("#workspacePrimaryAction").click();
   await page.waitForFunction(() => new URL(location.href).searchParams.has("plan"));
@@ -309,7 +310,49 @@ test("Stage 4 preserves local input through 409 and keeps preflight separate fro
   await authenticate(page, origin);
   await page.goto(workspaceUrl(origin, project.id, first.product.id));
 
-  const planId = await createPlanInBrowser(page, { instructions: "先展示使用场景，再说明清爽卖点", size: "small" });
+  assert.equal(await page.locator("#firstIdempotencyKey").isVisible(), true,
+    "Integrated workspace create form should expose the optional idempotency key before mutation");
+  for (const [attribute, expected] of [["maxlength", "128"], ["autocomplete", "off"], ["autocapitalize", "off"], ["spellcheck", "false"]]) {
+    assert.equal(await page.locator("#firstIdempotencyKey").getAttribute(attribute), expected, `Integrated key field should set ${attribute}`);
+  }
+  await page.getByText("先只读核对结果", { exact: false }).waitFor();
+  await page.getByText("未经授权不要更改标识或再次创建", { exact: false }).waitFor();
+  const createErrorPattern = "**/api/products/*/video-plans";
+  for (const mode of [
+    { name: "409", status: 409, error: "VIDEO_PLAN_CONFLICT" },
+    { name: "422", status: 422, error: "VIDEO_PLAN_GATE_BLOCKED" },
+    { name: "network", network: true }
+  ]) {
+    let modeRequests = 0;
+    const routeHandler = async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      modeRequests += 1;
+      if (mode.network) return route.abort();
+      await route.fulfill({ status: mode.status, contentType: "application/json", body: JSON.stringify({ error: mode.error }) });
+    };
+    await page.route(createErrorPattern, routeHandler);
+    const errorKey = `workspace-plan-create-${mode.name}`;
+    await page.locator("#firstInstructions").fill("先展示使用场景，再说明清爽卖点");
+    await page.locator("#firstPresentationSize").selectOption("small");
+    await page.locator("#firstIdempotencyKey").fill(errorKey);
+    await expectAction(page, "create_video_plan", "创建视频方案");
+    await page.locator("#workspacePrimaryAction").click();
+    await page.locator("#videoPlanCreateNotice").getByText(/创建(?:未完成|结果不明确)/).waitFor();
+    await page.locator("#videoPlanCreateNotice").getByText("先只读核对结果", { exact: false }).waitFor();
+    assert.equal(await page.locator("#videoPlanCreateNotice").isVisible(), true, `Integrated ${mode.name} failure should be visible in the create notice`);
+    assert.equal(await page.locator("#firstIdempotencyKey").inputValue(), errorKey, `Integrated ${mode.name} should preserve the exact key`);
+    await page.waitForTimeout(100);
+    assert.equal(modeRequests, 1, `Integrated ${mode.name} click should issue exactly one request`);
+    await page.unroute(createErrorPattern, routeHandler);
+  }
+  let createRequest = null;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === `/api/products/${first.product.id}/video-plans`) createRequest = request;
+  });
+  const createKey = "workspace-plan-create-k1";
+  const planId = await createPlanInBrowser(page, { instructions: "先展示使用场景，再说明清爽卖点", size: "small", idempotencyKey: createKey });
+  assert.equal(createRequest?.headers()["idempotency-key"], createKey,
+    "Integrated workspace create should send the exact caller-supplied idempotency key");
   assert.equal(await page.locator("#presentationSize").inputValue(), "small");
   await expectAction(page, "run_video_plan_preflight", "开始预检");
   await expectOneVisibleBrandAction(page);

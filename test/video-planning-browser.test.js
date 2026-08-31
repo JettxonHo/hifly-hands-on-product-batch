@@ -73,9 +73,55 @@ test("video plan workspace creates, preflights, reviews, restores, and remains r
   await taskSummary.getByText("秋季视频方案 · 云感保湿乳", { exact: true }).waitFor();
   await taskSummary.getByText("视频方案 · 4/5", { exact: true }).waitFor();
   await taskSummary.getByText("填写制作说明并创建方案", { exact: true }).waitFor();
+  assert.equal(await page.locator("#firstIdempotencyKey").isVisible(), true,
+    "Legacy create form should expose the optional idempotency key before mutation");
+  for (const [attribute, expected] of [["maxlength", "128"], ["autocomplete", "off"], ["autocapitalize", "off"], ["spellcheck", "false"]]) {
+    assert.equal(await page.locator("#firstIdempotencyKey").getAttribute(attribute), expected, `Legacy key field should set ${attribute}`);
+  }
+  await page.getByText("先只读核对结果", { exact: false }).waitFor();
+  await page.getByText("未经授权不要更改标识或再次创建", { exact: false }).waitFor();
   await page.locator("#firstInstructions").fill("竖版种草口播，突出保湿体验与使用场景。");
   await page.locator("#firstPresentationSize").selectOption("small");
+  let createRequests = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === `/api/products/${product.id}/video-plans`) createRequests += 1;
+  });
+  await page.locator("#firstIdempotencyKey").fill(" ");
   await page.getByRole("button", { name: "创建视频方案" }).click();
+  await page.getByText("创建请求标识无效", { exact: false }).waitFor();
+  assert.equal(createRequests, 0, "Invalid create idempotency key must fail before fetch");
+  const createErrorPattern = "**/api/products/*/video-plans";
+  for (const mode of [
+    { name: "409", status: 409, error: "VIDEO_PLAN_CONFLICT" },
+    { name: "422", status: 422, error: "VIDEO_PLAN_GATE_BLOCKED" },
+    { name: "network", network: true }
+  ]) {
+    let modeRequests = 0;
+    const routeHandler = async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      modeRequests += 1;
+      if (mode.network) return route.abort();
+      await route.fulfill({ status: mode.status, contentType: "application/json", body: JSON.stringify({ error: mode.error }) });
+    };
+    await page.route(createErrorPattern, routeHandler);
+    const errorKey = `legacy-plan-create-${mode.name}`;
+    await page.locator("#firstIdempotencyKey").fill(errorKey);
+    await page.getByRole("button", { name: "创建视频方案" }).click();
+    await page.locator("#pageNotice").getByText(/创建(?:未完成|结果不明确)/).waitFor();
+    await page.locator("#pageNotice").getByText("先只读核对结果", { exact: false }).waitFor();
+    assert.equal(await page.locator("#pageNotice").isVisible(), true, `Legacy ${mode.name} failure should be visible in the create notice`);
+    assert.equal(await page.locator("#firstIdempotencyKey").inputValue(), errorKey, `Legacy ${mode.name} should preserve the exact key`);
+    await page.waitForTimeout(100);
+    assert.equal(modeRequests, 1, `Legacy ${mode.name} click should issue exactly one request`);
+    await page.unroute(createErrorPattern, routeHandler);
+  }
+  const createKey = "legacy-plan-create-k1";
+  await page.locator("#firstIdempotencyKey").fill(createKey);
+  const createRequest = page.waitForRequest((request) => request.method() === "POST" &&
+    new URL(request.url()).pathname === `/api/products/${product.id}/video-plans`);
+  await page.getByRole("button", { name: "创建视频方案" }).click();
+  assert.equal((await createRequest).headers()["idempotency-key"], createKey,
+    "Legacy create should send the exact caller-supplied idempotency key");
   await page.getByText("方案 v1", { exact: true }).first().waitFor();
   assert.equal(await page.locator("#presentationSize").inputValue(), "small");
   await page.getByText("原生档位只控制画面呈现大小，不保证瓶盖、包装、标签或商品形态不变。", { exact: true }).waitFor();

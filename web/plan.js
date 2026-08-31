@@ -17,6 +17,19 @@
     const body = await response.json(); if (!response.ok) throw Object.assign(new Error(body.error), { status: response.status, body }); return body;
   }
   function notice(target, message = "", tone = "") { target.className = `notice${tone ? ` ${tone}` : ""}`; target.textContent = message; }
+  function resolveCreateIdempotencyKey() {
+    const field = element("#firstIdempotencyKey");
+    try {
+      const key = window.HiflyVideoPlanCreateIdempotency.resolve(field?.value);
+      if (field) field.value = key;
+      return key;
+    } catch (error) {
+      if (error?.message !== "VIDEO_PLAN_CREATE_IDEMPOTENCY_KEY_INVALID") throw error;
+      notice(element("#pageNotice"), "创建请求标识无效，请输入 1-128 个非空白字符。", "blocked");
+      field?.focus();
+      return null;
+    }
+  }
   function stateClass(status) { return ["passed","approved"].includes(status) ? "ready" : ["queued","running","pending"].includes(status) ? "uploading" :
     ["warning","blocked","invalidated","changes_requested"].includes(status) ? "blocked" : ["failed"].includes(status) ? "failure" : ["superseded","revoked"].includes(status) ? "superseded" : ""; }
   function badge(target, label, status) { target.textContent = label; target.className = `state ${stateClass(status)}`; }
@@ -256,11 +269,17 @@
   }
   function startPolling() { stopPolling(); polling = setInterval(() => loadWorkspace(workspace.current_plan.id).catch(() => undefined), 800); }
   function stopPolling() { if (polling) clearInterval(polling); polling = null; }
-  async function mutate(url, method, payload, idempotent = false) {
+  async function mutate(url, method, payload, idempotent = false, suppliedIdempotencyKey = undefined, createOperation = false) {
     const local = { output: element("#outputInstructions").value, presentationSize: element("#presentationSize").value };
+    const idempotencyKey = suppliedIdempotencyKey === undefined ? (idempotent ? crypto.randomUUID() : null) : suppliedIdempotencyKey;
     try {
-      workspace = await request(url, { method, headers: { "content-type": "application/json", ...(idempotent ? { "idempotency-key": crypto.randomUUID() } : {}) }, body: JSON.stringify(payload) }); taskConflict = false; render(); return true;
+      workspace = await request(url, { method, headers: { "content-type": "application/json", ...(idempotencyKey === null ? {} : { "idempotency-key": idempotencyKey }) }, body: JSON.stringify(payload) }); taskConflict = false; render(); return true;
     } catch (error) {
+      if (createOperation) {
+        const status = [409, 422].includes(error.status) ? `（${error.status}）` : "";
+        notice(element("#pageNotice"), status ? `创建未完成${status}。请先只读核对结果；未经授权不要更改标识或再次创建。` : "创建结果不明确。请先只读核对结果；未经授权不要更改标识或再次创建。", "blocked");
+        return false;
+      }
       if (error.status === 409) { element("#outputInstructions").value = local.output; element("#presentationSize").value = local.presentationSize; dirty = true; taskConflict = true; element("#dirtyState").textContent = "此方案已被他人更新，你的制作说明和呈现大小仍保留在本页。请核对后再处理。"; notice(element("#editorNotice"), "版本冲突：没有覆盖你的本地修改。", "blocked"); renderTaskSummary(); }
       else if (error.status === 422) notice(element("#editorNotice"), "当前条件已变化，操作未执行。请刷新并按提示处理。", "blocked");
       else notice(element("#pageNotice"), "请求未完成，请稍后重试。", "error"); return false;
@@ -326,7 +345,7 @@
   }
   element("#outputInstructions").addEventListener("input", () => { dirty = true; syncDirtyControls(); });
   element("#presentationSize").addEventListener("change", () => { dirty = true; syncDirtyControls(); });
-  element("#createPlan").addEventListener("click", async () => { const value = element("#firstInstructions").value.trim(); if (!value) return notice(element("#pageNotice"), "请先填写制作说明。", "blocked"); await mutate(`/api/products/${product.id}/video-plans`, "POST", { output_instructions: value, presentation_size_code: element("#firstPresentationSize").value, expected_head_revision: workspace.head_revision }, true); });
+  element("#createPlan").addEventListener("click", async () => { const value = element("#firstInstructions").value.trim(); if (!value) return notice(element("#pageNotice"), "请先填写制作说明。", "blocked"); const idempotencyKey = resolveCreateIdempotencyKey(); if (!idempotencyKey) return; notice(element("#pageNotice")); await mutate(`/api/products/${product.id}/video-plans`, "POST", { output_instructions: value, presentation_size_code: element("#firstPresentationSize").value, expected_head_revision: workspace.head_revision }, true, idempotencyKey, true); });
   element("#saveDraft").addEventListener("click", saveCurrentDraft);
   element("#deriveDraft").addEventListener("click", async () => mutate(`/api/products/${product.id}/video-plans/${workspace.current_plan.id}/derive`, "POST", { output_instructions: element("#outputInstructions").value, presentation_size_code: element("#presentationSize").value, expected_head_revision: workspace.head_revision }, true));
   element("#runPreflight").addEventListener("click", async () => { const ok = await mutate(`/api/products/${product.id}/video-plans/${workspace.current_plan.id}/preflight`, "POST", { expected_revision: workspace.current_plan.row_version }, true); if (ok) startPolling(); });

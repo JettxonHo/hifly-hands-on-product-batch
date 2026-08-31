@@ -126,7 +126,7 @@ test("RBV-CAL-001 readiness record activates Readiness Freeze and has one blocke
   assert.doesNotMatch(readiness, /^\|\s*(?:status|gate_status)\s*\|\s*READY_FOR_REAL_RUN_GATE\s*\|/m);
 });
 
-test("active Issue #273 pointers preserve the underlying Readiness Freeze gate and Stage 1 history", () => {
+test("active Issue #275 pointers preserve the underlying Readiness Freeze gate and Stage 1 history", () => {
   const agents = read(agentsPath);
   const goal = read(goalPath);
   const collaboration = read(collaborationPath);
@@ -136,8 +136,8 @@ test("active Issue #273 pointers preserve the underlying Readiness Freeze gate a
 
   const activePriority = agents.match(/## 当前最高优先级[\s\S]*?(?=## |$)/)?.[0] ?? "";
   const currentAllocation = collaboration.match(/## 8\. 当前分配[\s\S]*?(?=###|$)/)?.[0] ?? "";
-  const currentSnapshot = sectionBetween(current, "# 项目当前状态", "## Issue #273");
-  const currentRoadmap = sectionBetween(roadmap, "# 项目 Roadmap", "## Issue #273");
+  const currentSnapshot = sectionBetween(current, "# 项目当前状态", "## Issue #275");
+  const currentRoadmap = sectionBetween(roadmap, "# 项目 Roadmap", "## Issue #275");
   const authorityRecovery = sectionBetween(current, "## 权威文档与恢复顺序", "## 历史：里程碑状态（P0）");
 
   for (const [label, content] of [
@@ -147,7 +147,7 @@ test("active Issue #273 pointers preserve the underlying Readiness Freeze gate a
     ["ROADMAP snapshot", currentRoadmap],
   ]) {
     assert.match(content, /RBV-GOAL-001/, `${label} must name the current Goal`);
-    assert.match(content, /Issue #273/, `${label} must name the current bounded Stage`);
+    assert.match(content, /Issue #275/, `${label} must name the current bounded Stage`);
   }
 
   for (const [label, content] of [
@@ -177,6 +177,32 @@ test("active Issue #273 pointers preserve the underlying Readiness Freeze gate a
   const readinessIndex = authorityRecovery.indexOf("RBV_CALIBRATION_READINESS_FREEZE.md");
   const roadmapIndex = authorityRecovery.indexOf("ROADMAP.md");
   assert.ok(readinessIndex >= 0 && roadmapIndex > readinessIndex, "readiness record must precede current roadmap in recovery order");
+  assert.match(current, /## Issue #273[\s\S]*历史/);
+  assert.match(roadmap, /## Issue #273[\s\S]*历史/);
+});
+
+test("Issue #275 locks the create-only idempotency seam without changing the RBV gate", () => {
+  const agents = read(agentsPath);
+  const collaboration = read(collaborationPath);
+  const current = read(currentPath);
+  const roadmap = read(roadmapPath);
+
+  for (const [label, content] of [["AGENTS", agents], ["agent allocation", collaboration], ["CURRENT", current], ["ROADMAP", roadmap]]) {
+    assert.match(content, /Issue #275/, `${label} must identify Issue #275`);
+    assert.match(content, /VIDEOPLAN_CREATE_IDEMPOTENCY_SEAM|VideoPlan Create Idempotency-Key Seam/i,
+      `${label} must name the Issue #275 seam`);
+  }
+  assert.match(current, /video-plan-create-idempotency\.js/);
+  assert.match(current, /crypto\.randomUUID/);
+  assert.match(current, /原样|exact|不 trim/i);
+  assert.match(current, /Issue #273[\s\S]*已完成.*历史/);
+  assert.match(current, /BLOCKED_PRE_REAL_RUN/);
+  assert.match(current, /现有组织\/成员\/命令作用域的幂等 receipt 持久化 exact caller key 供审计/);
+  assert.doesNotMatch(current, /不记录 key/);
+  assert.match(roadmap, /独立 Review 与 exact-head CI/);
+  assert.match(roadmap, /零业务变更部署/);
+  assert.match(current, /下一 Owner Gate 仅为一次真实 Plan Create/);
+  assert.match(current, /GitHub Issue #273 仍保持 OPEN/);
 });
 
 test("Pilot current Issue/Stage map has one active Readiness Freeze stage", () => {
@@ -352,13 +378,13 @@ test("session records luna-worker configuration and honest runtime model status"
   assert.match(session, /no.*Provider|未.*Provider/i);
 });
 
-test("all current pointers name Issue #273 and preserve the unique blocked readiness verdict", () => {
+test("all current pointers name Issue #275 and preserve the unique blocked readiness verdict", () => {
   for (const relativePath of [agentsPath, goalPath, collaborationPath, pilotPath, currentPath, roadmapPath, readinessPath, sessionPath]) {
     const content = read(relativePath);
     assert.match(content, /RBV-GOAL-001|RBV-CAL-001|RBV-002/);
     assert.match(content, /BLOCKED_PRE_REAL_RUN/);
   }
   for (const relativePath of [agentsPath, collaborationPath, currentPath, roadmapPath]) {
-    assert.match(read(relativePath), /Issue #273/);
+    assert.match(read(relativePath), /Issue #275/);
   }
 });
