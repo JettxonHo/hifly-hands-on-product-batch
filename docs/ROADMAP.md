@@ -1,17 +1,17 @@
 # 项目 Roadmap
 
 > 最后更新：2026-09-01
-> 当前状态：RBV-GOAL-001 下 Issue #275 `VIDEOPLAN_CREATE_IDEMPOTENCY_SEAM` provider-free candidate 已完成，等待独立 Review 与 exact-head CI；两者通过后可按现有 Owner 工程授权合并并执行零业务变更部署。Issue #273 `QUALITY_ONE_ATTEMPT_CONTRACT_CORRECTION` 的工程阶段为已完成历史/非当前，但 GitHub Issue 仍 OPEN。Readiness Freeze 是底层 RBV blocked gate，Stage 1 合同与人工门禁已完成历史。`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 仍为 RBV 执行合同，D-037 为产品决策；真实 Plan Create、Calibration、DeepSeek Quality Evaluation 与批次运行尚未授权，Provider/飞影/积分/生产部署保持 fail-closed；下一 Owner Gate 仅为一次真实 Plan Create。
+> 当前状态：RBV-GOAL-001 下无 active bounded engineering implementation；Issue #275 `VIDEOPLAN_CREATE_IDEMPOTENCY_SEAM` 已 `COMPLETE/MERGED/DEPLOYED`，PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 已 CLOSED。exact-head CI run `33418338737` 的 Ubuntu/Windows/identity-postgres 全部 SUCCESS，独立 Review `APPROVED`（P0/P1/P2 none），App-only 零业务变更部署完成。Issue #273 `QUALITY_ONE_ATTEMPT_CONTRACT_CORRECTION` 的工程阶段为已完成历史/非当前，但 GitHub Issue 仍 OPEN。Readiness Freeze 是底层 RBV blocked gate，Stage 1 合同与人工门禁已完成历史。`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 仍为 RBV 执行合同，D-037 为产品决策；真实 Plan Create、Calibration、DeepSeek Quality Evaluation 与批次运行尚未授权，Provider/飞影/积分保持 fail-closed；下一 Owner Gate 仅为 `OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE`。
 
-## Issue #275 VideoPlan Create Idempotency-Key Seam（2026-09-01）
+## Issue #275 VideoPlan Create Idempotency-Key Seam（2026-09-01，COMPLETE/MERGED/DEPLOYED）
 
 - legacy Plan 与 integrated workspace 的 VideoPlan 创建表单新增可选 `创建请求标识（可选）` 字段，浏览器 resolver 对空值生成 `crypto.randomUUID()`；供给或生成的 key 必须是非空字符串、长度 `<=128`，并经运行时 `Headers` round-trip 后逐字节相同才原样保留。leading/trailing OWS、header-invalid controls、超长或非字符串同步 fail-closed。生成 key 回填输入；结果不明确时保留该标识并先只读核对结果，未经授权不要更改标识或再次创建。
 - 仅创建命令透传该 Idempotency-Key；保存、派生、预检、审核等其他命令继续使用既有生成 key。auth/org/product/server header contract 保持不变。服务端仅通过现有组织/成员/命令作用域的幂等 receipt 持久化 exact caller key 供审计；不写日志、不放入 public response；不访问真实 Provider/Hifly 或消耗积分。
-- 本地 TDD 证据与首轮 RED/GREEN 记录见 [`2026-09-01-issue-275-videoplan-idempotency-seam.md`](status/sessions/2026-09-01-issue-275-videoplan-idempotency-seam.md)；候选等待独立 Review 与 exact-head CI，两者通过后可按现有 Owner 工程授权合并并执行零业务变更部署。真实 Plan Create 仍禁止，下一 Owner Gate 仅为一次真实 Plan Create，不表示 MBL/RBV 或生产验收完成。
+- 本地 TDD 证据、首轮 RED/GREEN、部署 closeout 与透明 incident 记录见 [`2026-09-01-issue-275-videoplan-idempotency-seam.md`](status/sessions/2026-09-01-issue-275-videoplan-idempotency-seam.md)。Issue #275 工程 Stage 已完成并部署，但不表示 MBL/RBV 或真实 Plan Create 完成；真实 Plan Create 仍禁止，下一 Owner Gate 仅为 `OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE`。
 
 ## Issue #273 RBV-012 Copy Quality One-Attempt Contract Correction（2026-08-31）
 
-- 本节保留 Issue #273 已完成并已合并/部署的历史记录；当前 active bounded engineering Stage 已切换至 Issue #275，GitHub Issue #273 仍 OPEN 且非当前。
+- 本节保留 Issue #273 已完成并已合并/部署的历史记录；当前无 active bounded engineering implementation，GitHub Issue #273 仍 OPEN 且非当前。
 - 新 QualityRun 默认 `provider_at_most_once_v1` / `max_attempts=1`；Rewrite 保留独立 `max_attempts=3`。历史行迁移为 `legacy`，不回填虚假的严格一次事实；同一 CopyVersion 的 strict run 由服务端/PG partial unique index 限制为最多一个。
 - Provider dispatch permit 与真实 HTTP invocation 分开持久化：`provider_dispatch_count`、`provider_http_request_count` 均受 `≤1` 约束且 HTTP 不得超过 dispatch。dispatch 先提交，HTTP marker 紧邻客户端调用前提交；malformed/schema/semantic/timeout/network/crash/lease/duplicate worker 不得再入 Provider。
 - usage/token/charge 使用 reported/unknown 与 nullable 字段；local cost 仅为 not_calculated/unknown，不调用 billing API。Provider request/response/unknown/not-dispatched audit 只保存脱敏 metadata，不保存 prompt/response/key。
@@ -29,7 +29,7 @@
 
 ## RBV-002 Calibration Readiness Freeze 路线门禁（2026-08-29）
 
-- Goal：[`RBV-GOAL-001`](../GOAL.md)；Decision：[`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)；Pilot Contract：[`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)；Readiness Record：[`RBV_CALIBRATION_READINESS_FREEZE.md`](status/RBV_CALIBRATION_READINESS_FREEZE.md)。`Readiness Freeze` 仍是底层 RBV blocked gate（Stage 1 已完成历史），当前 active bounded engineering Stage 由 Issue #275 VideoPlan Create Idempotency-Key Seam 承担。
+- Goal：[`RBV-GOAL-001`](../GOAL.md)；Decision：[`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)；Pilot Contract：[`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)；Readiness Record：[`RBV_CALIBRATION_READINESS_FREEZE.md`](status/RBV_CALIBRATION_READINESS_FREEZE.md)。`Readiness Freeze` 仍是底层 RBV blocked gate（Stage 1 已完成历史），当前无 active bounded engineering implementation；Issue #275 VideoPlan Create Idempotency-Key Seam 已完成 closeout。
 - `RBV-CAL-001` 冻结 5 个 SKU 的 source-aligned identity、fixture 分离、素材元数据、网页图片权利、人工目标、候选人物、Provider 输入、预算、Evidence alias/relative ref 与 Stop Rules；五个 SKU 均为 `BLOCKED`，唯一 verdict 为 `BLOCKED_PRE_REAL_RUN`。
 - Owner facts 固定为 `OP-CAL-001`、batch cap `6000`、per SKU `1200`、concurrency `1`、`automatic_retry=false`、2026-08-29 / `Asia/Shanghai` / Owner confirmation → `23:59:59+08:00`。上限是 maximum exposure，不是 spend authorization；non-author operator 仍 `pending`，不阻塞 Calibration readiness 但阻塞 Repeatable。
 - 候选人物仅使用 alias `RBV_PRIVATE_EVIDENCE_ROOT` 与 relative ref；人物内部/Provider 上传权限、登录/runtime、上游商品/文案/人物/方案/订单 readiness 均未授权或未核验。Evidence 目录只在 Git 外保留 mode `0700` 空骨架，不产生真实运行 evidence。

@@ -75,7 +75,7 @@ test("AGENTS current priority follows Readiness Freeze and keeps Stage 1 as comp
   assert.match(historicalSection, /已完成|completed/i);
 });
 
-test("Issue #275 is the sole current bounded engineering stage while Issue #273 remains historical", () => {
+test("Issue #275 closeout is complete with no active bounded engineering stage while Issue #273 remains historical", () => {
   const agents = read(agentsPath);
   const current = read(currentPath);
   const roadmap = read(roadmapPath);
@@ -87,21 +87,49 @@ test("Issue #275 is the sole current bounded engineering stage while Issue #273 
 
   for (const [label, content] of [["AGENTS", prioritySection], ["CURRENT", currentSection], ["ROADMAP", roadmapSection], ["collaboration", allocationSection]]) {
     assert.match(content, /Issue #275/, `${label} must point to Issue #275`);
-    assert.doesNotMatch(content, /(?:当前唯一 active bounded engineering Stage|当前 bounded Stage|current bounded stage)\s*(?:是|:)?\s*Issue #273/i,
-      `${label} must not treat Issue #273 as the current stage`);
+    assert.match(content, /COMPLETE\/MERGED\/DEPLOYED/, `${label} must record Issue #275 closeout`);
+    assert.doesNotMatch(content, /当前唯一 active bounded engineering Stage\s*是\s*Issue #275/i,
+      `${label} must not treat Issue #275 as active engineering`);
+    assert.doesNotMatch(content, /当前 bounded Stage：Issue #275/i,
+      `${label} must not treat Issue #275 as active engineering`);
+    assert.doesNotMatch(content, /current bounded stage\s*:\s*Issue #275/i,
+      `${label} must not treat Issue #275 as active engineering`);
   }
   assert.match(current, /^## Issue #275 VideoPlan Create Idempotency-Key Seam/m);
   assert.match(roadmap, /^## Issue #275 VideoPlan Create Idempotency-Key Seam/m);
   assert.match(collaboration, /### 历史分配（Issue #273 RBV-012/);
+  assert.match(collaboration, /历史 Stage：Issue #275 VideoPlan Create Idempotency-Key Seam（COMPLETE\/MERGED\/DEPLOYED；GitHub Issue CLOSED）/);
+  assert.match(current, /PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`/);
+  assert.match(roadmap, /PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`/);
+  assert.match(collaboration, /PR #276 squash merge 至 main@fbc722ee40054045d8883f0a7e20beb1a11e4221/);
+  assert.match(current, /GitHub Issue #275 已 CLOSED/);
+  assert.match(roadmap, /GitHub Issue #275 已 CLOSED/);
+  assert.doesNotMatch(current, /GitHub Issue #275 仍 OPEN/);
+  assert.doesNotMatch(roadmap, /GitHub Issue #275 仍 OPEN/);
+  assert.match(current, /exact-head CI run `33418338737`/);
+  assert.match(current, /Ubuntu[^\n]*SUCCESS/);
+  assert.match(current, /Windows[^\n]*SUCCESS/);
+  assert.match(current, /identity-postgres[^\n]*SUCCESS/);
+  assert.match(roadmap, /exact-head CI run `33418338737`/);
+  assert.match(roadmap, /Ubuntu[^\n]*SUCCESS/);
+  assert.match(roadmap, /Windows[^\n]*SUCCESS/);
+  assert.match(roadmap, /identity-postgres[^\n]*SUCCESS/);
+  assert.match(collaboration, /exact-head CI run 33418338737/);
+  assert.match(collaboration, /Ubuntu[^\n]*SUCCESS/);
+  assert.match(collaboration, /Windows[^\n]*SUCCESS/);
+  assert.match(collaboration, /identity-postgres[^\n]*SUCCESS/);
   assert.match(agents, /Issue #273[^\n]*历史/);
   assert.match(current, /BLOCKED_PRE_REAL_RUN/);
   assert.match(roadmap, /BLOCKED_PRE_REAL_RUN/);
   assert.match(current, /幂等 receipt 持久化 exact caller key 供审计/);
   assert.match(roadmap, /幂等 receipt 持久化 exact caller key 供审计/);
-  assert.match(current, /独立 Review 与 exact-head CI/);
-  assert.match(current, /零业务变更部署/);
-  assert.match(current, /下一 Owner Gate 仅为一次真实 Plan Create/);
+  assert.match(current, /COMPLETE\/MERGED\/DEPLOYED/);
+  assert.match(current, /OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE/);
+  assert.match(current, /exact-head CI run `33418338737`/);
+  assert.match(current, /零业务变更 App-only 部署/);
   assert.match(current, /GitHub Issue #273 仍保持 OPEN/);
+  assert.match(roadmap, /GitHub Issue #273 仍 OPEN/);
+  assert.match(collaboration, /GitHub Issue #273 仍 OPEN/);
 });
 
 test("the Goal → D-037 → Pilot Contract → status chain uses canonical identifiers and links", () => {
@@ -430,12 +458,12 @@ test("the Pilot bounds allowed fixes and explicit non-goals", () => {
   }
 });
 
-test("current status pointers name Issue #275 while retaining the blocked Readiness Freeze and historical P0 text", () => {
+test("current status pointers record Issue #275 closeout while retaining the blocked Readiness Freeze and historical P0 text", () => {
   const current = read(currentPath);
   const roadmap = read(roadmapPath);
   const authoritySection = current.match(/## 权威文档与恢复顺序[\s\S]*?(?=## |$)/)?.[0] ?? "";
 
-  assert.match(current, /当前 Goal：RBV-GOAL-001；当前 bounded Stage：Issue #275/);
+  assert.match(current, /当前 Goal：RBV-GOAL-001；当前 bounded engineering implementation：none/i);
   assert.match(current, /Readiness Freeze/);
   assert.match(current, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
   assert.match(current, /BLOCKED_PRE_REAL_RUN/);
@@ -449,7 +477,7 @@ test("current status pointers name Issue #275 while retaining the blocked Readin
   assert.doesNotMatch(authoritySection, /CLOUD_EXECUTOR_P0\.md[^\n]*当前/);
   assert.match(authoritySection, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
 
-  assert.match(roadmap, /当前状态：RBV-GOAL-001 下 Issue #275/);
+  assert.match(roadmap, /当前状态：RBV-GOAL-001 下无 active bounded engineering implementation/);
   assert.match(roadmap, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
   assert.match(roadmap, /BLOCKED_PRE_REAL_RUN/);
   assert.doesNotMatch(roadmap, /^## 2\. 当前升级顺序$/m, "legacy current-order heading must be historical");
@@ -483,19 +511,22 @@ test("ROADMAP demotes the legacy P0 sections and scope to historical non-current
   assert.doesNotMatch(cloudExecutorLine, /当前|下一阶段|保留但不抢跑|每波次门禁/);
 });
 
-test("agent-collaboration has the Issue #275 bounded allocation and retains the blocked Readiness Freeze plus Stage 1/Issue #273/CE-08 history", () => {
+test("agent-collaboration records Issue #275 closeout and retains the blocked Readiness Freeze plus Stage 1/Issue #273/CE-08 history", () => {
   const collaboration = read(collaborationPath);
   const currentSection = collaboration.match(/## 8\. 当前分配[\s\S]*?(?=###|$)/)?.[0] ?? "";
   const historicalSection = collaboration.match(/### 历史[\s\S]*$/)?.[0] ?? "";
 
   assert.match(currentSection, /RBV-GOAL-001/);
   assert.match(currentSection, /Issue #275/);
+  assert.match(currentSection, /COMPLETE\/MERGED\/DEPLOYED/);
+  assert.doesNotMatch(currentSection, /当前 bounded Stage：Issue #275/);
   assert.match(currentSection, /Readiness Record/);
   assert.match(currentSection, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
   assert.match(currentSection, /BLOCKED_PRE_REAL_RUN/);
   assert.match(currentSection, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
   assert.match(currentSection, /REAL_BATCH_PRODUCTION_VALIDATION_PILOT\.md/);
   assert.doesNotMatch(currentSection, /当前 Goal：P0 Cloud Executor/);
+  assert.match(currentSection, /OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE/);
   assert.match(historicalSection, /Issue #273/);
   assert.match(historicalSection, /CE-08/);
   assert.match(historicalSection, /历史|非现行/);

@@ -1,22 +1,29 @@
 # 项目当前状态
 
 > 最后更新：2026-09-01
-> 当前 Goal：RBV-GOAL-001；当前 bounded Stage：Issue #275 VideoPlan Create Idempotency-Key Seam（Readiness Freeze 为底层 Goal 门禁，Stage 1 已完成历史；Issue #273 工程阶段为历史/非当前，GitHub Issue 仍 OPEN）
-> 当前阶段：`VIDEOPLAN_CREATE_IDEMPOTENCY_SEAM`；当前结论：provider-free candidate 已完成，等待独立 Review 与 exact-head CI；两者通过后可按现有 Owner 工程授权合并并执行零业务变更部署。legacy Plan 与 integrated workspace 的 VideoPlan 创建均支持可选、原样透传、可审计 Idempotency-Key；空值生成 ordinary UUID，空白/超长/非字符串 fail-closed，其他命令继续使用既有生成 key。真实 Plan Create、Provider/Hifly 与积分动作仍禁止，下一 Owner Gate 仅为一次真实 Plan Create。RBV Readiness Freeze 记录仍为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，产品方向继续引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。
+> 当前 Goal：RBV-GOAL-001；当前 bounded engineering implementation：none（Issue #275 VideoPlan Create Idempotency-Key Seam 已 `COMPLETE/MERGED/DEPLOYED`；PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 已 CLOSED；Readiness Freeze 为底层 Goal 门禁，Stage 1 已完成历史；Issue #273 工程阶段为历史/非当前，GitHub Issue 仍 OPEN）
+> 当前阶段：`ENGINEERING_CLOSEOUT_COMPLETE`；Issue #275 独立 Review 为 `APPROVED`（P0/P1/P2 none），exact-head CI run `33418338737` 的 Ubuntu/Windows/identity-postgres 全部 SUCCESS。App-only 部署已在目标镜像 `sha256:58cad7e50bc0268cd76a02ec5cfb668de7a86a3b2305c203a3dc244efcba6189` 上完成，App healthy/restart=0；Proxy/Postgres/Cloud Executor unchanged/restart=0。当前下一 Gate 仅为 `OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE`；真实 Plan Create、Provider/Hifly、登录与积分动作仍禁止。RBV Readiness Freeze 记录仍为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，产品方向继续引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
 
-## Issue #275 VideoPlan Create Idempotency-Key Seam（2026-09-01）
+## Issue #275 VideoPlan Create Idempotency-Key Seam（2026-09-01，已合并/部署）
 
-- 在独立分支 `codex/videoplan-precommitted-idempotency-seam`（基准 `69558fdb38e83eadee6e3ab187ba09cc6da22300`）完成 provider-free bounded implementation。新增 `/video-plan-create-idempotency.js` 浏览器 resolver：`undefined`、`null`、exact empty string 通过 `crypto.randomUUID()` 生成 key；供给或生成的 key 必须是非空字符串、长度 `<=128`，并经运行时 `Headers` round-trip 后逐字节相同才原样返回（不 trim、不 hash）；leading/trailing OWS、header-invalid controls、超长或非字符串在同步阶段抛出 `VIDEO_PLAN_CREATE_IDEMPOTENCY_KEY_INVALID`。
+- 在独立分支 `codex/videoplan-precommitted-idempotency-seam`（基准 `69558fdb38e83eadee6e3ab187ba09cc6da22300`）完成 provider-free bounded implementation，PR #276 已 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 已 CLOSED。新增 `/video-plan-create-idempotency.js` 浏览器 resolver：`undefined`、`null`、exact empty string 通过 `crypto.randomUUID()` 生成 key；供给或生成的 key 必须是非空字符串、长度 `<=128`，并经运行时 `Headers` round-trip 后逐字节相同才原样返回（不 trim、不 hash）；leading/trailing OWS、header-invalid controls、超长或非字符串在同步阶段抛出 `VIDEO_PLAN_CREATE_IDEMPOTENCY_KEY_INVALID`。
 - legacy `/plan.html` 与 integrated `/workspace.html` 的创建表单均展示 `创建请求标识（可选）`，`maxlength=128`、`autocomplete=off`；空值生成后回填字段。若结果不明确，界面要求保留该标识并先只读核对结果，未经授权不要更改标识或再次创建。仅 create command 使用该 key；保存、派生、预检、审核等其他命令继续使用既有生成 key，auth/org/product/server header contract 不变。服务端仅通过现有组织/成员/命令作用域的幂等 receipt 持久化 exact caller key 供审计；不写日志、不放入 public response。
 - TDD 证据：首轮 helper RED 为文件缺失；依赖安装前 browser RED 未能捕获（Playwright 未安装，`ERR_MODULE_NOT_FOUND`），未把该外部依赖错误伪造为产品失败。`node --test test/video-plan-create-idempotency.test.js` 为 `3 pass`；`node --test test/video-planning-browser.test.js` 为 `1 pass`；`node --test test/operator-single-workspace-stage-4-browser.test.js` 为 `9 pass`；`node --test test/video-planning-api.test.js test/video-planning-service.test.js` 为 `26 pass`。
-- 本 Stage 只执行本地测试与静态检查，不调用 Provider/DeepSeek/Hifly、不登录、不部署、不发送外部请求、不创建真实业务对象，积分与 Provider cost 为 `0`。候选等待独立 Review 与 exact-head CI；两者通过后可按现有 Owner 工程授权合并并执行零业务变更部署。真实 Plan Create/Provider/Hifly 仍禁止，下一 Owner Gate 仅为一次真实 Plan Create；不得把该实现写成 MBL/RBV 或真实生产验收完成。
+- 本 Stage 只执行本地测试与静态检查；随后由 Owner/Orchestrator 完成零业务变更 App-only 部署。部署目标镜像 digest 为 `sha256:58cad7e50bc0268cd76a02ec5cfb668de7a86a3b2305c203a3dc244efcba6189`，App healthy/restart=0，Proxy/Postgres/Cloud Executor unchanged/restart=0。真实 Plan Create/Provider/Hifly 仍禁止，当前下一 Gate 仅为 `OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE`；不得把该实现写成 MBL/RBV 或真实生产验收完成。
+
+### Issue #275 closeout evidence（Owner/Orchestrator，2026-09-01）
+
+- exact-head CI run `33418338737` required Ubuntu、Windows、identity-postgres，三项均 `SUCCESS`；独立最终 Review `APPROVED`，P0/P1/P2 均为 none。App-only 部署目标为 `sha256:58cad7e50bc0268cd76a02ec5cfb668de7a86a3b2305c203a3dc244efcba6189`；rollback tag 为 `hifly-pilot-app:rollback-issue275-69558fdb`。
+- 部署前备份 `/var/backups/hifly/hifly-issue275-predeploy-20260831T172610Z-524715.dump` 为 `709442` bytes、mode `0600`，`pg_restore-list` 通过。App healthy/restart=0；Proxy/Postgres/Cloud Executor IDs unchanged/restart=0；5 个 public static bytes exact；`/auth/me` anonymous 为 `401`。
+- 全部 7 个队列、order、attempt、claim 均为 `0`；exact Product Plan/Head/candidate receipt/Preflight/Review/Handoff/Order/Attempt=0 核对通过。Provider ledger unchanged `11/1/1`；Copy/Review/Selection row `2`；Cloud disabled/standby/claim=false，Local disabled，Hifly token absent，Provider/Hifly/points delta `0`。
+- 透明 incident：首次 maintenance script 停止 App 后 SQL quoting 失败，在 success/rollback marker 前结束，App 保持 stopped 且 target 未启动；随后正确的 `SERIALIZABLE READ ONLY` 查询确认 7 queues 为 `0`，target 启动并 healthy。Composite postcheck 仅返回到 nginx reload，拆分短命令独立证明全部 postchecks。全程无 Provider 调用或业务 mutation。
 
 ## Issue #273 RBV-012 Copy Quality One-Attempt Contract Correction（2026-08-31）
 
-- 本节为 Issue #273 已完成并已合并/部署的历史 provider-free/deployment 记录；当前 bounded Stage 已切换为 Issue #275，不得再将 #273 作为 active engineering pointer。GitHub Issue #273 仍保持 OPEN，工程阶段为历史/非当前。
+- 本节为 Issue #273 已完成并已合并/部署的历史 provider-free/deployment 记录；当前无 active bounded engineering implementation，不得再将 #273 作为 active engineering pointer。GitHub Issue #273 仍保持 OPEN，工程阶段为历史/非当前。
 - 在独立分支 `codex/rbv-quality-one-attempt`（基准 `b79dde707461cc785100e0f07d39fda140fad21a`）完成 provider-free bounded correction；正式新 QualityRun 默认 `attempt_policy=provider_at_most_once_v1`、`max_attempts=1`，Rewrite 继续独立使用 `max_attempts=3`。既有数据库行由迁移默认标记 `legacy`，不把历史运行误报为严格一次。
 - QualityRun 新增持久化 dispatch permit 与真实 HTTP invocation 分离计数：`provider_dispatch_count` 与 `provider_http_request_count` 均最多 1，且 HTTP 不得超过 dispatch；dispatch 在执行前提交，HTTP invocation marker 在客户端调用前提交。lease/reclaim/duplicate worker/崩溃均 fail-closed，不会重新进入 Provider。usage/token/charge 使用显式 `reported`/`unknown` 状态和 nullable 字段；local cost 保留 `not_calculated`/`unknown`，不调用 billing API，不保存 prompt/response/secret。
 - DeepSeek semantic evaluator 删除 malformed/schema correction request，要求通过 durable `providerRequest` seam 调用；production selector `deepseek_hybrid`、provider `DeepSeek`、model `deepseek-v4-flash` 分开持久化。Quality 开始时仍冻结待评 v2 以稳定字节，但通过 additive `supersedeParent=false` 保持 parent v1 的 status/body/row_version 不变。
