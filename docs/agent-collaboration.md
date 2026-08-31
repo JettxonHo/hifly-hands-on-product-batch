@@ -87,27 +87,27 @@ Goal 级最终验收使用另一组状态：`GOAL_APPROVED`、`GOAL_APPROVED_WIT
 Agent 不可用时记录配置与运行时核验结果；未经 Owner 明确许可不得替换 `luna-worker`。环境失败要区分
 代码、测试、CI 和外部依赖。发生并行冲突时暂停受影响合并，由主控确定事实来源、接口归属和合并顺序。
 
-## 8. 当前分配（Issue #275 VideoPlan Create Idempotency-Key Seam）
+## 8. 当前分配（无 active bounded engineering implementation；Issue #275 closeout）
 
 ```text
-当前 Goal：RBV-GOAL-001；当前 bounded Stage：Issue #275 VideoPlan Create Idempotency-Key Seam
-当前阶段：VIDEOPLAN_CREATE_IDEMPOTENCY_SEAM（provider-free candidate，等待独立 Review/exact-head CI）
+当前 Goal：RBV-GOAL-001；当前 bounded engineering implementation：none
+历史 Stage：Issue #275 VideoPlan Create Idempotency-Key Seam（COMPLETE/MERGED/DEPLOYED；GitHub Issue CLOSED）
 当前 Decision：D-037（docs/product/DECISION_LOG.md#d-037-real-batch-production-validation）
 当前 Pilot Contract：docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md
 当前 Readiness Record：docs/status/RBV_CALIBRATION_READINESS_FREEZE.md（底层 Goal 门禁仍为 BLOCKED_PRE_REAL_RUN）
-当前任务：为 legacy Plan 与 integrated workspace 的 VideoPlan 创建提供可选、可审计、原样透传的 Idempotency-Key；空值生成 ordinary UUID，空白/超长/非字符串 fail-closed，其他命令继续使用既有生成 key；provider-free only
+Closeout：PR #276 squash merge 至 main@fbc722ee40054045d8883f0a7e20beb1a11e4221；exact-head CI run 33418338737（Ubuntu/Windows/identity-postgres 全部 SUCCESS）；独立 Review APPROVED（P0/P1/P2 none）；App-only zero-business-mutation deployment complete
 Stage 1 状态：合同与人工门禁已完成历史（Issue #259 / PR #260），不再是当前 active stage
 实现分支：codex/videoplan-precommitted-idempotency-seam
 实现 Agent 请求配置：自定义 Agent luna-worker / gpt-5.6-luna / Max（provider-free bounded implementation）
 实现 Agent 配置状态：CONFIG_VERIFIED
 实现 Agent 运行时状态：UNVERIFIED_RUNTIME_MODEL（当前工具未暴露实际运行模型元数据）
-最终审查配置：主控 ORCHESTRATOR_REVIEWER；实现者不得自审/批准，Draft PR 在独立 Review/exact-head CI 前停止；两者通过后可按现有 Owner 工程授权合并并执行零业务变更部署
-后续：真实 Plan Create、Provider/Hifly、登录或积分动作仍禁止；下一 Owner Gate 仅为一次真实 Plan Create
+最终审查配置：主控 ORCHESTRATOR_REVIEWER；独立 Review 与 exact-head CI 已完成并通过，现有 Owner 工程授权已完成 merge/deploy
+后续：无 active bounded engineering implementation；真实 Plan Create、Provider/Hifly、登录或积分动作仍禁止；下一 Owner Gate 为 OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE
 ```
 
 ### 历史分配（Issue #273 RBV-012 One-Attempt Contract Correction）
 
-状态：工程阶段已完成并已合并/部署，保留为历史/非当前；GitHub Issue #273 仍 OPEN，不覆盖 Issue #275 当前 active bounded Stage。
+状态：工程阶段已完成并已合并/部署，保留为历史/非当前；GitHub Issue #273 仍 OPEN，不覆盖 Issue #275 已完成 closeout；当前无 active bounded engineering implementation。
 
 ```text
 当前 Goal：RBV-GOAL-001；历史 bounded Stage：Issue #273 RBV-012 Copy Quality One-Attempt Contract Correction

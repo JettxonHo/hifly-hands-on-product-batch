@@ -126,7 +126,7 @@ test("RBV-CAL-001 readiness record activates Readiness Freeze and has one blocke
   assert.doesNotMatch(readiness, /^\|\s*(?:status|gate_status)\s*\|\s*READY_FOR_REAL_RUN_GATE\s*\|/m);
 });
 
-test("active Issue #275 pointers preserve the underlying Readiness Freeze gate and Stage 1 history", () => {
+test("Issue #275 closeout pointers preserve the underlying Readiness Freeze gate and Stage 1 history", () => {
   const agents = read(agentsPath);
   const goal = read(goalPath);
   const collaboration = read(collaborationPath);
@@ -147,7 +147,12 @@ test("active Issue #275 pointers preserve the underlying Readiness Freeze gate a
     ["ROADMAP snapshot", currentRoadmap],
   ]) {
     assert.match(content, /RBV-GOAL-001/, `${label} must name the current Goal`);
-    assert.match(content, /Issue #275/, `${label} must name the current bounded Stage`);
+    assert.match(content, /Issue #275/, `${label} must retain the closed engineering Stage reference`);
+    assert.match(content, /COMPLETE\/MERGED\/DEPLOYED/, `${label} must record engineering closeout`);
+    assert.doesNotMatch(content, /当前唯一 active bounded engineering Stage\s*是\s*Issue #275/i,
+      `${label} must not retain Issue #275 as active engineering`);
+    assert.doesNotMatch(content, /当前 bounded Stage：Issue #275/i,
+      `${label} must not retain Issue #275 as active engineering`);
   }
 
   for (const [label, content] of [
@@ -181,7 +186,7 @@ test("active Issue #275 pointers preserve the underlying Readiness Freeze gate a
   assert.match(roadmap, /## Issue #273[\s\S]*历史/);
 });
 
-test("Issue #275 locks the create-only idempotency seam without changing the RBV gate", () => {
+test("Issue #275 closeout records the create-only seam without changing the RBV gate", () => {
   const agents = read(agentsPath);
   const collaboration = read(collaborationPath);
   const current = read(currentPath);
@@ -194,15 +199,31 @@ test("Issue #275 locks the create-only idempotency seam without changing the RBV
   }
   assert.match(current, /video-plan-create-idempotency\.js/);
   assert.match(current, /crypto\.randomUUID/);
-  assert.match(current, /原样|exact|不 trim/i);
+  assert.match(current, /逐字节相同才原样返回/);
   assert.match(current, /Issue #273[\s\S]*已完成.*历史/);
   assert.match(current, /BLOCKED_PRE_REAL_RUN/);
   assert.match(current, /现有组织\/成员\/命令作用域的幂等 receipt 持久化 exact caller key 供审计/);
   assert.doesNotMatch(current, /不记录 key/);
-  assert.match(roadmap, /独立 Review 与 exact-head CI/);
+  assert.match(current, /PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`/);
+  assert.match(current, /GitHub Issue #275 已 CLOSED/);
+  assert.doesNotMatch(current, /GitHub Issue #275 仍 OPEN/);
+  assert.match(current, /exact-head CI run `33418338737`/);
+  assert.match(current, /Ubuntu[^\n]*SUCCESS/);
+  assert.match(current, /Windows[^\n]*SUCCESS/);
+  assert.match(current, /identity-postgres[^\n]*SUCCESS/);
+  assert.match(current, /COMPLETE\/MERGED\/DEPLOYED/);
+  assert.match(current, /OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE/);
+  assert.match(roadmap, /exact-head CI run `33418338737`/);
   assert.match(roadmap, /零业务变更部署/);
-  assert.match(current, /下一 Owner Gate 仅为一次真实 Plan Create/);
   assert.match(current, /GitHub Issue #273 仍保持 OPEN/);
+  assert.match(roadmap, /PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`/);
+  assert.match(roadmap, /GitHub Issue #275 已 CLOSED/);
+  assert.doesNotMatch(roadmap, /GitHub Issue #275 仍 OPEN/);
+  assert.match(roadmap, /exact-head CI run `33418338737`/);
+  assert.match(roadmap, /Ubuntu[^\n]*SUCCESS/);
+  assert.match(roadmap, /Windows[^\n]*SUCCESS/);
+  assert.match(roadmap, /identity-postgres[^\n]*SUCCESS/);
+  assert.match(roadmap, /GitHub Issue #273 仍 OPEN/);
 });
 
 test("Pilot current Issue/Stage map has one active Readiness Freeze stage", () => {
@@ -378,7 +399,7 @@ test("session records luna-worker configuration and honest runtime model status"
   assert.match(session, /no.*Provider|未.*Provider/i);
 });
 
-test("all current pointers name Issue #275 and preserve the unique blocked readiness verdict", () => {
+test("all closeout pointers retain Issue #275 and preserve the unique blocked readiness verdict", () => {
   for (const relativePath of [agentsPath, goalPath, collaborationPath, pilotPath, currentPath, roadmapPath, readinessPath, sessionPath]) {
     const content = read(relativePath);
     assert.match(content, /RBV-GOAL-001|RBV-CAL-001|RBV-002/);
@@ -386,5 +407,6 @@ test("all current pointers name Issue #275 and preserve the unique blocked readi
   }
   for (const relativePath of [agentsPath, collaborationPath, currentPath, roadmapPath]) {
     assert.match(read(relativePath), /Issue #275/);
+    assert.doesNotMatch(read(relativePath), /(?:当前唯一 active bounded engineering Stage|当前 bounded Stage)\s*(?:是|：|:)\s*Issue #275/i);
   }
 });

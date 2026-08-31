@@ -67,4 +67,13 @@ Review `CHANGES_REQUESTED` P1-A/P1-B/P2 items were handled test-first:
 
 - Verdict: `APPROVED`; no remaining P0/P1/P2 findings.
 - Final evidence counts: helper `3 pass`; legacy browser `1 pass`; integrated Stage 4 browser `9 pass`; VideoPlanning API/service `26 pass`; governance `30 pass`; full suite `1292 pass / 16 skipped / 0 fail` out of `1308`; `npm run check` checked `250` JavaScript files; `git diff --check` and mechanical allowlist audit passed.
-- Review confirms the candidate is ready for the existing engineering path: after exact-head CI remains green, Owner authorization permits merge and zero-business-mutation deployment. Real Plan Create, Provider/Hifly, login, and points remain forbidden until the next Owner Gate.
+- Review confirms the candidate is approved for the existing engineering path; exact-head CI is green and the engineering merge/deploy closeout is recorded below. Real Plan Create, Provider/Hifly, login, and points remain forbidden until the next Owner Gate.
+
+## Deployment closeout (Owner/Orchestrator, 2026-09-01)
+
+- PR #276 squash-merged without admin bypass at `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`; GitHub Issue #275 is `CLOSED`. Exact-head CI run `33418338737` required Ubuntu, Windows, and identity-postgres; all three were `SUCCESS`. Independent final Review was `APPROVED` with no P0/P1/P2 findings.
+- App-only deployment succeeded to target image `sha256:58cad7e50bc0268cd76a02ec5cfb668de7a86a3b2305c203a3dc244efcba6189`. Predeploy backup `/var/backups/hifly/hifly-issue275-predeploy-20260831T172610Z-524715.dump` was `709442` bytes, mode `0600`, and `pg_restore-list` passed. Rollback tag: `hifly-pilot-app:rollback-issue275-69558fdb`.
+- App healthy with restart count `0`; Proxy/Postgres/Cloud Executor IDs unchanged with restart count `0`. Five public static bytes matched exactly. Anonymous `/auth/me` returned `401`. All seven queues plus order/attempt/claim counts were `0`; exact Product Plan/Head/candidate receipt/Preflight/Review/Handoff/Order/Attempt=0 postchecks passed.
+- Provider ledger remained unchanged at `11/1/1`; Copy/Review/Selection row count remained `2`. Cloud Executor stayed disabled/standby/claim=false; Local Agent disabled; Hifly token absent; Provider/Hifly/points delta `0`.
+- Transparent incident: the first maintenance script stopped App, then failed on SQL quoting before a success/rollback marker; App remained stopped and the target did not start. A corrected `SERIALIZABLE READ ONLY` query showed all seven queues at `0`, after which the target started healthy. The composite postcheck returned only through nginx reload; split short commands independently proved every postcheck. No Provider call or business mutation occurred.
+- Closeout does not authorize a real VideoPlan create or claim production readiness. Current next gate is exactly `OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE`; RBV Readiness Freeze remains `BLOCKED_PRE_REAL_RUN`.
