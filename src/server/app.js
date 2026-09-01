@@ -890,7 +890,8 @@ export async function buildApp({
       copyReviewService: app.copyReview?.service,
       productRevisionPort: app.projectContent?.service?.productRevisionPort,
       avatarSelectionService: app.avatarSelection?.service,
-      assetService: app.assets?.service
+      assetService: app.assets?.service,
+      productionContractId: productionOrdersOptions.productionContractId || null
     });
     const agentReadinessPort = productionOrdersOptions.agentReadinessPort || videoPlanningOptions.agentReadinessPort || localAgentReadiness || { async isOnline() { return false; } };
     const service = createProductionOrderService({ repository, planPort, inputSnapshotPort, agentReadinessPort, now });

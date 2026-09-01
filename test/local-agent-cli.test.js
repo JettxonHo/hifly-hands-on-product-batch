@@ -61,7 +61,7 @@ async function packageBody(value = manifest()) {
   ]);
 }
 
-function createFakeHttp({ events, body, heartbeatTaskError = null }) {
+function createFakeHttp({ events, body, heartbeatTaskError = null, claimAttempt = { id: "attempt-1" } }) {
   return {
     async heartbeat(input) {
       events.push(["heartbeat", input]);
@@ -69,7 +69,7 @@ function createFakeHttp({ events, body, heartbeatTaskError = null }) {
     },
     async claim(input) {
       events.push(["claim", input]);
-      return { attempt: { id: "attempt-1" }, replayed: false };
+      return { attempt: { ...claimAttempt }, replayed: false };
     },
     async start(input) {
       events.push(["start", input]);
@@ -153,12 +153,13 @@ async function runFixture({
   heartbeatIntervalMs = 5_000,
   setIntervalImpl,
   clearIntervalImpl,
-  heartbeatTaskError = null
+  heartbeatTaskError = null,
+  claimAttempt = { id: "attempt-1" }
 } = {}) {
   const parent = await mkdtemp(path.join(os.tmpdir(), "local-agent-cli-parent-"));
   const temporaryDirectories = [];
   const body = await packageBody(packageManifest);
-  const client = createFakeHttp({ events, body, heartbeatTaskError });
+  const client = createFakeHttp({ events, body, heartbeatTaskError, claimAttempt });
   const result = await runLocalAgentOnce({
     client,
     avatarMappings,
@@ -211,6 +212,22 @@ test("run-once completes one fake item in the required serial order and uploads 
   } finally {
     await rm(avatarPath, { force: true });
   }
+});
+
+test("attributed package manifest hash drift stops local agent before executor calls", async () => {
+  const events = [];
+  const executor = createRecordingExecutor({ events });
+  const state = await runFixture({
+    packageManifest: { ...manifest(), manifest_hash: "tampered-manifest-hash" },
+    avatarMappings: { "avatar-version-1": path.join(os.tmpdir(), `unused-avatar-${process.pid}.png`) },
+    executor,
+    claimAttempt: { id: "attempt-1", package_id: "package-1", production_order_id: "order-1", package_version: 1, manifest_hash: "expected-manifest-hash", package_hash: null },
+    events
+  });
+  assert.equal(state.result.status, "failed");
+  assert.deepEqual(executor.calls, []);
+  assert.equal(events.some(([event]) => event === "executor:createAsset" || event === "executor:submitVideo"), false);
+  await rm(state.parent, { recursive: true, force: true });
 });
 
 test("without both real gates the real executor receives zero calls", async () => {

@@ -145,6 +145,30 @@ test("admin can disable only non-controlled enterprise avatars while confirmed h
   await assert.rejects(state.service.disableEnterpriseAvatar({ ...admin, assetId: controlled.id, expectedRevision: controlled.revision_number }), { code: "AVATAR_ASSET_DISABLE_FORBIDDEN" });
 });
 
+test("server-private production material snapshot resolves selection to exact verified material metadata", async () => {
+  const state = world();
+  const material = await createMaterial(state.assetService, { key: "hands-on-material-snapshot" });
+  const avatar = await state.service.registerEnterpriseAvatar({ ...admin, materialAssetVersionId: material.asset_version.id,
+    displayName: "生产人物", description: "x", authorizationStatus: "valid", capabilities: [{ code: "speech", label: "中文口播", evidenceReference: "evidence:speech" }] });
+  const workspace = await state.service.getWorkspace({ ...member, productId: "product-a", copyVersionId: "copy-a" });
+  const confirmed = await state.service.confirmSelection({ ...member, productId: "product-a", copyVersionId: "copy-a",
+    assetVersionId: avatar.asset_version.id, expectedRevision: workspace.selection.selection_revision, idempotencyKey: "hands-on-material-select" });
+  const snapshot = await state.service.getHandsOnProductMaterialSnapshot({ ...member, productId: "product-a", copyVersionId: "copy-a" });
+  assert.deepEqual(snapshot, {
+    avatar_selection_id: confirmed.current_selection.id,
+    copy_version_id: "copy-a",
+    avatar_version_id: avatar.asset_version.id,
+    material_version_id: material.asset_version.id,
+    material_asset_id: material.asset.id,
+    media_type: "image/png",
+    size: PNG.length,
+    checksum_sha256: CHECKSUM
+  });
+  assert.equal("object_key" in snapshot, false);
+  assert.equal("bytes" in snapshot, false);
+  await assert.rejects(() => state.service.getHandsOnProductMaterialSnapshot({ ...member, productId: "product-a", copyVersionId: "copy-a", avatarSelectionId: "stale-selection", avatarAssetVersionId: avatar.asset_version.id }), { code: "HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_BINDING_MISMATCH" });
+});
+
 test("enterprise avatar category tags reject empty or oversized input without inventing taxonomy", async () => {
   const state = world();
   const material = await createMaterial(state.assetService, { key: "tag-validation" });

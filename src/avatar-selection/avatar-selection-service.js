@@ -306,6 +306,62 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
       invalidation_reasons: [...new Set(reasons)] };
   }
 
+  // Internal production seam. This is intentionally not part of any public
+  // route projection: the production contract needs the exact registered
+  // material lineage and verified bytes metadata, while the operator catalog
+  // only exposes the avatar selection/version identity.
+  async function handsOnProductMaterialSnapshot(input = {}) {
+    validateContext(input);
+    if (typeof materialAssetPort?.getAssetVersion !== "function" || typeof materialAssetPort?.getAsset !== "function") {
+      throw failure("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_MATERIAL_REQUIRED");
+    }
+    await repository.ensureControlledCatalog(input.organizationId, timestamp());
+    const approvedGate = await copyGate(input);
+    const resolvedCopyVersionId = approvedGate.copy?.copy_version_id || clean(input.copyVersionId) || null;
+    const effectiveInput = { ...input, copyVersionId: resolvedCopyVersionId };
+    const selection = await selectionProjection(effectiveInput, approvedGate);
+    if (!selection.current_valid || !selection.current_selection) {
+      throw failure("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_SELECTION_REQUIRED", selection.invalidation_reasons);
+    }
+    if ((input.avatarSelectionId && selection.current_selection.id !== input.avatarSelectionId) ||
+        (input.avatarAssetVersionId && selection.current_selection.asset_version_id !== input.avatarAssetVersionId)) {
+      throw failure("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_BINDING_MISMATCH");
+    }
+    const avatarVersionId = selection.current_selection.asset_version_id;
+    const entry = await refreshMaterialState(await repository.getCatalogVersion(input.organizationId, avatarVersionId));
+    const materialVersionId = entry?.asset_version?.material_asset_version_id;
+    if (!entry || !materialVersionId || entry.asset_version.materials_accessible !== true) {
+      throw failure("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_MATERIAL_REQUIRED");
+    }
+    let materialVersion, materialAsset;
+    try {
+      materialVersion = await materialAssetPort.getAssetVersion({ organizationId: input.organizationId, assetVersionId: materialVersionId });
+      materialAsset = await materialAssetPort.getAsset({ organizationId: input.organizationId, assetId: materialVersion?.asset_id });
+    } catch {
+      throw failure("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_MATERIAL_REQUIRED");
+    }
+    const mediaType = materialVersion?.verified_content_type;
+    const size = materialVersion?.verified_size;
+    const checksumSha256 = materialVersion?.verified_checksum_sha256;
+    if (!materialVersion || !materialAsset || materialVersion.id !== materialVersionId || materialVersion.organization_id !== input.organizationId ||
+        materialAsset.organization_id !== input.organizationId || materialVersion.asset_id !== materialAsset.id || materialAsset.kind !== "avatar_image" ||
+        materialAsset.status !== "active" || materialVersion.status !== "available" ||
+        !["image/jpeg", "image/png", "image/webp"].includes(mediaType) || !Number.isInteger(size) || size < 1 ||
+        !/^[a-f0-9]{64}$/.test(checksumSha256 || "")) {
+      throw failure("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_MATERIAL_REQUIRED");
+    }
+    return {
+      avatar_selection_id: selection.current_selection.id,
+      copy_version_id: selection.current_selection.copy_version_id,
+      avatar_version_id: avatarVersionId,
+      material_version_id: materialVersionId,
+      material_asset_id: materialAsset.id,
+      media_type: mediaType,
+      size,
+      checksum_sha256: checksumSha256
+    };
+  }
+
   return {
     syncPublicCatalog,
     syncHiflyPublicCatalog: syncPublicCatalog,
@@ -433,6 +489,7 @@ export function createAvatarSelectionService({ repository, copyApprovalPort, now
         current_valid: true,
         capability_config_snapshot: { snapshot_version: `avatar-${entry.asset_version.id}-v${entry.asset_version.version_number}`,
           verified_capabilities: verified.map(({ code, evidence_reference }) => ({ code, evidence_reference })) } };
-    }
+    },
+    getHandsOnProductMaterialSnapshot: handsOnProductMaterialSnapshot
   };
 }

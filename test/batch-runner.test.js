@@ -767,8 +767,6 @@ test("a real custom script verification failure stops before video submission", 
       "open-workbench",
       "enter-mode",
       "reset-upload",
-      "create-image",
-      "capture:after-upload",
       "fill:product_name",
       "fill:selling_points",
       "capture:script-field-filled",
@@ -1383,7 +1381,37 @@ test("fillProduct applies custom script mode before submit", async () => {
     resolved_script_mode: "custom"
   });
 
-  assert.deepEqual(calls, ["reset", "asset", "fill:product_name", "fill:selling_points", "script:custom"]);
+  assert.deepEqual(calls, ["reset", "fill:product_name", "fill:selling_points", "script:custom", "asset"]);
+});
+
+test("fillProduct applies frozen copy and AI-off state before inner image generation", async () => {
+  const calls = [];
+  const adapter = new HiflyHandsOnProductPage({}, {
+    hiflyUi: { productNameLabel: "产品名称", sellingPointsLabel: "核心卖点", scriptLabel: "文案" },
+    behavior: {}, batch: { defaultTimeoutMs: 1000 }, debug: { captureSteps: false }
+  }, { info() {} });
+  adapter.resetExistingUpload = async () => calls.push("reset");
+  adapter.fillOptionalField = async (_label, _value, field) => calls.push(`fill:${field}`);
+  adapter.applyScriptMode = async () => calls.push("script");
+  adapter.createHandsOnImage = async () => calls.push("inner-generate");
+  await adapter.fillProduct({ product_name: "Product", selling_points: "Point", script: "copy", resolved_script_mode: "custom" });
+  assert.deepEqual(calls, ["reset", "fill:product_name", "fill:selling_points", "script", "inner-generate"]);
+});
+
+test("fillProduct does not reach inner paid generation when frozen copy or AI toggle verification fails", async () => {
+  let innerGenerate = 0;
+  let paidGenerate = 0;
+  const adapter = new HiflyHandsOnProductPage({}, {
+    hiflyUi: { productNameLabel: "产品名称", sellingPointsLabel: "核心卖点", scriptLabel: "文案" },
+    behavior: {}, batch: { defaultTimeoutMs: 1000 }, debug: { captureSteps: false }
+  }, { info() {} });
+  adapter.resetExistingUpload = async () => {};
+  adapter.fillOptionalField = async () => {};
+  adapter.applyScriptMode = async () => { throw new Error("AI 自动生成 switch did not turn off."); };
+  adapter.createHandsOnImage = async () => { innerGenerate += 1; adapter.clickModalGenerate = async () => { paidGenerate += 1; }; };
+  await assert.rejects(() => adapter.fillProduct({ script: "copy", resolved_script_mode: "custom" }), /switch did not turn off/i);
+  assert.equal(innerGenerate, 0);
+  assert.equal(paidGenerate, 0);
 });
 
 test("applyScriptMode enables the default Hifly AI script path", async () => {

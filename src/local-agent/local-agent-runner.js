@@ -9,7 +9,7 @@ import { createExecutionSnapshot } from "../core/execution-snapshot.js";
 import { runBatch } from "../core/batch-runner.js";
 import { createLocalAgentFakeExecutor } from "./fake-executor.js";
 import { createLocalAgentHttpClientFromEnv } from "./agent-http-client.js";
-import { compilePackageToBatchItem, extractHandoffPackage, loadAvatarMappings } from "./package-compiler.js";
+import { compilePackageToBatchItem, extractHandoffPackage, loadAvatarMappings, verifyHandoffPackageIntegrity } from "./package-compiler.js";
 import { EXIT_CODES, isRequiresActionError, localAgentError } from "./errors.js";
 
 export { EXIT_CODES };
@@ -256,12 +256,13 @@ export async function runLocalAgentOnce({
 
     const extractionRoot = path.join(temporaryRoot, "package");
     progressPhase = "compiling";
+    const verified = await verifyHandoffPackageIntegrity({ body: downloaded.body, expectedAttempt: claimed.attempt, expectedPackage: downloaded.package || downloaded.packageRecord || null });
     const extracted = await extractHandoffPackage(downloaded.body, extractionRoot);
     const mappings = avatarMappings || await loadAvatarMappings(avatarMappingPath || configPath || env.LOCAL_AGENT_AVATAR_MAPPING_FILE);
     let task;
     try {
       task = await compilePackageToBatchItem({
-        manifest: extracted.manifest,
+        manifest: verified.manifest || extracted.manifest,
         extractionRoot: extracted.directory,
         avatarMappings: mappings,
         taskId: extracted.manifest.production_order_id || extracted.manifest.package_id

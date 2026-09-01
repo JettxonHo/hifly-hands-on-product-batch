@@ -87,12 +87,14 @@ export class HiflyHandsOnProductPage {
     const ui = this.config.hiflyUi;
 
     await this.resetExistingUpload();
-    await this.createHandsOnImage(product);
-    await this.captureStep(product, "after-upload");
-
     await this.fillOptionalField(ui.productNameLabel, product.product_name, "product_name");
     await this.fillOptionalField(ui.sellingPointsLabel, product.selling_points, "selling_points");
     await this.applyScriptMode(product);
+    // The inner Hands-on-Product image generation can consume points. Freeze
+    // and read back the copy/AI mode first so a toggle or script failure stops
+    // before the paid modal action.
+    await this.createHandsOnImage(product);
+    await this.captureStep(product, "after-upload");
   }
 
   async applyScriptMode(product) {

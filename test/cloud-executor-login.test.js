@@ -217,6 +217,7 @@ function adapterFor(workspace, calls) {
   const page = { setDefaultTimeout() {} };
   return createCloudPlaywrightAdapter({
     workspace,
+    contractFieldVerifier: async () => true,
     contextFactory: async () => fakeContext(page),
     hiflyPageFactory() {
       return {
