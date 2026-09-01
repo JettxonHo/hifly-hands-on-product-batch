@@ -2624,7 +2624,7 @@ test("generated dimension lookup ignores a larger avatar image and binds to the 
   try {
     browser = await chromium.launch({ headless: true });
   } catch (error) {
-    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+    if (error?.message?.includes("Executable doesn't exist")) {
       return t.skip("Playwright browser is unavailable");
     }
     throw error;
@@ -2654,7 +2654,7 @@ test("generated dimension lookup fails closed for ambiguous or not-ready result 
   try {
     browser = await chromium.launch({ headless: true });
   } catch (error) {
-    if (error?.message?.includes("Executable doesn't exist") || error?.message?.includes("browserType.launch")) {
+    if (error?.message?.includes("Executable doesn't exist")) {
       return t.skip("Playwright browser is unavailable");
     }
     throw error;
