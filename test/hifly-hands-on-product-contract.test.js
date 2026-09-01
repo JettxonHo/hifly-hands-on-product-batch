@@ -82,6 +82,7 @@ test("approved structured facts build a deterministic immutable Hands-on-Product
     target_aspect_ratio: "9:16",
     handheld_aspect_ratio_policy: "record_only",
     voice_source: "hifly_native",
+    voice_identity_policy: "ui_visible_state_allowed",
     scene_mode: "single_scene",
     camera_mode: "fixed_simple",
     presentation_size_code: "smart_fit",
@@ -148,7 +149,7 @@ test("validator requires every contract lineage field and fixed flag", () => {
     ["product", "revision_id"], ["product", "primary_asset_version_id"], ["product", "checksum_sha256"], ["product", "media_type"], ["product", "size"],
     ["copy", "version_id"], ["copy", "mode"], ["copy", "transform"], ["copy", "language"], ["copy", "body_hash"],
     ["avatar", "selection_id"], ["avatar", "avatar_version_id"], ["avatar", "material_version_id"], ["avatar", "checksum_sha256"], ["avatar", "media_type"], ["avatar", "size"],
-    ["production", "mode"], ["production", "target_aspect_ratio"], ["production", "handheld_aspect_ratio_policy"], ["production", "voice_source"], ["production", "scene_mode"], ["production", "camera_mode"], ["production", "presentation_size_code"], ["production", "b_roll"], ["production", "additional_characters"], ["production", "external_tts"], ["production", "standalone_lipsync"], ["production", "copy_ai_generation"]
+    ["production", "mode"], ["production", "target_aspect_ratio"], ["production", "handheld_aspect_ratio_policy"], ["production", "voice_source"], ["production", "voice_identity_policy"], ["production", "scene_mode"], ["production", "camera_mode"], ["production", "presentation_size_code"], ["production", "b_roll"], ["production", "additional_characters"], ["production", "external_tts"], ["production", "standalone_lipsync"], ["production", "copy_ai_generation"]
   ]) {
     const missing = structuredClone(contract);
     delete missing[path[0]][path[1]];
@@ -161,7 +162,7 @@ test("validator rejects an unsupported contract version and every fixed producti
   versionDrift.contract_version = "2";
   assert.throws(() => requireHiflyHandsOnProductV1(versionDrift), { code: "HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_VERSION_UNSUPPORTED" });
   for (const [field, value] of Object.entries({
-    mode: "other", target_aspect_ratio: "16:9", voice_source: "external_tts", scene_mode: "multi_scene",
+    mode: "other", target_aspect_ratio: "16:9", voice_source: "external_tts", voice_identity_policy: "exact_identity", scene_mode: "multi_scene",
     camera_mode: "cinematic", presentation_size_code: "large", b_roll: true,
     additional_characters: true, external_tts: true, standalone_lipsync: true, copy_ai_generation: true
   })) {
@@ -203,6 +204,7 @@ test("production input snapshot only derives V1 when an explicit contract id is 
   assert.equal(snapshot.hifly_hands_on_product_v1.contract_id, HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_ID);
   assert.equal(snapshot.hifly_hands_on_product_v1.plan.video_plan_version_id, "plan-v1");
   assert.equal(snapshot.hifly_hands_on_product_v1.avatar.material_version_id, "material-v1");
+  assert.equal(snapshot.hifly_hands_on_product_v1.production.handheld_aspect_ratio_policy, "record_only");
   assetVersionIds = ["product-asset-v1", "product-asset-v2"];
   await assert.rejects(() => port.freezeForOrder({ ...input, resolved }), { code: "HIFLY_HANDS_ON_PRODUCT_V1_PRODUCT_ASSET_REQUIRED" });
   assetVersionIds = ["product-asset-v1"];
@@ -393,6 +395,7 @@ test("Cloud adapter blocks before browser/delegate without an injected proven ra
       avatar_version_id: contract.avatar.avatar_version_id, avatar_material_version_id: contract.avatar.material_version_id,
       production_mode: contract.production.mode, target_aspect_ratio: contract.production.target_aspect_ratio, voice_source: contract.production.voice_source,
       handheld_aspect_ratio_policy: contract.production.handheld_aspect_ratio_policy,
+      voice_identity_policy: contract.production.voice_identity_policy,
       avatar: { asset_version_id: contract.avatar.avatar_version_id }
     }), browserType: { async launchPersistentContext() { calls.push("browser"); throw new Error("must not launch"); } } });
     const result = await adapter.run({ attempt: { id: "attempt-cloud" } });

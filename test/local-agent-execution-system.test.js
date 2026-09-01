@@ -162,6 +162,7 @@ test("expired lease and controlled failure reports never create verification or 
   assert.equal(actionReport.report.supporting_outputs[0].kind, "production_evidence");
   assert.equal(actionReport.report.supporting_outputs[0].evidence[0].actual, "1600x2848");
   assert.equal(actionReport.report.failure_stage, "post_handheld_pre_video");
+  assert.equal(actionReport.report.retryability, "not_retryable");
   assert.equal(action.world.order.status, "requires_action");
   assert.equal((await action.world.verificationRepository.listVerificationJobs(ORGANIZATION_ID, ORDER_ID)).length, 0);
 

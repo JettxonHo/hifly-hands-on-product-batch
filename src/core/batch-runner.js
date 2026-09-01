@@ -20,6 +20,10 @@ function isPause(error) {
   return ["PAUSED_AUTH", "LOGIN_REQUIRED"].includes(error?.code);
 }
 
+function safeFailureStage(value, fallback) {
+  return typeof value === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(value.trim()) ? value.trim() : fallback;
+}
+
 function isRecoverableRpaInterruption(error) {
   return ["YINGDAO_RPA_TIMEOUT", "YINGDAO_RPA_INTERRUPTED_UNKNOWN"].includes(error?.code);
 }
@@ -243,9 +247,9 @@ export async function runBatch({
         paused_auth: true,
         requires_action: true,
         requires_action_reason: error.code || "EXECUTION_REQUIRES_ACTION",
-        contract_evidence: Array.isArray(error.evidence) ? sanitizeEvidenceRecords(error.evidence) : undefined,
+        contract_evidence: Array.isArray(error.evidence) ? sanitizeEvidenceRecords(error.evidence, [], { strict: true }) : undefined,
         error_message: error.code || error.message,
-        error_phase: error.failureStage || phase
+        error_phase: safeFailureStage(error.failureStage, phase)
       };
       // A post-handheld verifier has already consumed Stage 1 and has a
       // terminal evidence decision. Keep it precise and non-retryable rather

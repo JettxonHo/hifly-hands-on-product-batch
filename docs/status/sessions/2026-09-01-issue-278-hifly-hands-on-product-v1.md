@@ -35,6 +35,11 @@
   `supporting_outputs` JSON 保留 Local report evidence。Rich ratio results are
   projected to canonical field-level records before persistence; scalar or
   mutable enforcement policies are rejected.
+- Follow-up RED：PARTIAL voice evidence 接受了 contradictory source、测试 fixture
+  被列入 pre-paid production source、完成路径未携带 Stage 1 evidence、证据集合无
+  persistence cap/duplicate rejection。GREEN 收紧 native voice source，加入
+  `voice_identity_policy=ui_visible_state_allowed`，把成功 evidence 传入 Cloud/Local
+  completed reports，并在持久化边界做 `<=16`/duplicate/opaque-ID 约束。
 
 ### 实际改动
 
@@ -54,14 +59,21 @@
 
 - `node --test test/cloud-executor-playwright.test.js
   test/local-agent-cli.test.js test/hifly-production-evidence-contract.test.js`
-  → **当前 40/40 pass**（包含 thrown-evidence、target/policy、voice-shape 与
+  → **当前 42/42 pass**（包含 thrown-evidence、target/policy、voice-shape 与
   evidence projection 修正）。
 - `node --test test/batch-runner.test.js` → **当前 95/95 pass**。
 - `node --test test/local-agent-execution-system.test.js` → **3/3 pass**。
 - Relevant aggregate (`hifly-hands-on-product-contract`, evidence helper,
   avatar material, production start, package/compiler, handoff, snapshot,
-  Cloud, Local and batch suites) → **233/233 pass**。
+  Cloud, Local and batch suites) → **235/235 pass**。
 - `npm run check` → **252 JavaScript files checked**；`git diff --check` → pass。
+
+Pre-paid production evidence sources exclude `test_fixture`; tests use
+`production_contract` for target and `hifly_ui_display` for UI-visible voice.
+The formal ProductionOrder snapshot remains `record_only`; `require_exact` is
+only a deferred explicit execution-authorization seam. The generated-result
+semantic selector is synthetic/unverified and remains
+`LIVE_DOM_EVIDENCE_REQUIRED` until a live DOM recording establishes it.
 
 当前工程候选仍不能宣称真实生产完成；native voice exact identity、final
 video ratio、Stage 1→Stage 2 dimension behavior、最终音频与 Lip-sync 仍是

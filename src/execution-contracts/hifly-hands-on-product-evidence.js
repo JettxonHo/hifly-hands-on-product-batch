@@ -23,14 +23,15 @@ const RESULT_VALUES = new Set(Object.values(HIFLY_VERIFICATION_RESULT));
 
 export const HIFLY_HANDS_ON_PRODUCT_EVIDENCE_STATUS = Object.freeze({
   hands_on_product: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
-  avatar: HIFLY_VERIFICATION_RESULT.PARTIAL,
-  product: HIFLY_VERIFICATION_RESULT.PARTIAL,
+  avatar: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
+  product: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
   copy: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
   voice: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
-  ui_visible_voice: HIFLY_VERIFICATION_RESULT.PARTIAL,
+  ui_visible_voice: HIFLY_VERIFICATION_RESULT.NOT_CAPTURED,
   voice_id: HIFLY_VERIFICATION_RESULT.NOT_CAPTURED,
   tts_voice_id: HIFLY_VERIFICATION_RESULT.NOT_CAPTURED,
-  voice_name: HIFLY_VERIFICATION_RESULT.NOT_CAPTURED,
+  provider_voice_name: HIFLY_VERIFICATION_RESULT.NOT_CAPTURED,
+  submitted_voice_name: HIFLY_VERIFICATION_RESULT.NOT_CAPTURED,
   display_name: HIFLY_VERIFICATION_RESULT.NOT_CAPTURED,
   group_id: HIFLY_VERIFICATION_RESULT.NOT_CAPTURED,
   ui_input_copy_match: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
@@ -43,7 +44,12 @@ export const HIFLY_HANDS_ON_PRODUCT_EVIDENCE_STATUS = Object.freeze({
 
 export const HIFLY_HANDS_ON_PRODUCT_HISTORICAL_EVIDENCE_STATUS = Object.freeze({
   ...HIFLY_HANDS_ON_PRODUCT_EVIDENCE_STATUS,
-  hands_on_product: HIFLY_VERIFICATION_RESULT.PROVEN
+  hands_on_product: HIFLY_VERIFICATION_RESULT.PROVEN,
+  avatar: HIFLY_VERIFICATION_RESULT.PARTIAL,
+  product: HIFLY_VERIFICATION_RESULT.PARTIAL,
+  ui_input_copy_match: HIFLY_VERIFICATION_RESULT.PROVEN,
+  handheld_aspect_ratio: HIFLY_VERIFICATION_RESULT.DISPROVEN,
+  ui_visible_voice: HIFLY_VERIFICATION_RESULT.PARTIAL
 });
 
 const EVIDENCE_FIELDS = Object.freeze([
@@ -73,7 +79,8 @@ const CONTROLLED_FIELDS = new Set([
   "voice_source",
   "voice_id",
   "tts_voice_id",
-  "voice_name",
+  "provider_voice_name",
+  "submitted_voice_name",
   "display_name",
   "group_id",
   "target_aspect_ratio",
@@ -119,6 +126,9 @@ const CONTROLLED_PAID_BOUNDARIES = new Set([
   "after_paid_action_2",
   "historical_run"
 ]);
+export const HIFLY_MAX_EVIDENCE_RECORDS = 16;
+const OPAQUE_VOICE_ID_FIELDS = new Set(["voice_id", "tts_voice_id", "group_id"]);
+const VOICE_NAME_FIELDS = new Set(["provider_voice_name", "submitted_voice_name"]);
 
 function normalizeRequiredFields(value) {
   const requested = Array.isArray(value)
@@ -128,9 +138,10 @@ function normalizeRequiredFields(value) {
   // Error details can originate at an untrusted verifier boundary. Never let
   // an unknown field become an evidence record; fall back to the narrow
   // pre-paid contract instead so the caller receives a deterministic stop.
-  return recognized.length || requested.length === 0
+  const fields = recognized.length || requested.length === 0
     ? recognized.length ? recognized : Object.keys(HIFLY_PRE_PAID_REQUIREMENTS)
     : Object.keys(HIFLY_PRE_PAID_REQUIREMENTS);
+  return fields.slice(0, HIFLY_MAX_EVIDENCE_RECORDS);
 }
 
 const evidenceError = (code, details = null) => Object.assign(new Error(code), { code, details });
@@ -156,7 +167,7 @@ export const HIFLY_PRE_PAID_REQUIREMENTS = deepFreeze({
     actual_shape: "exact_aspect_ratio",
     verification_stage: "pre_paid",
     paid_boundary: "before_paid_action_1",
-    allowed_sources: ["production_contract", "hifly_dom_readback", "hifly_network_response", "test_fixture"],
+    allowed_sources: ["production_contract", "hifly_dom_readback", "hifly_network_response"],
     allowed_results: [HIFLY_VERIFICATION_RESULT.PROVEN]
   },
   voice_source: {
@@ -164,7 +175,7 @@ export const HIFLY_PRE_PAID_REQUIREMENTS = deepFreeze({
     actual_shape: "voice_source",
     verification_stage: "pre_paid",
     paid_boundary: "before_paid_action_1",
-    allowed_sources: ["production_contract", "hifly_dom_readback", "hifly_network_response", "hifly_ui_display", "test_fixture"],
+    allowed_sources: ["production_contract", "hifly_dom_readback", "hifly_network_response", "hifly_ui_display"],
     allowed_results: [HIFLY_VERIFICATION_RESULT.PROVEN, HIFLY_VERIFICATION_RESULT.PARTIAL]
   }
 });
@@ -218,12 +229,21 @@ function normalizedContext(value, name) {
 }
 
 function boundedText(value, field, side) {
-  if (typeof value !== "string" || !value || value.length > 128 ||
-    /[\u0000-\u001f\u007f]/.test(value) ||
-    /(?:[a-z][a-z0-9+.-]*:\/\/|(?:^|[\\/])(?:Users|private|tmp|var|home)(?:[\\/]|$)|(?:token|cookie|secret|password|authorization)\s*=)/i.test(value)) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text || text.length > 128 || /[\u0000-\u001f\u007f]/.test(text) ||
+    /(?:[a-z][a-z0-9+.-]*:\/\/|(?:^|[\\/])(?:Users|private|tmp|var|home)(?:[\\/]|$)|(?:token|cookie|secret|password|authorization)\s*=|^Bearer\s+)/i.test(text)) {
     throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
   }
-  return value;
+  return text;
+}
+
+function boundedOptionalText(value, field, side) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (typeof value !== "string" || text.length > 128 || /[\u0000-\u001f\u007f]/.test(text) ||
+    /(?:[a-z][a-z0-9+.-]*:\/\/|(?:^|[\\/])(?:Users|private|tmp|var|home)(?:[\\/]|$)|(?:token|cookie|secret|password|authorization)\s*=|^Bearer\s+)/i.test(text)) {
+    throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
+  }
+  return text;
 }
 
 function isRatioString(value) {
@@ -265,14 +285,14 @@ function boundedScalar(value, field, side) {
       return { ...value };
     }
     if (field === "voice_source") {
-      const allowed = new Set(["source", "display"]);
+      const allowed = new Set(["source", "display", "group", "style"]);
       const keys = Object.keys(value);
       if (!keys.length || keys.some((key) => !allowed.has(key)) ||
         keys.some((key) => value[key] !== null && (typeof value[key] !== "string" ||
-          (() => { try { boundedText(value[key], field, side); return false; } catch { return true; } })()))) {
+          (() => { try { boundedOptionalText(value[key], field, side); return false; } catch { return true; } })()))) {
         throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
       }
-      return { ...value };
+      return Object.fromEntries(keys.map((key) => [key, value[key] === null ? null : boundedOptionalText(value[key], field, side)]));
     }
     throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
   }
@@ -296,6 +316,13 @@ function fieldValue(value, field, side) {
   }
   if (field === "final_video_aspect_ratio" && side === "actual" && typeof bounded === "string" &&
     !isRatioString(bounded) && !isDimensionString(bounded)) {
+    throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
+  }
+  if (OPAQUE_VOICE_ID_FIELDS.has(field) &&
+    (typeof bounded !== "string" || !/^[\p{L}\p{N}][\p{L}\p{N}._:-]{0,127}$/u.test(bounded))) {
+    throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
+  }
+  if (VOICE_NAME_FIELDS.has(field) && typeof bounded !== "string") {
     throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
   }
   if (["product_presence", "product_identity", "major_shape", "major_color", "fine_print_fidelity",
@@ -455,13 +482,14 @@ function equalValue(left, right) {
 function voiceActualMatches(record, requirement) {
   const partial = record.result === HIFLY_VERIFICATION_RESULT.PARTIAL &&
     requirement.allowed_results?.includes(HIFLY_VERIFICATION_RESULT.PARTIAL);
-  if (typeof record.actual === "string") return partial ? record.actual.length > 0 : record.actual === requirement.expected;
+  if (typeof record.actual === "string") return record.actual === requirement.expected;
   if (!record.actual || typeof record.actual !== "object" || Array.isArray(record.actual)) return false;
   const source = record.actual.source;
-  const display = record.actual.display;
+  const uiFields = [record.actual.display, record.actual.group, record.actual.style];
   const hasSource = typeof source === "string" && source.length > 0;
-  const hasDisplay = typeof display === "string" && display.length > 0;
-  return (hasSource || hasDisplay) && (partial || source === requirement.expected);
+  const hasUiState = uiFields.some((value) => typeof value === "string" && value.length > 0);
+  const sourceMatches = source === null || source === undefined || source === requirement.expected;
+  return sourceMatches && (hasSource || hasUiState) && (partial || source === requirement.expected);
 }
 
 function requirementActualMatches(record, requirement) {
@@ -481,10 +509,27 @@ function requirementContextMatches(record, requirement) {
   return true;
 }
 
-export function sanitizeEvidenceRecords(value, requiredFields = []) {
-  const records = Array.isArray(value) ? value.map(normalizeRecord).filter(Boolean) : [];
+export function sanitizeEvidenceRecords(value, requiredFields = [], options = {}) {
+  const strict = options?.strict === true;
+  const dedupe = options?.dedupe !== false;
+  if (!Array.isArray(value) || value.length > HIFLY_MAX_EVIDENCE_RECORDS && strict) return [];
+  const normalized = Array.isArray(value) ? value.map(normalizeRecord) : [];
+  if (strict && normalized.some((record) => !record)) return [];
+  const records = normalized.filter(Boolean);
   const required = Array.isArray(requiredFields) ? requiredFields.map(clean).filter(Boolean) : Object.keys(requiredFields || {});
-  return records.filter((record) => !required.length || required.includes(record.field));
+  const filtered = records.filter((record) => !required.length || required.includes(record.field));
+  if (!dedupe) return filtered.slice(0, HIFLY_MAX_EVIDENCE_RECORDS);
+  const seen = new Set();
+  const unique = [];
+  for (const record of filtered) {
+    if (seen.has(record.field)) {
+      if (strict) return [];
+      continue;
+    }
+    seen.add(record.field);
+    unique.push(record);
+  }
+  return unique.slice(0, HIFLY_MAX_EVIDENCE_RECORDS);
 }
 
 export function completeEvidenceForFields(value, fields = Object.keys(HIFLY_PRE_PAID_REQUIREMENTS)) {
@@ -511,7 +556,7 @@ export function inspectStructuredVerificationResult(value, requiredFields = []) 
   if (!Array.isArray(rawEvidence)) {
     return { valid: false, code: "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED", fields };
   }
-  const evidence = sanitizeEvidenceRecords(rawEvidence);
+  const evidence = sanitizeEvidenceRecords(rawEvidence, [], { dedupe: false });
   if (evidence.length !== rawEvidence.length) {
     return { valid: false, code: "CONTRACT_STRUCTURED_EVIDENCE_INVALID", fields };
   }
@@ -609,9 +654,12 @@ export function requireStructuredVerificationResult(value, requiredFields = []) 
   return deepFreeze(inspected);
 }
 
-export function buildHiflyHandsOnProductEvidenceStatus(overrides = {}) {
-  const source = overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides : {};
-  return deepFreeze({ ...HIFLY_HANDS_ON_PRODUCT_EVIDENCE_STATUS, ...source });
+export function buildHiflyHandsOnProductEvidenceStatus() {
+  return deepFreeze({ ...HIFLY_HANDS_ON_PRODUCT_EVIDENCE_STATUS });
+}
+
+export function buildHistoricalHiflyHandsOnProductEvidenceStatus() {
+  return deepFreeze({ ...HIFLY_HANDS_ON_PRODUCT_HISTORICAL_EVIDENCE_STATUS });
 }
 
 /**

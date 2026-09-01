@@ -76,6 +76,11 @@ function checksum(body) {
   return createHash("sha256").update(body).digest("hex");
 }
 
+function safeFailureStage(value, fallback) {
+  const stage = typeof value === "string" ? value.trim() : "";
+  return /^[a-z][a-z0-9_]{0,63}$/.test(stage) ? stage : fallback;
+}
+
 const LOCAL_CONTRACT_VERIFICATION_FIELDS = Object.freeze(Object.keys(HIFLY_PRE_PAID_REQUIREMENTS));
 const LOCAL_CONTRACT_VERIFICATION_CODES = new Set([
   ...HIFLY_STRUCTURED_VERIFICATION_ERROR_CODES,
@@ -220,14 +225,15 @@ async function executeBatch({ task, executor, temporaryRoot, attemptId, runId })
           outcome: "requires_action",
           details: { evidence: item.contract_evidence || null }
         });
-        error.failureStage = item.error_phase || "execute";
-        error.evidence = Array.isArray(item.contract_evidence) ? sanitizeEvidenceRecords(item.contract_evidence) : null;
+        error.failureStage = safeFailureStage(item.error_phase, "execute");
+        error.evidence = Array.isArray(item.contract_evidence) ? sanitizeEvidenceRecords(item.contract_evidence, [], { strict: true }) : null;
         throw error;
       }
       throw localAgentError("LOCAL_EXECUTION_FAILED");
     }
     const outputPath = safeOutputPath(temporaryRoot, item.output_path);
-    return { body: await readFile(outputPath) };
+    const evidence = sanitizeEvidenceRecords(item?.asset_evidence?.handheld_evidence, [], { strict: true });
+    return { body: await readFile(outputPath), ...(evidence.length ? { evidence } : {}) };
   } finally {
     await lock.release().catch(() => undefined);
   }
@@ -368,7 +374,7 @@ export async function runLocalAgentOnce({
     progressPhase = "uploading_candidate";
     await client.uploadCandidate({ attemptId, candidateId, body: output.body, mediaType: "video/mp4", idempotencyKey: `${runId}:upload` });
     await client.completeCandidate({ attemptId, candidateId, idempotencyKey: `${runId}:complete` });
-    const report = await sendReport({ outcome: "completed", primaryCandidateId: candidateId });
+    const report = await sendReport({ outcome: "completed", primaryCandidateId: candidateId, evidence: output.evidence });
     log(logger, "info", "local_agent_completed", { attemptId });
     return { status: "completed", exitCode: EXIT_CODES.success, attemptId, report };
   } catch (error) {
@@ -377,7 +383,7 @@ export async function runLocalAgentOnce({
     let report = null;
     if (attemptId && !reportSubmitted) {
       try {
-        report = await sendReport({ outcome, errorCode: code, failureStage: error.failureStage || "execute", evidence: error.evidence });
+        report = await sendReport({ outcome, errorCode: code, failureStage: safeFailureStage(error.failureStage, "execute"), evidence: error.evidence });
       } catch {
         report = null;
       }
@@ -390,7 +396,7 @@ export async function runLocalAgentOnce({
       report,
       ...(outcome === "requires_action" ? {
         code,
-        failureStage: error.failureStage || "execute",
+        failureStage: safeFailureStage(error.failureStage, "execute"),
         ...(Array.isArray(error.evidence) ? { evidence: error.evidence } : {})
       } : {})
     };

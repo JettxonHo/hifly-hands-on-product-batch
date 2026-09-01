@@ -8,6 +8,7 @@ export const HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION = Object.freeze({
   target_aspect_ratio: "9:16",
   handheld_aspect_ratio_policy: "record_only",
   voice_source: "hifly_native",
+  voice_identity_policy: "ui_visible_state_allowed",
   scene_mode: "single_scene",
   camera_mode: "fixed_simple",
   presentation_size_code: "smart_fit",

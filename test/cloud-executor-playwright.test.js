@@ -83,6 +83,7 @@ function taskFor(workspace) {
     target_aspect_ratio: contract.production.target_aspect_ratio,
     handheld_aspect_ratio_policy: contract.production.handheld_aspect_ratio_policy,
     voice_source: contract.production.voice_source,
+    voice_identity_policy: contract.production.voice_identity_policy,
     production_mode: contract.production.mode,
     presentation_size_code: contract.production.presentation_size_code,
     avatar: { asset_version_id: contract.avatar.avatar_version_id }
@@ -109,11 +110,11 @@ function verifiedContractFields(fields = ["target_aspect_ratio", "voice_source"]
     evidence: fields.map((field) => createEvidenceRecord({
       field,
       expected: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
-      actual: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
-      evidenceSource: "test_fixture",
+      actual: field === "target_aspect_ratio" ? "9:16" : { display: "Hifly 原生声音" },
+      evidenceSource: field === "target_aspect_ratio" ? "production_contract" : "hifly_ui_display",
       verificationStage: "pre_paid",
       paidBoundary: "before_paid_action_1",
-      result: HIFLY_VERIFICATION_RESULT.PROVEN
+      result: field === "target_aspect_ratio" ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.PARTIAL
     }))
   };
 }
@@ -486,6 +487,9 @@ test("cloud adapter compiles an actual generated ManualHandoffPackage archive th
   const avatarPath = path.join(workspace.assetsDir, "person.png");
   await writeFile(avatarMappingPath, JSON.stringify({ "avatar-version-cloud": avatarPath }));
   let compiledTask;
+  const handheldEvidence = createEvidenceRecord({ field: "handheld_aspect_ratio", expected: "9:16", actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions", verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2", result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH });
   const page = { setDefaultTimeout() {} };
   const context = fakeContext(page, []);
   try {
@@ -497,7 +501,7 @@ test("cloud adapter compiles an actual generated ManualHandoffPackage archive th
       hiflyPageFactory() {
         return {
           async preflight() { return { status: "ready" }; },
-          async prepareAsset(task) { compiledTask = task; return { asset_id: "asset-generated" }; },
+          async prepareAsset(task) { compiledTask = task; return { asset_id: "asset-generated", handheld_evidence: [handheldEvidence] }; },
           async submitVideo() {
             return { status: "submitted", remoteEvidence: { evidence_source: "direct_submission", remote_id: "work-generated" } };
           },
@@ -520,6 +524,7 @@ test("cloud adapter compiles an actual generated ManualHandoffPackage archive th
 
     assert.equal(result.status, "succeeded");
     assert.equal(result.body.toString(), "generated-video");
+    assert.deepEqual(result.evidence, [handheldEvidence]);
     assert.equal(compiledTask.product_name, "Generated cloud product");
     assert.equal(compiledTask.script, "Generated frozen copy.");
     assert.equal(compiledTask.person_image_path, avatarPath);

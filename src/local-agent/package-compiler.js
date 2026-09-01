@@ -277,7 +277,8 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
         text(manifest.avatar_snapshot?.avatar_selection_id) !== contract.avatar.selection_id || manifest.avatar_snapshot?.status !== "confirmed" ||
         contract.production.mode !== "hands_on_product" || contract.production.target_aspect_ratio !== "9:16" ||
         !["record_only", "require_exact"].includes(contract.production.handheld_aspect_ratio_policy) ||
-        contract.production.voice_source !== "hifly_native" || contract.production.presentation_size_code !== "smart_fit" ||
+        contract.production.voice_source !== "hifly_native" || contract.production.voice_identity_policy !== "ui_visible_state_allowed" ||
+        contract.production.presentation_size_code !== "smart_fit" ||
         contract.production.copy_ai_generation !== false ||
         text(reference?.media_type) !== contract.product.media_type || Number(reference?.size) !== contract.product.size ||
         text(reference?.checksum) !== contract.product.checksum_sha256) {
@@ -333,6 +334,7 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
     compiled.target_aspect_ratio = contract.production.target_aspect_ratio;
     compiled.handheld_aspect_ratio_policy = contract.production.handheld_aspect_ratio_policy;
     compiled.voice_source = contract.production.voice_source;
+    compiled.voice_identity_policy = contract.production.voice_identity_policy;
     compiled.production_mode = contract.production.mode;
   }
   return compiled;

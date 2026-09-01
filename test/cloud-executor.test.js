@@ -293,6 +293,16 @@ test("fake success claims one order, reports a cloud identity, and triggers A12 
   assert.equal(candidates[0].status, "pending_verification");
 });
 
+test("completed Cloud report preserves bounded Stage 1 asset evidence", async () => {
+  const evidence = createEvidenceRecord({ field: "handheld_aspect_ratio", expected: "9:16", actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions", verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2", result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH });
+  const world = makeCloudWorld({ executorResult: { body: Buffer.from("video"), evidence: [evidence] } });
+  const result = await world.service.runOnce();
+  assert.equal(result.status, "succeeded");
+  assert.deepEqual(result.report.supporting_outputs, [{ kind: "production_evidence", evidence: [evidence] }]);
+});
+
 test("fake failure stops the worker and never claims the next order", async () => {
   const world = makeCloudWorld({ orderCount: 2, executorResult: { ok: false, failureStage: "fake_execution" } });
   const first = await world.service.runOnce();

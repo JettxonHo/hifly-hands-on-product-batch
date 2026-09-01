@@ -179,7 +179,7 @@ export class HiflyHandsOnProductPage {
     await this.openWorkbench();
     await this.enterHandsOnProductMode();
     const handheldEvidence = await this.fillProduct(product);
-    const safeEvidence = sanitizeEvidenceRecords(handheldEvidence ? [handheldEvidence] : []);
+    const safeEvidence = sanitizeEvidenceRecords(handheldEvidence ? [handheldEvidence] : [], [], { strict: true });
     return {
       asset_id: `hifly-asset-${product.task_id || product.sku}`,
       ...(safeEvidence.length ? { handheld_evidence: safeEvidence } : {})

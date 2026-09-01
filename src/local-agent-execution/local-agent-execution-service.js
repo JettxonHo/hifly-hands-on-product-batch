@@ -525,7 +525,7 @@ export function createLocalAgentExecutionService({ repository, orderPort, packag
     const primaryCandidate = primaryCandidateId ? await candidateForAttempt(scopedOrganizationId, attempt, primaryCandidateId) : null;
     const reason = outcome === "requires_action" ? controlledReason(input.reasonCode) : null;
     const failureContext = outcome === "failed" ? controlledFailure(input.errorCode) : null;
-    const evidence = sanitizeEvidenceRecords(input.evidence);
+    const evidence = sanitizeEvidenceRecords(input.evidence, [], { strict: true });
     if (outcome === "requires_action" && !reason) throw failure("LOCAL_AGENT_REPORT_ERROR_INVALID");
     if (outcome === "failed" && !failureContext) throw failure("LOCAL_AGENT_REPORT_ERROR_INVALID");
     if (outcome === "completed" && !primaryCandidate) throw failure("LOCAL_AGENT_PRIMARY_OUTPUT_REQUIRED");
@@ -542,7 +542,7 @@ export function createLocalAgentExecutionService({ repository, orderPort, packag
       supporting_outputs: evidence.length ? [{ kind: "production_evidence", evidence }] : [],
       error_category: outcome === "failed" ? "local_agent" : null,
       failure_stage: failureContext?.stage || (outcome === "requires_action" ? controlledFailureStage(input.failureStage) : null), requires_action_reason: reason,
-      retryability: outcome === "failed" ? "not_retryable" : null, upstream_return_target: null
+      retryability: ["failed", "requires_action"].includes(outcome) ? "not_retryable" : null, upstream_return_target: null
     };
     const fingerprint = stableJson({ operation: "report", report_id: report.id, attempt_id: attempt.id, package_id: attempt.package_id,
       outcome: report.outcome, primary_output: report.primary_output, reason: report.requires_action_reason,

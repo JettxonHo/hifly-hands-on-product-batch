@@ -134,7 +134,7 @@ export function createLocalAgentHttpClient({ baseUrl, token, fetchImpl = globalT
         body: {} });
     },
     async report({ attemptId, reportId, outcome, primaryCandidateId = null, errorCode = null, failureStage = null, evidence = null, operatorNote = null, idempotencyKey }) {
-      const sanitizedEvidence = sanitizeEvidenceRecords(evidence);
+      const sanitizedEvidence = sanitizeEvidenceRecords(evidence, [], { strict: true });
       return request({ operation: "report", method: "POST", endpoint: LOCAL_AGENT_ENDPOINTS.report(attemptId), idempotencyKey,
         body: {
           report_id: reportId,

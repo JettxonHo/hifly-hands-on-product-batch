@@ -14,6 +14,11 @@ const READINESS_STATUSES = new Set(["disabled", "fail_closed", "unconfigured", "
   "available", "busy", "requires_action"]);
 const SAFE_REASON = /^[A-Z][A-Z0-9_]{0,63}$/;
 
+function controlledFailureStage(value) {
+  const stage = clean(value);
+  return PROGRESS_PHASE_PATTERN.test(stage) ? stage : null;
+}
+
 function validateIdentity({ organizationId, executorCloudId }) {
   if (!clean(organizationId) || !clean(executorCloudId)) throw failure("CLOUD_EXECUTOR_CONTEXT_REQUIRED");
   return { organizationId: organizationId.trim(), executorCloudId: executorCloudId.trim() };
@@ -296,7 +301,9 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     progressPhase = null, evidence = null }) {
     const at = timestamp();
     const reports = await repository.listReports?.(identity.organizationId, attempt.id) || [];
-    const safeEvidence = sanitizeEvidenceRecords(evidence);
+    const safeEvidence = sanitizeEvidenceRecords(evidence, [], { strict: true });
+    const safeFailureStage = controlledFailureStage(failureStage);
+    const safeProgressPhase = controlledFailureStage(progressPhase);
     const report = {
       id: randomUUID(), organization_id: identity.organizationId, report_version: Math.max(0, ...reports.map((value) => value.report_version || 0)) + 1,
       production_order_id: attempt.production_order_id, execution_attempt_id: attempt.id, package_id: attempt.package_id,
@@ -307,7 +314,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
         media_type: candidate.media_type, size: candidate.size, checksum: candidate.checksum, role: "primary_video" } : null,
       supporting_outputs: safeEvidence.length ? [{ kind: "production_evidence", evidence: safeEvidence }] : [],
       error_category: ["failed", "requires_action"].includes(outcome) ? "cloud_executor" : null,
-      failure_stage: failureStage, requires_action_reason: outcome === "requires_action" ? (requiresActionReason || "Cloud Executor requires human action") : null,
+      failure_stage: safeFailureStage, requires_action_reason: outcome === "requires_action" ? (requiresActionReason || "Cloud Executor requires human action") : null,
       retryability: ["failed", "requires_action"].includes(outcome) ? "not_retryable" : null,
       upstream_return_target: null
     };
@@ -324,7 +331,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
         expectedRevision: order.row_version, fromStatuses: ["running"], toStatus: targetStatus, at,
         reason: requiresActionReason || "Cloud Executor 执行失败" }) : null,
       patchAttempt: { previous_status: attempt.status, status: targetStatus, completed_at: at, lease_expires_at: null,
-        heartbeat_at: at, progress_phase: progressPhase || targetStatus, updated_at: at,
+        heartbeat_at: at, progress_phase: safeProgressPhase || targetStatus, updated_at: at,
         status_history: [...(attempt.status_history || []), { status: targetStatus, at, actor_cloud_executor_id: identity.executorCloudId,
           reason: requiresActionReason || null }] },
       candidatePatches: candidate ? [{ id: candidate.id, values: { status: "pending_verification" } }] : [],
@@ -408,7 +415,8 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
         const candidate = await candidateForResult(attempt, packageRecord, result);
         const uploaded = await saveCandidate(candidate);
         const currentAttempt = await finishHeartbeats();
-        const completed = await saveReport({ attempt: currentAttempt, order: executionOrder, candidate: uploaded.candidate, outcome: "completed" });
+        const completed = await saveReport({ attempt: currentAttempt, order: executionOrder, candidate: uploaded.candidate, outcome: "completed",
+          evidence: result?.evidence || result?.asset_evidence?.handheld_evidence });
         const verification = await triggerVerification({ order: executionOrder, attempt: completed.attempt, report: completed.report, candidate: uploaded.candidate });
         return { status: "succeeded", attempt: publicAttempt(completed.attempt), report: publicReport(completed.report),
           candidate: publicCandidate(uploaded.candidate), verification, replayed: completed.replayed };

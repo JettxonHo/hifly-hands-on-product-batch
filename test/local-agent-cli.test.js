@@ -130,7 +130,7 @@ function createFakeHttp({ events, body, heartbeatTaskError = null, claimAttempt 
   };
 }
 
-function createRecordingExecutor({ events, failAt = null } = {}) {
+function createRecordingExecutor({ events, failAt = null, assetEvidence = null } = {}) {
   const calls = [];
   const record = (method) => {
     calls.push(method);
@@ -145,7 +145,7 @@ function createRecordingExecutor({ events, failAt = null } = {}) {
     },
     async createAsset(task) {
       record("createAsset");
-      return { asset_id: `asset-${task.task_id}` };
+      return { asset_id: `asset-${task.task_id}`, ...(assetEvidence ? { handheld_evidence: assetEvidence } : {}) };
     },
     async submitVideo() {
       record("submitVideo");
@@ -315,6 +315,45 @@ test("both real gates select the injected real adapter and still keep execution 
   }
 });
 
+test("completed Local report preserves bounded Stage 1 asset evidence", async () => {
+  const events = [];
+  const avatarPath = path.join(os.tmpdir(), `local-agent-avatar-${process.pid}-success-evidence.png`);
+  await writeFile(avatarPath, "avatar-image");
+  const evidence = createEvidenceRecord({ field: "handheld_aspect_ratio", expected: "9:16", actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions", verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2", result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH });
+  const executor = createRecordingExecutor({ events, assetEvidence: [evidence] });
+  let state;
+  try {
+    state = await runFixture({
+      packageManifest: hiflyManifest(),
+      avatarMappings: { "avatar-version-1": avatarPath },
+      realExecutor: executor,
+      contractFieldVerifier: async ({ fields }) => ({
+        status: "verified",
+        evidence: fields.map((field) => createEvidenceRecord({
+          field,
+          expected: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
+          actual: field === "target_aspect_ratio" ? "9:16" : { display: "Hifly 原生声音" },
+          evidenceSource: field === "target_aspect_ratio" ? "production_contract" : "hifly_ui_display",
+          verificationStage: "pre_paid",
+          paidBoundary: "before_paid_action_1",
+          result: field === "target_aspect_ratio" ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.PARTIAL
+        }))
+      }),
+      argv: ["run-once", "--real"],
+      env: { LOCAL_AGENT_REAL_EXECUTION: "true" },
+      events
+    });
+    assert.equal(state.result.status, "completed");
+    const reportInput = events.find(([event]) => event === "report")?.[1];
+    assert.deepEqual(reportInput.evidence, [evidence]);
+  } finally {
+    await rm(avatarPath, { force: true });
+    await rm(state?.parent, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 test("real V1 execution rejects a bare boolean pre-point verifier before createAsset", async () => {
   const events = [];
   const avatarPath = path.join(os.tmpdir(), `local-agent-avatar-${process.pid}-contract.png`);
@@ -361,11 +400,11 @@ test("real V1 execution accepts the same structured pre-point verifier contract 
         evidence: fields.map((field) => createEvidenceRecord({
           field,
           expected: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
-          actual: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
-          evidenceSource: "test_fixture",
+          actual: field === "target_aspect_ratio" ? "9:16" : { display: "Hifly 原生声音" },
+          evidenceSource: field === "target_aspect_ratio" ? "production_contract" : "hifly_ui_display",
           verificationStage: "pre_paid",
           paidBoundary: "before_paid_action_1",
-          result: HIFLY_VERIFICATION_RESULT.PROVEN
+          result: field === "target_aspect_ratio" ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.PARTIAL
         }))
       }),
       argv: ["run-once", "--real"],
@@ -414,11 +453,11 @@ test("real Local result preserves a post-handheld ratio stop and bounded evidenc
         evidence: fields.map((field) => createEvidenceRecord({
           field,
           expected: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
-          actual: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
-          evidenceSource: "test_fixture",
+          actual: field === "target_aspect_ratio" ? "9:16" : { display: "Hifly 原生声音" },
+          evidenceSource: field === "target_aspect_ratio" ? "production_contract" : "hifly_ui_display",
           verificationStage: "pre_paid",
           paidBoundary: "before_paid_action_1",
-          result: HIFLY_VERIFICATION_RESULT.PROVEN
+          result: field === "target_aspect_ratio" ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.PARTIAL
         }))
       }),
       argv: ["run-once", "--real"],

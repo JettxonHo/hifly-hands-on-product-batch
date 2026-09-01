@@ -45,6 +45,11 @@ function clean(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function safeFailureStage(value, fallback) {
+  const stage = clean(value);
+  return /^[a-z][a-z0-9_]{0,63}$/.test(stage) ? stage : fallback;
+}
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -121,6 +126,7 @@ function assertHandsOnProductTask(task) {
     ["target_aspect_ratio", task?.target_aspect_ratio, value.production.target_aspect_ratio],
     ["handheld_aspect_ratio_policy", task?.handheld_aspect_ratio_policy, value.production.handheld_aspect_ratio_policy],
     ["voice_source", task?.voice_source, value.production.voice_source],
+    ["voice_identity_policy", task?.voice_identity_policy, value.production.voice_identity_policy],
     ["presentation_size_code", task?.presentation_size_code, value.production.presentation_size_code],
     ["resolved_script_mode", task?.resolved_script_mode, value.copy.mode]
   ];
@@ -237,11 +243,11 @@ function actionResult(item, progressTrace) {
     const code = ACTION_REASON_CODES.has(item.requires_action_reason)
       ? item.requires_action_reason
       : "LOGIN_REQUIRED";
-    const evidence = sanitizeEvidenceRecords(item.contract_evidence);
+    const evidence = sanitizeEvidenceRecords(item.contract_evidence, [], { strict: true });
     return {
       status: "requires_action",
       code,
-      failureStage: clean(item.error_phase) || "preflight",
+      failureStage: safeFailureStage(item.error_phase, "preflight"),
       requiresActionReason: code === "LOGIN_REQUIRED" ? "Cloud Executor Provider login is required." : code,
       ...(evidence.length ? { evidence } : {}),
       checkpoints: progressTrace
@@ -250,7 +256,7 @@ function actionResult(item, progressTrace) {
   return {
     status: "failed",
     ok: false,
-    failureStage: clean(item?.error_phase) || "playwright_execution",
+    failureStage: safeFailureStage(item?.error_phase, "playwright_execution"),
     errorCode: clean(item?.error_message) || "CLOUD_EXECUTOR_PLAYWRIGHT_FAILED",
     checkpoints: progressTrace
   };
@@ -476,7 +482,8 @@ export function createCloudPlaywrightAdapter({
           error.code = "CLOUD_EXECUTOR_ARTIFACT_INVALID";
           throw error;
         }
-        return { status: "succeeded", body, outputPath, checkpoints: progressTrace };
+        const evidence = sanitizeEvidenceRecords(item?.asset_evidence?.handheld_evidence, [], { strict: true });
+        return { status: "succeeded", body, outputPath, ...(evidence.length ? { evidence } : {}), checkpoints: progressTrace };
       }
       const action = actionResult(item, progressTrace);
       if (action.status === "requires_action") {
