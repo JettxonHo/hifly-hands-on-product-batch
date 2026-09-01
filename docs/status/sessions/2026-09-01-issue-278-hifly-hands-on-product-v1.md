@@ -1,5 +1,63 @@
 # Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` implementation session
 
+## 2026-09-02 Production Contract Engineering Revision (provider-free)
+
+本次 bounded revision 以最近真实 Evidence Run 的 `1600x2848` Stage 1
+结果为唯一事实基线；没有调用 Provider/Hifly、没有新的登录、上传、生成、
+确认、ProductionOrder、Attempt、部署或积分消耗。工作树基线为
+`f2116bd424581b1af0f4a84c6516fad78f0c24d8`，仍在
+`codex/hifly-hands-on-product-v1-contract`。
+
+### RED → GREEN
+
+- 新增 evidence helper 的首个 RED：`node --test
+  test/hifly-production-evidence-contract.test.js` 在旧实现返回
+  `ERR_MODULE_NOT_FOUND`；GREEN 记录字段级 evidence，并用精确
+  `width * 16 === height * 9` 判定 `1600x2848 → FAIL_EXACT_MATCH`。
+- Cloud bypass characterization RED：旧 adapter 接受
+  `contractFieldVerifier: async () => true`，执行继续到
+  `CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN`；GREEN 改为拒绝 bare boolean，返回
+  `CONTRACT_STRUCTURED_EVIDENCE_REQUIRED` 与脱敏字段证据，并保持
+  `createAsset`/`submitVideo` 为零。
+- Local bypass characterization RED：带 V1 contract 的 real runner 接受
+  bare boolean 并返回 `completed`；GREEN 在
+  `createAsset`/`submitVideo` 前复用同一 structured verifier 语义并返回
+  `requires_action`。
+- Hifly page RED：带 V1 target 的 `1600x2848` generated dimensions 仍会
+  进入 UI Confirm；GREEN 在 Confirm 前记录 post-handheld evidence、返回
+  `HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH`/`requires_action`，
+  不 Confirm、不进入 Stage 2。
+
+### 实际改动
+
+- 新增 `src/execution-contracts/hifly-hands-on-product-evidence.js`：字段级
+  Evidence Record、精确比例核验、结构化 verifier 检查、默认 Evidence
+  status 与消费者可见商品保真判定。
+- 更新 Cloud Playwright 与 Local Agent real V1 路径，均拒绝 bare/非结构化
+  verifier success，并将 `requires_action` 保留为结构化 evidence。
+- 更新 Hifly 页面 generated-artifact natural dimensions 读取和
+  post-handheld/pre-video Confirm seam；更新 batch runner 对受控
+  `requires_action` evidence 的保存。
+- 更新本地 Agent 受控 reason 映射及 focused tests/docs；未改变 Provider
+  config、Secret、生产数据库、部署或业务对象。
+
+### 验证
+
+- `node --test test/cloud-executor-playwright.test.js
+  test/local-agent-cli.test.js test/hifly-production-evidence-contract.test.js`
+  → **33/33 pass**。
+- `node --test test/batch-runner.test.js` → **92/92 pass**。
+- Relevant aggregate (`hifly-hands-on-product-contract`, evidence helper,
+  avatar material, production start, package/compiler, handoff, snapshot,
+  Cloud, Local and batch suites) → **227/227 pass**。
+- `npm run check` → **252 JavaScript files checked**。
+- `git diff --check` → pass。
+
+当前工程候选仍不能宣称真实生产完成；native voice exact identity、final
+video ratio、Stage 1→Stage 2 dimension behavior、最终音频与 Lip-sync 仍是
+独立 evidence gaps。下一步必须经过 Independent Review 与 Owner Gate，且
+真实 Final Video 仍需新的授权。
+
 > 日期：2026-09-01（Asia/Shanghai）
 > 角色：IMPLEMENTER / luna-worker；运行时模型元数据未暴露（`UNVERIFIED_RUNTIME_MODEL`）
 > 分支：`codex/hifly-hands-on-product-v1-contract`

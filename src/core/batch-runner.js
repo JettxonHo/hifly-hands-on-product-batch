@@ -237,6 +237,16 @@ export async function runBatch({
   }
 
   async function pauseOrFailPreSubmit(task, error, phase) {
+    if (error?.outcome === "requires_action") {
+      return annotate(task, {
+        paused_auth: true,
+        requires_action: true,
+        requires_action_reason: error.code || "EXECUTION_REQUIRES_ACTION",
+        contract_evidence: Array.isArray(error.evidence) ? error.evidence : undefined,
+        error_message: error.code || error.message,
+        error_phase: error.failureStage || phase
+      }, phase);
+    }
     if (isPause(error)) {
       return annotate(task, { paused_auth: true, error_message: error.message }, phase);
     }

@@ -1,17 +1,29 @@
 # 项目当前状态
 
-> 最后更新：2026-09-01
-> 当前 Goal：RBV-GOAL-001；当前 bounded engineering implementation：Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` provider-free/Hifly-free rework candidate（独立分支 `codex/hifly-hands-on-product-v1-contract`；exact base `3fbca9647b0d8fab89423ec0e55fd5ee7b71821c`）
-> 当前阶段：`HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_REWORK`；结构/身份候选 GREEN，整体 `CONTRACT_IMPLEMENTATION = GAP`（ratio/native voice machine verification unresolved，production Gate BLOCKED）。Issue #275 已为历史 `COMPLETE/MERGED/DEPLOYED`（PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 CLOSED；exact-head CI run `33418338737` 三绿）。真实 Plan Create、Provider/Hifly、登录与积分动作仍禁止。RBV Readiness Freeze 记录仍为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，产品方向继续引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。
+> 最后更新：2026-09-02
+> 当前 Goal：RBV-GOAL-001；当前 bounded engineering implementation：Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` provider-free/Hifly-free production contract revision（独立分支 `codex/hifly-hands-on-product-v1-contract`；exact base `3fbca9647b0d8fab89423ec0e55fd5ee7b71821c`，working head 为本阶段候选）
+> 当前阶段：`HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_REWORK`；字段级 Production Evidence Contract、Cloud/Local structured pre-point verifier 与 Hifly post-handheld exact-ratio stop 已实现并 focused GREEN。`CONTRACT_IMPLEMENTATION = GAP` 仍成立：native voice exact identity、final-video ratio/audio、Stage 1→Stage 2 dimension behavior 需要独立真实证据与 Gate。Issue #275 已为历史 `COMPLETE/MERGED/DEPLOYED`（PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 CLOSED；exact-head CI run `33418338737` 三绿）。真实 Plan Create、Provider/Hifly、登录与积分动作仍禁止。RBV Readiness Freeze 记录仍为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，产品方向继续引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。
 >
 > 2026-08-13 收敛前的完整时间序列已保留在
 > `docs/status/archive/CURRENT-through-2026-08-13-pre-closeout.md`。
 
 ## Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` bounded contract（2026-09-01，provider-free candidate）
 
+### 2026-09-02 Production Contract Engineering Revision（provider-free）
+
+- 新增字段级 `Production Evidence Contract` helper：每条证据固定表达
+  `field/expected/actual/evidence_source/verification_stage/paid_boundary/result`；
+  `production.aspect_ratio` 继续表示 target，handheld/final actual 分开记录。
+- Hifly Stage 1 结果在 UI Confirm 前读取 natural dimensions，严格使用
+  `width * 16 === height * 9`；真实历史 `1600x2848` 会记录
+  `FAIL_EXACT_MATCH` 并返回 `requires_action`，不 Confirm、不进入 Stage 2。
+  final-video ratio 仍为 `NOT_PROVEN`。商品保真只对消费者可见的重大身份/形状/颜色/腐化/替换/矛盾硬阻断；不可读小字不启用 OCR，记录为 `NOT_OBSERVABLE`/`NOT_REQUIRED`。
+- Cloud 与 Local real V1 路径共享 structured verifier 检查；bare boolean、缺失、字段不全或未验证结果均在 `createAsset`/`submitVideo` 前停止，并投影结构化 evidence。Copy UI input 与 final audio correspondence、voice exact identity 仍分别为 `PROVEN`/`NOT_PROVEN` 与 `NOT_CAPTURED`/`NOT_PROVEN` 的独立事实。
+- TDD/验证记录见 [`2026-09-01-issue-278-hifly-hands-on-product-v1.md`](sessions/2026-09-01-issue-278-hifly-hands-on-product-v1.md)；本阶段无 Provider/Hifly、真实登录、业务对象、部署或积分动作。
+
 - 独立分支 `codex/hifly-hands-on-product-v1-contract` 从 exact base `3fbca9647b0d8fab89423ec0e55fd5ee7b71821c` 实现窄化「手里有货」合同：结构化 builder/validator/canonical hash、生产配置显式 marker、ProductionOrder input snapshot、manual handoff manifest、Local/Cloud package compiler、conditional execution digest 与 Cloud Playwright pre-point verifier seam。
 - Contract 固定 `mode=hands_on_product`、`aspect_ratio=9:16`、`voice_source=hifly_native`、`single_scene/fixed_simple/smart_fit` 与 no-B-roll/no-additional-characters/no-external-TTS/no-standalone-lipsync/no-copy-AI；不解析 `output_instructions`，不建设通用 DSL。Avatar server-private seam 只解析 current selection → AvatarVersion → registered MaterialVersion，并返回已核验 media/size/SHA，不加入公共投影；显式 contract + exact material checksum 才是 routing gate，不依赖通用 capability 名称。
-- 9:16 与 native voice 当前没有可靠 Playwright set/read-back 证据；结构校验在 ensureDelegate 前执行，无 verifier 时 Cloud adapter 以 `CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE`（fields=`aspect_ratio,voice_source`）browser-zero 停止；注入 verifier 时才在同一已创建 page/hiflyPage 上、runBatch/point action 前执行，测试使用 fake verifier。现有 Hifly page 在 inner Generate 前复用既有 toggle/script set/read-back，`copy_ai_generation=false` 为 `CONTRACT_MACHINE_ENFORCED`。Evidence coverage 与最小未来录制要求见 [`HIFLY_HANDS_ON_PRODUCT_V1.md`](../product/HIFLY_HANDS_ON_PRODUCT_V1.md)。
+- 历史基线中的 9:16 与 native voice 没有可靠 Playwright set/read-back 证据；当前 revision 已把 ratio 改为 Stage 1 结果的 post-handheld exact-ratio evidence gate，而 pre-point verifier 仍要求结构化 voice/target evidence。无 verifier 时 Cloud adapter 以 `CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE`（fields=`aspect_ratio,voice_source`）browser-zero 停止；注入 structured verifier 时才在同一已创建 page/hiflyPage 上、runBatch/point action 前执行。现有 Hifly page 在 inner Generate 前复用既有 toggle/script set/read-back，`copy_ai_generation=false` 为 `CONTRACT_MACHINE_ENFORCED`。Evidence coverage 与最小未来录制要求见 [`HIFLY_HANDS_ON_PRODUCT_V1.md`](../product/HIFLY_HANDS_ON_PRODUCT_V1.md)。
 - 本轮 TDD focused GREEN：contract 19/19、avatar material 8/8、execution snapshot 5/5、Local compiler 7/7、manual handoff service 13/13、real-chain 1/1、batch/Hifly page 90/90、Cloud Playwright 10/10、Cloud runtime 24/24、Cloud login 10/10、Local runner 16/16、production-start 15/15；这些 per-file 计数存在重叠，不相加；第三轮归档边界与 historical hybrid hash 回归后最终相关套件 aggregate 为 262 tests / 261 pass / 1 expected PostgreSQL skip（此前基线为 259 / 258 / 1 skip）。本轮治理回归另计为 30 tests / 30 pass / 0 skip，不并入上述代码 aggregate。`npm run check` 检查 251 JS 文件，`git diff --check` 通过。完整 RED/GREEN 与命令见 [`2026-09-01-issue-278-hifly-hands-on-product-v1.md`](sessions/2026-09-01-issue-278-hifly-hands-on-product-v1.md)。
 - Stage verdict：`CONTRACT_IMPLEMENTATION = GAP`（provider-free structural/identity candidate GREEN；ratio/native voice machine verification unresolved，production Gate BLOCKED）。本 Stage 无 Provider/Hifly 请求、无真实登录/浏览器生产动作、无 Generate、无积分、无 ProductionOrder/Handoff/Attempt/Cloud claim、无部署；候选等待独立 Review 与 Owner merge/deploy Gate，不将工程 GREEN 写成 MBL/RBV/真实生产完成。
 

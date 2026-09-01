@@ -17,7 +17,14 @@ const CONTROLLED_REASONS = Object.freeze({
   HUMAN_INTERVENTION_REQUIRED: "本地执行器需要人工处理。",
   PROVIDER_PAGE_CHANGED: "执行页面发生变化，需要人工核对。",
   AVATAR_MAPPING_REQUIRED: "人物映射缺失，需要人工补充后再执行。",
-  PACKAGE_ITEM_COUNT_UNSUPPORTED: "交接包包含不支持的商品数量，需要人工核对。"
+  PACKAGE_ITEM_COUNT_UNSUPPORTED: "交接包包含不支持的商品数量，需要人工核对。",
+  CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE: "生产合同字段缺少可机器核验的结构化证据。",
+  CONTRACT_STRUCTURED_EVIDENCE_REQUIRED: "生产合同核验必须返回结构化字段证据。",
+  CONTRACT_STRUCTURED_EVIDENCE_INVALID: "生产合同核验返回的字段证据无效。",
+  CONTRACT_STRUCTURED_EVIDENCE_INCOMPLETE: "生产合同核验缺少必需字段证据。",
+  CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED: "生产合同字段核验未通过。",
+  HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH: "手持商品图比例未通过精确核验，需要人工处理。",
+  HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_UNVERIFIABLE: "手持商品图尺寸证据不可核验，需要人工处理。"
 });
 const CONTROLLED_FAILURES = Object.freeze({
   PROVIDER_EXECUTION_FAILED: { stage: "provider_execution", message: "执行器未能完成视频生成。" },

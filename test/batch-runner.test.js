@@ -13,6 +13,7 @@ import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { createHiflyExecutor } from "../src/executors/hifly-executor.js";
 import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
 import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
+import { createEvidenceRecord, HIFLY_VERIFICATION_RESULT } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 import { readRpaState, rpaWorstCaseRenameBackoffMs, writeRpaState } from "../src/rpa/rpa-state.js";
 
 async function fixtureRun({ executor, initialStatus = "confirmed", itemOverrides = {} } = {}) {
@@ -2569,6 +2570,65 @@ test("confirmGeneratedHandsOnImage waits for generated preview before confirming
     "ready-check:3",
     "confirm:10000"
   ]);
+});
+
+test("confirmGeneratedHandsOnImage fails the exact handheld ratio before UI confirm", async () => {
+  let confirmCalls = 0;
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout() {}
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 10000 }
+  }, { info() {} });
+  adapter.waitForGeneratedHandsOnImage = async () => {};
+  adapter.readGeneratedHandsOnImageDimensions = async () => ({ width: 1600, height: 2848 });
+  adapter.clickModalConfirm = async () => { confirmCalls += 1; };
+
+  await assert.rejects(
+    () => adapter.confirmGeneratedHandsOnImage({
+      hifly_hands_on_product_v1: { production: { aspect_ratio: "9:16" } }
+    }),
+    { code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH" }
+  );
+  assert.equal(confirmCalls, 0);
+});
+
+test("runBatch preserves a post-handheld requires_action evidence stop", async () => {
+  const evidence = createEvidenceRecord({
+    field: "aspect_ratio",
+    expected: "9:16",
+    actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions",
+    verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2",
+    result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH
+  });
+  const executor = {
+    async createAsset() {
+      throw Object.assign(new Error("ratio mismatch"), {
+        code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH",
+        outcome: "requires_action",
+        failureStage: "post_handheld_pre_video",
+        evidence: [evidence]
+      });
+    },
+    async submitVideo() { throw new Error("submit must not run"); },
+    async querySubmission() { throw new Error("query must not run"); },
+    async downloadArtifact() { throw new Error("download must not run"); },
+    async reconcileSubmission() { throw new Error("reconcile must not run"); }
+  };
+  const fixture = await fixtureRun({ executor });
+  try {
+    const result = await runBatch(fixture);
+    const item = result.items[0];
+    assert.equal(item.paused_auth, true);
+    assert.equal(item.requires_action, true);
+    assert.equal(item.requires_action_reason, "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH");
+    assert.deepEqual(item.contract_evidence, [evidence]);
+    assert.equal(item.error_phase, "post_handheld_pre_video");
+    assert.equal(item.status, "generating_asset");
+  } finally {
+    await fixture.cleanup();
+  }
 });
 
 test("hasGeneratedImageReady rejects a failed generation modal with ready-action buttons", async () => {

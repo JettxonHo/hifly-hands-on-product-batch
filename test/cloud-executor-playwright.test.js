@@ -12,6 +12,7 @@ import { createMemoryManualHandoffPackageStore } from "../src/manual-handoff/man
 import { buildManualHandoffZip, extractManualHandoffArchive } from "../src/manual-handoff/manual-handoff-package-store.js";
 import { sha256 } from "../src/manual-handoff/manual-handoff-package.js";
 import { buildHiflyHandsOnProductV1 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
+import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 
 async function workspaceFixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "cloud-playwright-adapter-"));
@@ -101,6 +102,21 @@ function orderFor() {
   return { id: "order-cloud-1", created_by_member_id: "member-owner" };
 }
 
+function verifiedContractFields(fields = ["aspect_ratio", "voice_source"]) {
+  return {
+    status: "verified",
+    evidence: fields.map((field) => createEvidenceRecord({
+      field,
+      expected: field === "aspect_ratio" ? "9:16" : "hifly_native",
+      actual: field === "aspect_ratio" ? "9:16" : "hifly_native",
+      evidenceSource: "test_fixture",
+      verificationStage: "pre_paid",
+      paidBoundary: "before_paid_action_1",
+      result: HIFLY_VERIFICATION_RESULT.PROVEN
+    }))
+  };
+}
+
 async function generatedPackageForCloudExecutor() {
   const assetBody = Buffer.from("generated-product-image");
   const avatarBody = Buffer.from("person");
@@ -173,7 +189,7 @@ test("cloud adapter injects an explicit profile/workspace and composes the exist
     const adapter = createCloudPlaywrightAdapter({
       workspace,
       hiflyConfig: { batch: { defaultTimeoutMs: 321 } },
-      contractFieldVerifier: async () => true,
+      contractFieldVerifier: async ({ fields }) => verifiedContractFields(fields),
       browserType: {
         async launchPersistentContext(profileDir, options) {
           calls.push(["launch", profileDir, options]);
@@ -231,6 +247,43 @@ test("cloud adapter preflight is browser-zero when no contract field verifier is
   } finally { await cleanup(); }
 });
 
+test("cloud adapter rejects a bare boolean verifier result before createAsset", async () => {
+  const { workspace, cleanup } = await workspaceFixture();
+  const calls = [];
+  const task = taskFor(workspace);
+  const context = fakeContext({ setDefaultTimeout() {} }, calls);
+  try {
+    const adapter = createCloudPlaywrightAdapter({
+      workspace,
+      browserType: { async launchPersistentContext() { return context; } },
+      taskFactory: async () => task,
+      contractFieldVerifier: async () => true,
+      hiflyPageFactory() {
+        return {
+          async preflight() {},
+          async prepareAsset() { calls.push("prepare-asset"); },
+          async submitVideo() { calls.push("submit"); },
+          async querySubmission() {},
+          async downloadArtifact() {},
+          async reconcileSubmission() {}
+        };
+      }
+    });
+
+    const result = await adapter.run({ attempt: { id: "attempt-bare-verifier" } });
+
+    assert.equal(result.status, "requires_action");
+    assert.equal(result.code, "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED");
+    assert.equal(result.failureStage, "pre_point_gate");
+    assert.deepEqual(result.fields, ["aspect_ratio", "voice_source"]);
+    assert.equal(result.evidence[0].result, HIFLY_VERIFICATION_RESULT.NOT_PROVEN);
+    assert.equal(calls.includes("prepare-asset"), false);
+    assert.equal(calls.includes("submit"), false);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("cloud adapter maps existing Hifly checkpoints to controlled cloud progress and downloads one result", async () => {
   const { workspace, cleanup } = await workspaceFixture();
   const progress = [];
@@ -244,7 +297,7 @@ test("cloud adapter maps existing Hifly checkpoints to controlled cloud progress
       workspace,
       browserType: { async launchPersistentContext() { return context; } },
       taskFactory: async () => task,
-      contractFieldVerifier: async (input) => { verifierInput = input; calls.push("verify"); return true; },
+      contractFieldVerifier: async (input) => { verifierInput = input; calls.push("verify"); return verifiedContractFields(input.fields); },
       hiflyPageFactory() {
         return {
           async preflight() { return { status: "ready" }; },
@@ -301,7 +354,7 @@ test("ambiguous post-submit outcome becomes requires_action and never submits ag
       workspace,
       browserType: { async launchPersistentContext() { return context; } },
       taskFactory: async () => task,
-      contractFieldVerifier: async () => true,
+      contractFieldVerifier: async ({ fields }) => verifiedContractFields(fields),
       hiflyPageFactory() {
         return {
           async preflight() { return { status: "ready" }; },
@@ -346,7 +399,7 @@ test("cloud adapter compiles an actual generated ManualHandoffPackage archive th
       workspace,
       avatarMappingPath,
       browserType: { async launchPersistentContext() { return context; } },
-      contractFieldVerifier: async () => true,
+      contractFieldVerifier: async ({ fields }) => verifiedContractFields(fields),
       hiflyPageFactory() {
         return {
           async preflight() { return { status: "ready" }; },
@@ -451,7 +504,7 @@ test("cloud adapter rejects taskFactory script mode or copy drift before browser
       workspace,
       browserType: { async launchPersistentContext() { calls.push("browser"); return context; } },
       taskFactory: async () => ({ ...task, resolved_script_mode: "custom" }),
-      contractFieldVerifier: async () => true,
+      contractFieldVerifier: async ({ fields }) => verifiedContractFields(fields),
       hiflyPageFactory() {
         calls.push("delegate");
         return { async preflight() {}, async createAsset() {}, async submitVideo() {}, async querySubmission() {}, async downloadArtifact() {}, async reconcileSubmission() {} };
@@ -492,7 +545,7 @@ test("cloud adapter closes a browser after a failed pre-point verifier and never
     });
     const result = await adapter.run({ attempt: { id: "attempt-verifier-failed" } });
     assert.equal(result.status, "requires_action");
-    assert.equal(result.code, "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
+    assert.equal(result.code, "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED");
     assert.equal(result.failureStage, "pre_point_gate");
     assert.equal(calls[0], "browser");
     assert.equal(calls[1], "delegate");

@@ -2,6 +2,7 @@ import path from "node:path";
 import { resolveFromRoot } from "./config.js";
 import { relativePortablePath } from "./core/portable-path.js";
 import { timestampForFile } from "./logger.js";
+import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord, verifyExactAspectRatio } from "./execution-contracts/hifly-hands-on-product-evidence.js";
 
 function normalizeScriptText(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ").normalize("NFC");
@@ -581,7 +582,7 @@ export class HiflyHandsOnProductPage {
       await this.captureStep(product, "modal-size-selected");
       await this.clickModalGenerate();
       await this.captureStep(product, "modal-after-generate");
-      await this.confirmGeneratedHandsOnImage();
+      await this.confirmGeneratedHandsOnImage(product);
       return;
     }
   }
@@ -761,10 +762,88 @@ export class HiflyHandsOnProductPage {
     await generateButton.click({ timeout, force: true });
   }
 
-  async confirmGeneratedHandsOnImage() {
+  async confirmGeneratedHandsOnImage(product = null) {
     const timeout = this.config.batch.generationTimeoutMs;
     await this.waitForGeneratedHandsOnImage(timeout);
+    await this.verifyPostHandheldResult(product);
     await this.clickModalConfirm(timeout);
+  }
+
+  async readGeneratedHandsOnImageDimensions() {
+    if (typeof this.page.evaluate !== "function") return null;
+    await this.ensureVisibleModalInspector();
+    return this.page.evaluate(() => {
+      const state = window.__hiflyGetVisibleHandsOnModalState?.();
+      if (!state?.element) return null;
+      const images = Array.from(state.element.querySelectorAll("img"))
+        .map((image) => {
+          const rect = image.getBoundingClientRect();
+          return {
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+            displayArea: rect.width * rect.height,
+            visible: rect.width > 0 && rect.height > 0
+          };
+        })
+        .filter((image) => image.visible && image.width > 0 && image.height > 0)
+        .sort((left, right) => right.displayArea - left.displayArea);
+      const target = images[0];
+      return target ? { width: target.width, height: target.height } : null;
+    }).catch(() => null);
+  }
+
+  async verifyPostHandheldResult(product = null) {
+    const expected = product?.hifly_hands_on_product_v1?.production?.aspect_ratio || product?.aspect_ratio;
+    // Legacy callers do not opt into the V1 production contract and retain
+    // their historical confirmation behavior.
+    if (!expected) return null;
+
+    const dimensions = await this.readGeneratedHandsOnImageDimensions();
+    if (!dimensions) {
+      const evidence = createEvidenceRecord({
+        field: "aspect_ratio",
+        expected,
+        actual: null,
+        evidenceSource: "generated_artifact_natural_dimensions_unavailable",
+        verificationStage: "post_handheld_pre_video",
+        paidBoundary: "after_paid_action_1_before_paid_action_2",
+        result: HIFLY_VERIFICATION_RESULT.NOT_PROVEN
+      });
+      const error = Object.assign(new Error("HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_UNVERIFIABLE"), {
+        code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_UNVERIFIABLE",
+        outcome: "requires_action",
+        failureStage: "post_handheld_pre_video",
+        evidence: [evidence]
+      });
+      throw error;
+    }
+
+    const evidence = verifyExactAspectRatio({
+      width: dimensions.width,
+      height: dimensions.height,
+      expected,
+      evidenceSource: "generated_artifact_natural_dimensions",
+      verificationStage: "post_handheld_pre_video",
+      paidBoundary: "after_paid_action_1_before_paid_action_2"
+    });
+    this.logger.info("post_handheld_ratio_evidence", {
+      sku: product?.sku,
+      expected: evidence.expected,
+      actual: evidence.actual,
+      result: evidence.result,
+      verificationStage: evidence.verification_stage,
+      paidBoundary: evidence.paid_boundary
+    });
+    if (evidence.result === HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH) {
+      const error = Object.assign(new Error("HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH"), {
+        code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH",
+        outcome: "requires_action",
+        failureStage: "post_handheld_pre_video",
+        evidence: [evidence]
+      });
+      throw error;
+    }
+    return evidence;
   }
 
   async waitForGeneratedHandsOnImage(timeout = this.config.batch.generationTimeoutMs) {

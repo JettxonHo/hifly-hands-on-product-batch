@@ -39,6 +39,20 @@
 }
 ```
 
+`production.aspect_ratio` is the intended target only. It is not a claim about
+the dimensions of either a future handheld artifact or the final video. Those
+observations are recorded separately through the narrow Production Evidence
+Contract. Every record contains `field`, `expected`, `actual`,
+`evidence_source`, `verification_stage`, `paid_boundary`, and `result`.
+
+For a generated handheld artifact, the post-handheld/pre-video gate reads the
+artifact's natural dimensions and applies the exact integer check
+`width * 16 === height * 9`. For example, `1600x2848` is
+`FAIL_EXACT_MATCH`; the UI Confirm action and Stage 2 submit are not reached.
+This gate records the failure after paid Stage 1 and before a possible paid
+Stage 2. It does not infer the final-video ratio: `final_video_aspect_ratio`
+remains `NOT_PROVEN` until a final MP4 is observed.
+
 The immutable snapshot is created only when the production snapshot port is explicitly configured with `productionContractId=HIFLY_HANDS_ON_PRODUCT_V1`; no route input or natural-language plan text opts into it. Production configuration supplies that marker. Legacy/demo callers without the marker retain their historical contractless snapshot behavior.
 
 `buildHiflyHandsOnProductV1` deep-freezes the result. `requireHiflyHandsOnProductV1` validates the fixed invariants and can cross-check caller-provided expected lineage. Canonical JSON and SHA-256 are used only for this execution-integrity contract.
@@ -49,7 +63,8 @@ The immutable snapshot is created only when the production snapshot port is expl
 - Manual handoff validates the exact plan/review/product/copy/avatar lineage, copies the contract verbatim into `manifest.json`, and includes it in `manifest_hash`.
 - The package compiler checks the exact product reference and copy body hash, reads the embedded product bytes and mapped avatar bytes, and compares verified size/checksum before emitting a task. The task carries the contract and exact lineage.
 - Execution snapshots include the contract only for V1 tasks. Legacy task digests do not gain a `null` field.
-- Cloud Playwright validates the contract before browser/delegate construction. With no proven verifier it stops browser-zero; with an injected future verifier it constructs one page/delegate, passes that same `page`/`hiflyPage` to the verifier, and invokes it before `runBatch`/`createAsset`/`submitVideo`; a failed verifier closes the context and returns an Owner-gated stop.
+- Cloud Playwright validates the contract before browser/delegate construction. With no proven verifier it stops browser-zero; with an injected structured verifier it constructs one page/delegate, passes that same `page`/`hiflyPage` to the verifier, and invokes it before `runBatch`/`createAsset`/`submitVideo`. Bare booleans and other unstructured success values are rejected, and a failed verifier returns a structured Owner-gated `requires_action` projection.
+- Local Agent real V1 execution applies the same structured verifier contract after package compilation and before `createAsset`/`submitVideo`. A missing, bare, incomplete, or non-verified response stops before those executor calls. Legacy non-V1 packages retain their historical fake/real routing behavior.
 
 Any identity, mapping, media, size, checksum, mode, version, ratio, voice, or copy-state mismatch stops before a point-consuming boundary. A generic verified capability never selects this route; the explicit contract plus exact registered material version/checksum does.
 
@@ -63,12 +78,12 @@ Any identity, mapping, media, size, checksum, mode, version, ratio, voice, or co
 | Frozen Chinese copy input | Existing real record, frozen CopyVersion, and handoff/compiler snapshots | `SUFFICIENT_EXISTING_EVIDENCE` |
 | AI-copy disabled | Existing Hifly page toggle/script set + read-back before inner Generate, preserved as frozen-copy mode | `CONTRACT_MACHINE_ENFORCED` |
 | Smart Fit | Existing native size mapping, select + double read-back pre-submit seam | `CONTRACT_MACHINE_ENFORCED` |
-| 9:16 | Historical capture exists, but no proven current Playwright set/read-back | `LIVE_RECORDING_REQUIRED` |
+| 9:16 | Historical `1600x2848` artifact plus post-handheld natural-dimension seam | `POST_HANDHELD_EXACT_GATE_MACHINE_ENFORCED`; final-video proof still required |
 | Hifly native voice | Historical output is not a machine-verifiable setter/read-back contract | `LIVE_RECORDING_REQUIRED` |
 | Generate action boundary | Existing pre-submit checkpoint and paid-action seam | `SUFFICIENT_EXISTING_EVIDENCE` |
 | Download/output | Historical Hifly → artifact → A12/Work chain | `SUFFICIENT_EXISTING_EVIDENCE` |
 
-`NEW_CODEX_RECORDING_REQUIRED=YES` for the ratio and native-voice fields only. A future bounded recording should capture DOM/state, selector, request/response and set/read-back values, and stop immediately before any point-consuming Generate click whenever the fields can be established without generating. No recording or live generation is performed by Issue #278.
+`NEW_CODEX_RECORDING_REQUIRED=YES` for the native-voice identity fields only. Ratio target-vs-actual handling is now implemented as a post-handheld artifact gate, while a live recording is still required to establish any provider-side target normalization behavior. A future bounded recording should capture DOM/state, selector, request/response and set/read-back values, and stop immediately before any point-consuming Generate click whenever the fields can be established without generating. No recording or live generation is performed by this engineering stage.
 
 ## P1 truth
 
@@ -76,7 +91,22 @@ Any identity, mapping, media, size, checksum, mode, version, ratio, voice, or co
 
 ## Stage verdict
 
-`CONTRACT_IMPLEMENTATION = GAP`: the provider-free structural/identity candidate is GREEN, but production remains BLOCKED until a proven pre-point verifier can set and read back `aspect_ratio=9:16` and `voice_source=hifly_native`.
+`CONTRACT_IMPLEMENTATION = GAP`: the provider-free structural/identity candidate and post-handheld exact-ratio stop are GREEN, but production remains BLOCKED until a proven structured pre-point verifier can establish the required native voice identity and a real final-video run can prove final ratio/audio behavior.
+
+The evidence status model intentionally keeps dimensions independent: hands-on
+product `PROVEN`, avatar/product `PARTIAL`, copy/voice/final ratio and
+Stage 1→Stage 2 dimension behavior `NOT_PROVEN` until their own evidence is
+observed. Product fidelity is a consumer-visible gate: missing/wrong product,
+major shape or color corruption, gross corruption, wrong substitution, or a
+consumer-visible contradiction can block. Unreadable fine print is recorded
+as `NOT_OBSERVABLE` or `NOT_REQUIRED`; this contract does not add OCR.
+
+The approved Copy v2 → Hifly UI input path remains distinct from submitted
+production request → final Chinese narration correspondence. UI input matching
+does not prove final audio. Likewise, the UI-visible voice display is not an
+exact provider identity; unobserved `id`, `tts_voice_id`, `name`,
+`display_name`, `group_id`, and submitted `voice_name` remain
+`NOT_CAPTURED`/`NOT_PROVEN`.
 
 ## External-effects boundary
 

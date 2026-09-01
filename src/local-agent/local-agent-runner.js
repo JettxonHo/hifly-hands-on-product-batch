@@ -7,6 +7,7 @@ import { createBatchStore } from "../core/batch-store.js";
 import { acquireExecutionLock } from "../core/execution-lock.js";
 import { createExecutionSnapshot } from "../core/execution-snapshot.js";
 import { runBatch } from "../core/batch-runner.js";
+import { inspectStructuredVerificationResult } from "../execution-contracts/hifly-hands-on-product-evidence.js";
 import { createLocalAgentFakeExecutor } from "./fake-executor.js";
 import { createLocalAgentHttpClientFromEnv } from "./agent-http-client.js";
 import { compilePackageToBatchItem, extractHandoffPackage, loadAvatarMappings, verifyHandoffPackageIntegrity } from "./package-compiler.js";
@@ -67,6 +68,63 @@ function candidateFilename(task) {
 
 function checksum(body) {
   return createHash("sha256").update(body).digest("hex");
+}
+
+const LOCAL_CONTRACT_VERIFICATION_FIELDS = Object.freeze(["aspect_ratio", "voice_source"]);
+const LOCAL_CONTRACT_VERIFICATION_CODES = new Set([
+  "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE",
+  "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED",
+  "CONTRACT_STRUCTURED_EVIDENCE_INVALID",
+  "CONTRACT_STRUCTURED_EVIDENCE_INCOMPLETE",
+  "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED",
+  "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH",
+  "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_UNVERIFIABLE"
+]);
+const LOCAL_ACTION_REASON_CODES = new Set([
+  ...LOCAL_CONTRACT_VERIFICATION_CODES
+]);
+
+function localContractVerificationError(code, fields = LOCAL_CONTRACT_VERIFICATION_FIELDS, evidence = null) {
+  const error = localAgentError(code, {
+    outcome: "requires_action",
+    details: { fields, evidence }
+  });
+  error.failureStage = "pre_point_gate";
+  error.evidence = evidence;
+  return error;
+}
+
+async function verifyLocalPrePointContract({ executor, verifier, task }) {
+  const contract = task?.hifly_hands_on_product_v1;
+  if (!contract) return null;
+  const candidate = verifier || executor?.verifyPrePointContract;
+  if (typeof candidate !== "function") {
+    throw localContractVerificationError("CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
+  }
+
+  let result;
+  try {
+    result = await candidate({
+      task,
+      contract,
+      page: executor?.page,
+      hiflyPage: executor?.hiflyPage,
+      fields: LOCAL_CONTRACT_VERIFICATION_FIELDS,
+      phase: "pre_point"
+    });
+  } catch (error) {
+    if (LOCAL_CONTRACT_VERIFICATION_CODES.has(error?.code)) {
+      if (error.outcome === "requires_action") throw error;
+      throw localContractVerificationError(error.code, error.details?.fields || LOCAL_CONTRACT_VERIFICATION_FIELDS, error.evidence);
+    }
+    throw localContractVerificationError("CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
+  }
+
+  const inspected = inspectStructuredVerificationResult(result, LOCAL_CONTRACT_VERIFICATION_FIELDS);
+  if (!inspected.valid) {
+    throw localContractVerificationError(inspected.code, inspected.fields || LOCAL_CONTRACT_VERIFICATION_FIELDS, inspected.evidence);
+  }
+  return inspected;
 }
 
 function createLeaseHeartbeatController({ client, attemptId, runId, getProgressPhase, intervalMs, setIntervalImpl, clearIntervalImpl, heartbeatScheduler, onError }) {
@@ -153,8 +211,17 @@ async function executeBatch({ task, executor, temporaryRoot, attemptId, runId })
     });
     const item = result.items?.[0];
     if (result.status !== "completed" || item?.status !== "completed") {
-      if (item?.paused_auth === true && item?.error_message === "LOGIN_REQUIRED") {
-        throw localAgentError("LOGIN_REQUIRED", { outcome: "requires_action" });
+      if (item?.paused_auth === true) {
+        const code = LOCAL_ACTION_REASON_CODES.has(item.requires_action_reason)
+          ? item.requires_action_reason
+          : item.error_message === "LOGIN_REQUIRED" ? "LOGIN_REQUIRED" : "LOCAL_EXECUTION_FAILED";
+        const error = localAgentError(code, {
+          outcome: "requires_action",
+          details: { evidence: item.contract_evidence || null }
+        });
+        error.failureStage = item.error_phase || "execute";
+        error.evidence = Array.isArray(item.contract_evidence) ? item.contract_evidence : null;
+        throw error;
       }
       throw localAgentError("LOCAL_EXECUTION_FAILED");
     }
@@ -178,6 +245,7 @@ export async function runLocalAgentOnce({
   executor = null,
   fakeExecutor = null,
   realExecutor = null,
+  contractFieldVerifier = null,
   argv = [],
   env = process.env,
   tempDirectoryFactory = async () => mkdtemp(path.join(os.tmpdir(), "local-agent-run-")),
@@ -274,6 +342,10 @@ export async function runLocalAgentOnce({
       return { status: "requires_action", exitCode: EXIT_CODES.requiresAction, attemptId, report };
     }
 
+    if (isRealExecutionEnabled({ argv, env })) {
+      await verifyLocalPrePointContract({ executor: selectedExecutor, verifier: contractFieldVerifier, task });
+    }
+
     progressPhase = "executing";
     const output = await executeBatch({ task, executor: selectedExecutor, temporaryRoot, attemptId, runId });
     await heartbeatController.assertLease();
@@ -303,13 +375,23 @@ export async function runLocalAgentOnce({
     let report = null;
     if (attemptId && !reportSubmitted) {
       try {
-        report = await sendReport({ outcome, errorCode: code, failureStage: "execute" });
+        report = await sendReport({ outcome, errorCode: code, failureStage: error.failureStage || "execute" });
       } catch {
         report = null;
       }
     }
     log(logger, "error", outcome === "requires_action" ? "local_agent_requires_action" : "local_agent_failed", { attemptId, code });
-    return { status: outcome, exitCode: outcome === "requires_action" ? EXIT_CODES.requiresAction : EXIT_CODES.failed, attemptId, report };
+    return {
+      status: outcome,
+      exitCode: outcome === "requires_action" ? EXIT_CODES.requiresAction : EXIT_CODES.failed,
+      attemptId,
+      report,
+      ...(outcome === "requires_action" ? {
+        code,
+        failureStage: error.failureStage || "execute",
+        ...(Array.isArray(error.evidence) ? { evidence: error.evidence } : {})
+      } : {})
+    };
   } finally {
     await heartbeatController?.stop?.();
     if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
