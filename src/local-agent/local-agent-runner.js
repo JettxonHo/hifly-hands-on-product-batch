@@ -7,7 +7,13 @@ import { createBatchStore } from "../core/batch-store.js";
 import { acquireExecutionLock } from "../core/execution-lock.js";
 import { createExecutionSnapshot } from "../core/execution-snapshot.js";
 import { runBatch } from "../core/batch-runner.js";
-import { inspectStructuredVerificationResult } from "../execution-contracts/hifly-hands-on-product-evidence.js";
+import {
+  HIFLY_PRE_PAID_REQUIREMENTS,
+  HIFLY_STRUCTURED_VERIFICATION_ERROR_CODES,
+  completeEvidenceForFields,
+  inspectStructuredVerificationResult,
+  sanitizeEvidenceRecords,
+} from "../execution-contracts/hifly-hands-on-product-evidence.js";
 import { createLocalAgentFakeExecutor } from "./fake-executor.js";
 import { createLocalAgentHttpClientFromEnv } from "./agent-http-client.js";
 import { compilePackageToBatchItem, extractHandoffPackage, loadAvatarMappings, verifyHandoffPackageIntegrity } from "./package-compiler.js";
@@ -70,13 +76,9 @@ function checksum(body) {
   return createHash("sha256").update(body).digest("hex");
 }
 
-const LOCAL_CONTRACT_VERIFICATION_FIELDS = Object.freeze(["aspect_ratio", "voice_source"]);
+const LOCAL_CONTRACT_VERIFICATION_FIELDS = Object.freeze(Object.keys(HIFLY_PRE_PAID_REQUIREMENTS));
 const LOCAL_CONTRACT_VERIFICATION_CODES = new Set([
-  "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE",
-  "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED",
-  "CONTRACT_STRUCTURED_EVIDENCE_INVALID",
-  "CONTRACT_STRUCTURED_EVIDENCE_INCOMPLETE",
-  "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED",
+  ...HIFLY_STRUCTURED_VERIFICATION_ERROR_CODES,
   "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH",
   "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_UNVERIFIABLE"
 ]);
@@ -90,7 +92,7 @@ function localContractVerificationError(code, fields = LOCAL_CONTRACT_VERIFICATI
     details: { fields, evidence }
   });
   error.failureStage = "pre_point_gate";
-  error.evidence = evidence;
+  error.evidence = completeEvidenceForFields(evidence, fields);
   return error;
 }
 
@@ -114,13 +116,12 @@ async function verifyLocalPrePointContract({ executor, verifier, task }) {
     });
   } catch (error) {
     if (LOCAL_CONTRACT_VERIFICATION_CODES.has(error?.code)) {
-      if (error.outcome === "requires_action") throw error;
       throw localContractVerificationError(error.code, error.details?.fields || LOCAL_CONTRACT_VERIFICATION_FIELDS, error.evidence);
     }
     throw localContractVerificationError("CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
   }
 
-  const inspected = inspectStructuredVerificationResult(result, LOCAL_CONTRACT_VERIFICATION_FIELDS);
+  const inspected = inspectStructuredVerificationResult(result, HIFLY_PRE_PAID_REQUIREMENTS);
   if (!inspected.valid) {
     throw localContractVerificationError(inspected.code, inspected.fields || LOCAL_CONTRACT_VERIFICATION_FIELDS, inspected.evidence);
   }
@@ -220,7 +221,7 @@ async function executeBatch({ task, executor, temporaryRoot, attemptId, runId })
           details: { evidence: item.contract_evidence || null }
         });
         error.failureStage = item.error_phase || "execute";
-        error.evidence = Array.isArray(item.contract_evidence) ? item.contract_evidence : null;
+        error.evidence = Array.isArray(item.contract_evidence) ? sanitizeEvidenceRecords(item.contract_evidence) : null;
         throw error;
       }
       throw localAgentError("LOCAL_EXECUTION_FAILED");
@@ -270,7 +271,7 @@ export async function runLocalAgentOnce({
     return reportIds.get(outcome);
   };
 
-  async function sendReport({ outcome, errorCode = null, primaryCandidateId = null, failureStage = null }) {
+  async function sendReport({ outcome, errorCode = null, primaryCandidateId = null, failureStage = null, evidence = null }) {
     if (!attemptId || reportSubmitted) return null;
     await heartbeatController?.assertLease?.();
     progressPhase = "reporting";
@@ -281,6 +282,7 @@ export async function runLocalAgentOnce({
       primaryCandidateId,
       errorCode,
       failureStage,
+      evidence,
       idempotencyKey: `${runId}:report:${outcome}`
     });
     reportSubmitted = true;
@@ -375,7 +377,7 @@ export async function runLocalAgentOnce({
     let report = null;
     if (attemptId && !reportSubmitted) {
       try {
-        report = await sendReport({ outcome, errorCode: code, failureStage: error.failureStage || "execute" });
+        report = await sendReport({ outcome, errorCode: code, failureStage: error.failureStage || "execute", evidence: error.evidence });
       } catch {
         report = null;
       }

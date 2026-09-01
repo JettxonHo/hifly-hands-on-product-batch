@@ -5,7 +5,8 @@ export const HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_VERSION = "1";
 
 export const HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION = Object.freeze({
   mode: "hands_on_product",
-  aspect_ratio: "9:16",
+  target_aspect_ratio: "9:16",
+  handheld_aspect_ratio_policy: "record_only",
   voice_source: "hifly_native",
   scene_mode: "single_scene",
   camera_mode: "fixed_simple",
@@ -31,6 +32,7 @@ export const HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES = Object.freeze({
   AVATAR_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_INVALID",
   MODE_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_MODE_INVALID",
   ASPECT_RATIO_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_ASPECT_RATIO_INVALID",
+  HANDHELD_RATIO_POLICY_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_POLICY_INVALID",
   VOICE_SOURCE_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_VOICE_SOURCE_INVALID",
   PRESENTATION_SIZE_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_PRESENTATION_SIZE_INVALID",
   BINDING_MISMATCH: "HIFLY_HANDS_ON_PRODUCT_V1_BINDING_MISMATCH"
@@ -38,6 +40,7 @@ export const HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES = Object.freeze({
 
 const fail = (code, details = null) => Object.assign(new Error(code), { code, details });
 const clean = (value) => typeof value === "string" ? value.trim() : "";
+const HANDHELD_RATIO_POLICIES = new Set(["record_only", "require_exact"]);
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -188,6 +191,17 @@ function avatarFacts(value) {
   };
 }
 
+function productionFacts(value) {
+  const requested = value?.production?.handheld_aspect_ratio_policy;
+  const policy = requested === undefined
+    ? HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION.handheld_aspect_ratio_policy
+    : clean(requested);
+  if (!HANDHELD_RATIO_POLICIES.has(policy)) {
+    throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.HANDHELD_RATIO_POLICY_INVALID, ["production.handheld_aspect_ratio_policy"]);
+  }
+  return { ...HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION, handheld_aspect_ratio_policy: policy };
+}
+
 export function canonicalizeHiflyHandsOnProductV1(value) {
   return canonical(value);
 }
@@ -207,7 +221,7 @@ export function buildHiflyHandsOnProductV1(structuredFacts = {}) {
     product: productFacts(structuredFacts),
     copy: copyFacts(structuredFacts),
     avatar: avatarFacts(structuredFacts),
-    production: { ...HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION }
+    production: productionFacts(structuredFacts)
   };
   const result = deepFreeze(contract);
   assertExpectedBindings(result, structuredFacts.expected_bindings);
@@ -246,13 +260,17 @@ function assertContractShape(contract) {
   if (!production || typeof production !== "object") throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.INVALID, ["production"]);
   assertExactKeys(production, new Set(Object.keys(HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION)), "production");
   for (const [key, expected] of Object.entries(HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION)) {
+    if (key === "handheld_aspect_ratio_policy") continue;
     if (production[key] !== expected) {
       const code = key === "mode" ? HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.MODE_INVALID
-        : key === "aspect_ratio" ? HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.ASPECT_RATIO_INVALID
+        : key === "target_aspect_ratio" ? HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.ASPECT_RATIO_INVALID
           : key === "voice_source" ? HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.VOICE_SOURCE_INVALID
             : HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.INVALID;
       throw fail(code, [`production.${key}`]);
     }
+  }
+  if (!HANDHELD_RATIO_POLICIES.has(production.handheld_aspect_ratio_policy)) {
+    throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.HANDHELD_RATIO_POLICY_INVALID, ["production.handheld_aspect_ratio_policy"]);
   }
   if (contract.copy?.mode !== "frozen_copy" || contract.copy?.transform !== "none" || contract.copy?.language !== "zh-CN" || !SHA256.test(contract.copy?.body_hash || "")) {
     throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.COPY_INVALID, ["copy"]);

@@ -10,6 +10,7 @@ import { createCloudExecutorRuntime } from "../src/cloud-executor/runtime.js";
 import { startCloudExecutorRuntime } from "../src/cloud-executor/start.js";
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryManualExecutionRepository } from "../src/manual-execution/memory-manual-execution-repository.js";
+import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 
 const ORGANIZATION_ID = "org-cloud";
 const CLOUD_EXECUTOR_ID = "cloud-executor-1";
@@ -315,13 +316,17 @@ test("fake failure stops the worker and never claims the next order", async () =
 
 test("uncertain post-submit outcome requires action, stops the worker, and never retries Provider submission", async () => {
   let providerCalls = 0;
+  const evidence = createEvidenceRecord({ field: "handheld_aspect_ratio", expected: "9:16", actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions", verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2", result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH });
   const world = makeCloudWorld({ orderCount: 2, executor: {
     async run() {
       providerCalls += 1;
       return {
         status: "requires_action",
         failureStage: "unknown_post_submit",
-        requiresActionReason: "Provider submission outcome is ambiguous"
+        requiresActionReason: "Provider submission outcome is ambiguous",
+        evidence: [evidence]
       };
     }
   } });
@@ -338,6 +343,7 @@ test("uncertain post-submit outcome requires action, stops the worker, and never
   assert.equal(first.report.outcome, "requires_action");
   assert.equal(first.report.retryability, "not_retryable");
   assert.equal(first.report.failure_stage, "unknown_post_submit");
+  assert.deepEqual(first.report.supporting_outputs, [{ kind: "production_evidence", evidence: [evidence] }]);
 });
 
 test("playwright mode downloads the claimed package archive for the executor without projecting its contents", async () => {

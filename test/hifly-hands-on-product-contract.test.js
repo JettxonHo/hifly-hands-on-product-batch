@@ -79,7 +79,8 @@ test("approved structured facts build a deterministic immutable Hands-on-Product
   assert.equal(first.copy.body_hash, BODY_HASH);
   assert.deepEqual(first.production, {
     mode: "hands_on_product",
-    aspect_ratio: "9:16",
+    target_aspect_ratio: "9:16",
+    handheld_aspect_ratio_policy: "record_only",
     voice_source: "hifly_native",
     scene_mode: "single_scene",
     camera_mode: "fixed_simple",
@@ -96,6 +97,14 @@ test("approved structured facts build a deterministic immutable Hands-on-Product
   assert.equal(hashHiflyHandsOnProductV1(first), hashHiflyHandsOnProductV1(second));
   assert.equal(hashHiflyHandsOnProductV1(first), hashHiflyHandsOnProductV1({ ...first }));
   assert.equal(canonicalizeHiflyHandsOnProductV1(first).includes("output_instructions"), false);
+});
+
+test("the executable production contract names 9:16 as a target, not an observed artifact ratio", () => {
+  const contract = buildHiflyHandsOnProductV1(facts());
+  assert.equal(contract.production.target_aspect_ratio, "9:16");
+  assert.equal("aspect_ratio" in contract.production, false);
+  assert.equal(contract.production.handheld_aspect_ratio, undefined);
+  assert.equal(contract.production.final_video_aspect_ratio, undefined);
 });
 
 test("require returns a deep-frozen structured clone for archive consumers", () => {
@@ -139,7 +148,7 @@ test("validator requires every contract lineage field and fixed flag", () => {
     ["product", "revision_id"], ["product", "primary_asset_version_id"], ["product", "checksum_sha256"], ["product", "media_type"], ["product", "size"],
     ["copy", "version_id"], ["copy", "mode"], ["copy", "transform"], ["copy", "language"], ["copy", "body_hash"],
     ["avatar", "selection_id"], ["avatar", "avatar_version_id"], ["avatar", "material_version_id"], ["avatar", "checksum_sha256"], ["avatar", "media_type"], ["avatar", "size"],
-    ["production", "mode"], ["production", "aspect_ratio"], ["production", "voice_source"], ["production", "scene_mode"], ["production", "camera_mode"], ["production", "presentation_size_code"], ["production", "b_roll"], ["production", "additional_characters"], ["production", "external_tts"], ["production", "standalone_lipsync"], ["production", "copy_ai_generation"]
+    ["production", "mode"], ["production", "target_aspect_ratio"], ["production", "handheld_aspect_ratio_policy"], ["production", "voice_source"], ["production", "scene_mode"], ["production", "camera_mode"], ["production", "presentation_size_code"], ["production", "b_roll"], ["production", "additional_characters"], ["production", "external_tts"], ["production", "standalone_lipsync"], ["production", "copy_ai_generation"]
   ]) {
     const missing = structuredClone(contract);
     delete missing[path[0]][path[1]];
@@ -152,7 +161,7 @@ test("validator rejects an unsupported contract version and every fixed producti
   versionDrift.contract_version = "2";
   assert.throws(() => requireHiflyHandsOnProductV1(versionDrift), { code: "HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_VERSION_UNSUPPORTED" });
   for (const [field, value] of Object.entries({
-    mode: "other", aspect_ratio: "16:9", voice_source: "external_tts", scene_mode: "multi_scene",
+    mode: "other", target_aspect_ratio: "16:9", voice_source: "external_tts", scene_mode: "multi_scene",
     camera_mode: "cinematic", presentation_size_code: "large", b_roll: true,
     additional_characters: true, external_tts: true, standalone_lipsync: true, copy_ai_generation: true
   })) {
@@ -315,7 +324,7 @@ test("package compiler cross-checks V1 lineage and actual product/avatar bytes b
     assert.equal(item.hifly_hands_on_product_v1.avatar.material_version_id, "material-compile");
     assert.equal(Object.isFrozen(item.hifly_hands_on_product_v1), true);
     assert.equal(Object.isFrozen(item.hifly_hands_on_product_v1.avatar), true);
-    assert.equal(item.aspect_ratio, "9:16");
+    assert.equal(item.target_aspect_ratio, "9:16");
     assert.equal(item.voice_source, "hifly_native");
     await assert.rejects(() => compilePackageToBatchItem({ manifest, extractionRoot: root, avatarMappings: {} }), { code: "AVATAR_MAPPING_REQUIRED" });
     const bad = structuredClone(manifest); bad.hifly_hands_on_product_v1 = structuredClone(contract); bad.hifly_hands_on_product_v1.product.checksum_sha256 = "f".repeat(64);
@@ -382,7 +391,8 @@ test("Cloud adapter blocks before browser/delegate without an injected proven ra
       product_revision_id: contract.product.revision_id, product_asset_version_id: contract.product.primary_asset_version_id,
       copy_version_id: contract.copy.version_id, avatar_selection_id: contract.avatar.selection_id,
       avatar_version_id: contract.avatar.avatar_version_id, avatar_material_version_id: contract.avatar.material_version_id,
-      production_mode: contract.production.mode, aspect_ratio: contract.production.aspect_ratio, voice_source: contract.production.voice_source,
+      production_mode: contract.production.mode, target_aspect_ratio: contract.production.target_aspect_ratio, voice_source: contract.production.voice_source,
+      handheld_aspect_ratio_policy: contract.production.handheld_aspect_ratio_policy,
       avatar: { asset_version_id: contract.avatar.avatar_version_id }
     }), browserType: { async launchPersistentContext() { calls.push("browser"); throw new Error("must not launch"); } } });
     const result = await adapter.run({ attempt: { id: "attempt-cloud" } });
@@ -390,7 +400,7 @@ test("Cloud adapter blocks before browser/delegate without an injected proven ra
     assert.equal(result.outcome, "requires_action");
     assert.equal(result.code, "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
     assert.equal(result.failureStage, "pre_point_gate");
-    assert.deepEqual(result.fields, ["aspect_ratio", "voice_source"]);
+    assert.deepEqual(result.fields, ["target_aspect_ratio", "voice_source"]);
     assert.deepEqual(calls, []);
     await adapter.close();
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -401,7 +411,7 @@ for (const [name, mutate, code] of [
   ["unapproved plan review", (value) => { value.plan.review_status = "pending"; }, "HIFLY_HANDS_ON_PRODUCT_V1_PLAN_INVALID"],
   ["copy not frozen", (value) => { value.copy.status = "draft"; }, "HIFLY_HANDS_ON_PRODUCT_V1_COPY_INVALID"],
   ["wrong mode", (value) => { value.production.mode = "talking_text"; }, "HIFLY_HANDS_ON_PRODUCT_V1_MODE_INVALID"],
-  ["wrong ratio", (value) => { value.production.aspect_ratio = "16:9"; }, "HIFLY_HANDS_ON_PRODUCT_V1_ASPECT_RATIO_INVALID"],
+  ["wrong ratio", (value) => { value.production.target_aspect_ratio = "16:9"; }, "HIFLY_HANDS_ON_PRODUCT_V1_ASPECT_RATIO_INVALID"],
   ["wrong voice", (value) => { value.production.voice_source = "external_tts"; }, "HIFLY_HANDS_ON_PRODUCT_V1_VOICE_SOURCE_INVALID"]
 ]) {
   test(`rejects ${name} before an execution boundary`, () => {

@@ -335,6 +335,8 @@ test("real V1 execution rejects a bare boolean pre-point verifier before createA
     assert.equal(state.result.status, "requires_action");
     assert.equal(state.result.code, "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED");
     assert.equal(state.result.failureStage, "pre_point_gate");
+    assert.equal(state.result.evidence[0].field, "target_aspect_ratio");
+    assert.equal(state.result.evidence[0].result, HIFLY_VERIFICATION_RESULT.NOT_PROVEN);
     assert.equal(real.calls.includes("createAsset"), false);
     assert.equal(real.calls.includes("submitVideo"), false);
   } finally {
@@ -358,8 +360,8 @@ test("real V1 execution accepts the same structured pre-point verifier contract 
         status: "verified",
         evidence: fields.map((field) => createEvidenceRecord({
           field,
-          expected: field === "aspect_ratio" ? "9:16" : "hifly_native",
-          actual: field === "aspect_ratio" ? "9:16" : "hifly_native",
+          expected: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
+          actual: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
           evidenceSource: "test_fixture",
           verificationStage: "pre_paid",
           paidBoundary: "before_paid_action_1",
@@ -372,6 +374,67 @@ test("real V1 execution accepts the same structured pre-point verifier contract 
     });
     assert.equal(state.result.status, "completed");
     assert.equal(real.calls.includes("createAsset"), true);
+  } finally {
+    await rm(avatarPath, { force: true });
+    await rm(state?.parent, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("real Local result preserves a post-handheld ratio stop and bounded evidence", async () => {
+  const events = [];
+  const avatarPath = path.join(os.tmpdir(), `local-agent-avatar-${process.pid}-ratio.png`);
+  await writeFile(avatarPath, "avatar-image");
+  const real = createRecordingExecutor({ events });
+  const evidence = createEvidenceRecord({
+    field: "handheld_aspect_ratio",
+    expected: "9:16",
+    actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions",
+    verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2",
+    result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH
+  });
+  real.createAsset = async () => {
+    events.push(["executor:createAsset"]);
+    throw Object.assign(new Error("ratio mismatch"), {
+      code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH",
+      outcome: "requires_action",
+      failureStage: "post_handheld_pre_video",
+      evidence: [evidence]
+    });
+  };
+  let state;
+  try {
+    state = await runFixture({
+      packageManifest: hiflyManifest(),
+      avatarMappings: { "avatar-version-1": avatarPath },
+      realExecutor: real,
+      contractFieldVerifier: async ({ fields }) => ({
+        status: "verified",
+        evidence: fields.map((field) => createEvidenceRecord({
+          field,
+          expected: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
+          actual: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
+          evidenceSource: "test_fixture",
+          verificationStage: "pre_paid",
+          paidBoundary: "before_paid_action_1",
+          result: HIFLY_VERIFICATION_RESULT.PROVEN
+        }))
+      }),
+      argv: ["run-once", "--real"],
+      env: { LOCAL_AGENT_REAL_EXECUTION: "true" },
+      events
+    });
+    assert.equal(state.result.status, "requires_action");
+    assert.equal(state.result.code, "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH");
+    assert.equal(state.result.failureStage, "post_handheld_pre_video");
+    assert.deepEqual(state.result.evidence, [evidence]);
+    const reportInput = events.find(([event]) => event === "report")?.[1];
+    assert.equal(reportInput.errorCode, "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH");
+    assert.equal(reportInput.failureStage, "post_handheld_pre_video");
+    assert.deepEqual(reportInput.evidence, [evidence]);
+    assert.equal(real.calls.includes("submitVideo"), false);
+    assert.equal(events.some(([event]) => event === "authorize"), false);
   } finally {
     await rm(avatarPath, { force: true });
     await rm(state?.parent, { recursive: true, force: true }).catch(() => {});
@@ -632,15 +695,20 @@ test("Agent report uses the server reason_code contract for requires_action", as
       return { ok: true, status: 201, async json() { return { report: { outcome: "requires_action" } }; } };
     }
   });
+  const evidence = createEvidenceRecord({ field: "handheld_aspect_ratio", expected: "9:16", actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions", verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2", result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH });
   await client.report({
     attemptId: "attempt-1",
     reportId: "a0000000-0000-4000-8000-000000000001",
     outcome: "requires_action",
     errorCode: "AVATAR_MAPPING_REQUIRED",
+    evidence: [evidence],
     idempotencyKey: "report-1"
   });
   const body = JSON.parse(calls[0].init.body);
   assert.equal(body.reason_code, "AVATAR_MAPPING_REQUIRED");
+  assert.deepEqual(body.evidence, [evidence]);
   assert.equal(Object.hasOwn(body, "requires_action_reason"), false);
 });
 

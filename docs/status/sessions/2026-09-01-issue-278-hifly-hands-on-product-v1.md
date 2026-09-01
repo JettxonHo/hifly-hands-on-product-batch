@@ -24,34 +24,44 @@
   `createAsset`/`submitVideo` 前复用同一 structured verifier 语义并返回
   `requires_action`。
 - Hifly page RED：带 V1 target 的 `1600x2848` generated dimensions 仍会
-  进入 UI Confirm；GREEN 在 Confirm 前记录 post-handheld evidence、返回
-  `HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH`/`requires_action`，
-  不 Confirm、不进入 Stage 2。
+  进入 UI Confirm；GREEN 在 Confirm 前绑定单一 ready generated-result，记录
+  `handheld_aspect_ratio` evidence。默认 `record_only` 允许继续；显式不可变
+  `require_exact` 才返回 `HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH`/
+  `requires_action`，不 Confirm、不进入 Stage 2。该历史 run 当时的 exact
+  policy 仍保留在历史证据中。
+- Follow-up RED：缺少 bounded evidence / Local report `failure_stage`，以及
+  unsafe thrown evidence 可绕过重建；GREEN 使用 controlled fields/source/stage/
+  paid-boundary、bounded values、safe reconstruction，并通过现有
+  `supporting_outputs` JSON 保留 Local report evidence。Rich ratio results are
+  projected to canonical field-level records before persistence; scalar or
+  mutable enforcement policies are rejected.
 
 ### 实际改动
 
 - 新增 `src/execution-contracts/hifly-hands-on-product-evidence.js`：字段级
-  Evidence Record、精确比例核验、结构化 verifier 检查、默认 Evidence
-  status 与消费者可见商品保真判定。
+  Evidence Record、target/handheld/final 分离、精确比例核验、不可变执行策略、
+  结构化 verifier 检查、默认/历史 Evidence status 与消费者可见商品保真判定。
 - 更新 Cloud Playwright 与 Local Agent real V1 路径，均拒绝 bare/非结构化
   verifier success，并将 `requires_action` 保留为结构化 evidence。
 - 更新 Hifly 页面 generated-artifact natural dimensions 读取和
-  post-handheld/pre-video Confirm seam；更新 batch runner 对受控
-  `requires_action` evidence 的保存。
-- 更新本地 Agent 受控 reason 映射及 focused tests/docs；未改变 Provider
-  config、Secret、生产数据库、部署或业务对象。
+  post-handheld/pre-video Confirm seam；只读取单一 ready-result，去除
+  `imageSources`/raw modal image source 日志；更新 batch runner 对受控
+  `requires_action` evidence 的不可恢复终态保存。
+- 更新本地 Agent 受控 reason、report evidence/failure-stage 传递及 focused
+  tests/docs；未改变 Provider config、Secret、生产数据库、部署或业务对象。
 
 ### 验证
 
 - `node --test test/cloud-executor-playwright.test.js
   test/local-agent-cli.test.js test/hifly-production-evidence-contract.test.js`
-  → **33/33 pass**。
-- `node --test test/batch-runner.test.js` → **92/92 pass**。
+  → **当前 40/40 pass**（包含 thrown-evidence、target/policy、voice-shape 与
+  evidence projection 修正）。
+- `node --test test/batch-runner.test.js` → **当前 95/95 pass**。
+- `node --test test/local-agent-execution-system.test.js` → **3/3 pass**。
 - Relevant aggregate (`hifly-hands-on-product-contract`, evidence helper,
   avatar material, production start, package/compiler, handoff, snapshot,
-  Cloud, Local and batch suites) → **227/227 pass**。
-- `npm run check` → **252 JavaScript files checked**。
-- `git diff --check` → pass。
+  Cloud, Local and batch suites) → **233/233 pass**。
+- `npm run check` → **252 JavaScript files checked**；`git diff --check` → pass。
 
 当前工程候选仍不能宣称真实生产完成；native voice exact identity、final
 video ratio、Stage 1→Stage 2 dimension behavior、最终音频与 Lip-sync 仍是
@@ -98,7 +108,7 @@ video ratio、Stage 1→Stage 2 dimension behavior、最终音频与 Lip-sync �
 
 ### GREEN 4 — Cloud pre-point gate
 
-- Cloud Playwright 在 browser/delegate construction 前验证 contract/mode；默认没有 proven verifier 时对 ratio/voice 返回稳定 `CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE`（details=`aspect_ratio,voice_source`），browser-zero。注入 verifier 时只构造一个 page/hiflyPage，并将同一对象传入 verifier；验证发生在 `runBatch`/`createAsset`/`submitVideo` 前，失败即关闭 context 并返回 Owner-gated stop；wrapper 再次复核 contract。
+- Cloud Playwright 在 browser/delegate construction 前验证 contract/mode；默认没有 proven verifier 时对 ratio/voice 返回稳定 `CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE`（历史实现曾记录为 `aspect_ratio,voice_source`，当前字段为 `target_aspect_ratio,voice_source`），browser-zero。注入 verifier 时只构造一个 page/hiflyPage，并将同一对象传入 verifier；验证发生在 `runBatch`/`createAsset`/`submitVideo` 前，失败即关闭 context 并返回 Owner-gated stop；wrapper 再次复核 contract。
 - 结果：Cloud Playwright **7/7** pass，包含 package archive/compiler chain、taskFactory drift、same-page verifier、failed-verifier close 与 ambiguous post-submit 既有回归。
 
 ### Rework — readiness, page ordering, integrity, and archive closure
@@ -116,7 +126,7 @@ video ratio、Stage 1→Stage 2 dimension behavior、最终音频与 Lip-sync �
 - **RED B（validator shape）**：删除 contract plan lineage 字段后旧 validator 因 `expectedPairs(...).filter(nonempty)` 仍接受。新增字段表测试先失败；GREEN 明确要求每个 plan/product/copy/avatar 字段与每个 fixed production flag，且覆盖 unsupported version。
 - **RED C（avatar race/binding）**：material seam 返回 stale selection/avatar version 时旧 snapshot 只采用 material checksum，未核对 selection/version。新增测试先失败；GREEN 要求 server-private seam 接收 expected IDs，并由 seam 与 snapshot 双重核对。
 - **RED D（primary product）**：ProductRevision 有多个图片且无显式 primary 时旧 snapshot 静默选首张。新增测试先失败；GREEN 仅在恰好一个 asset 时允许 fallback，否则返回 `HIFLY_HANDS_ON_PRODUCT_V1_PRODUCT_ASSET_REQUIRED`。
-- **GREEN E（runtime semantics）**：ratio/voice verifier 缺失、失败或返回未验证结果统一返回 `{status:"requires_action", outcome:"requires_action", failureStage:"pre_point_gate", code:"CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", fields:["aspect_ratio","voice_source"]}`，Cloud service 可保持 Owner-gated，而不是 generic failed；fake verifier 只用于本地测试。
+- **GREEN E（runtime semantics）**：ratio/voice verifier 缺失、失败或返回未验证结果统一返回 `{status:"requires_action", outcome:"requires_action", failureStage:"pre_point_gate", code:"CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", fields:["target_aspect_ratio","voice_source"]}`，Cloud service 可保持 Owner-gated，而不是 generic failed；fake verifier 只用于本地测试。
 
 Review 同时收窄接口为单一 canonical `hifly_hands_on_product_v1` 字段与 constructor-injected `productionContractId`；移除 `production_contract`/camel-case aliases 与未使用的 `isHifly...` export。实现模块不硬编码 Owner UUID；exact lineage 来自当前上游与 caller expected bindings。
 

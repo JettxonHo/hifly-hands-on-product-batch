@@ -80,7 +80,8 @@ function taskFor(workspace) {
     avatar_selection_id: contract.avatar.selection_id,
     avatar_version_id: contract.avatar.avatar_version_id,
     avatar_material_version_id: contract.avatar.material_version_id,
-    aspect_ratio: contract.production.aspect_ratio,
+    target_aspect_ratio: contract.production.target_aspect_ratio,
+    handheld_aspect_ratio_policy: contract.production.handheld_aspect_ratio_policy,
     voice_source: contract.production.voice_source,
     production_mode: contract.production.mode,
     presentation_size_code: contract.production.presentation_size_code,
@@ -102,13 +103,13 @@ function orderFor() {
   return { id: "order-cloud-1", created_by_member_id: "member-owner" };
 }
 
-function verifiedContractFields(fields = ["aspect_ratio", "voice_source"]) {
+function verifiedContractFields(fields = ["target_aspect_ratio", "voice_source"]) {
   return {
     status: "verified",
     evidence: fields.map((field) => createEvidenceRecord({
       field,
-      expected: field === "aspect_ratio" ? "9:16" : "hifly_native",
-      actual: field === "aspect_ratio" ? "9:16" : "hifly_native",
+      expected: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
+      actual: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
       evidenceSource: "test_fixture",
       verificationStage: "pre_paid",
       paidBoundary: "before_paid_action_1",
@@ -242,7 +243,7 @@ test("cloud adapter preflight is browser-zero when no contract field verifier is
     assert.equal(result.status, "requires_action");
     assert.equal(result.code, "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
     assert.equal(result.failureStage, "pre_point_gate");
-    assert.deepEqual(result.fields, ["aspect_ratio", "voice_source"]);
+    assert.deepEqual(result.fields, ["target_aspect_ratio", "voice_source"]);
     assert.deepEqual(calls, []);
   } finally { await cleanup(); }
 });
@@ -275,10 +276,103 @@ test("cloud adapter rejects a bare boolean verifier result before createAsset", 
     assert.equal(result.status, "requires_action");
     assert.equal(result.code, "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED");
     assert.equal(result.failureStage, "pre_point_gate");
-    assert.deepEqual(result.fields, ["aspect_ratio", "voice_source"]);
+    assert.deepEqual(result.fields, ["target_aspect_ratio", "voice_source"]);
     assert.equal(result.evidence[0].result, HIFLY_VERIFICATION_RESULT.NOT_PROVEN);
     assert.equal(calls.includes("prepare-asset"), false);
     assert.equal(calls.includes("submit"), false);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("cloud adapter reconstructs thrown verifier evidence instead of exposing raw values", async () => {
+  const { workspace, cleanup } = await workspaceFixture();
+  const task = taskFor(workspace);
+  const context = fakeContext({ setDefaultTimeout() {} }, []);
+  try {
+    const adapter = createCloudPlaywrightAdapter({
+      workspace,
+      browserType: { async launchPersistentContext() { return context; } },
+      taskFactory: async () => task,
+      contractFieldVerifier: async () => {
+        throw Object.assign(new Error("unsafe verifier detail"), {
+          code: "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED",
+          outcome: "requires_action",
+          evidence: [{
+            field: "target_aspect_ratio",
+            expected: "https://unsafe.example/secret",
+            actual: "/private/raw/path",
+            evidence_source: "https://unsafe.example/raw",
+            verification_stage: "pre_paid",
+            paid_boundary: "before_paid_action_1",
+            result: HIFLY_VERIFICATION_RESULT.PROVEN
+          }]
+        });
+      },
+      hiflyPageFactory() {
+        return {
+          async preflight() {},
+          async prepareAsset() { throw new Error("must not run"); },
+          async submitVideo() { throw new Error("must not run"); },
+          async querySubmission() {},
+          async downloadArtifact() {},
+          async reconcileSubmission() {}
+        };
+      }
+    });
+    const result = await adapter.run({ attempt: { id: "attempt-thrown-evidence" } });
+    assert.equal(result.status, "requires_action");
+    assert.equal(result.code, "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED");
+    assert.deepEqual(result.evidence.map((record) => record.field), ["target_aspect_ratio", "voice_source"]);
+    assert.equal(result.evidence[0].evidence_source, "not_captured");
+    assert.equal(result.evidence[0].actual, null);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("cloud action result retains a post-handheld ratio requires_action evidence", async () => {
+  const { workspace, cleanup } = await workspaceFixture();
+  const task = taskFor(workspace);
+  const evidence = createEvidenceRecord({
+    field: "handheld_aspect_ratio",
+    expected: "9:16",
+    actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions",
+    verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2",
+    result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH
+  });
+  const context = fakeContext({ setDefaultTimeout() {} }, []);
+  try {
+    const adapter = createCloudPlaywrightAdapter({
+      workspace,
+      browserType: { async launchPersistentContext() { return context; } },
+      taskFactory: async () => task,
+      contractFieldVerifier: async ({ fields }) => verifiedContractFields(fields),
+      hiflyPageFactory() {
+        return {
+          async preflight() { return { status: "ready" }; },
+          async prepareAsset() {
+            throw Object.assign(new Error("ratio mismatch"), {
+              code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH",
+              outcome: "requires_action",
+              failureStage: "post_handheld_pre_video",
+              evidence: [evidence]
+            });
+          },
+          async submitVideo() { throw new Error("submit must not run"); },
+          async querySubmission() {},
+          async downloadArtifact() {},
+          async reconcileSubmission() {}
+        };
+      }
+    });
+    const result = await adapter.run({ attempt: { id: "attempt-ratio-stop" } });
+    assert.equal(result.status, "requires_action");
+    assert.equal(result.code, "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH");
+    assert.equal(result.failureStage, "post_handheld_pre_video");
+    assert.deepEqual(result.evidence, [evidence]);
   } finally {
     await cleanup();
   }
@@ -335,7 +429,7 @@ test("cloud adapter maps existing Hifly checkpoints to controlled cloud progress
     assert.deepEqual(calls, ["verify", "prepare-asset", "submit", "query", "download"]);
     assert.equal(verifierInput.page, page);
     assert.equal(typeof verifierInput.hiflyPage, "object");
-    assert.deepEqual(verifierInput.fields, ["aspect_ratio", "voice_source"]);
+    assert.deepEqual(verifierInput.fields, ["target_aspect_ratio", "voice_source"]);
     assert.equal(verifierInput.phase, "pre_point");
     assert.deepEqual(progress, ["pre_submit", "submitted", "wait_download"]);
   } finally {

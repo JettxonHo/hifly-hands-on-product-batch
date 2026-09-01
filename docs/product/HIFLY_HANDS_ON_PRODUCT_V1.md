@@ -30,7 +30,8 @@
     "size": "<verified bytes>"
   },
   "production": {
-    "mode": "hands_on_product", "aspect_ratio": "9:16",
+    "mode": "hands_on_product", "target_aspect_ratio": "9:16",
+    "handheld_aspect_ratio_policy": "record_only",
     "voice_source": "hifly_native", "scene_mode": "single_scene",
     "camera_mode": "fixed_simple", "presentation_size_code": "smart_fit",
     "b_roll": false, "additional_characters": false, "external_tts": false,
@@ -39,7 +40,7 @@
 }
 ```
 
-`production.aspect_ratio` is the intended target only. It is not a claim about
+`production.target_aspect_ratio` is the intended target only. It is not a claim about
 the dimensions of either a future handheld artifact or the final video. Those
 observations are recorded separately through the narrow Production Evidence
 Contract. Every record contains `field`, `expected`, `actual`,
@@ -47,11 +48,14 @@ Contract. Every record contains `field`, `expected`, `actual`,
 
 For a generated handheld artifact, the post-handheld/pre-video gate reads the
 artifact's natural dimensions and applies the exact integer check
-`width * 16 === height * 9`. For example, `1600x2848` is
-`FAIL_EXACT_MATCH`; the UI Confirm action and Stage 2 submit are not reached.
-This gate records the failure after paid Stage 1 and before a possible paid
-Stage 2. It does not infer the final-video ratio: `final_video_aspect_ratio`
-remains `NOT_PROVEN` until a final MP4 is observed.
+`width * 16 === height * 9`. The immutable per-run policy is
+`record_only` by default; a near-9:16 result such as `1600x2848` is recorded as
+`FAIL_EXACT_MATCH` and may continue. An explicit `require_exact` policy turns
+the same evidence into `requires_action`, so UI Confirm and Stage 2 submit are
+not reached. The historical real run explicitly required exact ratio and was
+therefore correctly stopped after paid Stage 1; this revision does not rewrite
+that historical result. It does not infer the final-video ratio:
+`final_video_aspect_ratio` remains `NOT_PROVEN` until a final MP4 is observed.
 
 The immutable snapshot is created only when the production snapshot port is explicitly configured with `productionContractId=HIFLY_HANDS_ON_PRODUCT_V1`; no route input or natural-language plan text opts into it. Production configuration supplies that marker. Legacy/demo callers without the marker retain their historical contractless snapshot behavior.
 
@@ -78,7 +82,7 @@ Any identity, mapping, media, size, checksum, mode, version, ratio, voice, or co
 | Frozen Chinese copy input | Existing real record, frozen CopyVersion, and handoff/compiler snapshots | `SUFFICIENT_EXISTING_EVIDENCE` |
 | AI-copy disabled | Existing Hifly page toggle/script set + read-back before inner Generate, preserved as frozen-copy mode | `CONTRACT_MACHINE_ENFORCED` |
 | Smart Fit | Existing native size mapping, select + double read-back pre-submit seam | `CONTRACT_MACHINE_ENFORCED` |
-| 9:16 | Historical `1600x2848` artifact plus post-handheld natural-dimension seam | `POST_HANDHELD_EXACT_GATE_MACHINE_ENFORCED`; final-video proof still required |
+| 9:16 | Historical `1600x2848` artifact plus post-handheld natural-dimension seam | `RECORD_ONLY` by default; immutable `require_exact` gate available; final-video proof still required |
 | Hifly native voice | Historical output is not a machine-verifiable setter/read-back contract | `LIVE_RECORDING_REQUIRED` |
 | Generate action boundary | Existing pre-submit checkpoint and paid-action seam | `SUFFICIENT_EXISTING_EVIDENCE` |
 | Download/output | Historical Hifly → artifact → A12/Work chain | `SUFFICIENT_EXISTING_EVIDENCE` |
@@ -87,19 +91,31 @@ Any identity, mapping, media, size, checksum, mode, version, ratio, voice, or co
 
 ## P1 truth
 
-`presentation_size_code=smart_fit` is **CLOSED / CONTRACT_MACHINE_ENFORCED** by the existing native select and double read-back seam. `copy_ai_generation=false` is **CONTRACT_MACHINE_ENFORCED** by the existing script/toggle set and read-back before inner Generate. `scene_mode=single_scene`, `camera_mode=fixed_simple`, `b_roll=false` and `additional_characters=false` are **RECORDED_ONLY / POST_OUTPUT_QC_REQUIRED**. `external_tts=false` and `standalone_lipsync=false` are **RECORDED_ONLY** from the current path and are not claims about future provider capabilities. Output appearance and quality remain a separate post-output human/QC gate.
+`production.target_aspect_ratio` is the immutable intended target. The
+post-handheld natural-dimension check is **RECORD_ONLY** unless the immutable
+`handheld_aspect_ratio_policy=require_exact` is selected for that run;
+`presentation_size_code=smart_fit` is **CLOSED / CONTRACT_MACHINE_ENFORCED** by
+the existing native select and double read-back seam. `copy_ai_generation=false`
+is **CONTRACT_MACHINE_ENFORCED** by the existing script/toggle set and
+read-back before inner Generate. `scene_mode=single_scene`,
+`camera_mode=fixed_simple`, `b_roll=false` and `additional_characters=false`
+are **RECORDED_ONLY / POST_OUTPUT_QC_REQUIRED**. `external_tts=false` and
+`standalone_lipsync=false` are **RECORDED_ONLY** from the current path and are
+not claims about future provider capabilities. Output appearance and quality
+remain a separate post-output human/QC gate.
 
 ## Stage verdict
 
 `CONTRACT_IMPLEMENTATION = GAP`: the provider-free structural/identity candidate and post-handheld exact-ratio stop are GREEN, but production remains BLOCKED until a proven structured pre-point verifier can establish the required native voice identity and a real final-video run can prove final ratio/audio behavior.
 
-The evidence status model intentionally keeps dimensions independent: hands-on
-product `PROVEN`, avatar/product `PARTIAL`, copy/voice/final ratio and
-Stage 1→Stage 2 dimension behavior `NOT_PROVEN` until their own evidence is
-observed. Product fidelity is a consumer-visible gate: missing/wrong product,
-major shape or color corruption, gross corruption, wrong substitution, or a
-consumer-visible contradiction can block. Unreadable fine print is recorded
-as `NOT_OBSERVABLE` or `NOT_REQUIRED`; this contract does not add OCR.
+The historical evidence baseline keeps hands-on-product `PROVEN`, while a new
+run without an evidence record starts as `NOT_PROVEN`. Avatar/product remain
+`PARTIAL`; copy/voice/final ratio and Stage 1→Stage 2 dimension behavior remain
+`NOT_PROVEN` until their own evidence is observed. Product fidelity is a
+consumer-visible gate: missing/wrong product, major shape or color corruption,
+gross corruption, wrong substitution, or a consumer-visible contradiction can
+block. Unreadable fine print is recorded as `NOT_OBSERVABLE` or `NOT_REQUIRED`;
+this contract does not add OCR.
 
 The approved Copy v2 → Hifly UI input path remains distinct from submitted
 production request → final Chinese narration correspondence. UI input matching

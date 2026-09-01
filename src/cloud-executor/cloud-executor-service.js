@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { sanitizeEvidenceRecords } from "../execution-contracts/hifly-hands-on-product-evidence.js";
 
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const failure = (code, details = null) => Object.assign(new Error(code), { code, details });
@@ -292,9 +293,10 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
   }
 
   async function saveReport({ attempt, order, candidate = null, outcome, failureStage = null, requiresActionReason = null,
-    progressPhase = null }) {
+    progressPhase = null, evidence = null }) {
     const at = timestamp();
     const reports = await repository.listReports?.(identity.organizationId, attempt.id) || [];
+    const safeEvidence = sanitizeEvidenceRecords(evidence);
     const report = {
       id: randomUUID(), organization_id: identity.organizationId, report_version: Math.max(0, ...reports.map((value) => value.report_version || 0)) + 1,
       production_order_id: attempt.production_order_id, execution_attempt_id: attempt.id, package_id: attempt.package_id,
@@ -303,13 +305,14 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       supersedes_report_id: null, outcome, started_at: attempt.started_at, completed_at: at, operator_note: "", deviations: [],
       primary_output: candidate ? { upload_reference: candidate.id, original_filename: candidate.original_filename,
         media_type: candidate.media_type, size: candidate.size, checksum: candidate.checksum, role: "primary_video" } : null,
-      supporting_outputs: [], error_category: ["failed", "requires_action"].includes(outcome) ? "cloud_executor" : null,
+      supporting_outputs: safeEvidence.length ? [{ kind: "production_evidence", evidence: safeEvidence }] : [],
+      error_category: ["failed", "requires_action"].includes(outcome) ? "cloud_executor" : null,
       failure_stage: failureStage, requires_action_reason: outcome === "requires_action" ? (requiresActionReason || "Cloud Executor requires human action") : null,
       retryability: ["failed", "requires_action"].includes(outcome) ? "not_retryable" : null,
       upstream_return_target: null
     };
     const fingerprint = stableJson({ operation: "report", report_id: report.id, attempt_id: attempt.id,
-      outcome, primary_output: report.primary_output, failure_stage: report.failure_stage });
+      outcome, primary_output: report.primary_output, failure_stage: report.failure_stage, supporting_outputs: report.supporting_outputs });
     const receiptKey = `${identity.organizationId}:${identity.executorCloudId}:cloud-executor:report:${report.id}`;
     const targetStatus = outcome === "completed" ? "succeeded" : outcome;
     const saved = await repository.saveReport({ receiptKey, fingerprint, report, attemptId: attempt.id,
@@ -390,7 +393,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           const requiresAction = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "requires_action",
             failureStage: clean(result?.failureStage) || "unknown_post_submit",
             requiresActionReason: clean(result?.requiresActionReason) || "Cloud Executor requires human action",
-            progressPhase: clean(result?.failureStage) || "unknown_post_submit" });
+            progressPhase: clean(result?.failureStage) || "unknown_post_submit", evidence: result?.evidence });
           halted = true;
           return { status: "requires_action", stopped: true, attempt: publicAttempt(requiresAction.attempt),
             report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
@@ -437,7 +440,8 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
         if (current?.status === "running" && order.status === "running") {
           if (terminalError?.code === "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN" || terminalError?.outcome === "requires_action") {
             const requiresAction = await saveReport({ attempt: current, order, outcome: "requires_action",
-              failureStage: "unknown_post_submit", requiresActionReason: terminalError.message, progressPhase: "unknown_post_submit" });
+              failureStage: clean(terminalError.failureStage) || "unknown_post_submit", requiresActionReason: terminalError.message,
+              progressPhase: "unknown_post_submit", evidence: terminalError.evidence });
             return { status: "requires_action", stopped: true, attempt: publicAttempt(requiresAction.attempt),
               report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
           }

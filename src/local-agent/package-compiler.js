@@ -275,7 +275,8 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
         product.status !== "ready" ||
         text(manifest.avatar_asset_version_id || manifest.avatar_snapshot?.avatar_asset_version_id) !== contract.avatar.avatar_version_id ||
         text(manifest.avatar_snapshot?.avatar_selection_id) !== contract.avatar.selection_id || manifest.avatar_snapshot?.status !== "confirmed" ||
-        contract.production.mode !== "hands_on_product" || contract.production.aspect_ratio !== "9:16" ||
+        contract.production.mode !== "hands_on_product" || contract.production.target_aspect_ratio !== "9:16" ||
+        !["record_only", "require_exact"].includes(contract.production.handheld_aspect_ratio_policy) ||
         contract.production.voice_source !== "hifly_native" || contract.production.presentation_size_code !== "smart_fit" ||
         contract.production.copy_ai_generation !== false ||
         text(reference?.media_type) !== contract.product.media_type || Number(reference?.size) !== contract.product.size ||
@@ -329,7 +330,8 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
     compiled.avatar_selection_id = contract.avatar.selection_id;
     compiled.avatar_version_id = contract.avatar.avatar_version_id;
     compiled.avatar_material_version_id = contract.avatar.material_version_id;
-    compiled.aspect_ratio = contract.production.aspect_ratio;
+    compiled.target_aspect_ratio = contract.production.target_aspect_ratio;
+    compiled.handheld_aspect_ratio_policy = contract.production.handheld_aspect_ratio_policy;
     compiled.voice_source = contract.production.voice_source;
     compiled.production_mode = contract.production.mode;
   }

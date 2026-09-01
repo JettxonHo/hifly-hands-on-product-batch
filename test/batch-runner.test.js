@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { chromium } from "playwright";
 
 import { createBatchStore } from "../src/core/batch-store.js";
 import { acquireExecutionLock } from "../src/core/execution-lock.js";
@@ -13,7 +14,7 @@ import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { createHiflyExecutor } from "../src/executors/hifly-executor.js";
 import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
 import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
-import { createEvidenceRecord, HIFLY_VERIFICATION_RESULT } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
+import { createEvidenceRecord, HIFLY_VERIFICATION_RESULT, sanitizeEvidenceRecords } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 import { readRpaState, rpaWorstCaseRenameBackoffMs, writeRpaState } from "../src/rpa/rpa-state.js";
 
 async function fixtureRun({ executor, initialStatus = "confirmed", itemOverrides = {} } = {}) {
@@ -2583,18 +2584,94 @@ test("confirmGeneratedHandsOnImage fails the exact handheld ratio before UI conf
   adapter.readGeneratedHandsOnImageDimensions = async () => ({ width: 1600, height: 2848 });
   adapter.clickModalConfirm = async () => { confirmCalls += 1; };
 
+  const production = Object.freeze({ target_aspect_ratio: "9:16", handheld_aspect_ratio_policy: "require_exact" });
   await assert.rejects(
     () => adapter.confirmGeneratedHandsOnImage({
-      hifly_hands_on_product_v1: { production: { aspect_ratio: "9:16" } }
+      hifly_hands_on_product_v1: { production }
     }),
     { code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH" }
   );
   assert.equal(confirmCalls, 0);
 });
 
+test("record-only handheld ratio evidence reaches the asset result and still permits confirm", async () => {
+  let confirmCalls = 0;
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout() {}
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 10000 }
+  }, { info() {} });
+  adapter.waitForGeneratedHandsOnImage = async () => {};
+  adapter.readGeneratedHandsOnImageDimensions = async () => ({ width: 1600, height: 2848 });
+  adapter.clickModalConfirm = async () => { confirmCalls += 1; };
+
+  const production = Object.freeze({ target_aspect_ratio: "9:16", handheld_aspect_ratio_policy: "record_only" });
+  const evidence = await adapter.confirmGeneratedHandsOnImage({ hifly_hands_on_product_v1: { production } });
+  assert.equal(evidence.field, "handheld_aspect_ratio");
+  assert.equal(evidence.result, HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH);
+  assert.equal(evidence.requires_action, false);
+  assert.equal(confirmCalls, 1);
+
+  adapter.openWorkbench = async () => {};
+  adapter.enterHandsOnProductMode = async () => {};
+  adapter.fillProduct = async () => evidence;
+  const asset = await adapter.prepareAsset({ sku: "SKU-RECORD-ONLY" });
+  assert.deepEqual(asset.handheld_evidence, sanitizeEvidenceRecords([evidence]));
+});
+
+test("generated dimension lookup ignores a larger avatar image and binds to the marked result", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const avatar = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="2400"></svg>');
+    const result = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2848"></svg>');
+    await page.setContent(`
+      <div class="ant-modal" style="display:block">
+        <div>手持商品图 再次生成 重新编辑 确认</div>
+        <img class="avatar-preview" style="width:600px;height:600px" src="data:image/svg+xml,${avatar}">
+        <div class="gen-result"><img style="width:120px;height:200px" src="data:image/svg+xml,${result}"></div>
+      </div>
+    `);
+    await page.waitForFunction(() => document.querySelector(".gen-result img")?.naturalWidth > 0);
+
+    const adapter = new HiflyHandsOnProductPage(page, { batch: { defaultTimeoutMs: 100 } }, { info() {} });
+    assert.deepEqual(await adapter.readGeneratedHandsOnImageDimensions(), { width: 1600, height: 2848 });
+  } finally {
+    await browser.close();
+  }
+});
+
+test("generated dimension lookup fails closed for ambiguous or not-ready result candidates", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const svg = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2848"></svg>');
+    const adapter = new HiflyHandsOnProductPage(page, { batch: { defaultTimeoutMs: 100 } }, { info() {} });
+    await page.setContent(`
+      <div class="ant-modal" style="display:block">
+        <div>手持商品图 再次生成 重新编辑 确认</div>
+        <div class="gen-result"><img src="data:image/svg+xml,${svg}"><img src="data:image/svg+xml,${svg}"></div>
+      </div>
+    `);
+    await page.waitForFunction(() => document.querySelector(".gen-result img")?.naturalWidth > 0);
+    assert.equal(await adapter.readGeneratedHandsOnImageDimensions(), null);
+
+    await page.setContent(`
+      <div class="ant-modal" style="display:block">
+        <div>手持商品图 正在生成</div>
+        <div class="gen-result"><img src="data:image/svg+xml,${svg}"></div>
+      </div>
+    `);
+    await page.waitForFunction(() => document.querySelector(".gen-result img")?.naturalWidth > 0);
+    assert.equal(await adapter.readGeneratedHandsOnImageDimensions(), null);
+  } finally {
+    await browser.close();
+  }
+});
+
 test("runBatch preserves a post-handheld requires_action evidence stop", async () => {
   const evidence = createEvidenceRecord({
-    field: "aspect_ratio",
+    field: "handheld_aspect_ratio",
     expected: "9:16",
     actual: "1600x2848",
     evidenceSource: "generated_artifact_natural_dimensions",
@@ -2625,7 +2702,8 @@ test("runBatch preserves a post-handheld requires_action evidence stop", async (
     assert.equal(item.requires_action_reason, "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH");
     assert.deepEqual(item.contract_evidence, [evidence]);
     assert.equal(item.error_phase, "post_handheld_pre_video");
-    assert.equal(item.status, "generating_asset");
+    assert.equal(item.status, "failed_pre_submit");
+    assert.equal(item.retryability, "not_retryable");
   } finally {
     await fixture.cleanup();
   }

@@ -2,7 +2,7 @@ import path from "node:path";
 import { resolveFromRoot } from "./config.js";
 import { relativePortablePath } from "./core/portable-path.js";
 import { timestampForFile } from "./logger.js";
-import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord, verifyExactAspectRatio } from "./execution-contracts/hifly-hands-on-product-evidence.js";
+import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord, sanitizeEvidenceRecords, verifyExactAspectRatio } from "./execution-contracts/hifly-hands-on-product-evidence.js";
 
 function normalizeScriptText(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ").normalize("NFC");
@@ -94,8 +94,9 @@ export class HiflyHandsOnProductPage {
     // The inner Hands-on-Product image generation can consume points. Freeze
     // and read back the copy/AI mode first so a toggle or script failure stops
     // before the paid modal action.
-    await this.createHandsOnImage(product);
+    const handheldEvidence = await this.createHandsOnImage(product);
     await this.captureStep(product, "after-upload");
+    return handheldEvidence;
   }
 
   async applyScriptMode(product) {
@@ -177,8 +178,12 @@ export class HiflyHandsOnProductPage {
   async prepareAsset(product) {
     await this.openWorkbench();
     await this.enterHandsOnProductMode();
-    await this.fillProduct(product);
-    return { asset_id: `hifly-asset-${product.task_id || product.sku}` };
+    const handheldEvidence = await this.fillProduct(product);
+    const safeEvidence = sanitizeEvidenceRecords(handheldEvidence ? [handheldEvidence] : []);
+    return {
+      asset_id: `hifly-asset-${product.task_id || product.sku}`,
+      ...(safeEvidence.length ? { handheld_evidence: safeEvidence } : {})
+    };
   }
 
   async submitVideo(product, { asset, checkpoint } = {}) {
@@ -582,8 +587,8 @@ export class HiflyHandsOnProductPage {
       await this.captureStep(product, "modal-size-selected");
       await this.clickModalGenerate();
       await this.captureStep(product, "modal-after-generate");
-      await this.confirmGeneratedHandsOnImage(product);
-      return;
+      const handheldEvidence = await this.confirmGeneratedHandsOnImage(product);
+      return handheldEvidence;
     }
   }
 
@@ -765,35 +770,59 @@ export class HiflyHandsOnProductPage {
   async confirmGeneratedHandsOnImage(product = null) {
     const timeout = this.config.batch.generationTimeoutMs;
     await this.waitForGeneratedHandsOnImage(timeout);
-    await this.verifyPostHandheldResult(product);
+    const handheldEvidence = await this.verifyPostHandheldResult(product);
     await this.clickModalConfirm(timeout);
+    return handheldEvidence;
   }
 
   async readGeneratedHandsOnImageDimensions() {
-    if (typeof this.page.evaluate !== "function") return null;
-    await this.ensureVisibleModalInspector();
-    return this.page.evaluate(() => {
-      const state = window.__hiflyGetVisibleHandsOnModalState?.();
-      if (!state?.element) return null;
-      const images = Array.from(state.element.querySelectorAll("img"))
-        .map((image) => {
-          const rect = image.getBoundingClientRect();
-          return {
-            width: image.naturalWidth,
-            height: image.naturalHeight,
-            displayArea: rect.width * rect.height,
-            visible: rect.width > 0 && rect.height > 0
-          };
-        })
-        .filter((image) => image.visible && image.width > 0 && image.height > 0)
-        .sort((left, right) => right.displayArea - left.displayArea);
-      const target = images[0];
-      return target ? { width: target.width, height: target.height } : null;
-    }).catch(() => null);
+    if (typeof this.page.locator !== "function") return null;
+    const dialog = this.dialogLocator();
+    if (!await dialog.isVisible().catch(() => false)) return null;
+    // Read readiness and dimensions from the same dialog locator. The page
+    // may briefly contain an old hidden/re-rendered dialog alongside the ready
+    // result; a page-global inspector could otherwise pair the wrong state
+    // with the candidate image.
+    const readyState = await this.inspectGeneratedModalState(dialog).catch(() => ({ ready: false }));
+    if (!readyState?.ready) return null;
+
+    // Prefer a provider result marker scoped to this ready modal. A marked
+    // result is authoritative; multiple matches are ambiguous and fail closed.
+    const resultSelector = [
+      ".gen-result img",
+      "[data-role='generated-result'] img",
+      "[data-testid='generated-result'] img",
+      ".generated-result img",
+      "[data-result='handheld'] img"
+    ].join(",");
+    const marked = dialog.locator(resultSelector);
+    const markedCount = await marked.count().catch(() => 0);
+    if (markedCount > 1) return null;
+    if (markedCount === 1) {
+      return marked.evaluate((image) => {
+        const rect = image.getBoundingClientRect();
+        const style = window.getComputedStyle(image);
+        return {
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+          visible: rect.width > 0 && rect.height > 0 && style.display !== "none" &&
+            style.visibility !== "hidden" && style.opacity !== "0"
+        };
+      })
+        .then((dimensions) => dimensions.visible && dimensions.width > 0 && dimensions.height > 0
+          ? { width: dimensions.width, height: dimensions.height } : null)
+        .catch(() => null);
+    }
+
+    // A ready modal without a semantic generated-result marker is ambiguous:
+    // UUID filenames are also used by avatar/product previews, so never pick
+    // one by filename or display area.
+    return null;
   }
 
   async verifyPostHandheldResult(product = null) {
-    const expected = product?.hifly_hands_on_product_v1?.production?.aspect_ratio || product?.aspect_ratio;
+    const contractProduction = product?.hifly_hands_on_product_v1?.production;
+    const expected = contractProduction?.target_aspect_ratio || product?.target_aspect_ratio;
     // Legacy callers do not opt into the V1 production contract and retain
     // their historical confirmation behavior.
     if (!expected) return null;
@@ -801,7 +830,7 @@ export class HiflyHandsOnProductPage {
     const dimensions = await this.readGeneratedHandsOnImageDimensions();
     if (!dimensions) {
       const evidence = createEvidenceRecord({
-        field: "aspect_ratio",
+        field: "handheld_aspect_ratio",
         expected,
         actual: null,
         evidenceSource: "generated_artifact_natural_dimensions_unavailable",
@@ -822,6 +851,10 @@ export class HiflyHandsOnProductPage {
       width: dimensions.width,
       height: dimensions.height,
       expected,
+      enforcementPolicy: contractProduction
+        ? Object.freeze({ handheld_aspect_ratio: contractProduction.handheld_aspect_ratio_policy })
+        : product?.enforcement_policy,
+      field: "handheld_aspect_ratio",
       evidenceSource: "generated_artifact_natural_dimensions",
       verificationStage: "post_handheld_pre_video",
       paidBoundary: "after_paid_action_1_before_paid_action_2"
@@ -834,7 +867,7 @@ export class HiflyHandsOnProductPage {
       verificationStage: evidence.verification_stage,
       paidBoundary: evidence.paid_boundary
     });
-    if (evidence.result === HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH) {
+    if (evidence.requires_action === true) {
       const error = Object.assign(new Error("HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH"), {
         code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH",
         outcome: "requires_action",
@@ -861,8 +894,7 @@ export class HiflyHandsOnProductPage {
           ready: state.ready,
           textPreview: state.text?.slice?.(0, 120) ?? "",
           buttonTexts: state.buttonTexts,
-          imageCount: state.imageSources?.length ?? 0,
-          imagePreview: state.imageSources?.slice?.(0, 5) ?? []
+          imageCount: state.imageSources?.length ?? 0
         });
       }
       await this.page.waitForTimeout(2000);
@@ -902,7 +934,7 @@ export class HiflyHandsOnProductPage {
     await this.page.waitForTimeout(500);
   }
 
-  // 诊断：把当前页面所有可见 modal 的结构 + 所有按钮的 accessible name + 图片 src 落盘。
+  // 诊断：把当前页面可见 modal 的结构 + 按钮 accessible name + 图片数量落盘；不落盘图片 src。
   // 这是判定“重新编辑后真实 DOM”的决定性证据，不消耗积分（仅在 reset 阶段调用）。
   async dumpModalDomSnapshot(product) {
     if (typeof this.page.evaluate !== "function") return;
@@ -921,7 +953,7 @@ export class HiflyHandsOnProductPage {
         visibleModalFound: Boolean(state.element),
         modalText: (state.text || "").slice(0, 600),
         modalButtonTexts: state.buttonTexts || [],
-        modalImageSources: (state.imageSources || []).slice(0, 12),
+        modalImageCount: state.imageSources?.length ?? 0,
         allModalCount: document.querySelectorAll(".ant-modal, [role='dialog']").length,
         sampleButtons: allButtons
       };
@@ -1002,7 +1034,7 @@ export class HiflyHandsOnProductPage {
     // blob: 每次上传都不同；非 blob 且 src 未变 = 残留图没被替换
     if (staleSrc && current.src && current.src === staleSrc.src && !String(current.src).startsWith("blob:")) {
       throw new Error(
-        `product image NOT replaced after upload (stale src persists), sku=${product?.sku}, src=${current.src}`
+        `product image NOT replaced after upload (stale source persists), sku=${product?.sku}`
       );
     }
   }

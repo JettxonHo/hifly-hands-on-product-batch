@@ -8,9 +8,11 @@ import { acquireExecutionLock } from "../core/execution-lock.js";
 import { createExecutionSnapshot } from "../core/execution-snapshot.js";
 import { runBatch } from "../core/batch-runner.js";
 import {
-  HIFLY_VERIFICATION_RESULT,
-  createEvidenceRecord,
-  inspectStructuredVerificationResult
+  HIFLY_PRE_PAID_REQUIREMENTS,
+  HIFLY_STRUCTURED_VERIFICATION_ERROR_CODES,
+  completeEvidenceForFields,
+  inspectStructuredVerificationResult,
+  sanitizeEvidenceRecords,
 } from "../execution-contracts/hifly-hands-on-product-evidence.js";
 import { requireHiflyHandsOnProductV1 } from "../execution-contracts/hifly-hands-on-product-v1.js";
 import { createHiflyExecutor } from "../executors/hifly-executor.js";
@@ -116,7 +118,8 @@ function assertHandsOnProductTask(task) {
     ["avatar_version_id", task?.avatar_version_id, value.avatar.avatar_version_id],
     ["avatar_material_version_id", task?.avatar_material_version_id, value.avatar.material_version_id],
     ["production_mode", task?.production_mode, value.production.mode],
-    ["aspect_ratio", task?.aspect_ratio, value.production.aspect_ratio],
+    ["target_aspect_ratio", task?.target_aspect_ratio, value.production.target_aspect_ratio],
+    ["handheld_aspect_ratio_policy", task?.handheld_aspect_ratio_policy, value.production.handheld_aspect_ratio_policy],
     ["voice_source", task?.voice_source, value.production.voice_source],
     ["presentation_size_code", task?.presentation_size_code, value.production.presentation_size_code],
     ["resolved_script_mode", task?.resolved_script_mode, value.copy.mode]
@@ -133,37 +136,19 @@ function assertHandsOnProductTask(task) {
   return value;
 }
 
-const CONTRACT_VERIFICATION_FIELDS = Object.freeze(["aspect_ratio", "voice_source"]);
-const CONTRACT_VERIFICATION_ERROR_CODES = new Set([
-  "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE",
-  "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED",
-  "CONTRACT_STRUCTURED_EVIDENCE_INVALID",
-  "CONTRACT_STRUCTURED_EVIDENCE_INCOMPLETE",
-  "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED"
-]);
+const CONTRACT_VERIFICATION_FIELDS = Object.freeze(Object.keys(HIFLY_PRE_PAID_REQUIREMENTS));
+const CONTRACT_VERIFICATION_ERROR_CODES = new Set(HIFLY_STRUCTURED_VERIFICATION_ERROR_CODES);
 const ACTION_REASON_CODES = new Set([
   ...CONTRACT_VERIFICATION_ERROR_CODES,
   "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH",
   "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_UNVERIFIABLE"
 ]);
 
-function unavailableContractEvidence(fields = CONTRACT_VERIFICATION_FIELDS) {
-  return fields.map((field) => createEvidenceRecord({
-    field,
-    expected: field === "aspect_ratio" ? "9:16" : "hifly_native",
-    actual: null,
-    evidenceSource: "not_captured",
-    verificationStage: "pre_paid",
-    paidBoundary: "before_paid_action_1",
-    result: HIFLY_VERIFICATION_RESULT.NOT_PROVEN
-  }));
-}
-
 function contractFieldNotMachineVerifiable(fields = CONTRACT_VERIFICATION_FIELDS, code = "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", evidence = null) {
-  const error = new Error("CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
+  const error = new Error(code);
   error.code = code;
-  error.details = fields;
-  error.evidence = evidence || unavailableContractEvidence(fields);
+  error.details = Array.isArray(fields) ? fields : CONTRACT_VERIFICATION_FIELDS;
+  error.evidence = completeEvidenceForFields(evidence, error.details);
   error.outcome = "requires_action";
   error.failureStage = "pre_point_gate";
   return error;
@@ -189,13 +174,12 @@ async function verifyPrePointContract({ verifier, task, contract, page, hiflyPag
     result = await verifier({ task, contract, page, hiflyPage, fields: CONTRACT_VERIFICATION_FIELDS, phase: "pre_point" });
   } catch (error) {
     if (CONTRACT_VERIFICATION_ERROR_CODES.has(error?.code)) {
-      if (error.outcome === "requires_action" && Array.isArray(error.evidence)) throw error;
       const fields = Array.isArray(error.details) ? error.details : error.details?.fields || CONTRACT_VERIFICATION_FIELDS;
       throw contractFieldNotMachineVerifiable(fields, error.code, error.evidence);
     }
     throw contractFieldNotMachineVerifiable();
   }
-  const inspected = inspectStructuredVerificationResult(result, CONTRACT_VERIFICATION_FIELDS);
+  const inspected = inspectStructuredVerificationResult(result, HIFLY_PRE_PAID_REQUIREMENTS);
   if (!inspected.valid) {
     throw contractFieldNotMachineVerifiable(inspected.fields || CONTRACT_VERIFICATION_FIELDS, inspected.code, inspected.evidence);
   }
@@ -253,12 +237,13 @@ function actionResult(item, progressTrace) {
     const code = ACTION_REASON_CODES.has(item.requires_action_reason)
       ? item.requires_action_reason
       : "LOGIN_REQUIRED";
+    const evidence = sanitizeEvidenceRecords(item.contract_evidence);
     return {
       status: "requires_action",
       code,
       failureStage: clean(item.error_phase) || "preflight",
       requiresActionReason: code === "LOGIN_REQUIRED" ? "Cloud Executor Provider login is required." : code,
-      ...(Array.isArray(item.contract_evidence) ? { evidence: item.contract_evidence } : {}),
+      ...(evidence.length ? { evidence } : {}),
       checkpoints: progressTrace
     };
   }

@@ -5,6 +5,7 @@ import test from "node:test";
 import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createLocalAgentExecutionService } from "../src/local-agent-execution/local-agent-execution-service.js";
+import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 import { createMemoryManualExecutionRepository } from "../src/manual-execution/memory-manual-execution-repository.js";
 import { createMemoryWorkVerificationRepository } from "../src/work-verification/memory-work-verification-repository.js";
 import { createVerifiedOutputAssetPort } from "../src/work-verification/verified-output-asset-port.js";
@@ -152,9 +153,15 @@ test("expired lease and controlled failure reports never create verification or 
 
   const action = await runningWorld();
   const actionReport = await action.world.service.submitReport({ attemptId: action.attemptId, reportId: "a0000000-0000-4000-8000-000000000011",
-    outcome: "requires_action", reasonCode: "LOGIN_REQUIRED", idempotencyKey: "requires-action-report", message: "remote secret text" });
+    outcome: "requires_action", reasonCode: "LOGIN_REQUIRED", failureStage: "post_handheld_pre_video", idempotencyKey: "requires-action-report", message: "remote secret text",
+    evidence: [createEvidenceRecord({ field: "handheld_aspect_ratio", expected: "9:16", actual: "1600x2848",
+      evidenceSource: "generated_artifact_natural_dimensions", verificationStage: "post_handheld_pre_video",
+      paidBoundary: "after_paid_action_1_before_paid_action_2", result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH })] });
   assert.equal(actionReport.report.requires_action_reason, "本地执行器需要人工重新登录。");
   assert.equal("message" in actionReport.report, false);
+  assert.equal(actionReport.report.supporting_outputs[0].kind, "production_evidence");
+  assert.equal(actionReport.report.supporting_outputs[0].evidence[0].actual, "1600x2848");
+  assert.equal(actionReport.report.failure_stage, "post_handheld_pre_video");
   assert.equal(action.world.order.status, "requires_action");
   assert.equal((await action.world.verificationRepository.listVerificationJobs(ORGANIZATION_ID, ORDER_ID)).length, 0);
 
