@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { createFakeExecutor } from "../executors/fake-executor.js";
 import { getProjectRoot } from "../core/project-root.js";
+import { HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_ID } from "../execution-contracts/hifly-hands-on-product-v1.js";
 
 export const PRODUCTION_FEATURES = Object.freeze([
   "identity",
@@ -273,7 +274,7 @@ export function createProductionConfig({ root = getProjectRoot(), env = process.
       provider: "disabled",
       worker: { ...worker, autoStart: false }
     },
-    productionOrders: { enabled: true },
+    productionOrders: { enabled: true, productionContractId: HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_ID },
     manualHandoff: { enabled: true, localRoot: path.join(dataDir, "manual-handoff-packages"), worker },
     manualExecution: { enabled: true, maxCandidateBytes: 256 * 1024 * 1024, localRoot: path.join(dataDir, "manual-execution-candidates"), worker },
     localAgentExecution: {

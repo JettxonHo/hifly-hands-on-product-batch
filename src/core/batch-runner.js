@@ -4,6 +4,7 @@ import { assertExecutorAdapter, emitExecutionEvent } from "./executor-adapter.js
 import { assertExecutionLockOwnership } from "./execution-lock.js";
 import { createExecutionSnapshot } from "./execution-snapshot.js";
 import { summarizeBatch, TASK_TRANSITIONS, transitionTask } from "./state-machine.js";
+import { sanitizeEvidenceRecords } from "../execution-contracts/hifly-hands-on-product-evidence.js";
 
 function now() {
   return new Date().toISOString();
@@ -17,6 +18,10 @@ function findTask(batch, taskId) {
 
 function isPause(error) {
   return ["PAUSED_AUTH", "LOGIN_REQUIRED"].includes(error?.code);
+}
+
+function safeFailureStage(value, fallback) {
+  return typeof value === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(value.trim()) ? value.trim() : fallback;
 }
 
 function isRecoverableRpaInterruption(error) {
@@ -237,6 +242,32 @@ export async function runBatch({
   }
 
   async function pauseOrFailPreSubmit(task, error, phase) {
+    if (error?.outcome === "requires_action") {
+      const changes = {
+        paused_auth: true,
+        requires_action: true,
+        requires_action_reason: error.code || "EXECUTION_REQUIRES_ACTION",
+        contract_evidence: Array.isArray(error.evidence) ? sanitizeEvidenceRecords(error.evidence, [], { strict: true }) : undefined,
+        error_message: error.code || error.message,
+        error_phase: safeFailureStage(error.failureStage, phase)
+      };
+      // A post-handheld verifier has already consumed Stage 1 and has a
+      // terminal evidence decision. Keep it precise and non-retryable rather
+      // than leaving a generating_asset row for recovery to reinterpret as an
+      // unknown submission.
+      if (error.failureStage === "post_handheld_pre_video" && Array.isArray(error.evidence)) {
+        return transition(task, {
+          type: "FAIL_PRE_SUBMIT",
+          changes: {
+            ...changes,
+            execution_key: null,
+            confirmed_at: null,
+            retryability: "not_retryable"
+          }
+        }, phase);
+      }
+      return annotate(task, changes, phase);
+    }
     if (isPause(error)) {
       return annotate(task, { paused_auth: true, error_message: error.message }, phase);
     }

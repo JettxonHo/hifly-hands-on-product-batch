@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { chromium } from "playwright";
 
 import { createBatchStore } from "../src/core/batch-store.js";
 import { acquireExecutionLock } from "../src/core/execution-lock.js";
@@ -13,6 +14,7 @@ import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { createHiflyExecutor } from "../src/executors/hifly-executor.js";
 import { createYingdaoRpaExecutor } from "../src/executors/yingdao-rpa-executor.js";
 import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
+import { createEvidenceRecord, HIFLY_VERIFICATION_RESULT, sanitizeEvidenceRecords } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 import { readRpaState, rpaWorstCaseRenameBackoffMs, writeRpaState } from "../src/rpa/rpa-state.js";
 
 async function fixtureRun({ executor, initialStatus = "confirmed", itemOverrides = {} } = {}) {
@@ -767,8 +769,6 @@ test("a real custom script verification failure stops before video submission", 
       "open-workbench",
       "enter-mode",
       "reset-upload",
-      "create-image",
-      "capture:after-upload",
       "fill:product_name",
       "fill:selling_points",
       "capture:script-field-filled",
@@ -1383,7 +1383,37 @@ test("fillProduct applies custom script mode before submit", async () => {
     resolved_script_mode: "custom"
   });
 
-  assert.deepEqual(calls, ["reset", "asset", "fill:product_name", "fill:selling_points", "script:custom"]);
+  assert.deepEqual(calls, ["reset", "fill:product_name", "fill:selling_points", "script:custom", "asset"]);
+});
+
+test("fillProduct applies frozen copy and AI-off state before inner image generation", async () => {
+  const calls = [];
+  const adapter = new HiflyHandsOnProductPage({}, {
+    hiflyUi: { productNameLabel: "产品名称", sellingPointsLabel: "核心卖点", scriptLabel: "文案" },
+    behavior: {}, batch: { defaultTimeoutMs: 1000 }, debug: { captureSteps: false }
+  }, { info() {} });
+  adapter.resetExistingUpload = async () => calls.push("reset");
+  adapter.fillOptionalField = async (_label, _value, field) => calls.push(`fill:${field}`);
+  adapter.applyScriptMode = async () => calls.push("script");
+  adapter.createHandsOnImage = async () => calls.push("inner-generate");
+  await adapter.fillProduct({ product_name: "Product", selling_points: "Point", script: "copy", resolved_script_mode: "custom" });
+  assert.deepEqual(calls, ["reset", "fill:product_name", "fill:selling_points", "script", "inner-generate"]);
+});
+
+test("fillProduct does not reach inner paid generation when frozen copy or AI toggle verification fails", async () => {
+  let innerGenerate = 0;
+  let paidGenerate = 0;
+  const adapter = new HiflyHandsOnProductPage({}, {
+    hiflyUi: { productNameLabel: "产品名称", sellingPointsLabel: "核心卖点", scriptLabel: "文案" },
+    behavior: {}, batch: { defaultTimeoutMs: 1000 }, debug: { captureSteps: false }
+  }, { info() {} });
+  adapter.resetExistingUpload = async () => {};
+  adapter.fillOptionalField = async () => {};
+  adapter.applyScriptMode = async () => { throw new Error("AI 自动生成 switch did not turn off."); };
+  adapter.createHandsOnImage = async () => { innerGenerate += 1; adapter.clickModalGenerate = async () => { paidGenerate += 1; }; };
+  await assert.rejects(() => adapter.fillProduct({ script: "copy", resolved_script_mode: "custom" }), /switch did not turn off/i);
+  assert.equal(innerGenerate, 0);
+  assert.equal(paidGenerate, 0);
 });
 
 test("applyScriptMode enables the default Hifly AI script path", async () => {
@@ -2541,6 +2571,158 @@ test("confirmGeneratedHandsOnImage waits for generated preview before confirming
     "ready-check:3",
     "confirm:10000"
   ]);
+});
+
+test("confirmGeneratedHandsOnImage fails the exact handheld ratio before UI confirm", async () => {
+  let confirmCalls = 0;
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout() {}
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 10000 }
+  }, { info() {} });
+  adapter.waitForGeneratedHandsOnImage = async () => {};
+  adapter.readGeneratedHandsOnImageDimensions = async () => ({ width: 1600, height: 2848 });
+  adapter.clickModalConfirm = async () => { confirmCalls += 1; };
+
+  const production = Object.freeze({ target_aspect_ratio: "9:16", handheld_aspect_ratio_policy: "require_exact" });
+  await assert.rejects(
+    () => adapter.confirmGeneratedHandsOnImage({
+      hifly_hands_on_product_v1: { production }
+    }),
+    { code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH" }
+  );
+  assert.equal(confirmCalls, 0);
+});
+
+test("record-only handheld ratio evidence reaches the asset result and still permits confirm", async () => {
+  let confirmCalls = 0;
+  const adapter = new HiflyHandsOnProductPage({
+    async waitForTimeout() {}
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 10000 }
+  }, { info() {} });
+  adapter.waitForGeneratedHandsOnImage = async () => {};
+  adapter.readGeneratedHandsOnImageDimensions = async () => ({ width: 1600, height: 2848 });
+  adapter.clickModalConfirm = async () => { confirmCalls += 1; };
+
+  const production = Object.freeze({ target_aspect_ratio: "9:16", handheld_aspect_ratio_policy: "record_only" });
+  const evidence = await adapter.confirmGeneratedHandsOnImage({ hifly_hands_on_product_v1: { production } });
+  assert.equal(evidence.field, "handheld_aspect_ratio");
+  assert.equal(evidence.result, HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH);
+  assert.equal(evidence.requires_action, false);
+  assert.equal(confirmCalls, 1);
+
+  adapter.openWorkbench = async () => {};
+  adapter.enterHandsOnProductMode = async () => {};
+  adapter.fillProduct = async () => evidence;
+  const asset = await adapter.prepareAsset({ sku: "SKU-RECORD-ONLY" });
+  assert.deepEqual(asset.handheld_evidence, sanitizeEvidenceRecords([evidence]));
+});
+
+test("generated dimension lookup ignores a larger avatar image and binds to the marked result", async (t) => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist")) {
+      return t.skip("Playwright browser is unavailable");
+    }
+    throw error;
+  }
+  try {
+    const page = await browser.newPage();
+    const avatar = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="2400"></svg>');
+    const result = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2848"></svg>');
+    await page.setContent(`
+      <div class="ant-modal" style="display:block">
+        <div>手持商品图 再次生成 重新编辑 确认</div>
+        <img class="avatar-preview" style="width:600px;height:600px" src="data:image/svg+xml,${avatar}">
+        <div class="gen-result"><img style="width:120px;height:200px" src="data:image/svg+xml,${result}"></div>
+      </div>
+    `);
+    await page.waitForFunction(() => document.querySelector(".gen-result img")?.naturalWidth > 0);
+
+    const adapter = new HiflyHandsOnProductPage(page, { batch: { defaultTimeoutMs: 100 } }, { info() {} });
+    assert.deepEqual(await adapter.readGeneratedHandsOnImageDimensions(), { width: 1600, height: 2848 });
+  } finally {
+    await browser.close();
+  }
+});
+
+test("generated dimension lookup fails closed for ambiguous or not-ready result candidates", async (t) => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist")) {
+      return t.skip("Playwright browser is unavailable");
+    }
+    throw error;
+  }
+  try {
+    const page = await browser.newPage();
+    const svg = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2848"></svg>');
+    const adapter = new HiflyHandsOnProductPage(page, { batch: { defaultTimeoutMs: 100 } }, { info() {} });
+    await page.setContent(`
+      <div class="ant-modal" style="display:block">
+        <div>手持商品图 再次生成 重新编辑 确认</div>
+        <div class="gen-result"><img src="data:image/svg+xml,${svg}"><img src="data:image/svg+xml,${svg}"></div>
+      </div>
+    `);
+    await page.waitForFunction(() => document.querySelector(".gen-result img")?.naturalWidth > 0);
+    assert.equal(await adapter.readGeneratedHandsOnImageDimensions(), null);
+
+    await page.setContent(`
+      <div class="ant-modal" style="display:block">
+        <div>手持商品图 正在生成</div>
+        <div class="gen-result"><img src="data:image/svg+xml,${svg}"></div>
+      </div>
+    `);
+    await page.waitForFunction(() => document.querySelector(".gen-result img")?.naturalWidth > 0);
+    assert.equal(await adapter.readGeneratedHandsOnImageDimensions(), null);
+  } finally {
+    await browser.close();
+  }
+});
+
+test("runBatch preserves a post-handheld requires_action evidence stop", async () => {
+  const evidence = createEvidenceRecord({
+    field: "handheld_aspect_ratio",
+    expected: "9:16",
+    actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions",
+    verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2",
+    result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH
+  });
+  const executor = {
+    async createAsset() {
+      throw Object.assign(new Error("ratio mismatch"), {
+        code: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH",
+        outcome: "requires_action",
+        failureStage: "post_handheld_pre_video",
+        evidence: [evidence]
+      });
+    },
+    async submitVideo() { throw new Error("submit must not run"); },
+    async querySubmission() { throw new Error("query must not run"); },
+    async downloadArtifact() { throw new Error("download must not run"); },
+    async reconcileSubmission() { throw new Error("reconcile must not run"); }
+  };
+  const fixture = await fixtureRun({ executor });
+  try {
+    const result = await runBatch(fixture);
+    const item = result.items[0];
+    assert.equal(item.paused_auth, true);
+    assert.equal(item.requires_action, true);
+    assert.equal(item.requires_action_reason, "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH");
+    assert.deepEqual(item.contract_evidence, [evidence]);
+    assert.equal(item.error_phase, "post_handheld_pre_video");
+    assert.equal(item.status, "failed_pre_submit");
+    assert.equal(item.retryability, "not_retryable");
+  } finally {
+    await fixture.cleanup();
+  }
 });
 
 test("hasGeneratedImageReady rejects a failed generation modal with ready-action buttons", async () => {

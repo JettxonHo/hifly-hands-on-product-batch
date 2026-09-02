@@ -1,3 +1,9 @@
+import {
+  HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_ID,
+  HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES,
+  buildHiflyHandsOnProductV1
+} from "../execution-contracts/hifly-hands-on-product-v1.js";
+
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const failure = (code, details = null) => Object.assign(new Error(code), { code, details });
 
@@ -54,7 +60,17 @@ function assetReference(version) {
   };
 }
 
-export function createProductionOrderInputSnapshotPort({ copyService, copyReviewService, productRevisionPort, avatarSelectionService, assetService } = {}) {
+function contractRequested(configuredContractId) {
+  const requested = configuredContractId;
+  if (requested == null || requested === "") return false;
+  if (requested !== HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_ID) {
+    throw failure("HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_VERSION_UNSUPPORTED");
+  }
+  return true;
+}
+
+export function createProductionOrderInputSnapshotPort({ copyService, copyReviewService, productRevisionPort, avatarSelectionService, assetService,
+  productionContractId = null } = {}) {
   if (!copyService?.getCopyVersion || !copyReviewService?.getReviewState || !productRevisionPort?.getSnapshot ||
     !avatarSelectionService?.getWorkspace || !assetService?.getAssetVersion) {
     throw new TypeError("A04-A07 snapshot ports are required");
@@ -120,6 +136,38 @@ export function createProductionOrderInputSnapshotPort({ copyService, copyReview
           throw failure("PRODUCTION_ORDER_INPUT_SNAPSHOT_REQUIRED", ["avatar_selection_snapshot.capabilities"]);
         }
 
+        let hiflyHandsOnProductV1 = null;
+        if (contractRequested(productionContractId)) {
+          if (plan.presentation_size_code !== "smart_fit") {
+            throw failure(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.PRESENTATION_SIZE_INVALID, ["plan.presentation_size_code"]);
+          }
+          const primaryAssetVersionId = productRevision.primary_asset_version_id || productRevision.primaryAssetVersionId ||
+            (productRevision.asset_version_ids.length === 1 ? productRevision.asset_version_ids[0] : null);
+          const primaryReference = assetReferences.find((reference) => reference.asset_version_id === primaryAssetVersionId);
+          if (!primaryReference) throw failure("HIFLY_HANDS_ON_PRODUCT_V1_PRODUCT_ASSET_REQUIRED");
+          if (typeof avatarSelectionService.getHandsOnProductMaterialSnapshot !== "function") {
+            throw failure("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_MATERIAL_REQUIRED");
+          }
+          const material = await avatarSelectionService.getHandsOnProductMaterialSnapshot({ ...input, copyVersionId,
+            avatarSelectionId, avatarAssetVersionId });
+          if (!material || material.avatar_selection_id !== selection.id || material.avatar_version_id !== selection.asset_version_id) {
+            throw failure("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_BINDING_MISMATCH");
+          }
+          const facts = {
+            plan: { video_plan_version_id: plan.id, plan_review_id: input.resolved?.plan_review?.id,
+              status: plan.status, review_status: input.resolved?.plan_review?.status,
+              current: input.resolved?.current_valid === true },
+            product: { revision_id: productRevision.id, primary_asset_version_id: primaryAssetVersionId,
+              checksum_sha256: primaryReference.checksum, media_type: primaryReference.media_type, size: primaryReference.size },
+            copy: { version_id: copy.id, status: copy.status, review_status: review.status, body: copy.body },
+            avatar: { selection_id: selection.id, avatar_version_id: selection.asset_version_id,
+              material_version_id: material.material_version_id, checksum_sha256: material.checksum_sha256,
+              media_type: material.media_type, size: material.size, status: selection.status,
+              current: avatarWorkspace.selection.current_valid === true },
+          };
+          hiflyHandsOnProductV1 = buildHiflyHandsOnProductV1(facts);
+        }
+
         return {
           approved_copy_snapshot: {
             copy_version_id: copy.id,
@@ -149,7 +197,8 @@ export function createProductionOrderInputSnapshotPort({ copyService, copyReview
             capability_status: avatar.capability_status,
             materials_accessible: avatar.materials_accessible !== false,
             capabilities: avatar.verified_capabilities.map(({ code, label, evidence_reference }) => ({ code, label: label || null, evidence_reference }))
-          }
+          },
+          ...(hiflyHandsOnProductV1 ? { hifly_hands_on_product_v1: hiflyHandsOnProductV1 } : {})
         };
       } catch (error) {
         if (missingSnapshotCodes.has(error?.code)) throw failure("PRODUCTION_ORDER_INPUT_SNAPSHOT_REQUIRED");

@@ -47,6 +47,7 @@
 - [PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md](PRODUCT_APPEARANCE_CHECK_BENCHMARK_HARNESS_CONTRACT.md)
 - [REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md](REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)
 - [COPY_QUALITY_ONE_ATTEMPT.md](COPY_QUALITY_ONE_ATTEMPT.md)
+- [HIFLY_HANDS_ON_PRODUCT_V1.md](HIFLY_HANDS_ON_PRODUCT_V1.md)
 
 ### Evidence
 
@@ -104,6 +105,7 @@
 | [DECISION_LOG.md](DECISION_LOG.md) | 正式产品决策记录；最新：[D-037](DECISION_LOG.md#d-037-real-batch-production-validation) Real Batch Production Validation（RBV-001） |
 | [REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md](REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md) | D-037 / RBV-001 的 Stage 1 Pilot Contract；人工门禁待 Owner Gate，不代表真实批次已运行 |
 | [COPY_QUALITY_ONE_ATTEMPT.md](COPY_QUALITY_ONE_ATTEMPT.md) | Issue #273 的 bounded QualityRun at-most-once contract；只记录工程状态机与 provider-free gate，不代表真实 Provider 已调用 |
+| [HIFLY_HANDS_ON_PRODUCT_V1.md](HIFLY_HANDS_ON_PRODUCT_V1.md) | Issue #278 的窄化「手里有货」生产合同、传播/完整性门禁与现有 Evidence 覆盖；不代表真实 Hifly 或积分执行 |
 | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md) | 开放问题记录（已关闭问题保留结论，Q-019 已由 D-023 解决，Q-022 已由 D-024 解决，Q-004 已由 D-025 解决，Q-021 已由 D-026 解决，Q-018 已由 D-032 解决；未关闭问题任何角色不得擅自代替 owner 决定） |
 | [HIFLY_CAPABILITY_EVIDENCE.md](HIFLY_CAPABILITY_EVIDENCE.md) | 飞影能力证据台账（五层确认状态，按证据记录，不夸大不编造） |
 | [PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md](PRODUCT_APPEARANCE_CHECK_ENVIRONMENT_EVIDENCE.md) | Issue #232 的官方 Evidence 台账：固定 PP-OCRv6 archive/参数许可边界、两架构 dependency metadata、OpenCV contrib 4.10 第三方义务与静态解码安全阻断；不建立 accepted environment lane |

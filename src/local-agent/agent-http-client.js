@@ -1,3 +1,5 @@
+import { sanitizeEvidenceRecords } from "../execution-contracts/hifly-hands-on-product-evidence.js";
+
 const PREFIX = "/api/agent/v1";
 export const LOCAL_AGENT_CANDIDATE_MEDIA_TYPE = "video/mp4";
 export const LOCAL_AGENT_PROGRESS_PHASES = Object.freeze([
@@ -131,7 +133,8 @@ export function createLocalAgentHttpClient({ baseUrl, token, fetchImpl = globalT
       return request({ operation: "complete_candidate", method: "POST", endpoint: LOCAL_AGENT_ENDPOINTS.completeCandidate(attemptId, candidateId), idempotencyKey,
         body: {} });
     },
-    async report({ attemptId, reportId, outcome, primaryCandidateId = null, errorCode = null, failureStage = null, operatorNote = null, idempotencyKey }) {
+    async report({ attemptId, reportId, outcome, primaryCandidateId = null, errorCode = null, failureStage = null, evidence = null, operatorNote = null, idempotencyKey }) {
+      const sanitizedEvidence = sanitizeEvidenceRecords(evidence, [], { strict: true });
       return request({ operation: "report", method: "POST", endpoint: LOCAL_AGENT_ENDPOINTS.report(attemptId), idempotencyKey,
         body: {
           report_id: reportId,
@@ -141,7 +144,8 @@ export function createLocalAgentHttpClient({ baseUrl, token, fetchImpl = globalT
           error_category: errorCode,
           failure_stage: failureStage,
           reason_code: outcome === "requires_action" ? errorCode : null,
-          operator_note: operatorNote
+          operator_note: operatorNote,
+          ...(sanitizedEvidence.length ? { evidence: sanitizedEvidence } : {})
         } });
     }
   };

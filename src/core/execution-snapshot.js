@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { requireHiflyHandsOnProductV1 } from "../execution-contracts/hifly-hands-on-product-v1.js";
+
 const EXECUTION_FIELDS = Object.freeze([
   "task_id",
   "sku",
@@ -34,13 +36,31 @@ function canonicalJson(value) {
 async function digestImage(filePath, projectRoot) {
   if (filePath == null || filePath === "") return null;
   const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(projectRoot, filePath);
-  return sha256(await readFile(resolved));
+  const body = await readFile(resolved);
+  return { digest: sha256(body), size: body.length };
 }
 
 function normalizeTask(task) {
   const normalized = {};
   for (const field of EXECUTION_FIELDS) normalized[field] = task[field] ?? null;
+  const contract = task.hifly_hands_on_product_v1;
+  if (contract !== undefined && contract !== null) {
+    normalized.hifly_hands_on_product_v1 = requireHiflyHandsOnProductV1(contract);
+  }
   return normalized;
+}
+
+function assertContractImageDigest(normalized, contract, { productSize = null, avatarSize = null } = {}) {
+  if (normalized.image_digest !== contract.product.checksum_sha256 || productSize !== contract.product.size) {
+    throw Object.assign(new Error("HIFLY_HANDS_ON_PRODUCT_V1_PRODUCT_INTEGRITY_MISMATCH"), {
+      code: "HIFLY_HANDS_ON_PRODUCT_V1_PRODUCT_INTEGRITY_MISMATCH"
+    });
+  }
+  if (normalized.person_image_digest !== contract.avatar.checksum_sha256 || avatarSize !== contract.avatar.size) {
+    throw Object.assign(new Error("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_INTEGRITY_MISMATCH"), {
+      code: "HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_INTEGRITY_MISMATCH"
+    });
+  }
 }
 
 function createEstimate(itemCount, config) {
@@ -75,11 +95,19 @@ export async function createExecutionSnapshot(items, estimateConfig = {}) {
     if (taskIds.has(item.task_id)) throw new Error(`Duplicate task_id: ${item.task_id}`);
     taskIds.add(item.task_id);
     const normalized = normalizeTask(item);
-    normalized.image_digest = await digestImage(item.image_path, projectRoot);
-    normalized.person_image_digest = await digestImage(
+    const productImage = await digestImage(item.image_path, projectRoot);
+    const avatarImage = await digestImage(
       item.__resolved_person_image_path || item.resolved_person_image_path || item.person_image_path,
       projectRoot
     );
+    normalized.image_digest = productImage?.digest ?? null;
+    normalized.person_image_digest = avatarImage?.digest ?? null;
+    if (normalized.hifly_hands_on_product_v1) {
+      assertContractImageDigest(normalized, normalized.hifly_hands_on_product_v1, {
+        productSize: productImage?.size ?? null,
+        avatarSize: avatarImage?.size ?? null
+      });
+    }
     normalizedItems.push(normalized);
   }
 

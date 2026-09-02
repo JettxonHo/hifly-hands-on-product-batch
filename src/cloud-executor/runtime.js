@@ -87,6 +87,7 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
       taskFactory: config.taskFactory,
       avatarMappingPath: config.avatarMappingPath,
       avatarMappings: config.avatarMappings,
+      contractFieldVerifier: config.contractFieldVerifier,
       onProgress: config.onProgress
     })
     : createFakeCloudExecutor());
@@ -99,7 +100,8 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
       try {
         const result = await selectedExecutor.preflight();
         if (result?.ready === false || result?.status === "requires_login") {
-          return { ready: false, status: result?.status === "requires_login" ? "requires_login" : "requires_action" };
+          return { ready: false, status: result?.status === "requires_login" ? "requires_login" : "requires_action",
+            ...(typeof result?.code === "string" ? { reason: result.code } : {}) };
         }
         return { ready: true, status: "available" };
       } catch (error) {

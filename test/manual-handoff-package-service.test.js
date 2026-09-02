@@ -6,6 +6,7 @@ import { createManualHandoffPackageWorker } from "../src/manual-handoff/manual-h
 import { createMemoryManualHandoffRepository } from "../src/manual-handoff/memory-manual-handoff-repository.js";
 import { buildManualHandoffZip, createMemoryManualHandoffPackageStore, extractManualHandoffArchive } from "../src/manual-handoff/manual-handoff-package-store.js";
 import { canonicalJson, renderManualHandoffReadme, sha256 } from "../src/manual-handoff/manual-handoff-package.js";
+import { verifyHandoffPackageIntegrity } from "../src/local-agent/package-compiler.js";
 
 const actor = { organizationId: "org-a", actorMemberId: "member-a", actorRole: "member" };
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
@@ -95,6 +96,75 @@ test("generates an immutable authoritative manifest and derived README without s
   assert.equal(/secret|cookie|password|token|permanent\.example/i.test(inspected), false);
   assert.equal(executionAttempts.length, 0);
   assert.equal((await service.getOrder({ ...actor, orderId: order.id })).status, "waiting_for_executor");
+});
+
+test("package hash preserves producer asset insertion order for legitimate multi-asset archives", async () => {
+  const twoAssetOrder = structuredClone(order);
+  const secondBody = Buffer.from("second-image");
+  const firstReference = twoAssetOrder.input_snapshot.asset_references[0];
+  twoAssetOrder.input_snapshot.product_revision.asset_version_ids = ["asset-version-b", "asset-version-a"];
+  twoAssetOrder.input_snapshot.asset_references = [{
+    asset_id: "asset-b", asset_version_id: "asset-version-b", role: "product_image", display_name: "商品辅图",
+    media_type: "image/png", size: secondBody.length, checksum: sha256(secondBody), retrieval_mode: "embedded", access_scope: "organization", body: secondBody
+  }, firstReference];
+  const { service, worker, packageStore } = world({ sourceOrder: twoAssetOrder });
+  const requested = await service.requestGeneration({ ...actor, productionOrderId: twoAssetOrder.id, generationRequestId: "two-assets" });
+  await worker.runNext();
+  const ready = await service.getPackage({ ...actor, packageId: requested.package.id });
+  const body = await packageStore.get(ready.storage_key);
+  const entries = await extractManualHandoffArchive(body);
+  const expected = { id: ready.id, production_order_id: ready.production_order_id, package_version: ready.package_version, manifest_hash: ready.manifest_hash, package_hash: ready.package_hash };
+  await verifyHandoffPackageIntegrity({ body, manifest: ready.manifest, expectedPackage: expected });
+
+  const assetEntries = Object.entries(entries).filter(([name]) => name.startsWith("assets/") && !name.endsWith("/"));
+  const reordered = await buildManualHandoffZip([
+    { name: "manifest.json", body: entries["manifest.json"] },
+    { name: "README.md", body: entries["README.md"] },
+    ...assetEntries.reverse().map(([name, value]) => ({ name, body: value }))
+  ]);
+  await assert.rejects(() => verifyHandoffPackageIntegrity({ body: reordered, manifest: ready.manifest, expectedPackage: expected }), { code: "MANUAL_HANDOFF_PACKAGE_INTEGRITY_MISMATCH" });
+
+  const tampered = await buildManualHandoffZip([
+    { name: "manifest.json", body: entries["manifest.json"] },
+    { name: "README.md", body: entries["README.md"] },
+    { name: assetEntries[0][0], body: Buffer.from("tampered-image") },
+    { name: assetEntries[1][0], body: assetEntries[1][1] }
+  ]);
+  await assert.rejects(() => verifyHandoffPackageIntegrity({ body: tampered, manifest: ready.manifest, expectedPackage: expected }), { code: "MANUAL_HANDOFF_PACKAGE_INTEGRITY_MISMATCH" });
+});
+
+test("package verifier accepts the historical hybrid hash ordering and rejects reordered final digests", async () => {
+  const historicalOrder = structuredClone(order);
+  const firstReference = historicalOrder.input_snapshot.asset_references[0];
+  const secondBody = Buffer.from("historical-second-image");
+  historicalOrder.input_snapshot.product_revision.asset_version_ids = ["asset-version-z", "asset-version-a"];
+  historicalOrder.input_snapshot.asset_references = [{
+    asset_id: "asset-z", asset_version_id: "asset-version-z", role: "product_image", display_name: "商品辅图",
+    media_type: "image/png", size: secondBody.length, checksum: sha256(secondBody), retrieval_mode: "embedded", access_scope: "organization", body: secondBody
+  }, { ...firstReference, asset_id: "asset-a", asset_version_id: "asset-version-a" }];
+  const { service, worker, packageStore } = world({ sourceOrder: historicalOrder });
+  const requested = await service.requestGeneration({ ...actor, productionOrderId: historicalOrder.id, generationRequestId: "historical-hybrid" });
+  await worker.runNext();
+  const ready = await service.getPackage({ ...actor, packageId: requested.package.id });
+  const entries = await extractManualHandoffArchive(await packageStore.get(ready.storage_key));
+  const assetEntries = Object.entries(entries).filter(([name]) => name.startsWith("assets/") && !name.endsWith("/"));
+  const manifestWithPlaceholder = { ...ready.manifest, package_hash: null };
+  const oldProvisionalHash = sha256(canonicalJson({ manifest: manifestWithPlaceholder, assets: assetEntries.map(([name]) => name).sort() }));
+  const oldProvisionalReadme = renderManualHandoffReadme({ ...manifestWithPlaceholder, package_hash: oldProvisionalHash });
+  const oldPackageHash = sha256(canonicalJson({ manifest: manifestWithPlaceholder, readme: oldProvisionalReadme,
+    assets: assetEntries.map(([name, body]) => [name, sha256(body)]) }));
+  const historicalManifest = { ...ready.manifest, package_hash: oldPackageHash };
+  const archiveEntries = [
+    { name: "manifest.json", body: JSON.stringify(historicalManifest) },
+    { name: "README.md", body: renderManualHandoffReadme(historicalManifest) },
+    ...assetEntries.map(([name, body]) => ({ name, body }))
+  ];
+  const historicalBody = await buildManualHandoffZip(archiveEntries);
+  const expected = { id: ready.id, production_order_id: ready.production_order_id, package_version: ready.package_version,
+    manifest_hash: ready.manifest_hash, package_hash: oldPackageHash };
+  await verifyHandoffPackageIntegrity({ body: historicalBody, manifest: historicalManifest, expectedPackage: expected });
+  const reorderedBody = await buildManualHandoffZip([archiveEntries[0], archiveEntries[1], ...assetEntries.slice().reverse().map(([name, body]) => ({ name, body }))]);
+  await assert.rejects(() => verifyHandoffPackageIntegrity({ body: reorderedBody, manifest: historicalManifest, expectedPackage: expected }), { code: "MANUAL_HANDOFF_PACKAGE_INTEGRITY_MISMATCH" });
 });
 
 test("same generation request conflicts on payload and a new package version retains superseded history", async () => {

@@ -1,8 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { acceptsMediaType } from "../manual-execution/manual-execution-service.js";
+import { sanitizeEvidenceRecords } from "../execution-contracts/hifly-hands-on-product-evidence.js";
 
 const clean = (value) => typeof value === "string" ? value.trim() : "";
+const controlledFailureStage = (value) => {
+  const stage = clean(value);
+  return /^[a-z][a-z0-9_]{0,63}$/.test(stage) ? stage : null;
+};
 const failure = (code, details = null) => Object.assign(new Error(code), { code, details });
 const stableJson = (value) => Array.isArray(value) ? `[${value.map(stableJson).join(",")}]` :
   value && typeof value === "object" ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}` : JSON.stringify(value);
@@ -17,7 +22,19 @@ const CONTROLLED_REASONS = Object.freeze({
   HUMAN_INTERVENTION_REQUIRED: "本地执行器需要人工处理。",
   PROVIDER_PAGE_CHANGED: "执行页面发生变化，需要人工核对。",
   AVATAR_MAPPING_REQUIRED: "人物映射缺失，需要人工补充后再执行。",
-  PACKAGE_ITEM_COUNT_UNSUPPORTED: "交接包包含不支持的商品数量，需要人工核对。"
+  PACKAGE_ITEM_COUNT_UNSUPPORTED: "交接包包含不支持的商品数量，需要人工核对。",
+  CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE: "生产合同字段缺少可机器核验的结构化证据。",
+  CONTRACT_STRUCTURED_EVIDENCE_REQUIRED: "生产合同核验必须返回结构化字段证据。",
+  CONTRACT_STRUCTURED_EVIDENCE_INVALID: "生产合同核验返回的字段证据无效。",
+  CONTRACT_STRUCTURED_EVIDENCE_INCOMPLETE: "生产合同核验缺少必需字段证据。",
+  CONTRACT_STRUCTURED_EVIDENCE_DUPLICATE: "生产合同核验包含重复字段证据。",
+  CONTRACT_STRUCTURED_EVIDENCE_CONTEXT_MISMATCH: "生产合同核验字段上下文不匹配。",
+  CONTRACT_STRUCTURED_EVIDENCE_EXPECTED_MISMATCH: "生产合同核验期望值不匹配。",
+  CONTRACT_STRUCTURED_EVIDENCE_VALUE_INVALID: "生产合同核验证据值无效。",
+  CONTRACT_STRUCTURED_EVIDENCE_RESULT_NOT_ALLOWED: "生产合同核验结果状态不允许。",
+  CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED: "生产合同字段核验未通过。",
+  HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_MISMATCH: "手持商品图比例未通过精确核验，需要人工处理。",
+  HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_UNVERIFIABLE: "手持商品图尺寸证据不可核验，需要人工处理。"
 });
 const CONTROLLED_FAILURES = Object.freeze({
   PROVIDER_EXECUTION_FAILED: { stage: "provider_execution", message: "执行器未能完成视频生成。" },
@@ -508,6 +525,7 @@ export function createLocalAgentExecutionService({ repository, orderPort, packag
     const primaryCandidate = primaryCandidateId ? await candidateForAttempt(scopedOrganizationId, attempt, primaryCandidateId) : null;
     const reason = outcome === "requires_action" ? controlledReason(input.reasonCode) : null;
     const failureContext = outcome === "failed" ? controlledFailure(input.errorCode) : null;
+    const evidence = sanitizeEvidenceRecords(input.evidence, [], { strict: true });
     if (outcome === "requires_action" && !reason) throw failure("LOCAL_AGENT_REPORT_ERROR_INVALID");
     if (outcome === "failed" && !failureContext) throw failure("LOCAL_AGENT_REPORT_ERROR_INVALID");
     if (outcome === "completed" && !primaryCandidate) throw failure("LOCAL_AGENT_PRIMARY_OUTPUT_REQUIRED");
@@ -521,13 +539,14 @@ export function createLocalAgentExecutionService({ repository, orderPort, packag
       package_version: attempt.package_version, manifest_hash: attempt.manifest_hash, submitted_by: null, submitted_by_agent_id: scopedAgentId,
       submitted_at: at, supersedes_report_id: null, outcome, started_at: attempt.started_at,
       completed_at: outcome === "completed" ? at : null, operator_note: "", deviations: [], primary_output: output,
-      supporting_outputs: [], error_category: outcome === "failed" ? "local_agent" : null,
-      failure_stage: failureContext?.stage || null, requires_action_reason: reason,
-      retryability: outcome === "failed" ? "not_retryable" : null, upstream_return_target: null
+      supporting_outputs: evidence.length ? [{ kind: "production_evidence", evidence }] : [],
+      error_category: outcome === "failed" ? "local_agent" : null,
+      failure_stage: failureContext?.stage || (outcome === "requires_action" ? controlledFailureStage(input.failureStage) : null), requires_action_reason: reason,
+      retryability: ["failed", "requires_action"].includes(outcome) ? "not_retryable" : null, upstream_return_target: null
     };
     const fingerprint = stableJson({ operation: "report", report_id: report.id, attempt_id: attempt.id, package_id: attempt.package_id,
       outcome: report.outcome, primary_output: report.primary_output, reason: report.requires_action_reason,
-      failure_stage: report.failure_stage, retryability: report.retryability });
+      failure_stage: report.failure_stage, retryability: report.retryability, supporting_outputs: report.supporting_outputs });
     const receiptKey = `${scopedOrganizationId}:${scopedAgentId}:local-agent:report:${idempotencyKey}`;
     const prior = await repository.getReceipt(receiptKey, fingerprint);
     if (prior) {

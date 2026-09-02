@@ -10,6 +10,7 @@ import { createCloudExecutorRuntime } from "../src/cloud-executor/runtime.js";
 import { startCloudExecutorRuntime } from "../src/cloud-executor/start.js";
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryManualExecutionRepository } from "../src/manual-execution/memory-manual-execution-repository.js";
+import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 
 const ORGANIZATION_ID = "org-cloud";
 const CLOUD_EXECUTOR_ID = "cloud-executor-1";
@@ -185,6 +186,27 @@ test("cloud readiness is evaluated before any order claim", async () => {
   assert.equal(world.transitionCalls, 0);
 });
 
+test("runtime no-verifier preflight blocks order listing and claim with a stable contract gate", async () => {
+  const world = makeCloudWorld({ mode: "playwright", executor: {
+    async preflight() {
+      return { ready: false, status: "requires_action", code: "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", failureStage: "pre_point_gate" };
+    },
+    async run() { throw new Error("run must not start"); }
+  } });
+  const runtime = createCloudExecutorRuntime({
+    ...world.runtimeOptions,
+    readinessPort: null,
+    config: { ...world.runtimeOptions.config, mode: "playwright", configured: true }
+  });
+  const result = await runtime.runOnce();
+  assert.equal(result.status, "requires_action");
+  assert.equal(result.reason, "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
+  assert.equal(world.listCalls, 0);
+  assert.equal(world.transitionCalls, 0);
+  assert.equal((await world.repository.listAttempts(ORGANIZATION_ID)).length, 0);
+  await runtime.close();
+});
+
 test("low persistent storage blocks before listing, claiming, or creating an attempt", async () => {
   const world = makeCloudWorld({ readiness: { ready: false, status: "storage_blocked", reason: "absolute path must stay private" } });
   const result = await world.service.runOnce();
@@ -271,6 +293,16 @@ test("fake success claims one order, reports a cloud identity, and triggers A12 
   assert.equal(candidates[0].status, "pending_verification");
 });
 
+test("completed Cloud report preserves bounded Stage 1 asset evidence", async () => {
+  const evidence = createEvidenceRecord({ field: "handheld_aspect_ratio", expected: "9:16", actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions", verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2", result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH });
+  const world = makeCloudWorld({ executorResult: { body: Buffer.from("video"), evidence: [evidence] } });
+  const result = await world.service.runOnce();
+  assert.equal(result.status, "succeeded");
+  assert.deepEqual(result.report.supporting_outputs, [{ kind: "production_evidence", evidence: [evidence] }]);
+});
+
 test("fake failure stops the worker and never claims the next order", async () => {
   const world = makeCloudWorld({ orderCount: 2, executorResult: { ok: false, failureStage: "fake_execution" } });
   const first = await world.service.runOnce();
@@ -294,13 +326,17 @@ test("fake failure stops the worker and never claims the next order", async () =
 
 test("uncertain post-submit outcome requires action, stops the worker, and never retries Provider submission", async () => {
   let providerCalls = 0;
+  const evidence = createEvidenceRecord({ field: "handheld_aspect_ratio", expected: "9:16", actual: "1600x2848",
+    evidenceSource: "generated_artifact_natural_dimensions", verificationStage: "post_handheld_pre_video",
+    paidBoundary: "after_paid_action_1_before_paid_action_2", result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH });
   const world = makeCloudWorld({ orderCount: 2, executor: {
     async run() {
       providerCalls += 1;
       return {
         status: "requires_action",
         failureStage: "unknown_post_submit",
-        requiresActionReason: "Provider submission outcome is ambiguous"
+        requiresActionReason: "Provider submission outcome is ambiguous",
+        evidence: [evidence]
       };
     }
   } });
@@ -317,6 +353,7 @@ test("uncertain post-submit outcome requires action, stops the worker, and never
   assert.equal(first.report.outcome, "requires_action");
   assert.equal(first.report.retryability, "not_retryable");
   assert.equal(first.report.failure_stage, "unknown_post_submit");
+  assert.deepEqual(first.report.supporting_outputs, [{ kind: "production_evidence", evidence: [evidence] }]);
 });
 
 test("playwright mode downloads the claimed package archive for the executor without projecting its contents", async () => {

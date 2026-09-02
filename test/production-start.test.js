@@ -27,6 +27,7 @@ import {
   createProductionExecutor
 } from "../src/server/production-config.js";
 import { startProductionServer } from "../src/server/production-start.js";
+import { HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_ID } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
 
 function migrationProbePool() {
   return {
@@ -294,6 +295,7 @@ test("production config is env-only, enables A01-A14, and defaults execution to 
   assert.equal(config.copyQuality.evaluator, "phase1_controlled_test_double");
   assert.equal(config.copyQuality.rewriter, "phase1_controlled_test_double");
   assert.equal(config.hiflyApi.enabled, false);
+  assert.equal(config.productionOrders.productionContractId, HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_ID);
   assert.deepEqual(config.operatorWorkspace, { enabled: false });
   assert.equal(config.localAgentExecution.enabled, false);
   assert.equal(config.localAgentExecution.token, null);

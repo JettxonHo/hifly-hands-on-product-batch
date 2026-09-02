@@ -110,6 +110,8 @@ export async function registerLocalAgentExecutionRoutes(app, { service, guard, m
       reportId: body.report_id || body.reportId, outcome: body.outcome,
       primaryCandidateId: body.primary_candidate_id || body.primaryCandidateId,
       reasonCode: body.reason_code || body.reasonCode, errorCode: body.error_code || body.errorCode,
+      failureStage: body.failure_stage || body.failureStage,
+      evidence: body.evidence,
       idempotencyKey: idempotencyKey(request) });
     reply.code(result.replayed ? 200 : 201).send(result);
   }}));

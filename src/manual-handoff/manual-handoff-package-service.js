@@ -6,6 +6,7 @@ import {
   MANUAL_HANDOFF_PACKAGE_STATES,
   buildManualHandoffManifest,
   canonicalJson,
+  computeManualHandoffPackageHash,
   failure,
   renderManualHandoffReadme,
   sha256,
@@ -29,6 +30,7 @@ function validateKey(value, code = "INVALID_IDEMPOTENCY_KEY") {
 function safeFailureReason(error) {
   if (error?.code === "MANUAL_HANDOFF_ASSET_INTEGRITY_MISMATCH") return "交接包所需素材完整性校验失败，请检查素材状态后重试。";
   if (error?.code === "MANUAL_HANDOFF_ASSET_UNAVAILABLE" || error?.code === "MANUAL_HANDOFF_ASSET_REFERENCE_INVALID") return "交接包所需素材当前不可用，请检查素材状态后重试。";
+  if (typeof error?.code === "string" && error.code.startsWith("HIFLY_HANDS_ON_PRODUCT_V1_")) return "手里有货生产合同或固定输入已失效，请返回方案重新核对。";
   if (error?.code === "MANUAL_HANDOFF_INPUT_SNAPSHOT_REQUIRED") return "交接包输入快照不完整，请返回视频方案补齐固定输入。";
   if (error?.code === "MANUAL_HANDOFF_CROSS_ORGANIZATION_DATA") return "交接包输入不在当前企业可用范围内，未生成交接包。";
   return "交接包生成未完成，请稍后重试。";
@@ -147,10 +149,7 @@ export function createManualHandoffPackageService({ repository, orderPort, packa
       { name: "README.md", body: renderManualHandoffReadme(finalManifest) },
       ...Object.entries(assets).map(([name, body]) => ({ name, body }))
     ]));
-    const manifestWithPlaceholder = { ...manifest, package_hash: null };
-    const provisionalReadme = renderManualHandoffReadme({ ...manifestWithPlaceholder, package_hash: sha256(stable({ manifest: manifestWithPlaceholder, assets: Object.keys(embeddedAssets).sort() })) });
-    const contentFingerprint = stable({ manifest: manifestWithPlaceholder, readme: provisionalReadme, assets: Object.entries(embeddedAssets).map(([name, body]) => [name, sha256(body)]) });
-    const packageHash = sha256(contentFingerprint);
+    const { packageHash } = computeManualHandoffPackageHash({ manifest, assets: Object.entries(embeddedAssets) });
     const finalManifest = { ...manifest, package_hash: packageHash };
     const readme = renderManualHandoffReadme(finalManifest);
     const body = await builder({ finalManifest, manifest: finalManifest, readme, assets: embeddedAssets });

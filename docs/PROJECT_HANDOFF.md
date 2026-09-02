@@ -3,6 +3,55 @@
 > ⚠️ **当前状态请先阅读 `docs/status/CURRENT.md`。**
 > 本文件保留历史接力和事故过程，不再作为唯一当前状态来源。
 
+## 2026-09-02 Issue #278 follow-up: Production Evidence Contract correction
+
+- Follow-up work keeps `0ac54ff` immutable and continues on
+  `codex/hifly-hands-on-product-v1-contract`; no Provider/Hifly, login, upload,
+  generation, business-object, deployment, or points action occurred.
+- The executable target is now named `target_aspect_ratio=9:16`; generated
+  `handheld_aspect_ratio` evidence is separate. Formal ProductionOrder snapshots
+  currently carry `handheld_aspect_ratio_policy=record_only`; `require_exact` is
+  a deferred explicit execution-authorization seam, not a current order option.
+  Cross-products must remain safe integers. Historical `1600x2848` exact-gate
+  failure remains historical evidence and is not rewritten.
+- Pre-paid target/voice mismatch stops before paid action 1. Post-handheld ratio
+  evidence is observed after paid action 1 and only an explicitly authorized
+  `require_exact` policy blocks Confirm/action 2; the formal order snapshot is
+  currently `record_only`.
+- Cloud and Local real V1 paths use the same bounded structured pre-paid
+  verifier (`target_aspect_ratio`, `voice_source`) and reject bare booleans,
+  wrong context, duplicates, `NOT_REQUIRED`, uncontrolled values, and raw
+  thrown evidence. Local reports persist sanitized evidence via existing
+  `supporting_outputs` JSON and preserve `failure_stage`.
+- Hifly generated-result dimensions are read only from a single visible,
+  ready-modal result marker; a missing, multiple, or not-ready marker is
+  `UNVERIFIABLE`. UUID filenames and display area are not treated as result
+  identity, so a larger avatar/product/recommendation image cannot be selected.
+  The semantic selector is synthetic/unverified in this candidate;
+  `LIVE_DOM_EVIDENCE_REQUIRED` remains open.
+  Raw image sources are not logged. PASS/record-only evidence flows through
+  sanitized `asset_evidence`; an explicit post-handheld failure becomes
+  non-retryable `failed_pre_submit` with `requires_action` evidence instead of
+  later recovery ambiguity.
+- Default new-run evidence starts without an automatic `hands_on_product`
+  `PROVEN` claim; unobserved avatar/product/UI-visible voice start at
+  `NOT_PROVEN`/`NOT_CAPTURED`. Historical baseline and new-run status are
+  separate: historical hands_on_product/avatar/product/ui-visible-voice are
+  `PROVEN/PARTIAL/PARTIAL`, historical UI copy match is `PROVEN`, and historical
+  handheld ratio is `DISPROVEN`. Final ratio, final audio correspondence, exact
+  voice identity, and Stage 1→Stage 2 behavior remain unproven. Provider voice
+  name and submitted voice name are separate fields; no collapsed `voice_name`.
+  Fine print remains non-OCR and non-blocking when not consumer-readable.
+- Focused/latest checks: helper 9/9, contract 20/20, Cloud Playwright 13/13,
+  Cloud runtime 25/25, Local CLI 20/20, Local execution system 3/3,
+  batch/Hifly 95/95; the bounded relevant aggregate command passed 235/235;
+  `npm run check` checked 252 JavaScript files and `git diff --check` passed.
+  Full browser-heavy
+  `npm test` was attempted but made no progress and only that command was
+  terminated; it is not treated as a product failure. Continue with
+  independent Review/exact-head CI; do not merge/push/deploy or run real
+  production without a new Owner Gate.
+
 ## 2026-08-29 Issue #259 RBV-001 Stage 1 合同与人工门禁
 
 - 当前唯一 Goal：[`RBV-GOAL-001`](../GOAL.md)，对应产品决策 [`D-037`](product/DECISION_LOG.md#d-037-real-batch-production-validation)，执行合同 [`REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`](product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md)。状态为 `STAGE_1_CONTRACT_PENDING_OWNER_GATE`；旧 Cloud Executor P0 Goal 已归档，不被静默改写。

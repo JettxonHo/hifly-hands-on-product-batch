@@ -87,22 +87,28 @@ Goal 级最终验收使用另一组状态：`GOAL_APPROVED`、`GOAL_APPROVED_WIT
 Agent 不可用时记录配置与运行时核验结果；未经 Owner 明确许可不得替换 `luna-worker`。环境失败要区分
 代码、测试、CI 和外部依赖。发生并行冲突时暂停受影响合并，由主控确定事实来源、接口归属和合并顺序。
 
-## 8. 当前分配（无 active bounded engineering implementation；Issue #275 closeout）
+## 8. 当前分配（Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` rework）
 
 ```text
-当前 Goal：RBV-GOAL-001；当前 bounded engineering implementation：none
-历史 Stage：Issue #275 VideoPlan Create Idempotency-Key Seam（COMPLETE/MERGED/DEPLOYED；GitHub Issue CLOSED）
+当前 Goal：RBV-GOAL-001；当前 bounded Stage：Issue #278 HIFLY_HANDS_ON_PRODUCT_V1 provider-free / Hifly-free rework
+实现分支：codex/hifly-hands-on-product-v1-contract
+精确基准：main@3fbca9647b0d8fab89423ec0e55fd5ee7b71821c
 当前 Decision：D-037（docs/product/DECISION_LOG.md#d-037-real-batch-production-validation）
 当前 Pilot Contract：docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md
 当前 Readiness Record：docs/status/RBV_CALIBRATION_READINESS_FREEZE.md（底层 Goal 门禁仍为 BLOCKED_PRE_REAL_RUN）
-Closeout：PR #276 squash merge 至 main@fbc722ee40054045d8883f0a7e20beb1a11e4221；exact-head CI run 33418338737（Ubuntu/Windows/identity-postgres 全部 SUCCESS）；独立 Review APPROVED（P0/P1/P2 none）；App-only zero-business-mutation deployment complete
+实现 Agent：IMPLEMENTER / luna-worker（运行时模型元数据未暴露，UNVERIFIED_RUNTIME_MODEL）
+当前状态：结构/身份 provider-free candidate GREEN；独立 Review rework 进行中，exact-head CI、merge/deploy pending
+当前阻塞：ratio/native voice 无可靠 set/read-back；无 verifier 时 Cloud preflight browser-zero，返回 CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE
 Stage 1 状态：合同与人工门禁已完成历史（Issue #259 / PR #260），不再是当前 active stage
+禁止：Provider/Hifly/浏览器生产动作、积分、ProductionOrder/Handoff/Attempt/Cloud claim、迁移/路由/public Avatar projection、通用 DSL
+```
+
+### 历史分配（Issue #275 VideoPlan Create Idempotency-Key Seam）
+
+```text
+状态：COMPLETE/MERGED/DEPLOYED；GitHub Issue CLOSED
 实现分支：codex/videoplan-precommitted-idempotency-seam
-实现 Agent 请求配置：自定义 Agent luna-worker / gpt-5.6-luna / Max（provider-free bounded implementation）
-实现 Agent 配置状态：CONFIG_VERIFIED
-实现 Agent 运行时状态：UNVERIFIED_RUNTIME_MODEL（当前工具未暴露实际运行模型元数据）
-最终审查配置：主控 ORCHESTRATOR_REVIEWER；独立 Review 与 exact-head CI 已完成并通过，现有 Owner 工程授权已完成 merge/deploy
-后续：无 active bounded engineering implementation；真实 Plan Create、Provider/Hifly、登录或积分动作仍禁止；下一 Owner Gate 为 OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE
+Closeout：PR #276 squash merge 至 main@fbc722ee40054045d8883f0a7e20beb1a11e4221；exact-head CI run 33418338737（Ubuntu/Windows/identity-postgres 全部 SUCCESS）；独立 Review APPROVED；App-only zero-business-mutation deployment complete
 ```
 
 ### 历史分配（Issue #273 RBV-012 One-Attempt Contract Correction）

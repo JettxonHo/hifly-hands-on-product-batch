@@ -1,7 +1,15 @@
 # 项目 Roadmap
 
 > 最后更新：2026-09-01
-> 当前状态：RBV-GOAL-001 下无 active bounded engineering implementation；Issue #275 `VIDEOPLAN_CREATE_IDEMPOTENCY_SEAM` 已 `COMPLETE/MERGED/DEPLOYED`，PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 已 CLOSED。exact-head CI run `33418338737` 的 Ubuntu/Windows/identity-postgres 全部 SUCCESS，独立 Review `APPROVED`（P0/P1/P2 none），App-only 零业务变更部署完成。Issue #273 `QUALITY_ONE_ATTEMPT_CONTRACT_CORRECTION` 的工程阶段为已完成历史/非当前，但 GitHub Issue 仍 OPEN。Readiness Freeze 是底层 RBV blocked gate，Stage 1 合同与人工门禁已完成历史。`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 仍为 RBV 执行合同，D-037 为产品决策；真实 Plan Create、Calibration、DeepSeek Quality Evaluation 与批次运行尚未授权，Provider/飞影/积分保持 fail-closed；下一 Owner Gate 仅为 `OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE`。
+> 当前状态：RBV-GOAL-001 下 active bounded implementation 为 Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` provider-free/Hifly-free rework candidate（分支 `codex/hifly-hands-on-product-v1-contract`，exact base `3fbca9647b0d8fab89423ec0e55fd5ee7b71821c`）；整体 `CONTRACT_IMPLEMENTATION = GAP`，ratio/native voice machine verification unresolved，production Gate BLOCKED。Issue #275 `VIDEOPLAN_CREATE_IDEMPOTENCY_SEAM` 已为历史 `COMPLETE/MERGED/DEPLOYED`，PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 已 CLOSED；exact-head CI run `33418338737` 三绿，App-only 零业务变更部署完成。Issue #273 `QUALITY_ONE_ATTEMPT_CONTRACT_CORRECTION` 的工程阶段为已完成历史/非当前，但 GitHub Issue 仍 OPEN。Readiness Freeze 是底层 RBV blocked gate，Stage 1 合同与人工门禁已完成历史。`docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md` 仍为 RBV 执行合同，D-037 为产品决策；真实 Plan Create、Calibration、DeepSeek Quality Evaluation 与批次运行尚未授权，Provider/飞影/积分保持 fail-closed。
+
+## Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1`（2026-09-01，bounded candidate）
+
+- 在 exact base `3fbca9647b0d8fab89423ec0e55fd5ee7b71821c` 的独立分支实现 provider-free/Hifly-free 窄合同。生产配置显式注入 `productionContractId`；不修改路由、数据库、迁移或 Provider 配置，页面仅复用既有 selector/动作并收紧执行顺序。
+- 合同冻结精确 Plan/Review、Product/primary AssetVersion/checksum、frozen Copy/body hash、Avatar Selection/AvatarVersion/registered MaterialVersion/checksum 与 Hands-on-Product invariants，并沿 ProductionOrder → Handoff → compiler → execution snapshot → Cloud adapter 传播。身份/字节/状态不一致在任何外部或积分动作前停止。
+- 当前 ratio/voice 无可靠 Playwright set/read-back 证据；默认 Cloud path 在浏览器/delegate 前返回 `CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE`，fake verifier 仅用于本地测试。现有证据覆盖和未来最小录制要求见 [`HIFLY_HANDS_ON_PRODUCT_V1.md`](product/HIFLY_HANDS_ON_PRODUCT_V1.md)。
+- Stage verdict：`CONTRACT_IMPLEMENTATION = GAP`。结构/身份候选为 provider-free GREEN；Smart Fit 已 machine-enforced，冻结中文 copy 与 AI-copy-off 有现有证据；ratio/native voice 仍需最小未来录制，production Gate BLOCKED。
+- 本候选未访问 Provider/Hifly、未登录、未生成、未下载真实作品、未创建 ProductionOrder/Handoff/Attempt、未 claim、未部署或消耗积分；待独立 Review、exact-head CI 与 Owner merge/deploy Gate。
 
 ## Issue #275 VideoPlan Create Idempotency-Key Seam（2026-09-01，COMPLETE/MERGED/DEPLOYED）
 

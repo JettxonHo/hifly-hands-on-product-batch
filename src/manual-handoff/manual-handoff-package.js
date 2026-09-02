@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 
+import {
+  requireHiflyHandsOnProductV1
+} from "../execution-contracts/hifly-hands-on-product-v1.js";
 import { requirePresentationSizeCode } from "../video-planning/presentation-size.js";
 
 export const MANUAL_HANDOFF_CONTRACT_TYPE = "manual_handoff";
@@ -22,6 +25,30 @@ export function canonicalJson(value) {
 
 export function sha256(value) {
   return createHash("sha256").update(Buffer.isBuffer(value) ? value : String(value)).digest("hex");
+}
+
+/**
+ * Computes the existing manual-handoff package fingerprint from ordered
+ * embedded entries. ZIP member order is part of the established package
+ * semantics, so callers must pass entries in archive order.
+ */
+export function computeManualHandoffPackageHash({ manifest, assets = [] } = {}) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new TypeError("manifest is required");
+  const entries = Array.isArray(assets)
+    ? assets.map((entry) => Array.isArray(entry) ? [entry[0], entry[1]] : [entry?.name, entry?.body])
+    : Object.entries(assets || {});
+  const manifestWithPlaceholder = { ...manifest, package_hash: null };
+  const provisionalPackageHash = sha256(canonicalJson({
+    manifest: manifestWithPlaceholder,
+    assets: entries.map(([name]) => name).sort()
+  }));
+  const provisionalReadme = renderManualHandoffReadme({ ...manifestWithPlaceholder, package_hash: provisionalPackageHash });
+  const packageHash = sha256(canonicalJson({
+    manifest: manifestWithPlaceholder,
+    readme: provisionalReadme,
+    assets: entries.map(([name, body]) => [name, sha256(body)])
+  }));
+  return { packageHash, provisionalPackageHash, provisionalReadme };
 }
 
 function cleanText(value) {
@@ -86,6 +113,31 @@ export function buildManualHandoffManifest({ order, packageId, packageVersion, c
     !avatar.source_type || !avatar.authorization_status || !avatar.capability_status || !Array.isArray(capabilities) || capabilities.length === 0) {
     throw failure("MANUAL_HANDOFF_INPUT_SNAPSHOT_REQUIRED");
   }
+  const hiflyHandsOnProductV1Raw = snapshot.hifly_hands_on_product_v1 || null;
+  let hiflyHandsOnProductV1 = null;
+  if (hiflyHandsOnProductV1Raw) {
+    if (order.video_plan_version_id && plan.id && order.video_plan_version_id !== plan.id) {
+      throw failure("HIFLY_HANDS_ON_PRODUCT_V1_PLAN_BINDING_MISMATCH");
+    }
+    hiflyHandsOnProductV1 = requireHiflyHandsOnProductV1(hiflyHandsOnProductV1Raw, {
+      plan: { video_plan_version_id: plan.id || order.video_plan_version_id,
+        plan_review_id: snapshot.plan_review?.id || null },
+      product: { revision_id: product.id || null,
+        primary_asset_version_id: hiflyHandsOnProductV1Raw.product?.primary_asset_version_id,
+        checksum_sha256: hiflyHandsOnProductV1Raw.product?.checksum_sha256 },
+      copy: { version_id: copy.copy_version_id || upstream.copy_version_id },
+      avatar: { selection_id: avatar.avatar_selection_id || upstream.avatar_selection_id,
+        avatar_version_id: avatar.asset_version_id || avatar.avatar_asset_version_id || upstream.avatar_asset_version_id,
+        material_version_id: hiflyHandsOnProductV1Raw.avatar?.material_version_id,
+        checksum_sha256: hiflyHandsOnProductV1Raw.avatar?.checksum_sha256 }
+    });
+    const primary = assetReferences.find((reference) => reference.asset_version_id === hiflyHandsOnProductV1.product.primary_asset_version_id);
+    if (!primary || primary.role !== "product_image" || primary.media_type !== hiflyHandsOnProductV1.product.media_type ||
+        primary.size !== hiflyHandsOnProductV1.product.size || primary.checksum !== hiflyHandsOnProductV1.product.checksum_sha256 ||
+        sha256(copyBody) !== hiflyHandsOnProductV1.copy.body_hash || plan.presentation_size_code !== hiflyHandsOnProductV1.production.presentation_size_code) {
+      throw failure("HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_MISMATCH");
+    }
+  }
   const presentationSizeCode = requirePresentationSizeCode(plan.presentation_size_code);
   const videoPlanSnapshot = sanitizePackageValue({ ...plan, presentation_size_code: presentationSizeCode }, { organizationId });
   const configuration = sanitizePackageValue(snapshot.configuration_snapshot || snapshot.capability_config_snapshot || plan.capability_config_snapshot || {}, { organizationId });
@@ -144,6 +196,8 @@ export function buildManualHandoffManifest({ order, packageId, packageVersion, c
       authorization_summary: cleanText(avatar.authorization_summary || "按冻结授权事实执行"),
       verified_capability_snapshot: sanitizePackageValue(avatar.verified_capability_snapshot || { verified_capabilities: capabilities }, { organizationId })
     },
+    ...(hiflyHandsOnProductV1 ? { hifly_hands_on_product_v1: hiflyHandsOnProductV1 } : {}),
+    ...(hiflyHandsOnProductV1 ? { plan_review: sanitizePackageValue(snapshot.plan_review || {}, { organizationId }) } : {}),
     video_plan_snapshot: videoPlanSnapshot,
     configuration_snapshot: configuration,
     execution_steps: executionSteps,
