@@ -1,25 +1,98 @@
-# 飞影「手里有货」批量生产工作台
+<div align="center">
 
-这个项目用于批量制作电商产品数字人手持商品种草视频。当前唯一生产主路径是 Cloud Control Plane + Cloud Executor：运营在任意电脑通过云端 HTTPS 完成项目、商品、文案、人物、视频方案和生产工单，阿里云 Cloud Executor 通过持久 Chrome Profile 与 Playwright 进入飞影「手里有货」，下载视频并回传到 A12、Work 和鉴权下载。Mac Local Agent 与传统本地工作台仅保留为 legacy fallback，不是生产入口或验收依据。
+# Hifly｜电商数字人视频云端生产工作台
 
-## 项目背景与验证状态（对访客）
+**把"逐件上传、等待、下载"的人工视频生产，变成可追溯的云端流水线。**
 
-这是一个**有偿电商合作项目**：承接合作方"数字人手持商品种草视频"的逐件人工生产流程，收敛为审批、云端执行、质量核验与交付的可追溯工作流。本人担任产品负责人，主导需求收敛、流程与验收口径设计，并借助 Codex / Claude Code 协作实现。
+[![CI](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/workflows/ci.yml/badge.svg)](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/workflows/ci.yml)
+![Node](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)
+![Playwright](https://img.shields.io/badge/Playwright-云端执行-45ba4b?logo=playwright&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-阿里云部署-2496ED?logo=docker&logoColor=white)
 
-<img src="docs/assets/readme/hifly-flow.png" alt="Hifly 流水线：人工把关、失败即停" width="100%">
+[本地演示](#快速开始) · [运营手册](docs/新人培训使用手册.html) · [运维 Runbook](docs/deployment/ALIYUN_CLOUD_EXECUTOR_CE07_RUNBOOK.md) · [Issues](https://github.com/JettxonHo/hifly-hands-on-product-batch/issues)
 
-| 验证 | 状态（2026-09-02） | 证据 |
+</div>
+
+> 这个项目回答的问题：**AI 自动化进入真实生产环境，怎么保证不出事、不乱花钱？**
+
+## 目录
+
+- [它是什么](#它是什么)
+- [功能特性](#功能特性)
+- [真实运行界面](#真实运行界面)
+- [验证状态](#验证状态)
+- [它和其他自动化工具的区别](#它和其他自动化工具的区别)
+- [快速开始](#快速开始)
+- [常见问题](#常见问题)
+
+## 它是什么
+
+这是一个**有偿电商合作项目**。合作方原本在飞影平台逐件手工上传商品、等待数字人视频生成、再逐件下载。本项目把这条人工链路收敛为一个云端工作台：运营只负责录入与审核，云端执行器（Cloud Executor）通过 Playwright 自动完成上传、生成与下载，每条成片经 A12 核验后登记交付。
+
+生产主路径是 Cloud Control Plane + Cloud Executor，运营在任意电脑通过浏览器操作；本地工作台仅保留为开发演示与故障回退。
+
+<img src="docs/assets/readme/hifly-flow.png" alt="商品资料录入 → 云端工作台审核 → 云端自动执行 → 核验与交付" width="100%">
+
+## 功能特性
+
+- **商品批量录入**：CSV / XLSX 批量导入 + 多图自动匹配，或单件表单录入
+- **文案流水线**：AI 生成 → 质量评估 → 人工审核，三层分开留痕
+- **人物与方案确认**：数字人形象与视频方案均需人工批准后才进入生产
+- **一商品一工单**：严格串行领取与执行，失败即停、不自动重试
+- **核验与交付**：成片自动核验（A12）后进入作品库，提供鉴权预览与下载
+- **成本守门**：真实生成消耗真实积分，执行前必须取得授权；Provider 调用「最多一次」
+- **本地演示模式**：一条命令起全链路演示，不触飞影、不产生任何费用
+
+## 真实运行界面
+
+| 单任务工作区 | 文案质检与人工审核 | 作品库 |
 |---|---|---|
-| 云端真实链路试运行 | 3 个商品严格串行：每单 1 次成功执行、1 次 A12 核验通过、1 个 Work 登记，**0 重试 / 0 重复提交**；成片 MP4 校验一致，重启后可下载 | `docs/status/` 试运行记录 |
-| 生产环境部署纪律 | VideoPlan 幂等创建键经独立评审、CI 三绿后**受控部署至阿里云生产环境**：部署前备份、回滚标签、部署后只读核对；一次维护脚本故障透明记录并恢复 | Issue #275 / PR #276、`docs/status/CURRENT.md` |
-| 成本控制合同 | 文案质量评估 Provider「最多一次」调用：dispatch 与 HTTP 分离计数、崩溃 / 重复 worker 均 fail-closed，usage / 费用未知态显式表达而非猜测 | Issue #273 / `docs/status/CURRENT.md` |
-| 真实批次试点 | 5 个 SKU 校准冻结（积分上限 6000 / 每 SKU 1200、严格串行、禁止自动重试）；当前裁决 `BLOCKED_PRE_REAL_RUN`，**未获授权前真实批次保持阻断** | `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md` |
+| <img src="docs/assets/readme/workbench-01.png" alt="单任务工作区" width="100%"> | <img src="docs/assets/readme/copy-review-02.png" alt="文案人工审核把关" width="100%"> | <img src="docs/assets/readme/works-03.png" alt="作品库：成片可检查可交付" width="100%"> |
 
-设计原则：真实生成必须有对应积分授权；首失败即停，不自动重试；工程绿灯不冒充生产验收。
+截图为本地演示链路实跑（不触飞影、不产生真实费用），与下方生产试运行记录是两类事实。
 
-<img src="docs/assets/readme/workbench-01.png" alt="生产工作台：单任务工作区与五阶段推进" width="32%"> <img src="docs/assets/readme/copy-review-02.png" alt="文案质检与人工审核把关" width="32%"> <img src="docs/assets/readme/works-03.png" alt="作品库：核验后的成片可检查、可下载交付" width="32%">
+## 验证状态
 
-以上均为本地 demo 实跑截图（A01–A14 全链路，2026-09）：商品资料 → 文案生成 → 质检 → 人工审核批准 → 人物确认 → 视频方案批准 → 生产工单 → 候选成片核验 → 作品库登记，全程不访问飞影、不产生真实费用。
+> 截至 2026-09-02，与 `docs/status/` 治理记录口径一致。
+
+| 验证 | 状态 |
+|---|---|
+| 云端真实链路试运行 | 3 个商品严格串行：每单 1 次成功执行、1 次核验通过、 1 个作品登记，0 重试 / 0 重复提交；成片校验一致，重启后可下载 |
+| 生产环境部署纪律 | 幂等创建键经独立评审与 CI 后受控部署至阿里云生产环境：部署前备份、回滚标签、部署后只读核对；一次维护脚本故障透明记录并恢复 |
+| 成本控制合同 | 文案质量评估 Provider「最多一次」调用；崩溃 / 重复执行均 fail-closed，费用未知态显式表达而非猜测 |
+| 真实批次试点 | 5 个 SKU 校准冻结（积分上限 6000、严格串行、禁止自动重试）；未获授权前真实批次保持阻断 |
+
+## 它和其他自动化工具的区别
+
+- **失败即停**：任何一步失败立即暂停等待人工，不自动重试、不重复扣费
+- **成本是硬约束**：授权、上限、串行、费用未知态都是一等公民，而不是事后对账
+- **工程绿灯 ≠ 生产验收**：测试通过不冒充真实运行，真实运行有独立的授权与证据链
+
+## 快速开始
+
+前置条件：Node.js 18+；本地演示另需 Docker Desktop。
+
+```bash
+npm install
+npm run demo   # A01–A14 全链路本地演示，自动打开浏览器
+```
+
+演示使用受控假执行器与演示数据库，不读取飞影登录态、不调用真实 Provider、不产生费用。生产部署见 `docs/deployment/`。
+
+## 常见问题
+
+**会乱扣飞影积分吗？**
+不会。真实生成必须取得显式授权，且有积分硬上限、严格串行与失败即停；未获授权前真实批次保持阻断状态。
+
+**运营需要安装开发环境吗？**
+不需要。生产环境只需浏览器访问云端地址；Node.js 只用于本地开发与演示。
+
+**页面改版了怎么办？**
+网页自动化依赖飞影页面结构，遇到页面改版、登录失效或验证码时系统会暂停并记录失败，等待人工处理，不会盲目重试。
+
+---
+
+> 以下为运营与开发文档（原 README 内容保留不变，从"## 当前生产工作流"开始）
 
 ## 当前生产工作流
 
