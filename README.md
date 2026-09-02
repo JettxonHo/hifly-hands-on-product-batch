@@ -17,6 +17,10 @@
 
 设计原则：真实生成必须有对应积分授权；首失败即停，不自动重试；工程绿灯不冒充生产验收。
 
+<img src="docs/assets/readme/workbench-01.png" alt="生产工作台：单任务工作区与五阶段推进" width="32%"> <img src="docs/assets/readme/copy-review-02.png" alt="文案质检与人工审核把关" width="32%"> <img src="docs/assets/readme/works-03.png" alt="作品库：核验后的成片可检查、可下载交付" width="32%">
+
+以上均为本地 demo 实跑截图（A01–A14 全链路，2026-09）：商品资料 → 文案生成 → 质检 → 人工审核批准 → 人物确认 → 视频方案批准 → 生产工单 → 候选成片核验 → 作品库登记，全程不访问飞影、不产生真实费用。
+
 ## 当前生产工作流
 
 1. 运营通过云端 HTTPS 登录企业工作台。
