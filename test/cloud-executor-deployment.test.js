@@ -62,7 +62,9 @@ async function createEntrypointFixture() {
   const bin = path.join(root, "bin");
   await mkdir(bin);
   const eventLog = path.join(root, "events.log");
+  const xvfbStarted = path.join(root, "xvfb-started");
   const xvfbReady = path.join(root, "xvfb-ready");
+  const xvfbProbeCount = path.join(root, "xvfb-probe-count");
   const stopFile = path.join(root, "stop");
   const activeServer = path.join(root, "active-server");
   const displayNumber = 1000 + ((process.pid + displayCounter++) % 1000);
@@ -81,21 +83,35 @@ async function createEntrypointFixture() {
 
   await writeExecutable(path.join(bin, "xdpyinfo"), `#!/bin/sh
 set -eu
-printf '%s\\n' xdpyinfo >> "$FAKE_EVENT_LOG"
 if [ -f "$FAKE_ACTIVE_SERVER" ] || [ -f "$FAKE_XVFB_READY" ]; then
+  printf '%s\\n' xdpyinfo:ready >> "$FAKE_EVENT_LOG"
   exit 0
 fi
+if [ -f "$FAKE_XVFB_STARTED" ]; then
+  probe_count=0
+  if [ -f "$FAKE_XVFB_PROBE_COUNT" ]; then
+    probe_count=$(cat "$FAKE_XVFB_PROBE_COUNT")
+  fi
+  probe_count=$((probe_count + 1))
+  printf '%s\\n' "$probe_count" > "$FAKE_XVFB_PROBE_COUNT"
+  if [ "$probe_count" -ge "$FAKE_XVFB_READY_AFTER" ]; then
+    : > "$FAKE_XVFB_READY"
+    printf '%s\\n' xdpyinfo:ready >> "$FAKE_EVENT_LOG"
+    exit 0
+  fi
+fi
+printf '%s\\n' xdpyinfo:not_ready >> "$FAKE_EVENT_LOG"
 exit 1
 `);
   await writeExecutable(path.join(bin, "Xvfb"), `#!/bin/sh
 set -eu
 exec >/dev/null 2>&1
-printf '%s\\n' Xvfb >> "$FAKE_EVENT_LOG"
 if [ -e "$FAKE_LOCK_PATH" ] || [ -e "$FAKE_SOCKET_PATH" ]; then
   printf '%s\\n' artifacts-present >> "$FAKE_EVENT_LOG"
   exit 42
 fi
-: > "$FAKE_XVFB_READY"
+printf '%s\\n' Xvfb >> "$FAKE_EVENT_LOG"
+: > "$FAKE_XVFB_STARTED"
 while [ ! -f "$FAKE_STOP_FILE" ]; do sleep 0.01; done
 `);
   for (const command of ["x11vnc", "websockify"]) {
@@ -117,7 +133,10 @@ printf 'node:%s:%s\\n' "$1" "\${2:-}" >> "$FAKE_EVENT_LOG"
     CLOUD_EXECUTOR_DISPLAY: display,
     CLOUD_EXECUTOR_NOVNC_PORT: "6080",
     FAKE_EVENT_LOG: eventLog,
+    FAKE_XVFB_STARTED: xvfbStarted,
     FAKE_XVFB_READY: xvfbReady,
+    FAKE_XVFB_PROBE_COUNT: xvfbProbeCount,
+    FAKE_XVFB_READY_AFTER: "2",
     FAKE_STOP_FILE: stopFile,
     FAKE_ACTIVE_SERVER: activeServer,
     FAKE_LOCK_PATH: lockPath,
@@ -158,14 +177,12 @@ async function assertMissing(filePath) {
 function assertStartupEvents(events, terminalCommand) {
   const xvfbIndex = events.indexOf("Xvfb");
   assert.ok(xvfbIndex > 0, `Xvfb did not start after display preparation: ${events.join(",")}`);
-  assert.ok(events.slice(0, xvfbIndex).every((event) => event === "xdpyinfo"));
-  assert.deepEqual(events.slice(xvfbIndex), [
-    "Xvfb",
-    "xdpyinfo",
-    "x11vnc",
-    "websockify",
-    terminalCommand
-  ]);
+  assert.ok(events.slice(0, xvfbIndex).every((event) => event === "xdpyinfo:not_ready"));
+  const readyIndex = events.indexOf("xdpyinfo:ready", xvfbIndex + 1);
+  assert.ok(readyIndex > xvfbIndex, `Xvfb did not become ready before helpers: ${events.join(",")}`);
+  assert.ok(events.slice(xvfbIndex + 1, readyIndex).length >= 1);
+  assert.ok(events.slice(xvfbIndex + 1, readyIndex).every((event) => event === "xdpyinfo:not_ready"));
+  assert.deepEqual(events.slice(readyIndex), ["xdpyinfo:ready", "x11vnc", "websockify", terminalCommand]);
 }
 
 test("production entrypoint removes stale display lock/socket before Xvfb and dispatches the default worker", { skip: POSIX_ENTRYPOINT_SKIP }, async () => {
@@ -201,7 +218,7 @@ test("production entrypoint preserves a padded live PID when the display probe f
 
     assert.equal(result.code, 1);
     assert.match(result.stderr, /CLOUD_EXECUTOR_XVFB_ALREADY_RUNNING/);
-    assert.deepEqual((await readFile(fixture.eventLog, "utf8")).trim().split("\n"), ["xdpyinfo"]);
+    assert.deepEqual((await readFile(fixture.eventLog, "utf8")).trim().split("\n"), ["xdpyinfo:not_ready"]);
     assert.equal(await readFile(fixture.lockPath, "utf8"), paddedPid);
     assert.equal(await readFile(fixture.socketPath, "utf8"), "active X11 socket");
   } finally {
