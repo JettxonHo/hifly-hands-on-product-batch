@@ -550,6 +550,12 @@ test("Stage 4 keeps PC and mobile composition first-class and restores exact dir
   const secondItem = page.locator(`#productList [data-product-id="${second.product.id}"]`);
   await secondItem.click();
   await page.waitForURL(new RegExp(`product=${second.product.id}`));
+  await page.waitForFunction((productId) => {
+    const currentProduct = document.querySelector(`#productList [data-product-id="${CSS.escape(productId)}"]`);
+    const heading = document.querySelector("#videoPlanWorkspaceHeading");
+    return currentProduct?.getAttribute("aria-current") === "true" && !heading?.hidden &&
+      heading?.textContent.trim() === "制定并审核视频方案" && document.activeElement === heading;
+  }, second.product.id);
   assert.equal(await page.locator("#videoPlanWorkspaceHeading").evaluate((node) => document.activeElement === node), true);
 
   await page.locator("#mobileVideoPlanProductBack").click();
@@ -607,6 +613,11 @@ test("Stage 4 rejects stale same-product plan responses and closes version selec
   await page.locator("#openVersionDrawer").click();
   await page.locator(`#mobileVersionList [data-plan-id="${versions.first.id}"]`).click();
   await page.waitForURL(new RegExp(`plan=${versions.first.id}`));
+  await page.waitForFunction(() => {
+    const dialog = document.querySelector("#versionDialog");
+    const heading = document.querySelector("#videoPlanWorkspaceHeading");
+    return dialog && !dialog.open && !heading?.hidden && document.activeElement === heading;
+  });
   assert.equal(await page.locator("#versionDialog").evaluate((dialog) => dialog.open), false);
   await expectVisibleFocus(page, "#videoPlanWorkspaceHeading");
   await page.locator("#workspacePrimaryAction").click();
