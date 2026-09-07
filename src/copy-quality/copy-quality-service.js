@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { createStaticQualityProfileResolver } from "./static-profile-resolver.js";
+import { MANUAL_INPUT_QUALITY_POLICY } from "./manual-input-evaluator.js";
 
 const failure = (code) => Object.assign(new Error(code), { code });
 const clean = (value) => typeof value === "string" ? value.trim() : "";
@@ -87,7 +88,8 @@ export function createCopyQualityService({ repository, copyService,
 
   async function currentPolicy(input, copy, productRevision) {
     const policy = await profileResolver.resolve({ organizationId: input.organizationId, copyVersion: copy, productRevision });
-    const profileVersion = clean(policy?.profileVersion), ruleVersion = clean(policy?.ruleVersion);
+    const profileVersion = clean(policy?.profileVersion), ruleVersion = copy?.intent === "manual_input"
+      ? MANUAL_INPUT_QUALITY_POLICY : clean(policy?.ruleVersion);
     if (!profileVersion || !ruleVersion) throw failure("QUALITY_PROFILE_REQUIRED");
     return { profileVersion, ruleVersion };
   }
@@ -413,7 +415,7 @@ export function createCopyQualityService({ repository, copyService,
       await currentRevision({ organizationId: job.organization_id, actorMemberId: job.actor_member_id }, copy);
       const draft = await copyService.editCopyVersion({ organizationId: job.organization_id,
         actorMemberId: job.actor_member_id, copyVersionId: copy.id, expectedRevision: copy.row_version,
-        body, idempotencyKey: `rewrite-job-copy:${job.id}` });
+        body, copyOrigin: "ai_rewrite", idempotencyKey: `rewrite-job-copy:${job.id}` });
       const started = await this.startQualityCheck({ organizationId: job.organization_id,
         actorMemberId: job.actor_member_id, copyVersionId: draft.id, expectedRevision: draft.row_version,
         idempotencyKey: `rewrite-job-qc:${job.id}` });

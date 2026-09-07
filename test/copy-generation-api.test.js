@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { createControlledCopyProvider } from "../src/copy-generation/controlled-provider.js";
 import { createMemoryCopyGenerationRepository } from "../src/copy-generation/memory-copy-generation-repository.js";
+import { createMemoryCopyQualityRepository } from "../src/copy-quality/memory-copy-quality-repository.js";
+import { createMemoryCopyReviewRepository } from "../src/copy-review/memory-copy-review-repository.js";
 import { createMemoryProjectContentRepository } from "../src/project-content/memory-project-content-repository.js";
 import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { activateAdmin, identityApp, identityHeaders, login } from "./helpers/identity-world.js";
@@ -78,4 +80,91 @@ test("authenticated user generates and restores copy through formal HTTP API", a
   assert.equal((await app.inject({ method: "GET", url: `/api/copy-versions/${copy.id}`, headers: otherHeaders })).statusCode, 404);
   assert.equal((await app.inject({ method: "GET", url: `/api/copy-generation-jobs/${requested.json().job.id}`, headers: otherHeaders })).statusCode, 404);
   assert.ok((await copyRepository.listAuditEvents()).some((event) => event.event_type === "copy.generation_succeeded"));
+});
+
+test("authenticated user can enter one manual copy and complete local QC plus explicit human review", async (t) => {
+  let providerCalls = 0;
+  const copyRepository = createMemoryCopyGenerationRepository();
+  const { app } = await identityApp(t, {
+    projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort },
+    copyGeneration: {
+      enabled: true,
+      repository: copyRepository,
+      provider: createControlledCopyProvider({ generate: async () => { providerCalls += 1; return { body: "不应生成" }; } }),
+      worker: { autoStart: false }
+    },
+    copyQuality: { enabled: true, repository: createMemoryCopyQualityRepository(), worker: { autoStart: false } },
+    copyReview: { enabled: true, repository: createMemoryCopyReviewRepository() }
+  });
+  const auth = await activateAdmin(app);
+  const ready = await readyProductRevision(app, auth);
+  const mutationHeaders = identityHeaders({ cookies: auth.cookies, csrf: auth.csrf, mutation: true });
+  const manualRequest = (key, payload = { body: "这款商品全网最好，适合日常使用。" }) => app.inject({
+    method: "POST", url: `/api/product-revisions/${ready.id}/copy-versions`,
+    headers: { ...mutationHeaders, "idempotency-key": key }, payload
+  });
+
+  const [created, replay] = await Promise.all([manualRequest("manual-api-1"), manualRequest("manual-api-1")]);
+  assert.equal(created.statusCode, 201, created.body);
+  assert.equal(replay.statusCode, 201, replay.body);
+  const copy = created.json().copy_version;
+  assert.equal(replay.json().copy_version.id, copy.id);
+  assert.equal(copy.status, "draft");
+  assert.equal(copy.intent, "manual_input");
+  assert.equal(copy.generation_job_id, null);
+  assert.equal(copy.parent_copy_version_id, null);
+  assert.equal(providerCalls, 0);
+  assert.deepEqual((await (await app.inject({ method: "GET", url: `/api/product-revisions/${ready.id}/copy-generation-jobs`, headers: identityHeaders({ cookies: auth.cookies }) })).json()).jobs, []);
+
+  const forgedManualGeneration = await app.inject({ method: "POST", url: `/api/product-revisions/${ready.id}/copy-generations`,
+    headers: { ...mutationHeaders, "idempotency-key": "manual-api-forged-generation" }, payload: { intent: "manual_input" } });
+  assert.equal(forgedManualGeneration.statusCode, 400);
+  assert.equal(forgedManualGeneration.json().error, "COPY_GENERATION_INTENT_INVALID");
+
+  const changedKey = await manualRequest("manual-api-1", { body: "同一幂等键不能替换正文" });
+  assert.equal(changedKey.statusCode, 409);
+  assert.equal(changedKey.json().error, "IDEMPOTENCY_CONFLICT");
+  const extraField = await manualRequest("manual-api-extra", { body: copy.body, status: "approved" });
+  assert.equal(extraField.statusCode, 400);
+  assert.equal(extraField.json().error, "COPY_MANUAL_INPUT_PAYLOAD_INVALID");
+  const wrongType = await app.inject({ method: "POST", url: `/api/product-revisions/${ready.id}/copy-versions`, headers: { ...mutationHeaders, "idempotency-key": "manual-api-type" }, payload: { body: 1 } });
+  assert.equal(wrongType.statusCode, 400);
+  assert.equal(wrongType.json().error, "COPY_MANUAL_INPUT_PAYLOAD_INVALID");
+  const oversized = await manualRequest("manual-api-large", { body: "x".repeat(10_001) });
+  assert.equal(oversized.statusCode, 400);
+  assert.equal(oversized.json().error, "COPY_BODY_TOO_LARGE");
+
+  const started = await app.inject({ method: "POST", url: `/api/copy-versions/${copy.id}/quality-runs`,
+    headers: { ...mutationHeaders, "idempotency-key": "manual-api-quality" }, payload: { expected_revision: copy.row_version } });
+  assert.equal(started.statusCode, 202, started.body);
+  assert.equal(started.json().copy_version.status, "frozen");
+  assert.equal(started.json().quality_run.rule_version, "manual_input_local_rules");
+  await app.copyQuality.worker.runNext();
+  const details = await app.inject({ method: "GET", url: `/api/quality-runs/${started.json().quality_run.id}`, headers: identityHeaders({ cookies: auth.cookies }) });
+  assert.equal(details.statusCode, 200, details.body);
+  const quality = details.json();
+  assert.equal(quality.quality_result.conclusion, "needs_review");
+  assert.equal(quality.quality_result.rule_version, "manual_input_local_rules");
+  assert.equal(quality.quality_findings.length, 1);
+  assert.equal(quality.quality_findings[0].code, "MANUAL_SEMANTIC_REVIEW_REQUIRED");
+  assert.equal(providerCalls, 0);
+
+  const findingId = quality.quality_findings[0].id;
+  const resolved = await app.inject({ method: "POST", url: `/api/quality-findings/${findingId}/resolutions`,
+    headers: { ...mutationHeaders, "idempotency-key": "manual-api-resolution" },
+    payload: { resolution: "accepted_with_reason", reason: "负责人已核对商品事实与表达边界" } });
+  assert.equal(resolved.statusCode, 200, resolved.body);
+  assert.equal(resolved.json().quality_result.effective_conclusion, "passed");
+
+  const submitted = await app.inject({ method: "POST", url: `/api/copy-versions/${copy.id}/reviews`,
+    headers: { ...mutationHeaders, "idempotency-key": "manual-api-review-submit" }, payload: {} });
+  assert.equal(submitted.statusCode, 201, submitted.body);
+  assert.equal(submitted.json().current_review.status, "pending");
+  const review = submitted.json().current_review;
+  const approved = await app.inject({ method: "POST", url: `/api/copy-reviews/${review.id}/approve`,
+    headers: { ...mutationHeaders, "idempotency-key": "manual-api-review-approve" }, payload: { expected_revision: review.row_version } });
+  assert.equal(approved.statusCode, 200, approved.body);
+  assert.equal(approved.json().current_review.status, "approved");
+  assert.equal(approved.json().current_review.review_mode, "self_review");
+  assert.equal(providerCalls, 0);
 });

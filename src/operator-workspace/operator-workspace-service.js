@@ -135,6 +135,7 @@ function publicGeneration(job) {
 function publicQuality(details) {
   const run = details?.quality_run;
   const result = details?.quality_result;
+  const manualInput = run?.rule_version === "manual_input_local_rules" || run?.input_snapshot?.copy_version?.intent === "manual_input";
   return run ? {
     run_id: run.id,
     result_id: result?.id || null,
@@ -144,6 +145,7 @@ function publicQuality(details) {
     ...(run.attempt_policy ? { attempt_policy: run.attempt_policy } : {}),
     ...(run.failure_code ? { failure_code: run.failure_code } : {}),
     ...(run.provider_request_outcome ? { provider_request_outcome: run.provider_request_outcome } : {}),
+    ...(manualInput ? { manual_input_policy: "manual_input_local_rules" } : {}),
     conclusion: result?.effective_conclusion || result?.conclusion || null,
     current_valid: result?.current_valid ?? null,
     invalidation_reason: result?.invalidation_reason || null,
@@ -801,7 +803,7 @@ function copyState({ revision, copy, currentCopyId, versions, generation, qualit
   const reviewStatus = review.status;
   const activeGeneration = ["queued", "running"].includes(generationStatus);
   const activeQuality = ["queued", "running"].includes(quality.status);
-  let businessStatus = "尚未生成文案";
+  let businessStatus = generationStatus === "not_started" ? "等待输入文案" : "尚未生成文案";
   let blockerCodes = ["COPY_REQUIRED"];
   let action = null;
   const historical = Boolean(copy && currentCopyId && copy.id !== currentCopyId);
@@ -828,10 +830,8 @@ function copyState({ revision, copy, currentCopyId, versions, generation, qualit
     } else if (["failed", "timed_out"].includes(generationStatus)) {
       businessStatus = "文案生成未完成";
       blockerCodes = ["COPY_GENERATION_FAILED"];
-      if (generationStatus === "failed" && generation.attempts < generation.max_attempts) {
-        action = { code: "retry_copy_generation", stage: "copy", kind: "command" };
-      } else action = { code: "request_copy_generation", stage: "copy", kind: "command" };
-    } else action = { code: "request_copy_generation", stage: "copy", kind: "command" };
+      action = { code: "create_manual_copy", stage: "copy", kind: "command" };
+    } else action = { code: "create_manual_copy", stage: "copy", kind: "command" };
   } else if (reviewStatus === "approved" && review.reasons.length === 0) {
     businessStatus = "文案已批准";
     blockerCodes = [];

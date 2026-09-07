@@ -1,4 +1,17 @@
+import { MAX_COPY_BODY_CHARS } from "../../copy-generation/copy-generation-service.js";
+
 const SAFE_FAILURE_CODES = new Set(["COPY_GENERATION_FAILED", "COPY_GENERATION_EMPTY_RESULT", "COPY_PROVIDER_TEMPORARY_FAILURE", "COPY_GENERATION_TIMED_OUT"]);
+
+function manualCopyBody(request) {
+  const value = request.body;
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => key !== "body") || typeof value.body !== "string") {
+    throw Object.assign(new Error("COPY_MANUAL_INPUT_PAYLOAD_INVALID"), { code: "COPY_MANUAL_INPUT_PAYLOAD_INVALID" });
+  }
+  if (value.body.length > MAX_COPY_BODY_CHARS) {
+    throw Object.assign(new Error("COPY_BODY_TOO_LARGE"), { code: "COPY_BODY_TOO_LARGE" });
+  }
+  return value.body;
+}
 
 function actor(request) {
   return { organizationId: request.identity.organization.id, actorMemberId: request.identity.member.id };
@@ -15,6 +28,13 @@ function publicJob(job) {
 }
 
 export async function registerCopyGenerationRoutes(app, { service, worker }) {
+  app.post("/api/product-revisions/:revisionId/copy-versions", async (request, reply) => {
+    const copyVersion = await service.createManualCopyVersion({
+      ...actor(request), productRevisionId: request.params.revisionId, body: manualCopyBody(request),
+      idempotencyKey: request.headers["idempotency-key"]
+    });
+    reply.code(201).send({ copy_version: copyVersion });
+  });
   app.post("/api/product-revisions/:revisionId/copy-generations", async (request, reply) => {
     const result = await service.requestGeneration({
       ...actor(request), productRevisionId: request.params.revisionId, intent: request.body?.intent,

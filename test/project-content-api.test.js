@@ -314,7 +314,7 @@ test("operator workspace default app wiring exposes Copy only when the existing 
   assert.equal(workspace.render_mode, "workspace");
   assert.equal(workspace.stages[1].implementation_status, "workspace");
   assert.equal(workspace.stages[1].read_status, "ok");
-  assert.deepEqual(workspace.recommended_action, { code: "request_copy_generation", stage: "copy", kind: "command" });
+  assert.deepEqual(workspace.recommended_action, { code: "create_manual_copy", stage: "copy", kind: "command" });
   assert.equal(workspace.stages[2].read_status, "not_loaded");
   assert.equal(workspace.stages[3].read_status, "not_loaded");
   assert.equal(workspace.stages[4].read_status, "not_loaded");

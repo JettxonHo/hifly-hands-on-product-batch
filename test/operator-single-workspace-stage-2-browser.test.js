@@ -163,7 +163,7 @@ async function expectOneVisibleBrandAction(page) {
   assert.deepEqual(actions.competitors, [], `Copy must not visually duplicate the fixed recommended action: ${JSON.stringify(actions.competitors)}`);
 }
 
-test("Stage 2 keeps Copy generation, QC, and human approval separate in one workspace", async (t) => {
+test("Stage 2 accepts direct Copy input, local QC, and explicit human approval in one workspace", async (t) => {
   const setup = await startWorld(t, 59200);
   if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
   const { app, browser, origin, project, first } = setup;
@@ -171,28 +171,36 @@ test("Stage 2 keeps Copy generation, QC, and human approval separate in one work
   await authenticate(page, origin);
   await page.goto(url(origin, project.id, first.product.id));
   await page.getByRole("heading", { name: "完善并审核文案" }).waitFor();
-  await expectAction(page, "request_copy_generation", "生成文案");
+  await expectAction(page, "create_manual_copy", "直接输入文案");
   await expectOneVisibleBrandAction(page);
   assert.equal(await page.locator("body").getAttribute("data-workspace-stage"), "copy");
   assert.equal(await page.locator('[data-stage-code="avatar"]').first().getAttribute("href"), `/avatar.html?project=${project.id}&product=${first.product.id}`);
 
-  await page.locator("#workspacePrimaryAction").click();
-  await page.getByText(/文案生成已排队|正在生成文案/).first().waitFor();
-  assert.equal(await page.locator('[data-recommended-action="true"]').count(), 0);
-  await app.runNextCopyGenerationJob();
-  await page.getByText("文案草稿待质检", { exact: true }).first().waitFor({ timeout: 5000 });
-
   const editor = page.locator("#workspaceCopyBody");
-  await editor.fill(`${await editor.inputValue()} 补充一句。`);
+  assert.equal(await editor.isEditable(), true);
+  const screenshotDir = process.env.STAGE_2_SCREENSHOTS_DIR;
+  if (screenshotDir) {
+    await mkdir(screenshotDir, { recursive: true });
+    await page.screenshot({ path: path.join(screenshotDir, "stage-2-copy-direct-entry-1440x900.png") });
+  }
+  await editor.fill("这款商品全网最好，适合日常使用。");
   await expectAction(page, "save_copy_draft", "保存当前修改");
   await page.locator("#workspacePrimaryAction").click();
-  await page.getByText("文案草稿已保存。", { exact: true }).waitFor();
+  await page.getByText("文案已保存。", { exact: true }).waitFor();
   await expectAction(page, "start_copy_quality", "开始质检");
   await page.locator("#workspacePrimaryAction").click();
   await page.getByText(/文案质检已排队|正在质检文案/).first().waitFor();
   await app.runNextCopyQualityJob();
-  await page.getByText("质检已通过，待提交人工审核", { exact: true }).first().waitFor({ timeout: 5000 });
+  await page.getByText("质检需要人工判断", { exact: true }).first().waitFor({ timeout: 5000 });
+  assert.match(await page.locator("#workspaceQualitySummary").textContent(), /本地规则.*语义宣称/);
   assert.equal(await page.getByText("进入人物", { exact: true }).count(), 0, "QC passed must not appear as human approval");
+  await expectAction(page, "review_copy_quality", "处理质检问题");
+  await page.locator("#workspacePrimaryAction").click();
+  const semanticFinding = page.locator('[data-finding-code="MANUAL_SEMANTIC_REVIEW_REQUIRED"]');
+  await semanticFinding.getByRole("button", { name: "接受并填写理由" }).click();
+  await page.locator("#workspaceFindingReason").fill("负责人已核对这段表达与商品事实");
+  await page.getByRole("button", { name: "确认接受" }).click();
+  await page.getByText("质检已通过，待提交人工审核", { exact: true }).first().waitFor({ timeout: 5000 });
   await expectAction(page, "submit_copy_review", "提交人工审核");
 
   await page.locator("#workspacePrimaryAction").click();
@@ -227,7 +235,6 @@ test("Stage 2 keeps Copy generation, QC, and human approval separate in one work
   await reviewTab.press("Home");
   assert.equal(await qualityTab.getAttribute("aria-selected"), "true");
 
-  const screenshotDir = process.env.STAGE_2_SCREENSHOTS_DIR;
   if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
@@ -266,11 +273,11 @@ test("Stage 2 fails closed and recovers exact Copy context without losing local 
   assert.equal(await page.locator('[data-stage-code][aria-disabled="true"]:not([href])').count(), 10);
   await expectAction(page, "retry_copy_read", "刷新当前文案");
   await page.locator("#workspacePrimaryAction").click();
-  await expectAction(page, "request_copy_generation", "生成文案");
+  await expectAction(page, "create_manual_copy", "直接输入文案");
   assert.equal(await page.locator('[data-stage-code="copy"]').first().getAttribute("href"), `/workspace.html?project=${project.id}&product=${first.product.id}&stage=copy`);
 
   await page.unroute("**/api/projects/*/products/*/operator-workspace?*");
-  await page.locator("#workspacePrimaryAction").click();
+  await page.locator("#generateWorkspaceCopy").click();
   await app.runNextCopyGenerationJob();
   await page.getByText("文案草稿待质检", { exact: true }).first().waitFor({ timeout: 5000 });
   const editor = page.locator("#workspaceCopyBody");
@@ -368,8 +375,8 @@ test("Stage 2 resolves review findings truthfully and never accepts hard blocks"
 
   async function generateAndCheck(product) {
     await page.goto(url(origin, project.id, product.product.id));
-    await expectAction(page, "request_copy_generation", "生成文案");
-    await page.locator("#workspacePrimaryAction").click();
+    await expectAction(page, "create_manual_copy", "直接输入文案");
+    await page.locator("#generateWorkspaceCopy").click();
     await app.runNextCopyGenerationJob();
     await page.getByText("文案草稿待质检", { exact: true }).first().waitFor({ timeout: 5000 });
     await expectAction(page, "start_copy_quality", "开始质检");
