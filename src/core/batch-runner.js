@@ -46,11 +46,26 @@ function isListDeltaEvidence(value) {
       Array.isArray(value.post_observation));
 }
 
+const TRUSTED_SUBMISSION_EVIDENCE_SOURCES = new Set([
+  "direct_submission",
+  "causal_submission_receipt"
+]);
+
+function assetPaidActionCheckpoint(task) {
+  const checkpoint = task?.asset_paid_action_checkpoint;
+  return checkpoint && typeof checkpoint === "object" &&
+    typeof checkpoint.phase === "string" && checkpoint.phase.startsWith("asset_paid_action_")
+    ? checkpoint
+    : null;
+}
+
 function isTrustedSubmissionEvidence(value) {
   return value && typeof value === "object" &&
-    value.evidence_source === "direct_submission" &&
+    TRUSTED_SUBMISSION_EVIDENCE_SOURCES.has(value.evidence_source) &&
     hasStableRemoteIdentity(value) &&
-    !isListDeltaEvidence(value);
+    !isListDeltaEvidence(value) &&
+    (value.evidence_source !== "causal_submission_receipt" ||
+      typeof value.receipt_id === "string" && value.receipt_id.length > 0);
 }
 
 function isSubmittedEvidence(value) {
@@ -214,11 +229,17 @@ export async function runBatch({
       signal,
       emit: ({ type, phase: eventPhase, evidence }) => emit(task, type, eventPhase ?? phase, evidence),
       checkpoint: async ({ phase: checkpointPhase, evidence }) => annotate(task, {
-        submit_checkpoint: {
-          phase: checkpointPhase,
-          observed_at: now(),
-          evidence
-        }
+        ...(typeof checkpointPhase === "string" && checkpointPhase.startsWith("asset_paid_action_")
+          ? { asset_paid_action_checkpoint: {
+            phase: checkpointPhase,
+            observed_at: now(),
+            evidence
+          } }
+          : { submit_checkpoint: {
+            phase: checkpointPhase,
+            observed_at: now(),
+            evidence
+          } })
       }, checkpointPhase)
     };
   }
@@ -256,6 +277,17 @@ export async function runBatch({
       // than leaving a generating_asset row for recovery to reinterpret as an
       // unknown submission.
       if (error.failureStage === "post_handheld_pre_video" && Array.isArray(error.evidence)) {
+        return transition(task, {
+          type: "FAIL_PRE_SUBMIT",
+          changes: {
+            ...changes,
+            execution_key: null,
+            confirmed_at: null,
+            retryability: "not_retryable"
+          }
+        }, phase);
+      }
+      if (error.failureStage === "asset_paid_action" || assetPaidActionCheckpoint(task)) {
         return transition(task, {
           type: "FAIL_PRE_SUBMIT",
           changes: {
@@ -407,6 +439,9 @@ export async function runBatch({
       result = await invoke(task, "submitVideo", [task, asset], "remote_submit");
     } catch (error) {
       if (error instanceof ExecutorSafetyError) throw error;
+      if (error?.outcome === "requires_action" && error.failureStage === "pre_submit_receipt") {
+        return pauseOrFailPreSubmit(task, error, "remote_submit");
+      }
       return interruptUnknown(task, error, "remote_submit");
     }
     if (result?.status === "failed") {
@@ -434,18 +469,48 @@ export async function runBatch({
   async function executeConfirmed(task) {
     if (signal?.aborted) return transition(task, { type: "STOP_SAFE" }, "safe_stop");
     task = await transition(task, { type: "START_ASSET" }, "asset_generation");
+    if (signal?.aborted) return transition(task, { type: "STOP_SAFE" }, "safe_stop");
+    if (assetPaidActionCheckpoint(task)) {
+      return pauseOrFailPreSubmit(task, Object.assign(new Error("Hifly hands-on image paid action is already recorded"), {
+        code: "HIFLY_HANDS_ON_IMAGE_PAID_ACTION_ALREADY_RECORDED",
+        outcome: "requires_action",
+        failureStage: "asset_paid_action"
+      }), "asset_generation");
+    }
     let asset;
     try {
       asset = await invoke(task, "createAsset", [task], "asset_generation");
     } catch (error) {
       if (error instanceof ExecutorSafetyError) throw error;
+      const persistedTask = await store.read(batchId)
+        .then((current) => findTask(current, task.task_id))
+        .catch(() => null);
+      if (assetPaidActionCheckpoint(task) || assetPaidActionCheckpoint(persistedTask)) {
+        const uncertain = error?.outcome === "requires_action"
+          ? error
+          : Object.assign(new Error("Hifly hands-on image submission outcome is unknown", { cause: error }), {
+            code: "HIFLY_HANDS_ON_IMAGE_SUBMISSION_UNKNOWN",
+            outcome: "requires_action",
+            failureStage: "asset_paid_action"
+          });
+        return pauseOrFailPreSubmit(task, uncertain, "asset_generation");
+      }
       return pauseOrFailPreSubmit(task, error, "asset_generation");
     }
     task = await transition(task, {
       type: "CONFIRM_ASSET",
       changes: { asset_evidence: asset, paused_auth: false }
     }, "asset_confirmation");
-    if (signal?.aborted) return transition(task, { type: "STOP_SAFE" }, "safe_stop");
+    if (signal?.aborted) {
+      if (assetPaidActionCheckpoint(task)) {
+        return pauseOrFailPreSubmit(task, Object.assign(new Error("Execution stopped after the Hifly hands-on image paid action"), {
+          code: "HIFLY_HANDS_ON_IMAGE_PAID_ACTION_STOPPED",
+          outcome: "requires_action",
+          failureStage: "asset_paid_action"
+        }), "safe_stop");
+      }
+      return transition(task, { type: "STOP_SAFE" }, "safe_stop");
+    }
     return submitKnownAsset(task, asset);
   }
 

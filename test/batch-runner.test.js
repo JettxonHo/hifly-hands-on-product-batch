@@ -1105,6 +1105,29 @@ test("Hifly executor forwards the batch download context to its page object", as
   assert.deepEqual(received, { projectRoot: "/tmp/run" });
 });
 
+test("Hifly executor forwards the asset checkpoint context before the paid inner action", async () => {
+  let received = null;
+  const executor = createHiflyExecutor({
+    hiflyPage: {
+      page: { isClosed() { return false; } },
+      async preflight() {},
+      async prepareAsset(_task, context) {
+        received = context;
+        return { asset_id: "asset-context" };
+      },
+      async submitVideo() {},
+      async querySubmission() {},
+      async downloadArtifact() {},
+      async reconcileSubmission() {}
+    }
+  });
+  const checkpoint = async () => {};
+
+  await executor.createAsset({}, { checkpoint });
+
+  assert.deepEqual(received, { checkpoint });
+});
+
 test("downloadArtifact accepts a destination inside an explicit batch project root", async () => {
   const configRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-config-root-"));
   const batchRoot = await mkdtemp(path.join(os.tmpdir(), "hifly-batch-root-"));
@@ -1748,7 +1771,7 @@ test("createHandsOnImage edits a stale failed modal before continuing the curren
     },
     getByRole(_role, options) {
       requestedDialogTexts.push(String(options?.name || ""));
-      return { first: () => editText };
+      return { first: () => String(options?.name || "").includes("上传商品") ? productUploadButton : editText };
     }
   };
   const states = [
@@ -3284,4 +3307,431 @@ test("resetExistingUpload clicks the outer delete control even when upload butto
     "reload-goods",
     "upload-restored"
   ]);
+});
+
+test("formal sequential preparations keep the current modal editing state and bind every new person/product", async () => {
+  const calls = [];
+  let modalState = "editing";
+  const dialog = {
+    async isVisible() {
+      return modalState !== "closed";
+    }
+  };
+  const page = {
+    isClosed() {
+      return false;
+    },
+    getByRole(_role, options) {
+      const name = String(options?.name || "");
+      if (name.includes("上传人物+产品图")) {
+        return {
+          first() {
+            return {
+              async waitFor() { calls.push("outer-upload-wait"); },
+              async click() { calls.push("outer-upload-click"); }
+            };
+          }
+        };
+      }
+      throw new Error(`unexpected page role lookup: ${name}`);
+    }
+  };
+  const adapter = new HiflyHandsOnProductPage(page, {
+    batch: { defaultTimeoutMs: 10 },
+    behavior: { resetUploadBeforeEachProduct: true },
+    hiflyUi: {
+      uploadLabel: "上传人物+产品图",
+      uploadPersonText: "上传人物",
+      uploadProductText: "上传商品"
+    }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+  adapter.inspectVisibleGeneratedModalState = async () => ({
+    visible: modalState !== "closed",
+    ready: modalState === "generated",
+    failed: false,
+    text: "手持商品图",
+    buttonTexts: [],
+    imageSources: []
+  });
+  adapter.hasGeneratedImageReady = async () => modalState === "generated";
+  adapter.resetGeneratedHandsOnImage = async (product) => {
+    calls.push(`edit:${product.sku}`);
+    modalState = "editing";
+  };
+  adapter.fillOptionalField = async (_label, value, field) => calls.push(`field:${field}:${value}`);
+  adapter.applyScriptMode = async (product) => calls.push(`copy:${product.sku}:${product.script}`);
+  adapter.captureProductImageSrc = async () => ({ src: `current-${modalState}`, naturalWidth: 1 });
+  adapter.uploadModalFile = async (label, filePath, options = {}) => calls.push(
+    `upload:${label}:${filePath}:${options.required === true ? "required" : "optional"}`
+  );
+  adapter.verifyProductImageReplaced = async (_stale, product) => calls.push(`verify:${product.sku}`);
+  adapter.selectAndVerifyGoodsSize = async (code) => calls.push(`size:${code}`);
+  adapter.clickModalGenerate = async () => calls.push("generate");
+  adapter.confirmGeneratedHandsOnImage = async (product) => {
+    calls.push(`confirm:${product.sku}`);
+    modalState = "generated";
+    return null;
+  };
+
+  const products = ["P1", "P2", "P3"].map((sku) => ({
+    sku,
+    product_name: `Product ${sku}`,
+    selling_points: `Point ${sku}`,
+    script: `Copy ${sku}`,
+    resolved_script_mode: "custom",
+    person_image_path: `/fixtures/${sku}-person.png`,
+    image_path: `/fixtures/${sku}-product.png`
+  }));
+
+  for (const product of products) await adapter.fillProduct(product);
+
+  assert.deepEqual(calls.filter((call) => call.startsWith("upload:")), [
+    "upload:上传人物:/fixtures/P1-person.png:optional",
+    "upload:上传商品:/fixtures/P1-product.png:required",
+    "upload:上传人物:/fixtures/P2-person.png:optional",
+    "upload:上传商品:/fixtures/P2-product.png:required",
+    "upload:上传人物:/fixtures/P3-person.png:optional",
+    "upload:上传商品:/fixtures/P3-product.png:required"
+  ]);
+  assert.deepEqual(calls.filter((call) => call.startsWith("edit:")), ["edit:P2", "edit:P3"]);
+  assert.equal(calls.includes("outer-upload-click"), false);
+  assert.equal(calls.includes("outer-upload-wait"), false);
+});
+
+test("resetExistingUpload keeps an already-open editing modal instead of closing and reloading it", async () => {
+  const calls = [];
+  const dialog = { async isVisible() { return true; } };
+  const page = {
+    isClosed() { return false; },
+    keyboard: { async press(key) { calls.push(`key:${key}`); } },
+    locator(selector) { calls.push(`locator:${selector}`); throw new Error("must not inspect outer upload card"); }
+  };
+  const adapter = new HiflyHandsOnProductPage(page, {
+    batch: { defaultTimeoutMs: 10 },
+    behavior: { resetUploadBeforeEachProduct: true },
+    hiflyUi: { uploadLabel: "上传人物+产品图" }
+  }, { info() {} });
+  adapter.dialogLocator = () => dialog;
+  adapter.inspectVisibleGeneratedModalState = async () => ({
+    visible: true,
+    ready: false,
+    failed: false,
+    text: "手持商品图",
+    buttonTexts: ["上传人物", "上传商品"],
+    imageSources: []
+  });
+  adapter.hasGeneratedImageReady = async () => false;
+
+  await adapter.resetExistingUpload();
+
+  assert.deepEqual(calls, []);
+});
+
+test("closed Hifly page fails before any executor action", async () => {
+  const calls = [];
+  const hiflyPage = {
+    page: { isClosed() { return true; } },
+    async preflight() { calls.push("preflight"); },
+    async prepareAsset() { calls.push("createAsset"); },
+    async submitVideo() { calls.push("submitVideo"); },
+    async querySubmission() { calls.push("querySubmission"); },
+    async downloadArtifact() { calls.push("downloadArtifact"); },
+    async reconcileSubmission() { calls.push("reconcileSubmission"); }
+  };
+  const executor = createHiflyExecutor({ hiflyPage });
+
+  await assert.rejects(() => executor.preflight(), { code: "HIFLY_PAGE_CLOSED" });
+  await assert.rejects(() => executor.createAsset({}), { code: "HIFLY_PAGE_CLOSED" });
+  await assert.rejects(() => executor.submitVideo({}, {}), { code: "HIFLY_PAGE_CLOSED" });
+  await assert.rejects(() => executor.querySubmission({}), { code: "HIFLY_PAGE_CLOSED" });
+  await assert.rejects(() => executor.downloadArtifact({}, "/tmp"), { code: "HIFLY_PAGE_CLOSED" });
+  await assert.rejects(() => executor.reconcileSubmission({}, {}), { code: "HIFLY_PAGE_CLOSED" });
+  assert.deepEqual(calls, []);
+});
+
+test("formal Hifly submission refuses to pay without a causal receipt resolver", async () => {
+  let submitClicks = 0;
+  const adapter = new HiflyHandsOnProductPage({ isClosed() { return false; } }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 10 }
+  }, { info() {} });
+  adapter.listLatestWorks = async () => [{ work_key: "old-work" }];
+  adapter.captureStep = async () => {};
+  adapter.clickSubmitButton = async () => { submitClicks += 1; };
+
+  await assert.rejects(
+    () => adapter.submitVideo({ hifly_hands_on_product_v1: { production: {} } }),
+    { code: "HIFLY_SUBMISSION_RECEIPT_UNAVAILABLE" }
+  );
+  assert.equal(submitClicks, 0);
+});
+
+test("formal Hifly preparation refuses before any upload when causal receipt capability is missing", async () => {
+  const calls = [];
+  const adapter = new HiflyHandsOnProductPage({ isClosed() { return false; } }, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadPersonText: "上传人物", uploadProductText: "上传商品" }
+  }, { info() {} });
+  adapter.openWorkbench = async () => calls.push("open-workbench");
+  adapter.enterHandsOnProductMode = async () => calls.push("enter-mode");
+  adapter.fillProduct = async () => calls.push("fill-product");
+
+  await assert.rejects(
+    () => adapter.prepareAsset({ hifly_hands_on_product_v1: { production: {} } }),
+    { code: "HIFLY_SUBMISSION_RECEIPT_UNAVAILABLE" }
+  );
+  assert.deepEqual(calls, []);
+});
+
+test("formal Hifly submission accepts only the resolver's causal remote identity", async () => {
+  const phases = [];
+  let submitClicks = 0;
+  let observations = 0;
+  const adapter = new HiflyHandsOnProductPage({
+    isClosed() { return false; },
+    async waitForTimeout() {}
+  }, {
+    batch: { defaultTimeoutMs: 10, generationTimeoutMs: 100 }
+  }, { info() {} });
+  adapter.listLatestWorks = async () => {
+    observations += 1;
+    return observations === 1
+      ? [{ work_key: "old-work", remote_id: "old-work" }]
+      : [{ work_key: "old-work", remote_id: "old-work" }, { work_key: "newest-work", remote_id: "newest-work" }];
+  };
+  adapter.captureStep = async () => {};
+  adapter.clickSubmitButton = async () => { submitClicks += 1; };
+  adapter.config.behavior = {
+    submissionReceiptResolver: async (input) => {
+      phases.push(input.phase);
+      if (input.phase === "pre_submit") return { ready: true, receipt_id: "receipt-1" };
+      return {
+        causal: true,
+        receipt_id: "receipt-1",
+        remote_id: "receipt-linked-work",
+        work_key: "receipt-linked-work"
+      };
+    }
+  };
+
+  const result = await adapter.submitVideo({ hifly_hands_on_product_v1: { production: {} } });
+
+  assert.equal(result.status, "submitted");
+  assert.equal(result.remoteEvidence.evidence_source, "causal_submission_receipt");
+  assert.equal(result.remoteEvidence.remote_id, "receipt-linked-work");
+  assert.deepEqual(phases, ["pre_submit", "post_submit"]);
+  assert.equal(submitClicks, 1);
+});
+
+test("batch runner accepts a causal receipt identity and rejects list-delta-only evidence", async () => {
+  const fixture = await fixtureRun({
+    executor: {
+      async createAsset() { return { asset_id: "asset-causal" }; },
+      async submitVideo() {
+        return {
+          status: "submitted",
+          remoteEvidence: {
+            evidence_source: "causal_submission_receipt",
+            remote_id: "causal-work",
+            receipt_id: "receipt-causal"
+          }
+        };
+      },
+      async querySubmission(remoteEvidence) { return { status: "ready", remoteEvidence }; },
+      async downloadArtifact() { return { artifact_id: "causal-work", relative_path: "downloads/causal.mp4" }; },
+      async reconcileSubmission() { return { candidates: [] }; }
+    }
+  });
+  try {
+    const result = await runBatch(fixture);
+    assert.equal(result.items[0].status, "completed");
+    assert.equal(result.items[0].remote_evidence.evidence_source, "causal_submission_receipt");
+    assert.equal(result.items[0].remote_evidence.receipt_id, "receipt-causal");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("inner paid action context is forwarded and a post-click unknown never re-enters paid generation", async () => {
+  let executionKey;
+  const fixture = await fixtureRun({
+    executor: {
+      createAssetCalls: 0,
+      async createAsset(_task, context) {
+        this.createAssetCalls += 1;
+        await context.checkpoint({
+          phase: "asset_paid_action_pre",
+          evidence: { observed_at: "2026-09-07T00:00:00.000Z", paid_boundary: "before_paid_action_1" }
+        });
+        throw new Error("inner click timeout");
+      },
+      async submitVideo() { throw new Error("submit must not run"); },
+      async querySubmission() { throw new Error("query must not run"); },
+      async downloadArtifact() { throw new Error("download must not run"); },
+      async reconcileSubmission() { throw new Error("reconcile must not run"); }
+    }
+  });
+  try {
+    executionKey = fixture.items[0].execution_key;
+    const first = await runBatch(fixture);
+    assert.equal(first.items[0].status, "failed_pre_submit");
+    assert.equal(first.items[0].retryability, "not_retryable");
+    assert.equal(first.items[0].requires_action_reason, "HIFLY_HANDS_ON_IMAGE_SUBMISSION_UNKNOWN");
+    assert.equal(first.items[0].asset_paid_action_checkpoint.phase, "asset_paid_action_pre");
+
+    await fixture.store.update(fixture.batchId, (current) => ({
+      ...current,
+      status: "pending",
+      items: current.items.map((item) => ({
+        ...item,
+        status: "confirmed",
+        execution_key: executionKey,
+        confirmed_at: fixture.config.execution.confirmedAt,
+        paused_auth: false,
+        requires_action: false
+      }))
+    }));
+    const second = await runBatch(fixture);
+    assert.equal(second.items[0].status, "failed_pre_submit");
+    assert.equal(second.items[0].retryability, "not_retryable");
+    assert.equal(fixture.executor.createAssetCalls, 1);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a known pre-paid asset failure remains retryable and records no paid-action checkpoint", async () => {
+  const fixture = await fixtureRun({
+    executor: {
+      async createAsset() { throw new Error("required product input is missing"); },
+      async submitVideo() { throw new Error("submit must not run"); },
+      async querySubmission() { throw new Error("query must not run"); },
+      async downloadArtifact() { throw new Error("download must not run"); },
+      async reconcileSubmission() { throw new Error("reconcile must not run"); }
+    }
+  });
+  try {
+    const result = await runBatch(fixture);
+    const item = result.items[0];
+    assert.equal(item.status, "failed_pre_submit");
+    assert.equal(item.error_message, "required product input is missing");
+    assert.equal(item.retryability, undefined);
+    assert.equal(item.asset_paid_action_checkpoint, undefined);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("createHandsOnImage checkpoints the paid boundary and classifies a post-click wait failure as unknown", async () => {
+  const calls = [];
+  const checkpoints = [];
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadPersonText: "上传人物", uploadProductText: "上传商品" }
+  }, { info() {} });
+  adapter.openHandsOnModal = async () => calls.push("open");
+  adapter.captureStep = async () => {};
+  adapter.hasGeneratedImageReady = async () => false;
+  adapter.selectRecommendedPerson = async () => {};
+  adapter.captureProductImageSrc = async () => ({ src: "before.png", naturalWidth: 1 });
+  adapter.uploadModalFile = async () => {};
+  adapter.verifyProductImageReplaced = async () => {};
+  adapter.selectAndVerifyGoodsSize = async () => {};
+  adapter.clickModalGenerate = async () => calls.push("click-generate");
+  adapter.confirmGeneratedHandsOnImage = async () => { throw new Error("generation wait timed out"); };
+
+  await assert.rejects(
+    () => adapter.createHandsOnImage({ sku: "SKU-POST-CLICK", image_path: "/tmp/product.png" }, {
+      checkpoint: async (value) => {
+        checkpoints.push(value);
+        calls.push(`checkpoint:${value.phase}`);
+      }
+    }),
+    { code: "HIFLY_HANDS_ON_IMAGE_SUBMISSION_UNKNOWN", failureStage: "asset_paid_action" }
+  );
+  assert.deepEqual(calls, [
+    "open",
+    "checkpoint:asset_paid_action_pre",
+    "click-generate",
+    "checkpoint:asset_paid_action_clicked"
+  ]);
+  assert.deepEqual(checkpoints.map((checkpoint) => checkpoint.phase), [
+    "asset_paid_action_pre",
+    "asset_paid_action_clicked"
+  ]);
+});
+
+test("a paid asset checkpoint turns a post-confirm stop into requires_action and blocks a later confirmation", async () => {
+  const controller = new AbortController();
+  let createAssetCalls = 0;
+  const fixture = await fixtureRun({
+    executor: {
+      async createAsset(_task, context) {
+        createAssetCalls += 1;
+        await context.checkpoint({
+          phase: "asset_paid_action_pre",
+          evidence: { observed_at: "2026-09-07T00:00:00.000Z", paid_boundary: "before_paid_action_1" }
+        });
+        await context.checkpoint({
+          phase: "asset_paid_action_clicked",
+          evidence: { observed_at: "2026-09-07T00:00:01.000Z", paid_boundary: "after_paid_action_1" }
+        });
+        await context.checkpoint({
+          phase: "asset_paid_action_completed",
+          evidence: { observed_at: "2026-09-07T00:00:02.000Z", paid_boundary: "after_paid_action_1_confirmed" }
+        });
+        controller.abort();
+        return { asset_id: "asset-confirmed" };
+      },
+      async submitVideo() { throw new Error("submit must not run after safe stop"); },
+      async querySubmission() { throw new Error("query must not run"); },
+      async downloadArtifact() { throw new Error("download must not run"); },
+      async reconcileSubmission() { throw new Error("reconcile must not run"); }
+    }
+  });
+  try {
+    const executionKey = fixture.items[0].execution_key;
+    const first = await runBatch({ ...fixture, signal: controller.signal });
+    assert.equal(first.items[0].status, "failed_pre_submit");
+    assert.equal(first.items[0].requires_action, true);
+    assert.equal(first.items[0].requires_action_reason, "HIFLY_HANDS_ON_IMAGE_PAID_ACTION_STOPPED");
+    assert.equal(first.items[0].retryability, "not_retryable");
+    assert.equal(first.items[0].asset_paid_action_checkpoint.phase, "asset_paid_action_completed");
+    assert.deepEqual(first.items[0].asset_evidence, { asset_id: "asset-confirmed" });
+    assert.equal(createAssetCalls, 1);
+
+    await fixture.store.update(fixture.batchId, (current) => ({
+      ...current,
+      status: "pending",
+      items: current.items.map((item) => ({
+        ...item,
+        status: "confirmed",
+        execution_key: executionKey,
+        confirmed_at: fixture.config.execution.confirmedAt,
+        paused_auth: false,
+        requires_action: false
+      }))
+    }));
+    const second = await runBatch({ ...fixture, signal: undefined });
+    assert.equal(second.items[0].status, "failed_pre_submit");
+    assert.equal(second.items[0].retryability, "not_retryable");
+    assert.equal(second.items[0].requires_action_reason, "HIFLY_HANDS_ON_IMAGE_PAID_ACTION_ALREADY_RECORDED");
+    assert.equal(createAssetCalls, 1);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a pre-paid safe stop without an asset checkpoint remains pending", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const fixture = await fixtureRun();
+  try {
+    const result = await runBatch({ ...fixture, signal: controller.signal });
+    assert.equal(result.items[0].status, "pending");
+    assert.equal(result.items[0].requires_action, undefined);
+    assert.equal(result.items[0].asset_paid_action_checkpoint, undefined);
+  } finally {
+    await fixture.cleanup();
+  }
 });
