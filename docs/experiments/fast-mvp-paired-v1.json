@@ -1,0 +1,43 @@
+{
+  "experiment_id": "HIFLY-FAST-PAIR-001",
+  "version": 1,
+  "status": "DRAFT_NOT_FROZEN",
+  "execution_status": "NOT_EXECUTED",
+  "decision": "D-038",
+  "code_commit": null,
+  "deployed_build": null,
+  "frozen_at": null,
+  "account_alias": null,
+  "account_verified_at": null,
+  "environment": { "A": "Computer Use native Hifly page; capability not yet verified", "B": "formal authenticated workbench and Cloud Executor; candidate not deployed" },
+  "paths": { "A": "pure_computer_use", "B": "formal_workbench" },
+  "sequence": ["A1", "A2", "A3", "B1", "B2", "B3"],
+  "pairs": [
+    { "sample_id": "P1", "product": "simple silhouette", "product_version": null, "avatar_alias": "A", "avatar_version": null, "rights_ref": null, "copy_ref": null, "status": "MISSING_APPROVED_INPUTS" },
+    { "sample_id": "P2", "product": "Owner bear-suit toy from H0 (candidate)", "product_version": null, "avatar_alias": "A", "avatar_version": null, "rights_ref": null, "copy_ref": null, "status": "REUSE_SCOPE_PENDING_OWNER" },
+    { "sample_id": "P3", "product": "different product with avatar switch", "product_version": null, "avatar_alias": "B", "avatar_version": null, "rights_ref": null, "copy_ref": null, "status": "MISSING_APPROVED_INPUTS" }
+  ],
+  "paired_settings": { "voice": null, "presentation_size": "smart_fit", "subtitles": null, "target_aspect_ratio": "9:16", "copy_ai": false, "extra_tts": false },
+  "cache_policy": "Input bytes may be cached with exact version validation. Each sample independently creates its own paid handheld image; no paid intermediate reuse within or across A/B. Do not clear carryover state manually between items to hide failures.",
+  "delivery_policy": { "original_retained": true, "exact_9_16_required": null, "uniform_processing": "pending Owner requirement; no selective postprocessing" },
+  "authorization": { "status": "NOT_REQUESTED_NOT_READY", "uploads": [], "maximum_new_videos": 6, "handheld_submissions_per_sample": 1, "video_submissions_per_sample": 1, "paid_retries": 0, "extra_smoke_videos": 0, "per_sample_points_cap": null, "total_points_cap": null, "current_quote_ref": null, "approved_at": null },
+  "queries": { "interval_seconds": 15, "max_per_sample": 80, "elapsed_minutes_cap": 20, "may_resubmit": false, "status": "PROPOSED" },
+  "stop_rules": ["cap exceeded or quote unknown", "wrong account/input/settings", "submission acceptance or charge unknown", "duplicate risk", "login/permission/certificate failure", "unplanned developer intervention in B", "material code/config/page behavior drift", "technical failure stops phase; ordinary visual imperfection is recorded without redo"],
+  "acceptance": {
+    "technical": "Exact task/result attribution; correct input versions; downloadable playable original with decodable audio and metadata",
+    "content": "Recognizable correct person/product; no visible major identity/shape/color contradiction; full intended copy and selected voice; assess subtitle obstruction and lip sync by listening/viewing",
+    "deliverable": "Owner acceptance recorded separately from technical completion; unreadable fine print is not invented as a required observation",
+    "limitations": "Three pairs are exploratory; P3 changes product and avatar so cannot isolate avatar causality; queue variance and stochastic quality do not establish path superiority"
+  },
+  "record_format": {
+    "file": "fast-mvp-runs.jsonl",
+    "mode": "append_only_events",
+    "required_fields": ["event_id", "experiment_id", "experiment_version", "path", "sample_id", "event_type", "recorded_at", "task_id", "code_commit", "deployed_build", "input_version_refs", "copy_ref", "settings", "timings", "operations", "cost", "result", "evidence_refs"],
+    "timings": ["preparation", "operator_active", "automation", "hifly_wait", "download_archive", "one_time_setup_separate"],
+    "operations": ["normal_user_confirmations", "computer_use_actions", "developer_interventions_and_reasons"],
+    "cost": ["handheld_submit_count", "video_submit_count", "verified_charge", "refund", "net_charge", "source", "attribution_limit", "other_costs_separate"],
+    "result": ["terminal_status", "original_ref", "delivery_ref", "width", "height", "duration", "audio", "attribution", "technical", "content", "deliverable", "failure_reason"],
+    "unknown": "null with explanation; never zero for missing measurements",
+    "privacy": "Relative refs and aliases only; no credentials, signed URLs, private media or raw provider payloads. Reuse established material fingerprints; no new ordinary-field hashes."
+  }
+}

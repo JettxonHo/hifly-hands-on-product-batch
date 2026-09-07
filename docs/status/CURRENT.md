@@ -1,5 +1,20 @@
 # 项目当前状态
 
+> 更新：2026-09-07。当前执行方向：HIFLY FAST-MVP / D-038。
+> R0 PASS；R1 IN_PROGRESS；R2 DRAFT_NOT_FROZEN；R3–R6 NOT_EXECUTED。
+> 当前分支 `codex/hifly-fast-mvp`，基准 main `2af015ab220ecc9d65de209ea690adb98cacc1c4`；部署 App/Worker `3e53bffdd2c59e401815148ccd317b669d32216b`，实时只读核验健康。
+
+唯一主线：[ROADMAP](../ROADMAP.md)；[本轮证据](sessions/2026-09-07-fast-mvp.md)；[冻结清单（当前未冻结）](../experiments/fast-mvp-paired-v1.json)。
+
+Owner 已明确授权本轮普通研发与零 Provider 验证。新上传、付费、合并、部署均未执行/未授权。旧目录 `Product Recommendation clip` 为脏旧 GUI 分支，不做实现源。旧 #278 合同已由 #279 合并/部署，下面历史的 pending merge 不再作为当前事实；缺少真实校验的 GAP 仍需解决。
+
+H0 只证明混合 Playwright+Computer Use 单个原生校准。历史 613 为余额变化，不是当前报价；本轮提交/扣费 0。旧 RBV 仍未完成，下面保留历史，不覆盖新方向。
+
+---
+
+## 2026-09-02 及更早历史状态
+
+
 > 最后更新：2026-09-02
 > 当前 Goal：RBV-GOAL-001；当前 bounded engineering implementation：Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` provider-free/Hifly-free production contract revision（独立分支 `codex/hifly-hands-on-product-v1-contract`；exact base `3fbca9647b0d8fab89423ec0e55fd5ee7b71821c`，working head 为本阶段候选）
 > 当前阶段：`HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_REWORK`；字段级 Production Evidence Contract、Cloud/Local structured pre-point verifier 与 Hifly post-handheld ratio evidence/conditional exact stop 已实现并 focused GREEN。`CONTRACT_IMPLEMENTATION = GAP` 仍成立：native voice exact identity、final-video ratio/audio、Stage 1→Stage 2 dimension behavior 需要独立真实证据与 Gate。Issue #275 已为历史 `COMPLETE/MERGED/DEPLOYED`（PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 CLOSED；exact-head CI run `33418338737` 三绿）。真实 Plan Create、Provider/Hifly、登录与积分动作仍禁止。RBV Readiness Freeze 记录仍为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，产品方向继续引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。

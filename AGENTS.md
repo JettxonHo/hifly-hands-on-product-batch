@@ -4,11 +4,11 @@
 
 ## 当前最高优先级
 
-`RBV-GOAL-001` 仍是唯一现行产品 Goal（Issue #261 Calibration Readiness Freeze），产品决策为 D-037，执行合同为 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。当前无 active bounded engineering implementation；Issue #275 VideoPlan Create Idempotency-Key Seam 已 `COMPLETE/MERGED/DEPLOYED`，PR #276 已 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 已 CLOSED。Issue #273 RBV-012 的工程阶段已完成并仅保留为历史，GitHub Issue 仍为 OPEN。Readiness Freeze 是底层 RBV blocked gate，Stage 1「合同与人工门禁」已完成并保留为历史，不开始 Calibration 或其他真实运行。当前 RBV 结论是 `BLOCKED_PRE_REAL_RUN`，Readiness Freeze 记录见 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`。
+Owner 于 2026-09-07 确认 HIFLY FAST-MVP（D-038）。当前主线是 `docs/ROADMAP.md` 的 R0→R1→R2：核对真实基线、复用现有工作台/Cloud Playwright 最小修复、零 Provider 测试与独立 Review、准备六条配对实验。旧 RBV Readiness Freeze 是保留历史，不再禁止本轮已授权研发，也不能被改写为已完成。
 
-Issue #275 已完成当前 bounded engineering 工作：legacy Plan 与 integrated workspace 的 VideoPlan 创建操作提供可选、可审计、原样透传的 Idempotency-Key，并保留普通 UUID fallback；其他命令继续使用既有生成 key。独立 Review `APPROVED`、exact-head CI run `33418338737`（Ubuntu/Windows/identity-postgres 全部 SUCCESS）与零业务变更 App-only 部署均已完成。真实 Plan Create、Provider、DeepSeek/Hifly、登录、真实 QualityRun 或积分动作仍禁止；当前无 active engineering implementation，下一 Owner Gate 仅为一次真实 Plan Create。
+Owner 是唯一产品、预算和阶段授权决策者；普通开发步骤自动推进。真实素材上传、付费生成、外部付费模型、main 合并、生产部署或权限/重大架构变更需适用授权；本轮没有新的积分授权。A 组纯 Computer Use；B 组正式工作台；H0 混合样片不能计入。现有组织/权限、素材和任务绑定、预算、防重、持久状态、未知停止与审计必须保留。
 
-本地 GUI 与 Playwright/Local Agent 链路仍是兼容基线，但在 RBV-001 中为 `Deferred/Secondary`；只有真实 RBV run 以可审计证据证明 GUI 阻塞业务，Owner 才能重新提升其优先级。Provider、飞影、Secret、积分、客户素材、生产部署和破坏性操作继续 fail-closed，等待逐动作 Owner 授权。
+实现优先独立 luna-worker；主控独立审查。复用现有资产/任务/执行核心，不另建平行系统，不关闭校验或伪造审核。当前状态以 CURRENT 与实际 Git/GitHub/部署证据核对。
 
 ## 历史：Cloud Executor P0（D-034，已完成，非现行）
 
@@ -28,8 +28,10 @@ AGENTS.md                    ← 本文件
 GOAL.md                      ← 当前 Goal、里程碑与完成标准
 docs/agent-collaboration.md  ← 多 Agent 角色、权限、交接与 Review 规则
 docs/product/README.md       ← 产品文档权威入口
-docs/product/DECISION_LOG.md ← 当前产品决策（D-037）
-docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md ← 当前 RBV 执行合同（Readiness Freeze 沿用）
+docs/product/DECISION_LOG.md ← 当前产品决策（D-038）
+docs/ROADMAP.md              ← 当前 FAST-MVP 阶段合同
+docs/experiments/fast-mvp-paired-v1.json ← 实验清单与冻结状态
+docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md ← 历史 RBV 合同，不当作本轮授权
 docs/product/COPY_QUALITY_ONE_ATTEMPT.md ← Issue #273 历史 bounded Quality contract（provider-free candidate）
 docs/status/RBV_CALIBRATION_READINESS_FREEZE.md ← Issue #261 当前 Readiness Freeze 记录
 docs/product/CLOUD_EXECUTOR_P0.md ← 历史 P0 产品合同（D-034，非现行）
