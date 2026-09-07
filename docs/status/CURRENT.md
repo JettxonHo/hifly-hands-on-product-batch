@@ -1,12 +1,14 @@
 # 项目当前状态
 
 > 更新：2026-09-07。当前执行方向：HIFLY FAST-MVP / D-038。
-> R0 PASS；R1 IN_PROGRESS；R2 DRAFT_NOT_FROZEN；R3–R6 NOT_EXECUTED。
+> R0 PASS；R1 PARTIAL；R2 BLOCKED（清单未冻结）；R3–R6 NOT_EXECUTED。
 > 当前分支 `codex/hifly-fast-mvp`，基准 main `2af015ab220ecc9d65de209ea690adb98cacc1c4`；部署 App/Worker `3e53bffdd2c59e401815148ccd317b669d32216b`，实时只读核验健康。
 
 唯一主线：[ROADMAP](../ROADMAP.md)；[本轮证据](sessions/2026-09-07-fast-mvp.md)；[冻结清单（当前未冻结）](../experiments/fast-mvp-paired-v1.json)。
 
 Owner 已明确授权本轮普通研发与零 Provider 验证。新上传、付费、合并、部署均未执行/未授权。旧目录 `Product Recommendation clip` 为脏旧 GUI 分支，不做实现源。旧 #278 合同已由 #279 合并/部署，下面历史的 pending merge 不再作为当前事实；缺少真实校验的 GAP 仍需解决。
+
+人物自动取用、直接人工口播及本地事实检查/显式人工审核、手持图付费后未知停止、工单请求刷新恢复已实现，独立 Review APPROVED。代码候选不等于 R1 通过：真实设置/因果回执/两段 quote-cap 仍是硬阻断，正式 B 保持上传前停止。本轮第一次全量检查 1392 项中 1372 pass、3 fail、17 skip，三个失败已定位并修正测试期望/同步，最终回归和 CI 状态以 session 为准。
 
 H0 只证明混合 Playwright+Computer Use 单个原生校准。历史 613 为余额变化，不是当前报价；本轮提交/扣费 0。旧 RBV 仍未完成，下面保留历史，不覆盖新方向。
 

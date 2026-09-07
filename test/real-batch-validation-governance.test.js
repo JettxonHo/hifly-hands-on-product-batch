@@ -26,6 +26,19 @@ function sha256Text(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+function fastMvpPhaseState(content, label) {
+  const match = content.match(/R0\s+([A-Z][A-Z0-9_]*)\s*[;；]\s*R1\s+([A-Z][A-Z0-9_]*)\s*[;；]\s*R2\s+([A-Z][A-Z0-9_]*)/);
+  assert.ok(match, `${label} must expose an uppercase R0/R1/R2 phase state`);
+  for (const [index, allowed] of [
+    [1, ["PASS"]],
+    [2, ["IN_PROGRESS", "PARTIAL"]],
+    [3, ["DRAFT_NOT_FROZEN", "BLOCKED"]],
+  ]) {
+    assert.ok(allowed.includes(match[index]), `${label} has an invalid R${index} phase state: ${match[index]}`);
+  }
+  return match.slice(1);
+}
+
 const goalPath = "GOAL.md";
 const agentsPath = "AGENTS.md";
 const archivePath = "docs/status/archive/GOAL-cloud-executor-p0-complete-2026-08-13.md";
@@ -89,6 +102,7 @@ test("AGENTS current priority follows D-038 and keeps the historical P0 Goal arc
 
 test("D-038 is the active direction while Issue #275 and Issue #273 remain historical", () => {
   const agents = read(agentsPath);
+  const goal = read(goalPath);
   const current = read(currentPath);
   const roadmap = read(roadmapPath);
   const collaboration = read(collaborationPath);
@@ -114,9 +128,9 @@ test("D-038 is the active direction while Issue #275 and Issue #273 remain histo
   }
   assert.match(prioritySection, /零 Provider/);
   assert.match(prioritySection, /没有新的积分授权/);
-  assert.match(currentSection, /R0 PASS/);
-  assert.match(currentSection, /R1 IN_PROGRESS/);
-  assert.match(currentSection, /R2 DRAFT_NOT_FROZEN/);
+  const phaseState = fastMvpPhaseState(currentSection, "CURRENT");
+  assert.deepEqual(phaseState, fastMvpPhaseState(goal, "GOAL"), "CURRENT and GOAL must share the same D-038 phase state");
+  assert.deepEqual(phaseState, fastMvpPhaseState(roadmapSection, "ROADMAP"), "CURRENT and ROADMAP must share the same D-038 phase state");
   assert.match(currentSection, /本轮提交\/扣费 0/);
   assert.match(roadmapSection, /## R1 — 最小正式工作台链路/);
   assert.match(roadmapSection, /飞影 0、付费模型 0/);
@@ -477,6 +491,7 @@ test("the Pilot bounds allowed fixes and explicit non-goals", () => {
 });
 
 test("current status pointers record D-038 FAST-MVP while retaining historical RBV and P0 text", () => {
+  const goal = read(goalPath);
   const current = read(currentPath);
   const roadmap = read(roadmapPath);
   const currentHead = sectionBetween(current, "# 项目当前状态", "## 2026-09-02");
@@ -487,9 +502,9 @@ test("current status pointers record D-038 FAST-MVP while retaining historical R
     assert.match(content, /D-038/);
     assert.doesNotMatch(content, /当前 Goal：RBV-GOAL-001|当前.*Issue #278/);
   }
-  assert.match(currentHead, /R0 PASS/);
-  assert.match(currentHead, /R1 IN_PROGRESS/);
-  assert.match(currentHead, /R2 DRAFT_NOT_FROZEN/);
+  const phaseState = fastMvpPhaseState(currentHead, "CURRENT");
+  assert.deepEqual(phaseState, fastMvpPhaseState(goal, "GOAL"), "CURRENT and GOAL must share the same D-038 phase state");
+  assert.deepEqual(phaseState, fastMvpPhaseState(roadmapHead, "ROADMAP"), "CURRENT and ROADMAP must share the same D-038 phase state");
   assert.match(currentHead, /新上传、付费、合并、部署均未执行\/未授权/);
   assert.match(roadmapHead, /## R1 — 最小正式工作台链路/);
   assert.match(roadmapHead, /飞影 0、付费模型 0/);

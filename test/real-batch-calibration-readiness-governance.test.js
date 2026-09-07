@@ -17,6 +17,19 @@ function sectionBetween(content, start, end) {
   return endIndex === -1 ? remainder : remainder.slice(0, endIndex);
 }
 
+function fastMvpPhaseState(content, label) {
+  const match = content.match(/R0\s+([A-Z][A-Z0-9_]*)\s*[;；]\s*R1\s+([A-Z][A-Z0-9_]*)\s*[;；]\s*R2\s+([A-Z][A-Z0-9_]*)/);
+  assert.ok(match, `${label} must expose an uppercase R0/R1/R2 phase state`);
+  for (const [index, allowed] of [
+    [1, ["PASS"]],
+    [2, ["IN_PROGRESS", "PARTIAL"]],
+    [3, ["DRAFT_NOT_FROZEN", "BLOCKED"]],
+  ]) {
+    assert.ok(allowed.includes(match[index]), `${label} has an invalid R${index} phase state: ${match[index]}`);
+  }
+  return match.slice(1);
+}
+
 const agentsPath = "AGENTS.md";
 const goalPath = "GOAL.md";
 const collaborationPath = "docs/agent-collaboration.md";
@@ -152,9 +165,9 @@ test("D-038 is the active direction while Issue #275 closeout preserves historic
     assert.doesNotMatch(content, /当前 bounded Stage：Issue #278/i,
       `${label} must not retain Issue #278 as active engineering`);
   }
-  assert.match(currentSnapshot, /R0 PASS/);
-  assert.match(currentSnapshot, /R1 IN_PROGRESS/);
-  assert.match(currentSnapshot, /R2 DRAFT_NOT_FROZEN/);
+  const phaseState = fastMvpPhaseState(currentSnapshot, "CURRENT");
+  assert.deepEqual(phaseState, fastMvpPhaseState(goal, "GOAL"), "CURRENT and GOAL must share the same D-038 phase state");
+  assert.deepEqual(phaseState, fastMvpPhaseState(currentRoadmap, "ROADMAP"), "CURRENT and ROADMAP must share the same D-038 phase state");
   assert.match(currentSnapshot, /新上传、付费、合并、部署均未执行\/未授权/);
   assert.match(currentRoadmap, /## R1 — 最小正式工作台链路/);
   assert.match(currentRoadmap, /飞影 0、付费模型 0/);
@@ -419,9 +432,9 @@ test("current pointers follow D-038 while historical readiness pointers retain t
     assert.doesNotMatch(content, /当前 Goal：RBV-GOAL-001|当前(?:唯一 active bounded engineering Stage|bounded Stage)[^\n]*Issue #278/i,
       `${label} must not treat historical RBV/Issue #278 text as current`);
   }
-  assert.match(currentHead, /R0 PASS/);
-  assert.match(currentHead, /R1 IN_PROGRESS/);
-  assert.match(currentHead, /R2 DRAFT_NOT_FROZEN/);
+  const phaseState = fastMvpPhaseState(currentHead, "CURRENT");
+  assert.deepEqual(phaseState, fastMvpPhaseState(goal, "GOAL"), "CURRENT and GOAL must share the same D-038 phase state");
+  assert.deepEqual(phaseState, fastMvpPhaseState(roadmapHead, "ROADMAP"), "CURRENT and ROADMAP must share the same D-038 phase state");
   assert.match(currentHead, /新上传、付费、合并、部署均未执行\/未授权/);
   assert.match(roadmapHead, /## R1 — 最小正式工作台链路/);
   assert.match(roadmapHead, /飞影 0、付费模型 0/);

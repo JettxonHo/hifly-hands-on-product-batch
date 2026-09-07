@@ -1,6 +1,6 @@
 # 当前目标：HIFLY FAST-MVP
 
-> 状态：R0 PASS；R1 IN_PROGRESS；R2 DRAFT_NOT_FROZEN。真实测试未授权。
+> 状态：R0 PASS；R1 PARTIAL；R2 BLOCKED（清单未冻结）。真实测试未授权。
 > Owner 决定：2026-09-07；[D-038](docs/product/DECISION_LOG.md#d-038-hifly-fast-mvp)。
 > 唯一执行路线图：[docs/ROADMAP.md](docs/ROADMAP.md)。
 

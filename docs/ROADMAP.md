@@ -1,7 +1,7 @@
 # 项目 Roadmap：HIFLY FAST-MVP
 
 > Owner 决定：2026-09-07；当前执行主线 D-038。历史 RBV 不改写为完成。
-> 当前状态：R0 PASS；R1 IN_PROGRESS；R2 DRAFT_NOT_FROZEN；R3–R6 NOT_EXECUTED。
+> 当前状态：R0 PASS；R1 PARTIAL；R2 BLOCKED（清单未冻结）；R3–R6 NOT_EXECUTED。
 > 事实入口：[本轮证据](status/sessions/2026-09-07-fast-mvp.md) · [实验清单](experiments/fast-mvp-paired-v1.json) · [追加运行记录](experiments/fast-mvp-runs.jsonl) · [对照结论](decisions/fast-mvp-comparison.md)
 
 ## 产品与工程约束
@@ -34,7 +34,7 @@ Owner 是唯一产品/预算/阶段授权者。普通开发和独立代码 Revie
 - **成本边界**：本地 Mock/接口/用户流程/静态检查；隔离生产密钥和 Provider 网络；飞影 0、付费模型 0。GitHub Issue/Draft PR 属明确允许的外部写入，单独记录。
 - **停止条件**：需要真实上传、登录页面校准、付费或新产品策略授权时仅停依赖部分；继续其他已授权实现。禁止用 fake verifier 放行。
 - **交付物**：小范围代码与测试、独立 Review、必要 Draft PR、证据与回滚办法。
-- **状态**：IN_PROGRESS。
+- **状态**：PARTIAL。人物自动取用、直接人工口播和真实本地检查、付费后不明状态/中止防重、刷新请求恢复已形成可审查候选；独立代码 Review APPROVED。真实设置 verifier、真实因果回执实现/接线、两段 quote/cap 尚未闭合，B 默认在上传前停止。当前全检/CI 真值见本轮证据。
 
 ## R2 — 冻结三组配对实验
 
@@ -45,7 +45,7 @@ Owner 是唯一产品/预算/阶段授权者。普通开发和独立代码 Revie
 - **成本边界**：不生成，不额外付费冒烟；当前报价来源待按授权读取；离线记录工具可共用。
 - **停止条件**：缺权利、素材、人物 B、可用路径、报价或部署版本时不冻结、不请求空泛消费授权。
 - **交付物**：`experiments/fast-mvp-paired-v1.json`，含逐条记录字段和完整阶段授权草案。
-- **状态**：DRAFT_NOT_FROZEN；尚缺 P1/P3、人物 B、重用权限、当前设置/报价和被测发布。
+- **状态**：BLOCKED / DRAFT_NOT_FROZEN；尚缺 P1/P3、人物 B、重用权限、当前设置/报价和被测发布。先完成一次经 Owner 批准的零积分页面校准，再补 R1 接线；不能提前批准六条消费或把未部署候选冻结为被测版本。
 
 ## R3 — 新授权下 A/B 各 3 条
 
