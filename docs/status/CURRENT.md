@@ -8,7 +8,7 @@
 
 Owner 已明确授权本轮普通研发与零 Provider 验证。新上传、付费、合并、部署均未执行/未授权。旧目录 `Product Recommendation clip` 为脏旧 GUI 分支，不做实现源。旧 #278 合同已由 #279 合并/部署，下面历史的 pending merge 不再作为当前事实；缺少真实校验的 GAP 仍需解决。
 
-人物自动取用、直接人工口播及本地事实检查/显式人工审核、手持图付费后未知停止、工单请求刷新恢复已实现，独立 Review APPROVED。代码候选不等于 R1 通过：真实设置/因果回执/两段 quote-cap 仍是硬阻断，正式 B 保持上传前停止。本轮第一次全量检查 1392 项中 1372 pass、3 fail、17 skip，三个失败已定位并修正测试期望/同步，最终回归和 CI 状态以 session 为准。
+人物自动取用、直接人工口播及本地事实检查/显式人工审核、手持图付费后未知停止、工单请求刷新恢复已实现，独立 Review APPROVED。[Draft PR #285](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285) 保持 OPEN/DRAFT、未合并。最终本地全量 1393 项：1376 pass、0 fail/cancelled、17 环境 skip；`34a859b` 的 Ubuntu/Windows/数据库 CI 和 Windows stress 均通过，早期失败/超时及具体修复保留在 session。代码候选不等于 R1 通过：真实设置/因果回执/两段 quote-cap 仍是硬阻断，正式 B 保持上传前停止。
 
 H0 只证明混合 Playwright+Computer Use 单个原生校准。历史 613 为余额变化，不是当前报价；本轮提交/扣费 0。旧 RBV 仍未完成，下面保留历史，不覆盖新方向。
 
