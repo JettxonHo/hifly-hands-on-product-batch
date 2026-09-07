@@ -548,7 +548,7 @@ test("cloud adapter compiles an actual generated ManualHandoffPackage archive th
     assert.deepEqual(result.evidence, [handheldEvidence]);
     assert.equal(compiledTask.product_name, "Generated cloud product");
     assert.equal(compiledTask.script, "Generated frozen copy.");
-    assert.match(compiledTask.person_image_path, new RegExp(`${path.sep}resolved-avatar${path.sep}avatar\\.png$`));
+    assert.equal(compiledTask.person_image_path, path.join(workspace.assetsDir, "attempt-generated", "package", "resolved-avatar", "avatar.png"));
     assert.deepEqual(await readFile(compiledTask.person_image_path), avatarBytes);
     assert.equal(compiledTask.resolved_person_source, "cloud_asset_store");
     assert.deepEqual(sourceCalls, [{

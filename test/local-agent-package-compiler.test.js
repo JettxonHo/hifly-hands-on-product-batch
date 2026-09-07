@@ -185,9 +185,9 @@ test("V1 compiler resolves the exact MaterialVersion through the source port and
     });
 
     assert.equal(item.resolved_person_source, "cloud_asset_store");
-    assert.match(item.person_image_path, new RegExp(`${path.sep}resolved-avatar${path.sep}avatar\\.png$`));
+    assert.equal(item.person_image_path, path.join(root, "resolved-avatar", "avatar.png"));
     assert.deepEqual(await readFile(item.person_image_path), avatarBytes);
-    assert.equal((await stat(item.person_image_path)).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal((await stat(item.person_image_path)).mode & 0o777, 0o600);
     assert.deepEqual(calls, [{
       organizationId: "org-source", productId: "product-source", copyVersionId: "copy-source",
       avatarSelectionId: "selection-source", avatarVersionId: "avatar-version-source",

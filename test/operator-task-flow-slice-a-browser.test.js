@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,11 +12,14 @@ import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { createMemoryProjectContentRepository } from "../src/project-content/memory-project-content-repository.js";
 import { buildApp } from "../src/server/app.js";
 import { findAvailablePort } from "../src/server/start.js";
+import { registerBrowserCleanup } from "./helpers/browser-cleanup.js";
 import { ADMIN_EMAIL, ADMIN_TEMP_PASSWORD } from "./helpers/identity-world.js";
 
 async function startEnterpriseBrowser(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-task-flow-slice-a-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let app;
+  let browser;
+  registerBrowserCleanup(t, { root, getApp: () => app, getBrowser: () => browser });
   const port = await findAvailablePort(58500);
   const host = `127.0.0.1:${port}`;
   const origin = `http://${host}`;
@@ -28,7 +31,7 @@ async function startEnterpriseBrowser(t) {
     adminDisplayName: "任务流管理员",
     adminTempPassword: ADMIN_TEMP_PASSWORD
   });
-  const app = await buildApp({
+  app = await buildApp({
     root,
     executor: createFakeExecutor(),
     identity: {
@@ -52,9 +55,6 @@ async function startEnterpriseBrowser(t) {
     if (error.code === "EPERM") return t.skip("sandbox disallows local TCP listening");
     throw error;
   }
-  t.after(() => app.close());
-
-  let browser;
   try {
     browser = await chromium.launch({
       headless: true,
@@ -66,7 +66,6 @@ async function startEnterpriseBrowser(t) {
     }
     throw error;
   }
-  t.after(() => browser.close());
   const page = await browser.newPage();
   return { page, origin };
 }
