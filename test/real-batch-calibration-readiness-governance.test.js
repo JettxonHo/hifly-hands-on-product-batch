@@ -126,7 +126,7 @@ test("RBV-CAL-001 readiness record activates Readiness Freeze and has one blocke
   assert.doesNotMatch(readiness, /^\|\s*(?:status|gate_status)\s*\|\s*READY_FOR_REAL_RUN_GATE\s*\|/m);
 });
 
-test("Issue #278 is the active candidate while Issue #275 closeout preserves the Readiness Freeze gate and Stage 1 history", () => {
+test("D-038 is the active direction while Issue #275 closeout preserves historical Readiness Freeze evidence", () => {
   const agents = read(agentsPath);
   const goal = read(goalPath);
   const collaboration = read(collaborationPath);
@@ -134,32 +134,32 @@ test("Issue #278 is the active candidate while Issue #275 closeout preserves the
   const current = read(currentPath);
   const roadmap = read(roadmapPath);
 
-  const activePriority = agents.match(/## 当前最高优先级[\s\S]*?(?=## |$)/)?.[0] ?? "";
   const currentAllocation = collaboration.match(/## 8\. 当前分配[\s\S]*?(?=###|$)/)?.[0] ?? "";
-  const currentSnapshot = sectionBetween(current, "# 项目当前状态", "## Issue #275");
-  const currentRoadmap = sectionBetween(roadmap, "# 项目 Roadmap", "## Issue #275");
+  const currentSnapshot = sectionBetween(current, "# 项目当前状态", "## 2026-09-02");
+  const currentRoadmap = sectionBetween(roadmap, "# 项目 Roadmap", "## 历史路线快照");
   const currentIssue275 = sectionBetween(current, "## Issue #275", "## Issue #273");
   const roadmapIssue275 = sectionBetween(roadmap, "## Issue #275", "## Issue #273");
   const historicalIssue275 = collaboration.match(/### 历史分配（Issue #275[\s\S]*?(?=### 历史分配（Issue #273|$)/)?.[0] ?? "";
-  const authorityRecovery = sectionBetween(current, "## 权威文档与恢复顺序", "## 历史：里程碑状态（P0）");
 
   for (const [label, content] of [
     ["agent allocation", currentAllocation],
     ["CURRENT snapshot", currentSnapshot],
     ["ROADMAP snapshot", currentRoadmap],
   ]) {
-    assert.match(content, /RBV-GOAL-001/, `${label} must name the current Goal`);
-    assert.match(content, /Issue #278/, `${label} must name the active Issue #278 candidate`);
-    assert.doesNotMatch(content, /当前唯一 active bounded engineering Stage\s*是\s*Issue #275/i,
-      `${label} must not retain Issue #275 as active engineering`);
-    assert.doesNotMatch(content, /当前 bounded Stage：Issue #275/i,
-      `${label} must not retain Issue #275 as active engineering`);
+    assert.match(content, /HIFLY FAST-MVP|D-038/, `${label} must name the current FAST-MVP direction`);
+    assert.doesNotMatch(content, /当前唯一 active bounded engineering Stage\s*是\s*Issue #278/i,
+      `${label} must not retain Issue #278 as active engineering`);
+    assert.doesNotMatch(content, /当前 bounded Stage：Issue #278/i,
+      `${label} must not retain Issue #278 as active engineering`);
   }
-  assert.match(currentSnapshot, /CONTRACT_IMPLEMENTATION\s*=\s*GAP/, "CURRENT must preserve the GAP verdict");
-  assert.match(currentRoadmap, /CONTRACT_IMPLEMENTATION\s*=\s*GAP/, "ROADMAP must preserve the GAP verdict");
+  assert.match(currentSnapshot, /R0 PASS/);
+  assert.match(currentSnapshot, /R1 IN_PROGRESS/);
+  assert.match(currentSnapshot, /R2 DRAFT_NOT_FROZEN/);
+  assert.match(currentSnapshot, /新上传、付费、合并、部署均未执行\/未授权/);
+  assert.match(currentRoadmap, /## R1 — 最小正式工作台链路/);
+  assert.match(currentRoadmap, /飞影 0、付费模型 0/);
 
   for (const [label, content] of [
-    ["AGENTS current priority", activePriority],
     ["CURRENT Issue #275 history", currentIssue275],
     ["ROADMAP Issue #275 history", roadmapIssue275],
     ["historical Issue #275 allocation", historicalIssue275],
@@ -172,39 +172,19 @@ test("Issue #278 is the active candidate while Issue #275 closeout preserves the
       `${label} must not retain Issue #275 as active engineering`);
   }
 
-  for (const [label, content] of [
-    ["AGENTS", agents],
-    ["GOAL", goal],
-    ["agent allocation", collaboration],
-    ["Pilot", pilot],
-    ["CURRENT", current],
-    ["ROADMAP", roadmap],
-  ]) {
-    assert.match(content, /RBV_CALIBRATION_READINESS_FREEZE\.md/, `${label} must link the readiness record`);
-    assert.match(content, /BLOCKED_PRE_REAL_RUN/, `${label} must preserve the blocked readiness verdict`);
-  }
-
-  assert.match(activePriority, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
-  assert.match(currentAllocation, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
-  assert.match(current, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
-  assert.match(roadmap, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
-  assert.match(goal, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
-
-  assert.match(authorityRecovery, /Readiness Freeze/);
-  assert.match(authorityRecovery, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
-  assert.match(authorityRecovery, /ROADMAP\.md[^\n]*Readiness Freeze/);
-  assert.match(authorityRecovery, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
-  assert.doesNotMatch(authorityRecovery, /CLOUD_EXECUTOR_P0\.md[^\n]*当前/);
-  assert.doesNotMatch(authorityRecovery, /Stage 1[^\n]*当前合同/);
-  const readinessIndex = authorityRecovery.indexOf("RBV_CALIBRATION_READINESS_FREEZE.md");
-  const roadmapIndex = authorityRecovery.indexOf("ROADMAP.md");
-  assert.ok(readinessIndex >= 0 && roadmapIndex > readinessIndex, "readiness record must precede current roadmap in recovery order");
+  assert.match(goal, /^# 当前目标：HIFLY FAST-MVP/m);
+  assert.match(goal, /D-038/);
+  assert.match(agents, /HIFLY FAST-MVP/);
+  assert.match(collaboration, /D-038/);
+  assert.match(pilot, /BLOCKED_PRE_REAL_RUN/);
+  assert.match(read(readinessPath), /BLOCKED_PRE_REAL_RUN/);
+  assert.match(current, /旧 RBV 仍未完成/);
+  assert.match(roadmap, /历史路线快照（以下不覆盖 D-038/);
   assert.match(current, /## Issue #273[\s\S]*历史/);
   assert.match(roadmap, /## Issue #273[\s\S]*历史/);
 });
 
 test("Issue #275 historical closeout records the create-only seam without changing the RBV gate", () => {
-  const agents = read(agentsPath);
   const collaboration = read(collaborationPath);
   const current = read(currentPath);
   const roadmap = read(roadmapPath);
@@ -213,7 +193,7 @@ test("Issue #275 historical closeout records the create-only seam without changi
   const roadmapCloseoutPreamble = sectionBetween(roadmap, "# 项目 Roadmap", "## Issue #278");
   const historicalIssue275 = collaboration.match(/### 历史分配（Issue #275[\s\S]*?(?=### 历史分配（Issue #273|$)/)?.[0] ?? "";
 
-  for (const [label, content] of [["AGENTS", agents], ["historical allocation", historicalIssue275], ["CURRENT #275 history", currentIssue275], ["ROADMAP #275 history", roadmapIssue275]]) {
+  for (const [label, content] of [["historical allocation", historicalIssue275], ["CURRENT #275 history", currentIssue275], ["ROADMAP #275 history", roadmapIssue275]]) {
     assert.match(content, /Issue #275/, `${label} must identify Issue #275`);
     assert.match(content, /VIDEOPLAN_CREATE_IDEMPOTENCY_SEAM|VideoPlan Create Idempotency-Key Seam/i,
       `${label} must name the Issue #275 seam`);
@@ -417,14 +397,40 @@ test("session records luna-worker configuration and honest runtime model status"
   assert.match(session, /no.*Provider|未.*Provider/i);
 });
 
-test("all closeout pointers retain Issue #275 and preserve the unique blocked readiness verdict", () => {
-  for (const relativePath of [agentsPath, goalPath, collaborationPath, pilotPath, currentPath, roadmapPath, readinessPath, sessionPath]) {
+test("current pointers follow D-038 while historical readiness pointers retain the blocked verdict", () => {
+  const agents = read(agentsPath);
+  const goal = read(goalPath);
+  const collaboration = read(collaborationPath);
+  const current = read(currentPath);
+  const roadmap = read(roadmapPath);
+  const currentPriority = agents.match(/## 当前最高优先级[\s\S]*?(?=## |$)/)?.[0] ?? "";
+  const currentAllocation = collaboration.match(/## 8\. 当前分配[\s\S]*?(?=###|$)/)?.[0] ?? "";
+  const currentHead = sectionBetween(current, "# 项目当前状态", "## 2026-09-02");
+  const roadmapHead = sectionBetween(roadmap, "# 项目 Roadmap", "## 历史路线快照");
+
+  for (const [label, content] of [
+    ["AGENTS", currentPriority],
+    ["GOAL", goal],
+    ["collaboration", currentAllocation],
+    ["CURRENT", currentHead],
+    ["ROADMAP", roadmapHead],
+  ]) {
+    assert.match(content, /HIFLY FAST-MVP|D-038/, `${label} must identify the current FAST-MVP direction`);
+    assert.doesNotMatch(content, /当前 Goal：RBV-GOAL-001|当前(?:唯一 active bounded engineering Stage|bounded Stage)[^\n]*Issue #278/i,
+      `${label} must not treat historical RBV/Issue #278 text as current`);
+  }
+  assert.match(currentHead, /R0 PASS/);
+  assert.match(currentHead, /R1 IN_PROGRESS/);
+  assert.match(currentHead, /R2 DRAFT_NOT_FROZEN/);
+  assert.match(currentHead, /新上传、付费、合并、部署均未执行\/未授权/);
+  assert.match(roadmapHead, /## R1 — 最小正式工作台链路/);
+  assert.match(roadmapHead, /飞影 0、付费模型 0/);
+
+  for (const relativePath of [pilotPath, readinessPath, sessionPath]) {
     const content = read(relativePath);
     assert.match(content, /RBV-GOAL-001|RBV-CAL-001|RBV-002/);
     assert.match(content, /BLOCKED_PRE_REAL_RUN/);
   }
-  for (const relativePath of [agentsPath, collaborationPath, currentPath, roadmapPath]) {
-    assert.match(read(relativePath), /Issue #275/);
-    assert.doesNotMatch(read(relativePath), /(?:当前唯一 active bounded engineering Stage|当前 bounded Stage)\s*(?:是|：|:)\s*Issue #275/i);
-  }
+  assert.match(current, /旧 RBV 仍未完成/);
+  assert.match(roadmap, /历史路线快照（以下不覆盖 D-038/);
 });

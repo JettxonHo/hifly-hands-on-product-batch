@@ -37,20 +37,25 @@ const roadmapPath = "docs/ROADMAP.md";
 const collaborationPath = "docs/agent-collaboration.md";
 const handoffPath = "docs/PROJECT_HANDOFF.md";
 const sessionPath = "docs/status/sessions/2026-08-29-rbv-001-calibration-contract.md";
+const rbvGoalArchivePath = "docs/status/archive/GOAL-rbv-readiness-before-fast-mvp-2026-09-07.md";
 const exactBaseGoalSha256 = "a3d2fce8859d5cf36b76d481885fbba136c5937fbfd5ede35f89553edf57fafb";
 
-test("RBV-001 establishes one current Goal and preserves the old Goal as an archive", () => {
+test("D-038 establishes FAST-MVP as current and preserves RBV/P0 Goals as historical archives", () => {
   const goal = read(goalPath);
-  const archive = read(archivePath);
+  const rbvArchive = read(rbvGoalArchivePath);
+  const p0Archive = read(archivePath);
 
-  assert.match(goal, /RBV-GOAL-001/);
-  assert.match(goal, /Stage 1/);
-  assert.match(goal, /D-037/);
-  assert.match(goal, /REAL_BATCH_PRODUCTION_VALIDATION_PILOT\.md/);
+  assert.match(goal, /^# 当前目标：HIFLY FAST-MVP/m);
+  assert.match(goal, /D-038/);
+  assert.match(goal, /docs\/ROADMAP\.md/);
+  assert.match(goal, /R0[–-]R6/);
+  assert.match(goal, /真实测试未授权/);
   assert.doesNotMatch(goal, /^# 当前 Goal：P0 Cloud Executor 纯云端生产闭环/m);
-  assert.match(archive, /^# 当前 Goal：P0 Cloud Executor 纯云端生产闭环/m);
-  assert.match(archive, /GOAL_COMPLETE/);
-  const archiveLfText = normalizeCrlf(archive);
+  assert.match(rbvArchive, /RBV-GOAL-001/);
+  assert.match(rbvArchive, /BLOCKED_PRE_REAL_RUN/);
+  assert.match(p0Archive, /^# 当前 Goal：P0 Cloud Executor 纯云端生产闭环/m);
+  assert.match(p0Archive, /GOAL_COMPLETE/);
+  const archiveLfText = normalizeCrlf(p0Archive);
   const archiveSha256 = sha256Text(archiveLfText);
   assert.equal(archiveSha256, exactBaseGoalSha256, "archived Goal must preserve exact-base bytes");
 
@@ -61,21 +66,20 @@ test("RBV-001 establishes one current Goal and preserves the old Goal as an arch
   assert.equal(normalizedCrlfSha256, archiveSha256, "LF and normalized-CRLF archive hashes must agree");
 });
 
-test("AGENTS current priority follows Readiness Freeze and keeps Stage 1 as completed history", () => {
+test("AGENTS current priority follows D-038 and keeps the historical P0 Goal archived", () => {
   const agents = read(agentsPath);
   const prioritySection = agents.match(/## 当前最高优先级[\s\S]*?(?=## |$)/)?.[0] ?? "";
   const historicalSection = agents.match(/## 历史：Cloud Executor P0[\s\S]*?(?=## |$)/)?.[0] ?? "";
 
-  assert.match(prioritySection, /RBV-GOAL-001/);
-  assert.match(prioritySection, /D-037/);
-  assert.match(prioritySection, /REAL_BATCH_PRODUCTION_VALIDATION_PILOT\.md/);
-  assert.match(prioritySection, /Readiness Freeze/);
-  assert.match(prioritySection, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
-  assert.match(prioritySection, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
+  assert.match(prioritySection, /HIFLY FAST-MVP/);
+  assert.match(prioritySection, /D-038/);
+  assert.match(prioritySection, /R0→R1→R2/);
+  assert.match(prioritySection, /零 Provider/);
+  assert.match(prioritySection, /没有新的积分授权/);
+  assert.match(prioritySection, /Owner.*唯一.*决策者/);
+  assert.doesNotMatch(prioritySection, /当前 Goal：RBV-GOAL-001/);
   assert.doesNotMatch(prioritySection, /当前正式交付目标[^。\n]*Cloud Executor/);
   assert.doesNotMatch(prioritySection, /D-034[^。\n]*(?:为准|当前)/);
-  assert.match(prioritySection, /GUI[^\n]*(?:Deferred|Secondary)/i);
-  assert.match(prioritySection, /真实 RBV[^\n]*(?:阻塞业务|blocks business)/i);
 
   assert.match(historicalSection, /Cloud Executor.*P0/i);
   assert.match(historicalSection, /D-034/);
@@ -83,35 +87,39 @@ test("AGENTS current priority follows Readiness Freeze and keeps Stage 1 as comp
   assert.match(historicalSection, /已完成|completed/i);
 });
 
-test("Issue #278 is the active candidate while Issue #275 closeout and Issue #273 remain historical", () => {
+test("D-038 is the active direction while Issue #275 and Issue #273 remain historical", () => {
   const agents = read(agentsPath);
   const current = read(currentPath);
   const roadmap = read(roadmapPath);
   const collaboration = read(collaborationPath);
   const prioritySection = agents.match(/## 当前最高优先级[\s\S]*?(?=## |$)/)?.[0] ?? "";
-  const currentSection = sectionBetween(current, "# 项目当前状态", "## Issue #275");
-  const roadmapSection = sectionBetween(roadmap, "# 项目 Roadmap", "## Issue #275");
+  const currentSection = sectionBetween(current, "# 项目当前状态", "## 2026-09-02");
+  const roadmapSection = sectionBetween(roadmap, "# 项目 Roadmap", "## 历史路线快照");
   const allocationSection = collaboration.match(/## 8\. 当前分配[\s\S]*?(?=###|$)/)?.[0] ?? "";
   const currentIssue275 = sectionBetween(current, "## Issue #275", "## Issue #273");
   const roadmapIssue275 = sectionBetween(roadmap, "## Issue #275", "## Issue #273");
   const roadmapCloseoutPreamble = sectionBetween(roadmap, "# 项目 Roadmap", "## Issue #278");
   const historicalIssue275 = collaboration.match(/### 历史分配（Issue #275[\s\S]*?(?=### 历史分配（Issue #273|$)/)?.[0] ?? "";
 
-  for (const [label, content] of [["CURRENT", currentSection], ["ROADMAP", roadmapSection], ["collaboration", allocationSection]]) {
-    assert.match(content, /Issue #278/, `${label} must point to active Issue #278`);
-    assert.doesNotMatch(content, /当前唯一 active bounded engineering Stage\s*是\s*Issue #275/i,
-      `${label} must not treat Issue #275 as active engineering`);
-    assert.doesNotMatch(content, /当前 bounded Stage：Issue #275/i,
-      `${label} must not treat Issue #275 as active engineering`);
+  for (const [label, content] of [["AGENTS", prioritySection], ["CURRENT", currentSection], ["ROADMAP", roadmapSection], ["collaboration", allocationSection]]) {
+    assert.match(content, /HIFLY FAST-MVP|D-038/, `${label} must point to the current FAST-MVP direction`);
+    assert.doesNotMatch(content, /当前唯一 active bounded engineering Stage\s*是\s*Issue #278/i,
+      `${label} must not treat the historical Issue #278 contract as current`);
+    assert.doesNotMatch(content, /当前 bounded Stage：Issue #278/i,
+      `${label} must not treat the historical Issue #278 contract as current`);
   }
   for (const [label, content] of [["CURRENT Issue #275 history", currentIssue275], ["ROADMAP Issue #275 history", roadmapIssue275], ["historical Issue #275 allocation", historicalIssue275]]) {
     assert.match(content, /Issue #275/, `${label} must retain Issue #275`);
     assert.match(content, /COMPLETE\/MERGED\/DEPLOYED|已完成并部署|已合并[／/]部署/, `${label} must retain Issue #275 closeout`);
   }
-  assert.match(prioritySection, /Issue #275/);
-  assert.match(prioritySection, /COMPLETE\/MERGED\/DEPLOYED/);
-  assert.match(currentSection, /CONTRACT_IMPLEMENTATION\s*=\s*GAP/);
-  assert.match(roadmapSection, /CONTRACT_IMPLEMENTATION\s*=\s*GAP/);
+  assert.match(prioritySection, /零 Provider/);
+  assert.match(prioritySection, /没有新的积分授权/);
+  assert.match(currentSection, /R0 PASS/);
+  assert.match(currentSection, /R1 IN_PROGRESS/);
+  assert.match(currentSection, /R2 DRAFT_NOT_FROZEN/);
+  assert.match(currentSection, /本轮提交\/扣费 0/);
+  assert.match(roadmapSection, /## R1 — 最小正式工作台链路/);
+  assert.match(roadmapSection, /飞影 0、付费模型 0/);
   assert.match(current, /^## Issue #275 VideoPlan Create Idempotency-Key Seam/m);
   assert.match(roadmap, /^## Issue #275 VideoPlan Create Idempotency-Key Seam/m);
   assert.match(collaboration, /### 历史分配（Issue #273 RBV-012/);
@@ -133,20 +141,17 @@ test("Issue #278 is the active candidate while Issue #275 closeout and Issue #27
   assert.match(historicalIssue275, /Ubuntu[^\n]*SUCCESS/);
   assert.match(historicalIssue275, /Windows[^\n]*SUCCESS/);
   assert.match(historicalIssue275, /identity-postgres[^\n]*SUCCESS/);
-  assert.match(agents, /Issue #273[^\n]*历史/);
-  assert.match(current, /BLOCKED_PRE_REAL_RUN/);
-  assert.match(roadmap, /BLOCKED_PRE_REAL_RUN/);
+  assert.match(read("docs/status/archive/GOAL-rbv-readiness-before-fast-mvp-2026-09-07.md"), /BLOCKED_PRE_REAL_RUN/);
   assert.match(currentIssue275, /幂等 receipt 持久化 exact caller key 供审计/);
   assert.match(roadmapIssue275, /幂等 receipt 持久化 exact caller key 供审计/);
   assert.match(currentIssue275, /OWNER_AUTHORIZATION_REQUIRED_FOR_ONE_REAL_VIDEOPLAN_V1_CREATE/);
-  assert.match(current, /零业务变更 App-only 部署/);
   assert.match(current, /GitHub Issue #273 仍保持 OPEN/);
   assert.match(roadmap, /GitHub Issue #273 仍 OPEN/);
   assert.match(collaboration, /GitHub Issue #273 仍 OPEN/);
 });
 
-test("the Goal → D-037 → Pilot Contract → status chain uses canonical identifiers and links", () => {
-  const goal = read(goalPath);
+test("the historical RBV Goal → D-037 → Pilot Contract chain keeps canonical identifiers and links", () => {
+  const goal = read(rbvGoalArchivePath);
   const decision = read(decisionPath);
   const pilot = read(pilotPath);
   const productReadme = read(productReadmePath);
@@ -173,7 +178,7 @@ test("the Goal → D-037 → Pilot Contract → status chain uses canonical iden
   assert.match(session, /REAL_BATCH_PRODUCTION_VALIDATION_PILOT\.md/);
 
   for (const [relativePath, content] of [
-    [goalPath, goal],
+    [rbvGoalArchivePath, goal],
     [pilotPath, pilot],
     [productReadmePath, productReadme],
     [currentPath, current],
@@ -471,35 +476,26 @@ test("the Pilot bounds allowed fixes and explicit non-goals", () => {
   }
 });
 
-test("current status pointers record active Issue #278 GAP while retaining the blocked Readiness Freeze and historical P0 text", () => {
+test("current status pointers record D-038 FAST-MVP while retaining historical RBV and P0 text", () => {
   const current = read(currentPath);
   const roadmap = read(roadmapPath);
-  const authoritySection = current.match(/## 权威文档与恢复顺序[\s\S]*?(?=## |$)/)?.[0] ?? "";
+  const currentHead = sectionBetween(current, "# 项目当前状态", "## 2026-09-02");
+  const roadmapHead = sectionBetween(roadmap, "# 项目 Roadmap", "## 历史路线快照");
 
-  assert.match(current, /当前 Goal：RBV-GOAL-001；当前 bounded engineering implementation：Issue #278/i);
-  assert.match(current, /CONTRACT_IMPLEMENTATION\s*=\s*GAP/);
-  assert.match(current, /## Issue #278[^\n]*bounded contract/);
-  assert.match(current, /Readiness Freeze/);
-  assert.match(current, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
-  assert.match(current, /BLOCKED_PRE_REAL_RUN/);
-  assert.doesNotMatch(current, /^## 下一步$/m, "legacy next-step heading must be historical");
-  assert.match(current, /## 历史：下一步[^\n]*当前 Goal 之前/);
-  assert.match(current, /历史[^\n]*P0\.5|P0\.5[^\n]*历史/i);
-  assert.match(current, /历史[^\n]*CLOUD_EXECUTOR_P0\.md|CLOUD_EXECUTOR_P0\.md[^\n]*历史/i);
-  assert.match(authoritySection, /^\s*2\..*Readiness Freeze.*Stage 1[^\n]*(?:历史|completed|已完成)/m);
-  assert.match(authoritySection, /^\s*3\..*RBV_CALIBRATION_READINESS_FREEZE\.md.*BLOCKED_PRE_REAL_RUN/m);
-  assert.match(authoritySection, /^\s*4\..*ROADMAP\.md[^\n]*Readiness Freeze/m);
-  assert.doesNotMatch(authoritySection, /CLOUD_EXECUTOR_P0\.md[^\n]*当前/);
-  assert.match(authoritySection, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
-
-  assert.match(roadmap, /当前状态：RBV-GOAL-001 下 active bounded implementation 为 Issue #278/i);
-  assert.match(roadmap, /CONTRACT_IMPLEMENTATION\s*=\s*GAP/);
-  assert.match(roadmap, /## Issue #278[^\n]*bounded candidate/);
-  assert.match(roadmap, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
-  assert.match(roadmap, /BLOCKED_PRE_REAL_RUN/);
-  assert.doesNotMatch(roadmap, /^## 2\. 当前升级顺序$/m, "legacy current-order heading must be historical");
-  assert.doesNotMatch(roadmap, /P0\.5[^\n]*当前阶段/);
-  assert.match(roadmap, /历史[^\n]*P0\.5|P0\.5[^\n]*历史/i);
+  for (const [label, content] of [["CURRENT", currentHead], ["ROADMAP", roadmapHead]]) {
+    assert.match(content, /HIFLY FAST-MVP/);
+    assert.match(content, /D-038/);
+    assert.doesNotMatch(content, /当前 Goal：RBV-GOAL-001|当前.*Issue #278/);
+  }
+  assert.match(currentHead, /R0 PASS/);
+  assert.match(currentHead, /R1 IN_PROGRESS/);
+  assert.match(currentHead, /R2 DRAFT_NOT_FROZEN/);
+  assert.match(currentHead, /新上传、付费、合并、部署均未执行\/未授权/);
+  assert.match(roadmapHead, /## R1 — 最小正式工作台链路/);
+  assert.match(roadmapHead, /飞影 0、付费模型 0/);
+  assert.match(current, /旧 #278 合同已由 #279 合并\/部署/);
+  assert.match(current, /旧 RBV 仍未完成/);
+  assert.match(roadmap, /历史路线快照（以下不覆盖 D-038/);
 });
 
 test("ROADMAP demotes the legacy P0 sections and scope to historical non-current text", () => {
@@ -528,22 +524,18 @@ test("ROADMAP demotes the legacy P0 sections and scope to historical non-current
   assert.doesNotMatch(cloudExecutorLine, /当前|下一阶段|保留但不抢跑|每波次门禁/);
 });
 
-test("agent-collaboration records active Issue #278 and retains historical Issue #275/Stage 1/Issue #273/CE-08", () => {
+test("agent-collaboration records the active D-038 direction and retains historical Issue #275/Stage 1/Issue #273/CE-08", () => {
   const collaboration = read(collaborationPath);
   const currentSection = collaboration.match(/## 8\. 当前分配[\s\S]*?(?=###|$)/)?.[0] ?? "";
   const historicalIssue275 = collaboration.match(/### 历史分配（Issue #275[\s\S]*?(?=### 历史分配（Issue #273|$)/)?.[0] ?? "";
   const historicalSection = collaboration.match(/### 历史[\s\S]*$/)?.[0] ?? "";
 
-  assert.match(currentSection, /RBV-GOAL-001/);
-  assert.match(currentSection, /Issue #278/);
-  assert.match(currentSection, /结构\/身份 provider-free candidate GREEN/);
-  assert.match(currentSection, /ratio\/native voice/);
-  assert.doesNotMatch(currentSection, /当前 bounded Stage：Issue #275/);
-  assert.match(currentSection, /Readiness Record/);
-  assert.match(currentSection, /RBV_CALIBRATION_READINESS_FREEZE\.md/);
-  assert.match(currentSection, /BLOCKED_PRE_REAL_RUN/);
-  assert.match(currentSection, /Stage 1[^\n]*(?:历史|completed|已完成)/i);
-  assert.match(currentSection, /REAL_BATCH_PRODUCTION_VALIDATION_PILOT\.md/);
+  assert.match(currentSection, /HIFLY FAST-MVP/);
+  assert.match(currentSection, /D-038/);
+  assert.match(currentSection, /零 Provider/);
+  assert.match(currentSection, /真实生成.*未授权/);
+  assert.match(currentSection, /Owner.*唯一.*决策者/);
+  assert.doesNotMatch(currentSection, /当前 bounded Stage：Issue #278|当前 Goal：RBV-GOAL-001/);
   assert.doesNotMatch(currentSection, /当前 Goal：P0 Cloud Executor/);
   assert.match(historicalIssue275, /Issue #275/);
   assert.match(historicalIssue275, /COMPLETE\/MERGED\/DEPLOYED/);
