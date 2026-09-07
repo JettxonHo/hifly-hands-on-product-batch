@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { buildManualHandoffZip } from "../src/manual-handoff/manual-handoff-package-store.js";
+import { buildHiflyHandsOnProductV1 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
 import {
   compilePackageToBatchItem,
   extractHandoffPackage,
@@ -13,6 +15,27 @@ import {
 import { main as avatarMappingMain } from "../src/local-agent/avatar-mapping-cli.js";
 
 const PRODUCT_BYTES = Buffer.from("product-image");
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+
+function sourceManifest({ avatarBytes = Buffer.from("avatar-source") } = {}) {
+  const avatarChecksum = sha256(avatarBytes);
+  const contract = buildHiflyHandsOnProductV1({
+    plan: { video_plan_version_id: "plan-source", plan_review_id: "review-source", status: "frozen", review_status: "approved", current: true },
+    product: { revision_id: "revision-source", primary_asset_version_id: "product-version-1", checksum_sha256: sha256(PRODUCT_BYTES), media_type: "image/png", size: PRODUCT_BYTES.length },
+    copy: { version_id: "copy-source", status: "frozen", review_status: "approved", body: "固定源素材文案。" },
+    avatar: { selection_id: "selection-source", avatar_version_id: "avatar-version-source", material_version_id: "material-version-source", checksum_sha256: avatarChecksum, media_type: "image/png", size: avatarBytes.length, status: "confirmed", current: true }
+  });
+  return {
+    package_id: "package-source", package_version: 1, organization_id: "org-source", production_order_id: "order-source", product_id: "product-source",
+    video_plan_version_id: "plan-source", copy_version_id: "copy-source", avatar_asset_version_id: "avatar-version-source", hifly_hands_on_product_v1: contract,
+    product_revision: { id: "revision-source", status: "ready", product_name: "Source Product", sku: "SKU-SOURCE", asset_version_ids: ["product-version-1"] },
+    copy_snapshot: { copy_version_id: "copy-source", version_number: 1, status: "frozen", copy_body: "固定源素材文案。", review: { id: "copy-review-source", status: "approved" } },
+    avatar_snapshot: { avatar_selection_id: "selection-source", avatar_asset_version_id: "avatar-version-source", status: "confirmed" },
+    video_plan_snapshot: { id: "plan-source", status: "frozen", presentation_size_code: "smart_fit" },
+    plan_review: { id: "review-source", status: "approved" },
+    asset_references: [{ asset_id: "product-asset-source", asset_version_id: "product-version-1", role: "product_image", media_type: "image/png", size: PRODUCT_BYTES.length, checksum: sha256(PRODUCT_BYTES), retrieval_mode: "embedded" }]
+  };
+}
 
 function manifest(overrides = {}) {
   return {
@@ -133,6 +156,86 @@ test("loads avatar_asset_version_id mappings from a JSON config and compiles one
     assert.equal(item.resolved_person_image_path, avatarPath);
     assert.equal(item.resolved_person_source, "local_agent_mapping");
     assert.equal(item.presentation_size_code, "medium");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("V1 compiler resolves the exact MaterialVersion through the source port and materializes a private per-attempt file", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "local-agent-source-compiler-"));
+  const avatarBytes = Buffer.from("avatar-source");
+  const packageManifest = sourceManifest({ avatarBytes });
+  await mkdir(path.join(root, "assets"), { recursive: true });
+  await writeFile(path.join(root, "assets", "product-version-1"), PRODUCT_BYTES);
+  const calls = [];
+  try {
+    const item = await compilePackageToBatchItem({
+      manifest: packageManifest,
+      extractionRoot: root,
+      avatarMappings: { "avatar-version-source": path.join(root, "stale-avatar.png") },
+      avatarAssetSource: {
+        async readVerifiedAvatarImage(input) {
+          calls.push(input);
+          return { asset_id: "avatar-asset-source", asset_version_id: "material-version-source", kind: "avatar_image",
+            bytes: avatarBytes, media_type: "image/png", size: avatarBytes.length, checksum_sha256: sha256(avatarBytes) };
+        }
+      },
+      requireAvatarAssetSource: true,
+      taskId: "task-source"
+    });
+
+    assert.equal(item.resolved_person_source, "cloud_asset_store");
+    assert.match(item.person_image_path, new RegExp(`${path.sep}resolved-avatar${path.sep}avatar\\.png$`));
+    assert.deepEqual(await readFile(item.person_image_path), avatarBytes);
+    assert.equal((await stat(item.person_image_path)).mode & 0o777, 0o600);
+    assert.deepEqual(calls, [{
+      organizationId: "org-source", productId: "product-source", copyVersionId: "copy-source",
+      avatarSelectionId: "selection-source", avatarVersionId: "avatar-version-source",
+      materialVersionId: "material-version-source", assetVersionId: "material-version-source"
+    }]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("V1 compiler never falls back to a mapping when the authoritative source fails", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "local-agent-source-failure-"));
+  const avatarBytes = Buffer.from("avatar-source");
+  const avatarPath = path.join(root, "mapped-avatar.png");
+  const packageManifest = sourceManifest({ avatarBytes });
+  await mkdir(path.join(root, "assets"), { recursive: true });
+  await writeFile(path.join(root, "assets", "product-version-1"), PRODUCT_BYTES);
+  await writeFile(avatarPath, avatarBytes);
+  try {
+    await assert.rejects(() => compilePackageToBatchItem({
+      manifest: packageManifest,
+      extractionRoot: root,
+      avatarMappings: { "avatar-version-source": avatarPath },
+      avatarAssetSource: { async readVerifiedAvatarImage() { throw new Error("source unavailable"); } },
+      requireAvatarAssetSource: true
+    }), { code: "AVATAR_SOURCE_UNAVAILABLE" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("V1 compiler rejects source bytes against the contract before materialization", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "local-agent-source-integrity-"));
+  const avatarBytes = Buffer.from("avatar-source");
+  const packageManifest = sourceManifest({ avatarBytes });
+  await mkdir(path.join(root, "assets"), { recursive: true });
+  await writeFile(path.join(root, "assets", "product-version-1"), PRODUCT_BYTES);
+  try {
+    await assert.rejects(() => compilePackageToBatchItem({
+      manifest: packageManifest,
+      extractionRoot: root,
+      avatarAssetSource: { async readVerifiedAvatarImage() {
+        return { asset_version_id: "material-version-source", kind: "avatar_image", bytes: Buffer.from("wrong-source"),
+          media_type: "image/png", size: avatarBytes.length, checksum_sha256: sha256(avatarBytes) };
+      } },
+      requireAvatarAssetSource: true
+    }), { code: "HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_INTEGRITY_MISMATCH" });
+    await assert.rejects(() => access(path.join(root, "resolved-avatar")), { code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

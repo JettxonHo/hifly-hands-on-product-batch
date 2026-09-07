@@ -6,16 +6,22 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { createHash } from "node:crypto";
+import { createAssetService } from "../src/assets/asset-service.js";
 import { createMemoryAssetRepository } from "../src/assets/memory-asset-repository.js";
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryManualExecutionRepository } from "../src/manual-execution/memory-manual-execution-repository.js";
 import { createMemoryManualHandoffRepository } from "../src/manual-handoff/memory-manual-handoff-repository.js";
 import { createMemoryProductionOrderRepository } from "../src/production-orders/memory-production-order-repository.js";
 import { createMemoryWorkVerificationRepository } from "../src/work-verification/memory-work-verification-repository.js";
+import { buildManualHandoffZip } from "../src/manual-handoff/manual-handoff-package-store.js";
+import { sha256 } from "../src/manual-handoff/manual-handoff-package.js";
+import { buildHiflyHandsOnProductV1 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
 import { createCloudExecutorHeartbeatClient } from "../src/cloud-executor/heartbeat.js";
 import { createCloudExecutorWorker } from "../src/cloud-executor/cloud-executor-worker.js";
 import { createCloudExecutorConfig } from "../src/cloud-executor/config.js";
 import { createCloudExecutorProductionPorts, createCloudExecutorProductionRuntime } from "../src/cloud-executor/production.js";
+import { createCloudExecutorRuntime } from "../src/cloud-executor/runtime.js";
 import { createCloudExecutorHealthServer } from "../src/cloud-executor/standalone.js";
 import { createCloudWorkspaceConfig } from "../src/cloud-executor/workspace.js";
 import { safeArtifactPath } from "../src/cloud-executor/playwright-adapter.js";
@@ -23,6 +29,7 @@ import { createProductionConfig } from "../src/server/production-config.js";
 
 const ORGANIZATION_ID = "org-ce07";
 const EXECUTOR_ID = "cloud-executor-ce07";
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 const ENTRYPOINT_PATH = fileURLToPath(new URL("../deploy/cloud-executor-entrypoint.sh", import.meta.url));
 const POSIX_ENTRYPOINT_SKIP = process.platform === "win32" ? "requires POSIX /tmp and process semantics" : false;
 let displayCounter = 0;
@@ -422,6 +429,184 @@ test("production port assembly schema-checks PostgreSQL repositories and keeps w
   assert.equal(typeof ports.verificationWorker.start, "function");
   assert.equal(stores.size, 2);
   await ports.close();
+});
+
+test("playwright production ports resolve a current registered avatar from the read-only source store", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ce07-avatar-source-"));
+  const workspace = createCloudWorkspaceConfig({ root, profileDir: path.join(root, "profile") });
+  const initialized = [];
+  const assets = createMemoryAssetRepositoryWithProbe(initialized);
+  const repositories = {
+    identity: createMemoryIdentityRepositoryWithProbe("identity", initialized),
+    assets,
+    productionOrders: createMemoryProductionOrderRepositoryWithProbe(initialized),
+    manualHandoff: createMemoryManualHandoffRepositoryWithProbe(initialized),
+    manualExecution: createMemoryManualExecutionRepositoryWithProbe(initialized),
+    workVerification: createMemoryWorkVerificationRepositoryWithProbe(initialized)
+  };
+  const avatarSelection = {
+    async initialize() { initialized.push("avatarSelection"); },
+    async close() { initialized.push("avatarSelection.close"); },
+    async getSelectionState() {
+      return { current_selection: { organization_id: ORGANIZATION_ID, product_id: "product-source", id: "selection-source",
+        copy_version_id: "copy-source", asset_version_id: "avatar-version-source", status: "confirmed" } };
+    },
+    async getCatalogVersion(_organizationId, _avatarVersionId) {
+      return { asset: { organization_id: ORGANIZATION_ID, status: "active" }, asset_version: {
+        organization_id: ORGANIZATION_ID, id: "avatar-version-source", status: "available", material_asset_version_id: materialVersionId,
+        materials_accessible: true, material_status: "available", authorization_status: "valid", authorization_scope: "current_organization",
+        capability_status: "verified", authorization_expires_at: null
+      }, capabilities: [{ verification_status: "verified", evidence_reference: "fixture:avatar" }] };
+    }
+  };
+  let materialVersionId = null;
+  let sourceStore = null;
+  let sourcePutCount = 0;
+  let sourceInitializeCount = 0;
+  const storeRoots = [];
+  try {
+    const ports = await createCloudExecutorProductionPorts({
+      pool: { marker: "fake-pool" },
+      config: { mode: "playwright", organizationId: ORGANIZATION_ID, executorCloudId: EXECUTOR_ID, workspace,
+        handoffDir: path.join(root, "handoff"), sourceAssetsRoot: path.join(root, "source-objects"),
+        worker: { pollIntervalMs: 1000, leaseMs: 30_000, heartbeatIntervalMs: 5000 } },
+      repositoryFactories: {
+        identity: () => repositories.identity, assets: () => repositories.assets,
+        productionOrders: () => repositories.productionOrders, manualHandoff: () => repositories.manualHandoff,
+        manualExecution: () => repositories.manualExecution, workVerification: () => repositories.workVerification,
+        avatarSelection: () => avatarSelection
+      },
+      objectStoreFactory: ({ root: storeRoot, kind }) => {
+        const store = createMemoryObjectStore();
+        storeRoots.push({ root: storeRoot, kind });
+        if (kind === "source") {
+          sourceStore = store;
+          const initialize = store.initialize;
+          store.initialize = async () => { sourceInitializeCount += 1; await initialize(); };
+          const put = store.put.bind(store);
+          store.put = async (input) => { sourcePutCount += 1; return put(input); };
+        }
+        return store;
+      },
+      verificationWorkerFactory: () => ({ start() {}, stop() {}, wake() {} })
+    });
+
+    const sourceAssetService = createAssetService({ repository: assets, objectStore: sourceStore });
+    const avatarBytes = PNG;
+    const checksum = createHash("sha256").update(avatarBytes).digest("hex");
+    const created = await sourceAssetService.createUploadAuthorization({ organizationId: ORGANIZATION_ID, actorMemberId: "member-source",
+      idempotencyKey: "source-avatar-upload", filename: "avatar.png", contentType: "image/png", size: avatarBytes.length, checksumSha256: checksum, assetKind: "avatar_image" });
+    materialVersionId = created.asset_version.id;
+    await sourceAssetService.uploadObject({ organizationId: ORGANIZATION_ID, uploadToken: created.upload.token, body: avatarBytes, contentType: "image/png" });
+    await sourceAssetService.completeUpload({ organizationId: ORGANIZATION_ID, uploadSessionId: created.upload_session_id, idempotencyKey: "source-avatar-complete" });
+    await sourceAssetService.runNextVerificationJob();
+    const beforeReadPuts = sourcePutCount;
+    const source = await ports.runtimeOptions.avatarAssetSource.readVerifiedAvatarImage({ organizationId: ORGANIZATION_ID, productId: "product-source",
+      copyVersionId: "copy-source", avatarSelectionId: "selection-source", avatarVersionId: "avatar-version-source", materialVersionId });
+    assert.deepEqual(source.bytes, avatarBytes);
+    assert.equal(source.asset_version_id, materialVersionId);
+    assert.equal(source.kind, "avatar_image");
+    assert.equal(sourcePutCount, beforeReadPuts);
+    assert.equal(sourceInitializeCount, 0);
+    assert.deepEqual(storeRoots.at(-1), { root: path.join(root, "source-objects"), kind: "source" });
+    await ports.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("production ports pass the source resolver into the default Cloud runtime without a network or mapping path", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ce07-runtime-source-"));
+  const workspace = createCloudWorkspaceConfig({ root, profileDir: path.join(root, "profile") });
+  const avatarBytes = PNG;
+  const contract = buildHiflyHandsOnProductV1({
+    plan: { video_plan_version_id: "plan-runtime-source", plan_review_id: "review-runtime-source", status: "frozen", review_status: "approved", current: true },
+    product: { revision_id: "revision-runtime-source", primary_asset_version_id: "product-version-runtime-source", checksum_sha256: sha256(Buffer.from("product-runtime")), media_type: "image/png", size: Buffer.byteLength("product-runtime") },
+    copy: { version_id: "copy-runtime-source", status: "frozen", review_status: "approved", body: "运行时源测试文案。" },
+    avatar: { selection_id: "selection-runtime-source", avatar_version_id: "avatar-version-runtime-source", material_version_id: "material-version-runtime-source", checksum_sha256: sha256(avatarBytes), media_type: "image/png", size: avatarBytes.length, status: "confirmed", current: true }
+  });
+  const manifest = {
+    package_id: "package-runtime-source", package_version: 1, organization_id: "org-runtime-source", production_order_id: "order-runtime-source", product_id: "product-runtime-source",
+    video_plan_version_id: "plan-runtime-source", copy_version_id: "copy-runtime-source", avatar_asset_version_id: "avatar-version-runtime-source", hifly_hands_on_product_v1: contract,
+    product_revision: { id: "revision-runtime-source", status: "ready", product_name: "Runtime source product", sku: "SKU-RUNTIME", asset_version_ids: ["product-version-runtime-source"] },
+    copy_snapshot: { copy_version_id: "copy-runtime-source", version_number: 1, status: "frozen", copy_body: "运行时源测试文案。", review: { id: "copy-review-runtime-source", status: "approved" } },
+    avatar_snapshot: { avatar_selection_id: "selection-runtime-source", avatar_asset_version_id: "avatar-version-runtime-source", status: "confirmed" },
+    video_plan_snapshot: { id: "plan-runtime-source", status: "frozen", presentation_size_code: "smart_fit" },
+    plan_review: { id: "review-runtime-source", status: "approved" },
+    asset_references: [{ asset_id: "product-asset-runtime-source", asset_version_id: "product-version-runtime-source", role: "product_image", media_type: "image/png", size: Buffer.byteLength("product-runtime"), checksum: sha256(Buffer.from("product-runtime")), retrieval_mode: "embedded" }]
+  };
+  const packageArchive = await buildManualHandoffZip([
+    { name: "manifest.json", body: JSON.stringify(manifest) },
+    { name: "assets/product-version-runtime-source", body: Buffer.from("product-runtime") }
+  ]);
+  const sourceCalls = [];
+  const contextCalls = [];
+  const page = { setDefaultTimeout() {} };
+  const context = { pages() { return [page]; }, async newPage() { return page; }, async close() { contextCalls.push("close"); } };
+  const executionRepository = createMemoryManualExecutionRepository();
+  const orderPort = {
+    async listOrdersForCloudExecutor() { return []; },
+    async getOrderForCloudExecutor() { return null; },
+    async transitionOrderForCloudExecutor() { return null; }
+  };
+  const packagePort = {
+    async listPackagesForCloudExecutor() { return []; },
+    async getPackageForCloudExecutor() { return null; },
+    async downloadPackageForCloudExecutor() { return null; }
+  };
+  const source = {
+    async readVerifiedAvatarImage(input) {
+      sourceCalls.push(input);
+      return { asset_id: "avatar-asset-runtime-source", asset_version_id: "material-version-runtime-source", kind: "avatar_image",
+        bytes: avatarBytes, media_type: "image/png", size: avatarBytes.length, checksum_sha256: sha256(avatarBytes) };
+    }
+  };
+  let portsClosed = false;
+  const config = {
+    enabled: true, configured: true, mode: "playwright", organizationId: "org-runtime-source", executorCloudId: "cloud-runtime-source",
+    databaseUrl: "postgresql://worker@postgres/cloud", databasePoolMax: 3, databaseSsl: false, workspace,
+    handoffDir: path.join(root, "handoff"), storage: { root: workspace.root, minFreeBytes: 0 },
+    heartbeat: { enabled: true, url: "http://app.test/heartbeat", token: "unused-test-token", timeoutMs: 15_000 },
+    worker: { pollIntervalMs: 60_000, leaseMs: 30_000, heartbeatIntervalMs: 5000, concurrency: 1 },
+    browserType: { async launchPersistentContext() { contextCalls.push("launch"); return context; } },
+    hiflyPageFactory() {
+      return { async preflight() { return { status: "ready" }; }, async createAsset() {}, async submitVideo() {}, async querySubmission() {}, async downloadArtifact() {}, async reconcileSubmission() {} };
+    },
+    executorFactory: ({ hiflyPage }) => hiflyPage,
+    contractFieldVerifier: async () => false
+  };
+  const ports = {
+    runtimeOptions: { repository: executionRepository, orderPort, packagePort, candidateStore: createMemoryObjectStore(), avatarAssetSource: source },
+    verificationWorker: { start() {}, stop() {} },
+    async close() { portsClosed = true; }
+  };
+  try {
+    const handle = await createCloudExecutorProductionRuntime({
+      config,
+      createPool: () => ({ async end() {} }),
+      portsFactory: async () => ports,
+      runtimeFactory: createCloudExecutorRuntime,
+      heartbeatFactory: () => ({ async report() {} }),
+      loadHiflyConfig: () => ({})
+    });
+    handle.runtime.worker.stop();
+    const result = await handle.runtime.executor.run({
+      attempt: { id: "attempt-runtime-source" },
+      packageArchive: { body: packageArchive, contentType: "application/zip" }
+    });
+    assert.equal(result.status, "requires_action");
+    assert.equal(result.code, "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED");
+    assert.deepEqual(sourceCalls, [{
+      organizationId: "org-runtime-source", productId: "product-runtime-source", copyVersionId: "copy-runtime-source",
+      avatarSelectionId: "selection-runtime-source", avatarVersionId: "avatar-version-runtime-source",
+      materialVersionId: "material-version-runtime-source", assetVersionId: "material-version-runtime-source"
+    }]);
+    assert.deepEqual(contextCalls, ["launch", "close"]);
+    await handle.close();
+    assert.equal(portsClosed, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("heartbeat sends only allowlisted state with the Bearer token from env and never exposes it", async () => {

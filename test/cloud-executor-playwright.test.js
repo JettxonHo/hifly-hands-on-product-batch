@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { createCloudPlaywrightAdapter } from "../src/cloud-executor/playwright-adapter.js";
+import { createExecutionSnapshot } from "../src/core/execution-snapshot.js";
 import { createManualHandoffPackageService } from "../src/manual-handoff/manual-handoff-package-service.js";
 import { createManualHandoffPackageWorker } from "../src/manual-handoff/manual-handoff-package-worker.js";
 import { createMemoryManualHandoffRepository } from "../src/manual-handoff/memory-manual-handoff-repository.js";
@@ -483,10 +484,11 @@ test("ambiguous post-submit outcome becomes requires_action and never submits ag
 test("cloud adapter compiles an actual generated ManualHandoffPackage archive through the existing package compiler", async () => {
   const { workspace, cleanup } = await workspaceFixture();
   const generated = await generatedPackageForCloudExecutor();
-  const avatarMappingPath = path.join(workspace.root, "avatar-mappings.json");
-  const avatarPath = path.join(workspace.assetsDir, "person.png");
-  await writeFile(avatarMappingPath, JSON.stringify({ "avatar-version-cloud": avatarPath }));
+  const avatarBytes = Buffer.from("person");
+  const sourceCalls = [];
   let compiledTask;
+  let executionConfig;
+  let snapshotEstimate;
   const handheldEvidence = createEvidenceRecord({ field: "handheld_aspect_ratio", expected: "9:16", actual: "1600x2848",
     evidenceSource: "generated_artifact_natural_dimensions", verificationStage: "post_handheld_pre_video",
     paidBoundary: "after_paid_action_1_before_paid_action_2", result: HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH });
@@ -495,8 +497,27 @@ test("cloud adapter compiles an actual generated ManualHandoffPackage archive th
   try {
     const adapter = createCloudPlaywrightAdapter({
       workspace,
-      avatarMappingPath,
+      avatarAssetSource: {
+        async readVerifiedAvatarImage(input) {
+          sourceCalls.push(input);
+          return {
+            asset_id: "material-asset-cloud",
+            asset_version_id: "material-cloud-v1",
+            kind: "avatar_image",
+            bytes: avatarBytes,
+            media_type: "image/png",
+            size: avatarBytes.length,
+            checksum_sha256: sha256(avatarBytes)
+          };
+        }
+      },
       browserType: { async launchPersistentContext() { return context; } },
+      snapshotFactory: async (items, execution) => {
+        executionConfig = execution;
+        const snapshot = await createExecutionSnapshot(items, execution);
+        snapshotEstimate = snapshot.estimate;
+        return snapshot;
+      },
       contractFieldVerifier: async ({ fields }) => verifiedContractFields(fields),
       hiflyPageFactory() {
         return {
@@ -527,7 +548,19 @@ test("cloud adapter compiles an actual generated ManualHandoffPackage archive th
     assert.deepEqual(result.evidence, [handheldEvidence]);
     assert.equal(compiledTask.product_name, "Generated cloud product");
     assert.equal(compiledTask.script, "Generated frozen copy.");
-    assert.equal(compiledTask.person_image_path, avatarPath);
+    assert.match(compiledTask.person_image_path, new RegExp(`${path.sep}resolved-avatar${path.sep}avatar\\.png$`));
+    assert.deepEqual(await readFile(compiledTask.person_image_path), avatarBytes);
+    assert.equal(compiledTask.resolved_person_source, "cloud_asset_store");
+    assert.deepEqual(sourceCalls, [{
+      organizationId: "org-cloud", productId: "product-cloud", copyVersionId: "copy-cloud-v1",
+      avatarSelectionId: "selection-cloud-v1", avatarVersionId: "avatar-version-cloud",
+      materialVersionId: "material-cloud-v1", assetVersionId: "material-cloud-v1"
+    }]);
+    assert.equal(executionConfig.assetPointsPerItem, null);
+    assert.equal(executionConfig.videoPointsEstimate, null);
+    assert.equal(snapshotEstimate.known, false);
+    assert.equal(snapshotEstimate.total, null);
+    assert.deepEqual(snapshotEstimate.unknownComponents, ["assetPointsPerItem", "videoPointsEstimate"]);
     assert.equal(compiledTask.presentation_size_code, "smart_fit");
     assert.equal(compiledTask.image_path.startsWith(path.join(workspace.assetsDir, "attempt-generated")), true);
     assert.equal("task" in generated.packageRecord, false);

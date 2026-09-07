@@ -32,7 +32,7 @@ function inactiveState(config) {
 
 export function createCloudExecutorRuntime({ config, repository, orderPort, packagePort, candidateStore,
   verificationPort = null, readinessPort = null, executor = null, now = Date.now, onError = () => undefined,
-  heartbeatPort = null, loginAdapterFactory = createCloudPlaywrightAdapter, loginAdapterOptions = {} } = {}) {
+  heartbeatPort = null, avatarAssetSource = null, loginAdapterFactory = createCloudPlaywrightAdapter, loginAdapterOptions = {} } = {}) {
   if (!config || typeof config !== "object" || Array.isArray(config)) throw failure("CLOUD_EXECUTOR_RUNTIME_CONFIG_REQUIRED");
   const inactive = inactiveState(config);
   if (inactive) {
@@ -87,6 +87,7 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
       taskFactory: config.taskFactory,
       avatarMappingPath: config.avatarMappingPath,
       avatarMappings: config.avatarMappings,
+      avatarAssetSource: avatarAssetSource ?? config.avatarAssetSource,
       contractFieldVerifier: config.contractFieldVerifier,
       onProgress: config.onProgress
     })

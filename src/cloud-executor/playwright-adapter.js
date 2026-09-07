@@ -192,7 +192,7 @@ async function verifyPrePointContract({ verifier, task, contract, page, hiflyPag
   return inspected;
 }
 
-async function taskFromPackageArchive(input, workspace, { attemptId, avatarMappingPath, avatarMappings }) {
+async function taskFromPackageArchive(input, workspace, { attemptId, avatarMappingPath, avatarMappings, avatarAssetSource }) {
   const body = input.packageArchive?.body;
   if (!Buffer.isBuffer(body)) {
     const error = new Error("Cloud Executor package archive is required");
@@ -202,11 +202,15 @@ async function taskFromPackageArchive(input, workspace, { attemptId, avatarMappi
   const extractionRoot = path.join(workspace.assetsDir, attemptId, "package");
   const verified = await verifyHandoffPackageIntegrity({ body, expectedAttempt: input.attempt, expectedPackage: input.package, expectedOrder: input.order });
   const extracted = await extractHandoffPackage(body, extractionRoot);
-  const mappings = avatarMappings || await loadAvatarMappings(avatarMappingPath);
+  const manifest = verified.manifest || extracted.manifest;
+  const requiresAvatarSource = Boolean(manifest?.hifly_hands_on_product_v1);
+  const mappings = requiresAvatarSource ? {} : avatarMappings || await loadAvatarMappings(avatarMappingPath);
   return compilePackageToBatchItem({
-    manifest: verified.manifest || extracted.manifest,
+    manifest,
     extractionRoot: extracted.directory,
     avatarMappings: mappings,
+    avatarAssetSource,
+    requireAvatarAssetSource: requiresAvatarSource,
     taskId: attemptId
   });
 }
@@ -274,6 +278,7 @@ export function createCloudPlaywrightAdapter({
   taskFactory = null,
   avatarMappingPath = null,
   avatarMappings = null,
+  avatarAssetSource = null,
   contractFieldVerifier = null,
   batchStoreFactory = createBatchStore,
   lockFactory = acquireExecutionLock,
@@ -396,7 +401,7 @@ export function createCloudPlaywrightAdapter({
     try {
       const selected = await (typeof taskFactory === "function"
         ? taskFactory({ ...input, workspace: cloudWorkspace })
-        : taskFromPackageArchive(input, cloudWorkspace, { attemptId, avatarMappingPath, avatarMappings }));
+        : taskFromPackageArchive(input, cloudWorkspace, { attemptId, avatarMappingPath, avatarMappings, avatarAssetSource }));
       task = cloudTask(selected, input, cloudWorkspace);
     } catch (error) {
       if (error?.outcome === "requires_action") {
@@ -437,8 +442,8 @@ export function createCloudPlaywrightAdapter({
     const confirmedAt = new Date(now()).toISOString();
     const execution = {
       version: "cloud-executor-playwright",
-      assetPointsPerItem: 0,
-      videoPointsEstimate: 0,
+      assetPointsPerItem: null,
+      videoPointsEstimate: null,
       projectRoot: cloudWorkspace.root,
       confirmedAt
     };

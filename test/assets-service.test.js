@@ -17,7 +17,7 @@ const WEBP = Buffer.from("RIFF\x00\x00\x00\x00WEBPVP8 \x00\x00\x00\x00", "binary
 const GIF = Buffer.from("GIF89a\x01\x00\x01\x00\x00\x00\x00", "ascii");
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-function world({ now = () => Date.parse("2026-08-06T08:00:00Z"), trackPuts = false } = {}) {
+function world({ now = () => Date.parse("2026-08-06T08:00:00Z"), trackPuts = false, avatarBindingPort = null } = {}) {
   const repository = createMemoryAssetRepository();
   const objectStore = createMemoryObjectStore();
   const putCalls = [];
@@ -28,7 +28,7 @@ function world({ now = () => Date.parse("2026-08-06T08:00:00Z"), trackPuts = fal
       return put(input);
     };
   }
-  const service = createAssetService({ repository, objectStore, now });
+  const service = createAssetService({ repository, objectStore, now, avatarBindingPort });
   return { repository, objectStore, service, putCalls };
 }
 
@@ -573,6 +573,53 @@ test("source product image port returns exact verified bytes and enforces availa
 
   await w.service.disableAsset({ organizationId: "org_a", assetId: created.asset.id, expectedRevision: 1 });
   await assert.rejects(w.service.sourceProductImagePort.readVerifiedProductImage(input), { code: "ASSET_SOURCE_UNAVAILABLE" });
+});
+
+test("source avatar image port resolves the registered material only after current binding authorization", async () => {
+  const bindingCalls = [];
+  const w = world({ avatarBindingPort: {
+    async assertUsableAvatarBinding(input) { bindingCalls.push(input); }
+  } });
+  const created = await verified(w, { assetKind: "avatar_image", filename: "avatar.png" });
+  const source = await w.service.sourceAvatarImagePort.readVerifiedAvatarImage({
+    organizationId: "org_a", productId: "product_a", copyVersionId: "copy_a",
+    avatarSelectionId: "selection_a", avatarVersionId: "avatar_version_a",
+    materialVersionId: created.asset_version.id
+  });
+
+  assert.deepEqual(source, {
+    asset_id: created.asset.id,
+    asset_version_id: created.asset_version.id,
+    kind: "avatar_image",
+    asset_status: "active",
+    version_status: "available",
+    bytes: PNG,
+    media_type: "image/png",
+    size: PNG.length,
+    checksum_sha256: SHA256
+  });
+  assert.deepEqual(bindingCalls, [{
+    organizationId: "org_a", productId: "product_a", copyVersionId: "copy_a",
+    avatarSelectionId: "selection_a", avatarVersionId: "avatar_version_a",
+    materialVersionId: created.asset_version.id
+  }]);
+});
+
+test("source avatar image port fails closed when registration is unavailable or the source is not an avatar", async () => {
+  const unavailable = world();
+  const avatar = await verified(unavailable, { assetKind: "avatar_image", filename: "avatar.png" });
+  await assert.rejects(() => unavailable.service.sourceAvatarImagePort.readVerifiedAvatarImage({
+    organizationId: "org_a", assetVersionId: avatar.asset_version.id
+  }), { code: "ASSET_SOURCE_UNAVAILABLE" });
+
+  const denied = world({ avatarBindingPort: {
+    async assertUsableAvatarBinding() { throw new Error("registration denied"); }
+  } });
+  const product = await verified(denied);
+  await assert.rejects(() => denied.service.sourceAvatarImagePort.readVerifiedAvatarImage({
+    organizationId: "org_a", assetVersionId: product.asset_version.id,
+    productId: "product_a", copyVersionId: "copy_a", avatarSelectionId: "selection_a", avatarVersionId: "avatar_version_a"
+  }), { code: "ASSET_SOURCE_UNAVAILABLE" });
 });
 
 function candidateStageInput(overrides = {}) {
