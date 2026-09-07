@@ -150,13 +150,13 @@ const ACTION_REASON_CODES = new Set([
   "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_UNVERIFIABLE"
 ]);
 
-function contractFieldNotMachineVerifiable(fields = CONTRACT_VERIFICATION_FIELDS, code = "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", evidence = null) {
+function contractFieldNotMachineVerifiable(fields = CONTRACT_VERIFICATION_FIELDS, code = "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", evidence = null, failureStage = "pre_point_gate") {
   const error = new Error(code);
   error.code = code;
   error.details = Array.isArray(fields) ? fields : CONTRACT_VERIFICATION_FIELDS;
   error.evidence = completeEvidenceForFields(evidence, error.details);
   error.outcome = "requires_action";
-  error.failureStage = "pre_point_gate";
+  error.failureStage = failureStage;
   return error;
 }
 
@@ -173,21 +173,21 @@ function prePointGateResult(error) {
   };
 }
 
-async function verifyPrePointContract({ verifier, task, contract, page, hiflyPage }) {
-  if (typeof verifier !== "function") throw contractFieldNotMachineVerifiable();
+async function verifyPrePointContract({ verifier, task, contract, page, hiflyPage, phase = "pre_point", failureStage = "pre_point_gate" }) {
+  if (typeof verifier !== "function") throw contractFieldNotMachineVerifiable(CONTRACT_VERIFICATION_FIELDS, "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", null, failureStage);
   let result;
   try {
-    result = await verifier({ task, contract, page, hiflyPage, fields: CONTRACT_VERIFICATION_FIELDS, phase: "pre_point" });
+    result = await verifier({ task, contract, page, hiflyPage, fields: CONTRACT_VERIFICATION_FIELDS, phase });
   } catch (error) {
     if (CONTRACT_VERIFICATION_ERROR_CODES.has(error?.code)) {
       const fields = Array.isArray(error.details) ? error.details : error.details?.fields || CONTRACT_VERIFICATION_FIELDS;
-      throw contractFieldNotMachineVerifiable(fields, error.code, error.evidence);
+      throw contractFieldNotMachineVerifiable(fields, error.code, error.evidence, failureStage);
     }
-    throw contractFieldNotMachineVerifiable();
+    throw contractFieldNotMachineVerifiable(CONTRACT_VERIFICATION_FIELDS, "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", null, failureStage);
   }
   const inspected = inspectStructuredVerificationResult(result, HIFLY_PRE_PAID_REQUIREMENTS);
   if (!inspected.valid) {
-    throw contractFieldNotMachineVerifiable(inspected.fields || CONTRACT_VERIFICATION_FIELDS, inspected.code, inspected.evidence);
+    throw contractFieldNotMachineVerifiable(inspected.fields || CONTRACT_VERIFICATION_FIELDS, inspected.code, inspected.evidence, failureStage);
   }
   return inspected;
 }
@@ -363,9 +363,21 @@ export function createCloudPlaywrightAdapter({
     }
 
     const wrappedExecutor = {
-      async createAsset(...args) {
-        assertHandsOnProductTask(args[0]);
-        return executor.createAsset(...args);
+      async createAsset(task, executionContext = {}) {
+        const contract = assertHandsOnProductTask(task);
+        const wrappedContext = {
+          ...executionContext,
+          contractFieldVerifier: async () => verifyPrePointContract({
+            verifier: contractFieldVerifier,
+            task,
+            contract,
+            page,
+            hiflyPage,
+            phase: "pre_paid_action_1",
+            failureStage: "pre_paid_gate"
+          })
+        };
+        return executor.createAsset(task, wrappedContext);
       },
       async submitVideo(task, asset, executionContext = {}) {
         assertHandsOnProductTask(task);
@@ -493,9 +505,11 @@ export function createCloudPlaywrightAdapter({
       const action = actionResult(item, progressTrace);
       if (action.status === "requires_action") {
         halted = true;
-        await reportProgress(CLOUD_PLAYWRIGHT_PROGRESS.UNKNOWN_POST_SUBMIT, {
-          candidates: action.remoteCandidates
-        });
+        if (action.failureStage !== "pre_paid_gate") {
+          await reportProgress(CLOUD_PLAYWRIGHT_PROGRESS.UNKNOWN_POST_SUBMIT, {
+            candidates: action.remoteCandidates
+          });
+        }
         return action;
       }
       return action;

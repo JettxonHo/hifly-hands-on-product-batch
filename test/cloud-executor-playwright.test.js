@@ -387,17 +387,27 @@ test("cloud adapter maps existing Hifly checkpoints to controlled cloud progress
   const task = taskFor(workspace);
   const page = { setDefaultTimeout() {} };
   const context = fakeContext(page, calls);
-  let verifierInput;
+  const verifierInputs = [];
+  let pageState = "before-prepare-navigation";
   try {
     const adapter = createCloudPlaywrightAdapter({
       workspace,
       browserType: { async launchPersistentContext() { return context; } },
       taskFactory: async () => task,
-      contractFieldVerifier: async (input) => { verifierInput = input; calls.push("verify"); return verifiedContractFields(input.fields); },
+      contractFieldVerifier: async (input) => {
+        verifierInputs.push({ phase: input.phase, pageState, page: input.page, hiflyPage: input.hiflyPage });
+        calls.push("verify");
+        return verifiedContractFields(input.fields);
+      },
       hiflyPageFactory() {
         return {
           async preflight() { return { status: "ready" }; },
-          async prepareAsset() { calls.push("prepare-asset"); return { asset_id: "asset-1" }; },
+          async prepareAsset(_task, { contractFieldVerifier }) {
+            calls.push("prepare-asset");
+            pageState = "after-prepare-navigation";
+            await contractFieldVerifier();
+            return { asset_id: "asset-1" };
+          },
           async submitVideo(_task, { checkpoint }) {
             calls.push("submit");
             await checkpoint({ phase: "remote_submit_pre", evidence: { work_keys: [] } });
@@ -428,12 +438,86 @@ test("cloud adapter maps existing Hifly checkpoints to controlled cloud progress
 
     assert.equal(result.status, "succeeded");
     assert.equal(result.body.toString(), "video");
-    assert.deepEqual(calls, ["verify", "prepare-asset", "submit", "query", "download"]);
-    assert.equal(verifierInput.page, page);
-    assert.equal(typeof verifierInput.hiflyPage, "object");
-    assert.deepEqual(verifierInput.fields, ["target_aspect_ratio", "voice_source"]);
-    assert.equal(verifierInput.phase, "pre_point");
+    assert.deepEqual(calls, ["verify", "prepare-asset", "verify", "submit", "query", "download"]);
+    assert.deepEqual(verifierInputs.map(({ phase, pageState: state }) => ({ phase, pageState: state })), [
+      { phase: "pre_point", pageState: "before-prepare-navigation" },
+      { phase: "pre_paid_action_1", pageState: "after-prepare-navigation" }
+    ]);
+    assert.equal(verifierInputs[0].page, page);
+    assert.equal(typeof verifierInputs[0].hiflyPage, "object");
+    assert.equal(verifierInputs[1].page, page);
+    assert.equal(typeof verifierInputs[1].hiflyPage, "object");
     assert.deepEqual(progress, ["pre_submit", "submitted", "wait_download"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("cloud adapter fails closed when navigation invalidates the late contract verification", async () => {
+  const { workspace, cleanup } = await workspaceFixture();
+  const calls = [];
+  const phases = [];
+  const progress = [];
+  const task = taskFor(workspace);
+  const page = { setDefaultTimeout() {} };
+  const context = fakeContext(page, calls);
+  let pageState = "before-prepare-navigation";
+  let innerPaidClicks = 0;
+  let paidMarkers = 0;
+  try {
+    const adapter = createCloudPlaywrightAdapter({
+      workspace,
+      browserType: { async launchPersistentContext() { return context; } },
+      taskFactory: async () => task,
+      contractFieldVerifier: async (input) => {
+        phases.push({ phase: input.phase, pageState });
+        if (input.phase === "pre_paid_action_1") return false;
+        return verifiedContractFields(input.fields);
+      },
+      hiflyPageFactory() {
+        return {
+          async preflight() { return { status: "ready" }; },
+          async prepareAsset(_task, { contractFieldVerifier, checkpoint }) {
+            calls.push("prepare-asset");
+            pageState = "after-prepare-navigation";
+            await contractFieldVerifier();
+            await checkpoint({
+              phase: "asset_paid_action_pre",
+              evidence: { paid_boundary: "before_paid_action_1" }
+            });
+            paidMarkers += 1;
+            innerPaidClicks += 1;
+            return { asset_id: "must-not-reach-paid-click" };
+          },
+          async submitVideo() { calls.push("submit"); throw new Error("submit must not run"); },
+          async querySubmission() { calls.push("query"); throw new Error("query must not run"); },
+          async downloadArtifact() { calls.push("download"); throw new Error("download must not run"); },
+          async reconcileSubmission() { calls.push("reconcile"); return { candidates: [] }; }
+        };
+      }
+    });
+
+    const result = await adapter.run({
+      order: orderFor(),
+      attempt: { id: "attempt-late-verifier-failure" },
+      package: packageFor(),
+      progress: async ({ phase }) => progress.push(phase)
+    });
+
+    assert.equal(result.status, "requires_action");
+    assert.equal(result.code, "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED");
+    assert.equal(result.failureStage, "pre_paid_gate");
+    assert.equal(adapter.halted, true);
+    assert.deepEqual(result.evidence.map((record) => record.field), ["target_aspect_ratio", "voice_source"]);
+    assert.deepEqual(result.checkpoints, []);
+    assert.equal(progress.includes("unknown_post_submit"), false);
+    assert.equal(paidMarkers, 0);
+    assert.equal(innerPaidClicks, 0);
+    assert.deepEqual(phases, [
+      { phase: "pre_point", pageState: "before-prepare-navigation" },
+      { phase: "pre_paid_action_1", pageState: "after-prepare-navigation" }
+    ]);
+    assert.deepEqual(calls, ["prepare-asset"]);
   } finally {
     await cleanup();
   }

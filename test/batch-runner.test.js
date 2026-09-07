@@ -1107,6 +1107,7 @@ test("Hifly executor forwards the batch download context to its page object", as
 
 test("Hifly executor forwards the asset checkpoint context before the paid inner action", async () => {
   let received = null;
+  const contractFieldVerifier = async () => {};
   const executor = createHiflyExecutor({
     hiflyPage: {
       page: { isClosed() { return false; } },
@@ -1123,9 +1124,9 @@ test("Hifly executor forwards the asset checkpoint context before the paid inner
   });
   const checkpoint = async () => {};
 
-  await executor.createAsset({}, { checkpoint });
+  await executor.createAsset({}, { checkpoint, contractFieldVerifier });
 
-  assert.deepEqual(received, { checkpoint });
+  assert.deepEqual(received, { checkpoint, contractFieldVerifier });
 });
 
 test("downloadArtifact accepts a destination inside an explicit batch project root", async () => {
@@ -2748,6 +2749,64 @@ test("runBatch preserves a post-handheld requires_action evidence stop", async (
   }
 });
 
+test("runBatch treats a late pre-paid verifier failure as terminal and never regenerates it", async () => {
+  const evidence = createEvidenceRecord({
+    field: "voice_source",
+    expected: "hifly_native",
+    actual: { display: "Hifly 原生声音" },
+    evidenceSource: "hifly_ui_display",
+    verificationStage: "pre_paid",
+    paidBoundary: "before_paid_action_1",
+    result: HIFLY_VERIFICATION_RESULT.NOT_PROVEN
+  });
+  let createAssetCalls = 0;
+  let submitCalls = 0;
+  let reconcileCalls = 0;
+  const fixture = await fixtureRun({
+    executor: {
+      async createAsset() {
+        createAssetCalls += 1;
+        throw Object.assign(new Error("late contract verification failed"), {
+          code: "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED",
+          outcome: "requires_action",
+          failureStage: "pre_paid_gate",
+          evidence: [evidence]
+        });
+      },
+      async submitVideo() { submitCalls += 1; throw new Error("submit must not run"); },
+      async querySubmission() { throw new Error("query must not run"); },
+      async downloadArtifact() { throw new Error("download must not run"); },
+      async reconcileSubmission() { reconcileCalls += 1; return { candidates: [] }; }
+    }
+  });
+  try {
+    const first = await runBatch(fixture);
+    const firstItem = first.items[0];
+    assert.equal(firstItem.status, "failed_pre_submit");
+    assert.equal(firstItem.requires_action, true);
+    assert.equal(firstItem.requires_action_reason, "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED");
+    assert.equal(firstItem.retryability, "not_retryable");
+    assert.equal(firstItem.execution_key, null);
+    assert.equal(firstItem.confirmed_at, null);
+    assert.equal(firstItem.asset_paid_action_checkpoint, undefined);
+    assert.deepEqual(firstItem.contract_evidence, [evidence]);
+
+    const second = await runBatch(fixture);
+    const secondItem = second.items[0];
+    assert.equal(secondItem.status, "failed_pre_submit");
+    assert.equal(secondItem.retryability, "not_retryable");
+    assert.equal(secondItem.asset_paid_action_checkpoint, undefined);
+    assert.deepEqual(fixture.store.statusHistory("task-1"), [
+      "confirmed", "generating_asset", "failed_pre_submit"
+    ]);
+    assert.equal(createAssetCalls, 1);
+    assert.equal(submitCalls, 0);
+    assert.equal(reconcileCalls, 0);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test("hasGeneratedImageReady rejects a failed generation modal with ready-action buttons", async () => {
   const adapter = new HiflyHandsOnProductPage({}, {
     batch: { defaultTimeoutMs: 10 },
@@ -3659,6 +3718,96 @@ test("createHandsOnImage checkpoints the paid boundary and classifies a post-cli
     "asset_paid_action_pre",
     "asset_paid_action_clicked"
   ]);
+});
+
+test("createHandsOnImage runs the forwarded contract verifier after preparation and before the paid boundary", async () => {
+  const calls = [];
+  const checkpoints = [];
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadPersonText: "上传人物", uploadProductText: "上传商品" }
+  }, { info() {} });
+  adapter.openHandsOnModal = async () => calls.push("open");
+  adapter.captureStep = async () => {};
+  adapter.hasGeneratedImageReady = async () => false;
+  adapter.captureProductImageSrc = async () => ({ src: "before.png", naturalWidth: 1 });
+  adapter.uploadModalFile = async () => {};
+  adapter.verifyProductImageReplaced = async () => {};
+  adapter.selectAndVerifyGoodsSize = async () => calls.push("size");
+  adapter.clickModalGenerate = async () => calls.push("click-generate");
+  adapter.confirmGeneratedHandsOnImage = async () => { calls.push("confirm"); return null; };
+
+  await adapter.createHandsOnImage({
+    sku: "SKU-LATE-VERIFY",
+    image_path: "/tmp/product.png",
+    hifly_hands_on_product_v1: {}
+  }, {
+    contractFieldVerifier: async () => calls.push("verify"),
+    checkpoint: async (value) => {
+      checkpoints.push(value);
+      calls.push(`checkpoint:${value.phase}`);
+    }
+  });
+
+  assert.deepEqual(calls, [
+    "open",
+    "size",
+    "verify",
+    "checkpoint:asset_paid_action_pre",
+    "click-generate",
+    "checkpoint:asset_paid_action_clicked",
+    "confirm",
+    "checkpoint:asset_paid_action_completed"
+  ]);
+  assert.deepEqual(checkpoints.map((checkpoint) => checkpoint.phase), [
+    "asset_paid_action_pre",
+    "asset_paid_action_clicked",
+    "asset_paid_action_completed"
+  ]);
+});
+
+test("createHandsOnImage leaves no paid checkpoint when the forwarded contract verifier fails", async () => {
+  const calls = [];
+  const checkpoints = [];
+  let paidClicks = 0;
+  const adapter = new HiflyHandsOnProductPage({}, {
+    batch: { defaultTimeoutMs: 10 },
+    hiflyUi: { uploadPersonText: "上传人物", uploadProductText: "上传商品" }
+  }, { info() {} });
+  adapter.openHandsOnModal = async () => calls.push("open");
+  adapter.captureStep = async () => {};
+  adapter.hasGeneratedImageReady = async () => false;
+  adapter.captureProductImageSrc = async () => ({ src: "before.png", naturalWidth: 1 });
+  adapter.uploadModalFile = async () => {};
+  adapter.verifyProductImageReplaced = async () => {};
+  adapter.selectAndVerifyGoodsSize = async () => calls.push("size");
+  adapter.clickModalGenerate = async () => { paidClicks += 1; };
+
+  await assert.rejects(
+    () => adapter.createHandsOnImage({
+      sku: "SKU-LATE-VERIFY-FAIL",
+      image_path: "/tmp/product.png",
+      hifly_hands_on_product_v1: {}
+    }, {
+      contractFieldVerifier: async () => {
+        calls.push("verify");
+        throw Object.assign(new Error("late contract verification failed"), {
+          code: "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED",
+          outcome: "requires_action",
+          failureStage: "pre_paid_gate"
+        });
+      },
+      checkpoint: async (value) => {
+        checkpoints.push(value);
+        calls.push(`checkpoint:${value.phase}`);
+      }
+    }),
+    { code: "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED", failureStage: "pre_paid_gate" }
+  );
+
+  assert.deepEqual(calls, ["open", "size", "verify"]);
+  assert.deepEqual(checkpoints, []);
+  assert.equal(paidClicks, 0);
 });
 
 test("a paid asset checkpoint turns a post-confirm stop into requires_action and blocks a later confirmation", async () => {

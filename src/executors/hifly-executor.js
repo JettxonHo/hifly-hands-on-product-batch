@@ -39,9 +39,12 @@ export function createHiflyExecutor(config) {
       return hiflyPage.preflight();
     },
 
-    async createAsset(task, context) {
+    async createAsset(task, context = {}) {
       assertPageOpen(hiflyPage);
-      return hiflyPage.prepareAsset(task, { checkpoint: context?.checkpoint });
+      return hiflyPage.prepareAsset(task, {
+        ...(typeof context.checkpoint === "function" ? { checkpoint: context.checkpoint } : {}),
+        ...(typeof context.contractFieldVerifier === "function" ? { contractFieldVerifier: context.contractFieldVerifier } : {})
+      });
     },
 
     async submitVideo(task, asset, context) {

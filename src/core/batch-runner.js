@@ -276,7 +276,7 @@ export async function runBatch({
       // terminal evidence decision. Keep it precise and non-retryable rather
       // than leaving a generating_asset row for recovery to reinterpret as an
       // unknown submission.
-      if (error.failureStage === "post_handheld_pre_video" && Array.isArray(error.evidence)) {
+      if ((error.failureStage === "post_handheld_pre_video" || error.failureStage === "pre_paid_gate") && Array.isArray(error.evidence)) {
         return transition(task, {
           type: "FAIL_PRE_SUBMIT",
           changes: {

@@ -140,7 +140,7 @@ export class HiflyHandsOnProductPage {
     return { status: "ready" };
   }
 
-  async fillProduct(product, { checkpoint } = {}) {
+  async fillProduct(product, { checkpoint, contractFieldVerifier } = {}) {
     this.assertPageOpen();
     const ui = this.config.hiflyUi;
 
@@ -151,7 +151,7 @@ export class HiflyHandsOnProductPage {
     // The inner Hands-on-Product image generation can consume points. Freeze
     // and read back the copy/AI mode first so a toggle or script failure stops
     // before the paid modal action.
-    const handheldEvidence = await this.createHandsOnImage(product, { checkpoint });
+    const handheldEvidence = await this.createHandsOnImage(product, { checkpoint, contractFieldVerifier });
     await this.captureStep(product, "after-upload");
     return handheldEvidence;
   }
@@ -232,7 +232,7 @@ export class HiflyHandsOnProductPage {
     await this.captureStep(product, "script-field-filled");
   }
 
-  async prepareAsset(product, { checkpoint } = {}) {
+  async prepareAsset(product, { checkpoint, contractFieldVerifier } = {}) {
     this.assertPageOpen();
     this.assertSubmissionReceiptCapability(product);
     // A visible hands-on modal can be an account-level editing session left by
@@ -243,7 +243,7 @@ export class HiflyHandsOnProductPage {
       await this.openWorkbench();
       await this.enterHandsOnProductMode();
     }
-    const handheldEvidence = await this.fillProduct(product, { checkpoint });
+    const handheldEvidence = await this.fillProduct(product, { checkpoint, contractFieldVerifier });
     const safeEvidence = sanitizeEvidenceRecords(handheldEvidence ? [handheldEvidence] : [], [], { strict: true });
     return {
       asset_id: `hifly-asset-${product.task_id || product.sku}`,
@@ -674,7 +674,7 @@ export class HiflyHandsOnProductPage {
     this.logger.info(event, { messages });
   }
 
-  async createHandsOnImage(product, { checkpoint } = {}) {
+  async createHandsOnImage(product, { checkpoint, contractFieldVerifier } = {}) {
     this.assertPageOpen();
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await this.openHandsOnModal(product);
@@ -724,6 +724,14 @@ export class HiflyHandsOnProductPage {
 
       await this.selectAndVerifyGoodsSize(product.presentation_size_code || "smart_fit");
       await this.captureStep(product, "modal-size-selected");
+
+      // The Cloud adapter's early verifier runs before this flow can
+      // navigate/reset the page. Reuse that same structured verifier after
+      // the final per-task preparation and immediately before the paid
+      // hands-on action. No checkpoint is written until this succeeds.
+      if (isFormalHandsOnProductTask(product) && typeof contractFieldVerifier === "function") {
+        await contractFieldVerifier();
+      }
 
       // Persist the paid-action boundary before clicking. A click can fail
       // after the provider accepted it, so a later generic retry must never
