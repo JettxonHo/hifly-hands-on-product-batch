@@ -1,12 +1,14 @@
 # 项目当前状态
 
-> 更新：2026-09-07。当前执行方向：HIFLY FAST-MVP / D-038。
+> 更新：2026-09-08。当前执行方向：HIFLY FAST-MVP / D-038。
 > R0 PASS；R1 PARTIAL；R2 BLOCKED（清单未冻结）；R3–R6 NOT_EXECUTED。
 > 当前分支 `codex/hifly-fast-mvp`，基准 main `2af015ab220ecc9d65de209ea690adb98cacc1c4`；部署 App/Worker `3e53bffdd2c59e401815148ccd317b669d32216b`，实时只读核验健康。
 
 唯一主线：[ROADMAP](../ROADMAP.md)；[本轮证据](sessions/2026-09-07-fast-mvp.md)；[冻结清单（当前未冻结）](../experiments/fast-mvp-paired-v1.json)。
 
 Owner 已明确授权本轮普通研发与零 Provider 验证。新上传、付费、合并、部署均未执行/未授权。旧目录 `Product Recommendation clip` 为脏旧 GUI 分支，不做实现源。旧 #278 合同已由 #279 合并/部署，下面历史的 pending merge 不再作为当前事实；缺少真实校验的 GAP 仍需解决。
+
+2026-09-08 Owner 另行批准的一次 30 分钟、0 积分页面校准已结束。已真实访问 Hifly 并验证声音/字幕/AI 开关/大小的 UI 行为，余额观测净变化 0；没有上传、生成或点击视频下载。声音跨刷新保留，但 AI/字幕恢复开启；旧手持图会在弹窗重新出现。实测证据与退出清理见 [本轮记录](sessions/2026-09-07-fast-mvp.md)。据此已增加最终准备完成后的同一校验回调，并修正付费前失败误报提交不明及重启后错误进入对账的状态，实现提交 `a7c8abb` 的 198/198 兼容回归与独立 Review 通过；远端 CI 另由 [Issue #284](https://github.com/JettxonHo/hifly-hands-on-product-batch/issues/284) 和 [PR 当前头 Checks](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285/checks) 记录，不沿用旧提交结果。完整视频报价、冻结声音/字幕期望与因果回执仍未取得，本次访问授权不延续到下一轮。
 
 人物自动取用、直接人工口播及本地事实检查/显式人工审核、手持图付费后未知停止、工单请求刷新恢复已实现，独立 Review APPROVED。[Draft PR #285](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285) 保持 OPEN/DRAFT、未合并。最终本地全量 1393 项：1376 pass、0 fail/cancelled、17 环境 skip；`34a859b` 的 Ubuntu/Windows/数据库 CI 和 Windows stress 均通过，早期失败/超时及具体修复保留在 session。代码候选不等于 R1 通过：真实设置/因果回执/两段 quote-cap 仍是硬阻断，正式 B 保持上传前停止。
 
