@@ -595,12 +595,12 @@ test("方案 A 作品库使用服务端六项分页并在桌面与手机安全�
       assert.equal(vertical.paginationBottom <= viewport.height, true, JSON.stringify(vertical));
     }
   }
-  await page.waitForFunction(() => {
+  const transitionDuration = await page.waitForFunction(() => {
     const item = document.querySelector(".work-list-item");
-    return matchMedia("(prefers-reduced-motion: reduce)").matches && item &&
-      getComputedStyle(item).transitionDuration.split(",").every((value) => Number.parseFloat(value) <= 0.001);
-  });
-  const transitionDuration = await page.locator(".work-list-item").first().evaluate((node) => getComputedStyle(node).transitionDuration);
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches || !item) return null;
+    const value = getComputedStyle(item).transitionDuration;
+    return value.split(",").every((duration) => Number.parseFloat(duration) <= 0.001) ? value : null;
+  }).then((handle) => handle.jsonValue());
   assert.equal(transitionDuration.split(",").every((value) => Number.parseFloat(value) <= 0.001), true, transitionDuration);
 
   const screenshotDir = process.env.WORKS_SCREENSHOTS_DIR || path.join(root, "screenshots");

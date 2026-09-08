@@ -186,7 +186,9 @@ export function createVideoDeliveryNormalizer({ ffmpegPath = "ffmpeg", ffprobePa
 
       const filter = `scale=${TARGET_WIDTH}:${TARGET_HEIGHT}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${TARGET_WIDTH}:${TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`;
       try {
-        await commandRunner(ffmpegPath, ["-protocol_whitelist", "file,pipe", "-hide_banner", "-loglevel", "error", "-y", "-threads", "2", "-filter_threads", "2", "-autorotate", "-i", sourcePath,
+        // FFmpeg enables metadata autorotation by default. Leaving this option
+        // implicit keeps the command compatible with both 6.1 (HAS_ARG) and 9.
+        await commandRunner(ffmpegPath, ["-protocol_whitelist", "file,pipe", "-hide_banner", "-loglevel", "error", "-y", "-threads", "2", "-filter_threads", "2", "-i", sourcePath,
           "-map", "0:v:0", "-map", "0:a:0?", "-vf", filter, "-c:v", "libx264", "-preset", "medium", "-crf", "18",
           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-map_metadata", "-1", deliveryPath], { timeoutMs });
       } catch (error) {
