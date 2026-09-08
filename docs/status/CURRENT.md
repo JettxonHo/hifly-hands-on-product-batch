@@ -10,9 +10,9 @@ Owner 已明确授权本轮普通研发与零 Provider 验证。新上传、付�
 
 2026-09-08 Owner 另行批准的一次 30 分钟、0 积分页面校准已结束。已真实访问 Hifly 并验证声音/字幕/AI 开关/大小的 UI 行为，余额观测净变化 0；没有上传、生成或点击视频下载。声音跨刷新保留，但 AI/字幕恢复开启；旧手持图会在弹窗重新出现。实测证据与退出清理见 [本轮记录](sessions/2026-09-07-fast-mvp.md)。据此已增加最终准备完成后的同一校验回调，并修正付费前失败误报提交不明及重启后错误进入对账的状态，实现提交 `a7c8abb` 的 198/198 兼容回归与独立 Review 通过；远端 CI 另由 [Issue #284](https://github.com/JettxonHo/hifly-hands-on-product-batch/issues/284) 和 [PR 当前头 Checks](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285/checks) 记录，不沿用旧提交结果。完整视频报价、冻结声音/字幕期望与因果回执仍未取得，本次访问授权不延续到下一轮。
 
-现行付费前严格 9:16 证明仍是阻断。session 和同一实验草案已提出待 Owner 确认的最小政策：记录生成目标和不可控项、生成后实测原片、交付片统一无变形补边并保留原片；不修改其他安全与关联门禁。建议配对声音/字幕等设置也仍未冻结，未据此改代码或放行。
+Owner 随后于 2026-09-08 确认设置与比例政策：播客-女声/普通话、字幕开、智能适配、AI 文案关；原片实测并保留，交付片统一无变形无裁切补边至严格9:16。默认读取器、前置准备/最后只读复核、原片/交付片归档及A12原片校验已形成独立Review通过的候选。runtime先读取已鉴权候选合同，空队列/旧合同无verifier零浏览器，真实登录/存储通过后才领取任务。第二次零积分校准已结束，只补齐图片数字人350积分分项，完整视频费率与因果回执仍未知。最后设置还原在窗口内；窗口后login确认可能触发额外导航，已记录清理偏差，未上传/建任务/生成/下载。详细真值见session。
 
-人物自动取用、直接人工口播及本地事实检查/显式人工审核、手持图付费后未知停止、工单请求刷新恢复已实现，独立 Review APPROVED。[Draft PR #285](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285) 保持 OPEN/DRAFT、未合并。最终本地全量 1393 项：1376 pass、0 fail/cancelled、17 环境 skip；`34a859b` 的 Ubuntu/Windows/数据库 CI 和 Windows stress 均通过，早期失败/超时及具体修复保留在 session。代码候选不等于 R1 通过：真实设置/因果回执/两段 quote-cap 仍是硬阻断，正式 B 保持上传前停止。
+人物自动取用、直接人工口播与真实审核、付费不明停止、工单刷新防重沿用前轮实现。[Draft PR #285](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285) 仍OPEN/DRAFT，未合并/部署。本轮两次本机全量为1422项，分别1个治理文案断言失败、2个浏览器同步失败，17环境skip；原失败和修复保留。修复后CI同口径的四文件串行27/27、0skip，媒体五文件84/84、静态检查255JS、示例3行和diffcheck通过，独立Review批准。新PG事务与最终完整CI按PR当前头核对。上一轮1393项/1376pass及旧CI均属历史，不代替新头；R1仍PARTIAL，正式B在缺少回执/费用控制时上传前停止。
 
 H0 只证明混合 Playwright+Computer Use 单个原生校准。历史 613 为余额变化，不是当前报价；本轮提交/扣费 0。旧 RBV 仍未完成，下面保留历史，不覆盖新方向。
 

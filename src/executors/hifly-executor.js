@@ -68,5 +68,8 @@ export function createHiflyExecutor(config) {
     }
   };
 
-  return assertExecutorAdapter(executor);
+  return Object.assign(assertExecutorAdapter(executor), {
+    page: hiflyPage.page ?? null,
+    hiflyPage
+  });
 }

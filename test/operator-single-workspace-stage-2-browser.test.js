@@ -376,8 +376,29 @@ test("Stage 2 resolves review findings truthfully and never accepts hard blocks"
   async function generateAndCheck(product) {
     await page.goto(url(origin, project.id, product.product.id));
     await expectAction(page, "create_manual_copy", "直接输入文案");
+    const workspacePath = `/api/projects/${project.id}/products/${product.product.id}/operator-workspace`;
+    const revisionId = product.revision.id;
+    const generationPath = `/api/product-revisions/${revisionId}/copy-generations`;
+    const generatedProjection = page.waitForResponse(async (response) => {
+      const requestUrl = new URL(response.url());
+      if (response.request().method() !== "GET" || requestUrl.pathname !== workspacePath || requestUrl.searchParams.get("stage") !== "copy" || response.status() !== 200) return false;
+      try {
+        const payload = await response.json();
+        const copyStage = payload.workspace?.stages?.find((stage) => stage.code === "copy");
+        return Boolean(copyStage?.copy_version?.id && copyStage.copy_version.status === "draft" &&
+          copyStage.copy_version.product_revision_id === revisionId);
+      } catch {
+        return false;
+      }
+    });
+    const generationAccepted = page.waitForResponse((response) => {
+      const requestUrl = new URL(response.url());
+      return response.request().method() === "POST" && requestUrl.pathname === generationPath && response.status() === 202;
+    });
     await page.locator("#generateWorkspaceCopy").click();
+    await generationAccepted;
     await app.runNextCopyGenerationJob();
+    await generatedProjection;
     await page.getByText("文案草稿待质检", { exact: true }).first().waitFor({ timeout: 5000 });
     await expectAction(page, "start_copy_quality", "开始质检");
     await page.locator("#workspacePrimaryAction").click();

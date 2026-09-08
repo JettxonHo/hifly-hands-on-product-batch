@@ -62,7 +62,7 @@ test("D-038 establishes FAST-MVP as current and preserves RBV/P0 Goals as histor
   assert.match(goal, /D-038/);
   assert.match(goal, /docs\/ROADMAP\.md/);
   assert.match(goal, /R0[–-]R6/);
-  assert.match(goal, /真实测试未授权/);
+  assert.match(goal, /真实付费测试未授权/);
   assert.doesNotMatch(goal, /^# 当前 Goal：P0 Cloud Executor 纯云端生产闭环/m);
   assert.match(rbvArchive, /RBV-GOAL-001/);
   assert.match(rbvArchive, /BLOCKED_PRE_REAL_RUN/);

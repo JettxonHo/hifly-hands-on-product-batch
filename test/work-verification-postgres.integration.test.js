@@ -21,6 +21,7 @@ import { runVideoPlanningMigrations } from "../src/video-planning/postgres.js";
 import { createPostgresWorkVerificationRepository } from "../src/work-verification/postgres-work-verification-repository.js";
 import { runWorkVerificationMigrations } from "../src/work-verification/postgres.js";
 import { createWorkVerificationService } from "../src/work-verification/work-verification-service.js";
+import { HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS, buildHiflyHandsOnProductV1 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
 
 const connectionString = process.env.TEST_DATABASE_URL || process.env.IDENTITY_TEST_DATABASE_URL;
 const isolatedUrl = (value, schema) => {
@@ -28,6 +29,17 @@ const isolatedUrl = (value, schema) => {
   url.searchParams.set("options", `-c search_path=${schema}`);
   return url.toString();
 };
+
+function currentDeliveryContract() {
+  return buildHiflyHandsOnProductV1({
+    plan: { video_plan_version_id: "plan-a12-pg", plan_review_id: "review-a12-pg", status: "frozen", review_status: "approved", current: true },
+    product: { revision_id: "revision-a12-pg", primary_asset_version_id: "asset-a12-pg", checksum_sha256: "a".repeat(64), media_type: "image/png", size: 1 },
+    copy: { version_id: "copy-a12-pg", status: "frozen", review_status: "approved", body: "A12 PG fixed copy" },
+    avatar: { selection_id: "selection-a12-pg", avatar_version_id: "avatar-a12-pg", material_version_id: "material-a12-pg",
+      checksum_sha256: "b".repeat(64), media_type: "image/png", size: 1, status: "confirmed", current: true },
+    production: { ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS }
+  });
+}
 
 test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order transition, candidate projection, and audit together", { skip: !connectionString }, async (t) => {
   const schema = `work_verification_${randomUUID().replaceAll("-", "")}`;
@@ -65,11 +77,14 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
   await pool.query(`INSERT INTO asset_assets(id,organization_id,kind,display_name,status,row_version,created_by_member_id,created_at,updated_at)
     VALUES ($1,'org-a12-pg','avatar_image','迁移回归人物素材','active',1,$2,$3,$3)`, [randomUUID(), seeded.member.id, at]);
   const ids = Object.fromEntries([
-    "project", "product", "revision", "plan", "copy", "avatarAsset", "avatarVersion", "order", "package", "packageJob", "attempt", "report", "candidate"
+    "project", "product", "revision", "plan", "copy", "avatarAsset", "avatarVersion", "order", "package", "packageJob", "attempt", "report", "candidate", "originalCandidate"
   ].map((name) => [name, randomUUID()]));
   const organizationId = "org-a12-pg";
   const body = Buffer.from("postgres-candidate-video");
   const checksum = createHash("sha256").update(body).digest("hex");
+  const originalBody = Buffer.from("postgres-original-provider-video");
+  const originalChecksum = createHash("sha256").update(originalBody).digest("hex");
+  const deliveryContract = currentDeliveryContract();
 
   await pool.query("INSERT INTO project_content_projects(id,organization_id,name,created_by_member_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$5)",
     [ids.project, organizationId, "A12 项目", seeded.member.id, at]);
@@ -111,7 +126,8 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
     await packageClient.query(`INSERT INTO manual_handoff_packages
       (id,organization_id,production_order_id,contract_type,contract_version,package_version,status,generation_request_id,generation_job_id,manifest,readme,manifest_hash,package_hash,storage_key,created_by_member_id,created_at,updated_at,row_version,status_history)
       VALUES ($1,$2,$3,'manual_handoff','1.0',2,'ready','a12-package',$4,$5,$6,$7,$8,$9,$10,$11,$11,1,$12)`,
-      [ids.package, organizationId, ids.order, ids.packageJob, JSON.stringify({ accepted_media_types: ["video/mp4"], expected_quantity: 1 }), "说明", "manifest-a12", "package-a12", "a12/package.zip", seeded.member.id, at, JSON.stringify([{ from_status: "generating", to_status: "ready", at }])]);
+      [ids.package, organizationId, ids.order, ids.packageJob, JSON.stringify({ accepted_media_types: ["video/mp4"], expected_quantity: 1,
+        hifly_hands_on_product_v1: deliveryContract }), "说明", "manifest-a12", "package-a12", "a12/package.zip", seeded.member.id, at, JSON.stringify([{ from_status: "generating", to_status: "ready", at }])]);
     await packageClient.query(`INSERT INTO manual_handoff_package_generation_jobs
       (id,organization_id,package_id,type,status,attempts,max_attempts,order_snapshot,created_at,updated_at)
       VALUES ($1,$2,$3,'manual_handoff_package_generation','succeeded',1,1,$4,$5,$5)`,
@@ -137,6 +153,11 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
     VALUES ($1,$2,$3,$4,$5,2,'manifest-a12','primary_video','a12.mp4','video/mp4',$6,$7,'pending_verification',2,$8,$9,$10,$11,$11,$11)`,
     [ids.candidate, organizationId, ids.order, ids.attempt, ids.package, body.length, checksum,
       createHash("sha256").update("a12-token").digest("hex"), "a12/candidate.mp4", seeded.member.id, at]);
+  await pool.query(`INSERT INTO manual_execution_candidates
+    (id,organization_id,production_order_id,execution_attempt_id,package_id,package_version,manifest_hash,role,original_filename,media_type,size,checksum,status,row_version,upload_token_digest,object_key,uploaded_by_member_id,created_at,updated_at,uploaded_at)
+    VALUES ($1,$2,$3,$4,$5,2,'manifest-a12','supporting_output','a12-original.mp4','video/mp4',$6,$7,'pending_verification',2,$8,$9,$10,$11,$11,$11)`,
+    [ids.originalCandidate, organizationId, ids.order, ids.attempt, ids.package, originalBody.length, originalChecksum,
+      createHash("sha256").update("a12-original-token").digest("hex"), "a12/original.mp4", seeded.member.id, at]);
 
   const migrationProbeClient = await pool.connect();
   try {
@@ -162,15 +183,9 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
     migrationProbeClient.release();
   }
 
-  const correctionReportId = randomUUID();
-  await pool.query(`INSERT INTO manual_execution_reports
-    (id,organization_id,report_version,production_order_id,execution_attempt_id,package_id,package_version,manifest_hash,submitted_by,submitted_at,supersedes_report_id,outcome,completed_at,deviations,primary_output)
-    VALUES ($1,$2,2,$3,$4,$5,2,'manifest-a12',$6,$7,$8,'completed',$7,'[]',$9)`,
-    [correctionReportId, organizationId, ids.order, ids.attempt, ids.package, seeded.member.id, "2026-08-09T00:01:00.000Z", ids.report,
-      JSON.stringify({ upload_reference: ids.candidate, checksum, media_type: "video/mp4", size: body.length, role: "primary_video" })]);
-
   const objectStore = createMemoryObjectStore();
   await objectStore.put({ key: "a12/candidate.mp4", body, contentType: "video/mp4", metadata: { organizationId, candidateOutputId: ids.candidate } });
+  await objectStore.put({ key: "a12/original.mp4", body: originalBody, contentType: "video/mp4", metadata: { organizationId, candidateOutputId: ids.originalCandidate } });
   const assetRepository = createPostgresAssetRepository({ pool });
   const workRepository = createPostgresWorkVerificationRepository({ pool });
   const executionRepository = createPostgresManualExecutionRepository({ pool });
@@ -216,6 +231,36 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
     now: () => Date.parse(at)
   });
   const actor = { organizationId, actorMemberId: seeded.member.id, actorRole: "admin" };
+  await service.requestVerification({ ...actor, productionOrderId: ids.order, executionAttemptId: ids.attempt,
+    reportId: ids.report, candidateId: ids.candidate, idempotencyKey: "pg-missing-original" });
+  const missingOriginal = await service.runNextVerificationJob();
+  assert.equal(missingOriginal.job.verification_status, "failed");
+  assert.equal(missingOriginal.job.failure_kind, "business");
+  assert.equal(missingOriginal.job.failure_code, "WORK_VERIFICATION_SUPPORTING_OUTPUT_REQUIRED");
+  assert.equal(Number((await pool.query("SELECT count(*) count FROM works WHERE organization_id=$1", [organizationId])).rows[0].count), 0);
+  const wrongOriginalReportId = randomUUID();
+  await pool.query(`INSERT INTO manual_execution_reports
+    (id,organization_id,report_version,production_order_id,execution_attempt_id,package_id,package_version,manifest_hash,submitted_by,submitted_at,supersedes_report_id,outcome,completed_at,deviations,primary_output,supporting_outputs)
+    VALUES ($1,$2,2,$3,$4,$5,2,'manifest-a12',$6,$7,$8,'completed',$7,'[]',$9,$10)`,
+    [wrongOriginalReportId, organizationId, ids.order, ids.attempt, ids.package, seeded.member.id, "2026-08-09T00:00:30.000Z", ids.report,
+      JSON.stringify({ upload_reference: ids.candidate, checksum, media_type: "video/mp4", size: body.length, role: "primary_video" }),
+      JSON.stringify([{ upload_reference: ids.originalCandidate, original_filename: "a12-original.mp4", media_type: "video/mp4", size: originalBody.length,
+        checksum: originalChecksum, role: "supporting_output", purpose: "generic_attachment" }])]);
+  await service.requestVerification({ ...actor, productionOrderId: ids.order, executionAttemptId: ids.attempt,
+    reportId: wrongOriginalReportId, candidateId: ids.candidate, idempotencyKey: "pg-wrong-original" });
+  const wrongOriginal = await service.runNextVerificationJob();
+  assert.equal(wrongOriginal.job.verification_status, "failed");
+  assert.equal(wrongOriginal.job.failure_kind, "business");
+  assert.equal(wrongOriginal.job.failure_code, "WORK_VERIFICATION_SUPPORTING_OUTPUT_PURPOSE_INVALID");
+  assert.equal(Number((await pool.query("SELECT count(*) count FROM works WHERE organization_id=$1", [organizationId])).rows[0].count), 0);
+  const correctionReportId = randomUUID();
+  await pool.query(`INSERT INTO manual_execution_reports
+    (id,organization_id,report_version,production_order_id,execution_attempt_id,package_id,package_version,manifest_hash,submitted_by,submitted_at,supersedes_report_id,outcome,completed_at,deviations,primary_output,supporting_outputs)
+    VALUES ($1,$2,3,$3,$4,$5,2,'manifest-a12',$6,$7,$8,'completed',$7,'[]',$9,$10)`,
+    [correctionReportId, organizationId, ids.order, ids.attempt, ids.package, seeded.member.id, "2026-08-09T00:01:00.000Z", wrongOriginalReportId,
+      JSON.stringify({ upload_reference: ids.candidate, checksum, media_type: "video/mp4", size: body.length, role: "primary_video" }),
+      JSON.stringify([{ upload_reference: ids.originalCandidate, original_filename: "a12-original.mp4", media_type: "video/mp4", size: originalBody.length,
+        checksum: originalChecksum, role: "supporting_output", purpose: "hifly_original" }])]);
   const requested = await service.requestVerification({ ...actor, productionOrderId: ids.order, executionAttemptId: ids.attempt,
     reportId: correctionReportId, candidateId: ids.candidate, idempotencyKey: "pg-verify" });
   await pool.query(`
@@ -239,6 +284,7 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
   const failedCandidate = await executionRepository.getCandidate(organizationId, ids.candidate);
   assert.equal(failedCandidate.verification_status, "failed");
   assert.equal(failedCandidate.verification_failure_kind, "technical");
+  assert.equal((await executionRepository.getCandidate(organizationId, ids.originalCandidate)).verification_status, null);
   assert.equal(Number((await pool.query("SELECT count(*) count FROM asset_assets WHERE organization_id=$1 AND kind='work_video'", [organizationId])).rows[0].count), 0);
   assert.equal(Number((await pool.query("SELECT count(*) count FROM asset_versions v JOIN asset_assets a ON a.id=v.asset_id WHERE a.organization_id=$1 AND a.kind='work_video'", [organizationId])).rows[0].count), 0);
   assert.equal(Number((await pool.query("SELECT count(*) count FROM works WHERE organization_id=$1", [organizationId])).rows[0].count), 0);
@@ -251,6 +297,9 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
   assert.equal(Number((await pool.query("SELECT count(*) count FROM works WHERE organization_id=$1", [organizationId])).rows[0].count), 1);
   assert.equal((await orderRepository.getOrder(organizationId, ids.order)).status, "succeeded");
   assert.equal((await executionRepository.getCandidate(organizationId, ids.candidate)).verification_status, "passed");
+  assert.equal((await executionRepository.getCandidate(organizationId, ids.originalCandidate)).verification_status, "passed");
+  assert.equal(Number((await pool.query("SELECT count(*) count FROM manual_execution_candidates WHERE organization_id=$1 AND execution_attempt_id=$2 AND verification_status='passed'", [organizationId, ids.attempt])).rows[0].count), 2);
+  assert.equal((await executionRepository.getReport(organizationId, correctionReportId)).supporting_outputs[0].purpose, "hifly_original");
   assert.equal(Number((await pool.query("SELECT count(*) count FROM work_verification_audit_events WHERE organization_id=$1 AND event_type='work_verification.passed'", [organizationId])).rows[0].count), 1);
   assert.equal(Number((await pool.query("SELECT count(*) count FROM production_order_audit_events WHERE organization_id=$1 AND event_type='production_order.succeeded'", [organizationId])).rows[0].count), 1);
   assert.equal(Number((await pool.query("SELECT count(*) count FROM work_verification_status_ledger WHERE job_id=$1 AND to_status='passed'", [requested.job.id])).rows[0].count), 1);

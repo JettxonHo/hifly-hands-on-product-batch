@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
+import { chromium } from "playwright";
 import test from "node:test";
 
 import { createCloudExecutorService } from "../src/cloud-executor/cloud-executor-service.js";
@@ -11,11 +14,14 @@ import { startCloudExecutorRuntime } from "../src/cloud-executor/start.js";
 import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryManualExecutionRepository } from "../src/manual-execution/memory-manual-execution-repository.js";
 import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
+import { HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS, buildHiflyHandsOnProductV1 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
+import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
 
 const ORGANIZATION_ID = "org-cloud";
 const CLOUD_EXECUTOR_ID = "cloud-executor-1";
 
 const clone = (value) => value == null ? value : structuredClone(value);
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
 function attempt({ id, executorType, operatorId = null, executorAgentId = null, executorCloudId = null }) {
   return {
@@ -53,14 +59,15 @@ test("execution attempt identity keeps manual, local_agent, and cloud_executor d
 });
 
 function makeCloudWorld({ enabled = true, mode = "fake", readiness = { ready: true }, executorResult = { body: Buffer.from("x") }, executor = null,
-  orderCount = 1, leaseMs = 30_000, heartbeatIntervalMs = 5_000, nowValue = Date.parse("2026-08-12T00:00:00.000Z") } = {}) {
+  orderCount = 1, leaseMs = 30_000, heartbeatIntervalMs = 5_000, nowValue = Date.parse("2026-08-12T00:00:00.000Z"), packageManifest = null,
+  videoDeliveryNormalizer = null } = {}) {
   const order = {
     id: "order-cloud-1", organization_id: ORGANIZATION_ID, status: "waiting_for_executor", row_version: 1,
     created_by_member_id: "member-owner", input_snapshot: {}, status_history: []
   };
   const orders = Array.from({ length: orderCount }, (_, index) => ({ ...order, id: `order-cloud-${index + 1}` }));
   const packages = new Map(orders.map((value, index) => [value.id, {
-    ...packageRecordFor(value.id, index + 1)
+    ...packageRecordFor(value.id, index + 1, packageManifest)
   }]));
   let listCalls = 0;
   let transitionCalls = 0;
@@ -103,7 +110,8 @@ function makeCloudWorld({ enabled = true, mode = "fake", readiness = { ready: tr
   const serviceOptions = {
     enabled, mode, organizationId: ORGANIZATION_ID, executorCloudId: CLOUD_EXECUTOR_ID,
     repository, orderPort, packagePort, candidateStore, readinessPort, verificationPort,
-    executor: selectedExecutor, leaseMs, heartbeatIntervalMs, now: () => nowValue
+    executor: selectedExecutor, leaseMs, heartbeatIntervalMs, now: () => nowValue,
+    ...(videoDeliveryNormalizer ? { videoDeliveryNormalizer } : {})
   };
   const service = createCloudExecutorService(serviceOptions);
   return { service, order: orders[0], orders, packages, repository, candidateStore, verificationCalls,
@@ -117,12 +125,23 @@ function makeCloudWorld({ enabled = true, mode = "fake", readiness = { ready: tr
     get transitionCalls() { return transitionCalls; } };
 }
 
-function packageRecordFor(orderId, index) {
+function packageRecordFor(orderId, index, packageManifest = null) {
   return {
     id: `package-cloud-${index}`, organization_id: ORGANIZATION_ID, production_order_id: orderId,
     package_version: 1, manifest_hash: `manifest-cloud-${index}`, package_hash: `package-cloud-${index}`, status: "ready",
-    manifest: { accepted_media_types: ["video/mp4"] }
+    manifest: { accepted_media_types: ["video/mp4"], ...(packageManifest || {}) }
   };
+}
+
+function currentDeliveryContract() {
+  return buildHiflyHandsOnProductV1({
+    plan: { video_plan_version_id: "plan-cloud-delivery", plan_review_id: "review-cloud-delivery", status: "frozen", review_status: "approved", current: true },
+    product: { revision_id: "revision-cloud-delivery", primary_asset_version_id: "asset-cloud-delivery", checksum_sha256: "a".repeat(64), media_type: "image/png", size: 1 },
+    copy: { version_id: "copy-cloud-delivery", status: "frozen", review_status: "approved", body: "固定测试文案" },
+    avatar: { selection_id: "selection-cloud-delivery", avatar_version_id: "avatar-cloud-delivery", material_version_id: "material-cloud-delivery",
+      checksum_sha256: "b".repeat(64), media_type: "image/png", size: 1, status: "confirmed", current: true },
+    production: { ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS }
+  });
 }
 
 function throwingHeartbeatRace(error) {
@@ -186,7 +205,7 @@ test("cloud readiness is evaluated before any order claim", async () => {
   assert.equal(world.transitionCalls, 0);
 });
 
-test("runtime no-verifier preflight blocks order listing and claim with a stable contract gate", async () => {
+test("runtime no-verifier preflight blocks claim with a stable contract gate", async () => {
   const world = makeCloudWorld({ mode: "playwright", executor: {
     async preflight() {
       return { ready: false, status: "requires_action", code: "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", failureStage: "pre_point_gate" };
@@ -201,10 +220,252 @@ test("runtime no-verifier preflight blocks order listing and claim with a stable
   const result = await runtime.runOnce();
   assert.equal(result.status, "requires_action");
   assert.equal(result.reason, "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
-  assert.equal(world.listCalls, 0);
+  assert.equal(world.listCalls, 1);
   assert.equal(world.transitionCalls, 0);
   assert.equal((await world.repository.listAttempts(ORGANIZATION_ID)).length, 0);
   await runtime.close();
+});
+
+test("playwright runtime separates environment readiness from current-settings gates", async (t) => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist")) return t.skip("Playwright browser is unavailable");
+    throw error;
+  }
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "cloud-runtime-settings-"));
+  const workspace = {
+    root,
+    profileDir: path.join(root, "profile"),
+    assetsDir: path.join(root, "assets"),
+    outputsDir: path.join(root, "outputs"),
+    evidenceDir: path.join(root, "evidence"),
+    batchDir: path.join(root, "batches"),
+    lockDir: path.join(root, "locks")
+  };
+  const productBytes = Buffer.from("product");
+  const avatarBytes = Buffer.from("person");
+  const contract = buildHiflyHandsOnProductV1({
+    plan: { video_plan_version_id: "plan-runtime-settings", plan_review_id: "review-runtime-settings", status: "frozen", review_status: "approved", current: true },
+    product: { revision_id: "revision-runtime-settings", primary_asset_version_id: "asset-runtime-settings", checksum_sha256: sha256(productBytes), media_type: "image/png", size: productBytes.length },
+    copy: { version_id: "copy-runtime-settings", status: "frozen", review_status: "approved", body: "固定测试文案" },
+    avatar: { selection_id: "selection-runtime-settings", avatar_version_id: "avatar-runtime-settings", material_version_id: "material-runtime-settings",
+      checksum_sha256: sha256(avatarBytes), media_type: "image/png", size: avatarBytes.length, status: "confirmed", current: true },
+    production: { ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS }
+  });
+  const task = {
+    task_id: "runtime-current-settings-task",
+    sku: "SKU-RUNTIME-CURRENT",
+    product_name: "Runtime current settings product",
+    selling_points: "Controlled runtime fixture",
+    category: "test",
+    image_path: path.join(workspace.assetsDir, "product.png"),
+    person_image_path: path.join(workspace.assetsDir, "person.png"),
+    resolved_person_image_path: path.join(workspace.assetsDir, "person.png"),
+    resolved_person_source: "runtime-test-fixture",
+    script: "固定测试文案",
+    resolved_script_mode: "frozen_copy",
+    hifly_hands_on_product_v1: contract,
+    contract_id: contract.contract_id,
+    video_plan_version_id: contract.plan.video_plan_version_id,
+    plan_review_id: contract.plan.plan_review_id,
+    product_revision_id: contract.product.revision_id,
+    product_asset_version_id: contract.product.primary_asset_version_id,
+    copy_version_id: contract.copy.version_id,
+    avatar_selection_id: contract.avatar.selection_id,
+    avatar_version_id: contract.avatar.avatar_version_id,
+    avatar_material_version_id: contract.avatar.material_version_id,
+    target_aspect_ratio: contract.production.target_aspect_ratio,
+    handheld_aspect_ratio_policy: contract.production.handheld_aspect_ratio_policy,
+    voice_source: contract.production.voice_source,
+    voice_identity_policy: contract.production.voice_identity_policy,
+    production_mode: contract.production.mode,
+    presentation_size_code: contract.production.presentation_size_code,
+    voice_display_name: contract.production.voice_display_name,
+    voice_style: contract.production.voice_style,
+    subtitles_enabled: contract.production.subtitles_enabled,
+    output_aspect_ratio_policy: contract.production.output_aspect_ratio_policy,
+    avatar: { asset_version_id: contract.avatar.avatar_version_id }
+  };
+  await Promise.all([
+    mkdir(workspace.assetsDir, { recursive: true }),
+    mkdir(workspace.outputsDir, { recursive: true }),
+    mkdir(workspace.evidenceDir, { recursive: true })
+  ]);
+  await writeFile(path.join(workspace.assetsDir, "product.png"), "product");
+  await writeFile(path.join(workspace.assetsDir, "person.png"), "person");
+
+  const markup = ({ authenticated, voiceName, subtitle }) => `
+    <div data-auth-ready="${authenticated ? "true" : "false"}"></div>
+    <div class="page-goods"><div class="controls-panel">
+      <div class="card auto-voice-box"><div class="voice-info"><div class="voice-details">
+        <p class="voice-name">${voiceName}</p><p class="voice-style">普通话</p>
+      </div></div></div>
+      <div class="card"><div class="card-header"><h2>字幕</h2>
+        <button type="button" role="switch" aria-checked="${subtitle ? "true" : "false"}"
+          onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked') === 'true' ? 'false' : 'true')"></button>
+      </div></div>
+    </div></div>`;
+
+  const createRuntime = async ({ authenticated, voiceName = "播客-女声", subtitle = false }) => {
+    const world = makeCloudWorld({ mode: "playwright", packageManifest: { hifly_hands_on_product_v1: contract } });
+    const events = [];
+    const errors = [];
+    let paidActions = 0;
+    const runtime = createCloudExecutorRuntime({
+      ...world.runtimeOptions,
+      executor: null,
+      readinessPort: null,
+      onError: (error) => errors.push(error),
+      config: {
+        ...world.runtimeOptions.config,
+        enabled: true,
+        configured: true,
+        mode: "playwright",
+        workspace,
+        storage: { root: workspace.root, minFreeBytes: 0 },
+        contextFactory: async () => {
+          const context = await browser.newContext({ acceptDownloads: true });
+          const page = await context.newPage();
+          await page.setContent(markup({ authenticated, voiceName, subtitle }));
+          events.push("context_ready");
+          return context;
+        },
+        pageFactory: async ({ context }) => context.pages()[0],
+        taskFactory: async () => task,
+        hiflyPageFactory(page, config, logger) {
+          const hiflyPage = new HiflyHandsOnProductPage(page, config, logger);
+          const verifyCurrentSettings = hiflyPage.verifyCurrentSettings.bind(hiflyPage);
+          hiflyPage.preflight = async () => {
+            events.push("environment_preflight");
+            if (await page.locator("[data-auth-ready='true']").count() !== 1) {
+              throw Object.assign(new Error("LOGIN_REQUIRED"), { code: "LOGIN_REQUIRED", outcome: "requires_action" });
+            }
+            return { status: "ready" };
+          };
+          hiflyPage.prepareCurrentSettings = async (currentTask) => {
+            events.push("prepare_current_settings");
+            return HiflyHandsOnProductPage.prototype.prepareCurrentSettings.call(hiflyPage, currentTask);
+          };
+          hiflyPage.verifyCurrentSettings = async (currentTask) => {
+            events.push("verify_current_settings");
+            return verifyCurrentSettings(currentTask);
+          };
+          hiflyPage.prepareAsset = async (_task, { contractFieldVerifier }) => {
+            events.push("create_asset");
+            await contractFieldVerifier();
+            paidActions += 1;
+            return { asset_id: "runtime-current-settings-asset" };
+          };
+          hiflyPage.submitVideo = async () => {
+            events.push("submit_video");
+            return {
+              status: "submitted",
+              remoteEvidence: {
+                evidence_source: "causal_submission_receipt",
+                receipt_id: "runtime-current-settings-receipt",
+                remote_id: "runtime-current-settings-work"
+              }
+            };
+          };
+          hiflyPage.querySubmission = async (remoteEvidence) => ({ status: "ready", remoteEvidence });
+          hiflyPage.downloadArtifact = async (_remoteEvidence, destination) => {
+            await writeFile(path.join(destination, "runtime-current-settings.mp4"), "video");
+            return { artifact_id: "runtime-current-settings-work", relative_path: "outputs/runtime-current-settings.mp4" };
+          };
+          hiflyPage.reconcileSubmission = async () => ({ candidates: [] });
+          return hiflyPage;
+        },
+        executorFactory: ({ hiflyPage }) => ({
+          async preflight() { return hiflyPage.preflight(); },
+          async createAsset(currentTask, context) { return hiflyPage.prepareAsset(currentTask, context); },
+          async submitVideo(currentTask, asset, context) { return hiflyPage.submitVideo(currentTask, { asset, checkpoint: context?.checkpoint }); },
+          async querySubmission(remoteEvidence) { return hiflyPage.querySubmission(remoteEvidence); },
+          async downloadArtifact(remoteEvidence, destination, context) { return hiflyPage.downloadArtifact(remoteEvidence, destination, context); },
+          async reconcileSubmission(currentTask, checkpoint) { return hiflyPage.reconcileSubmission(currentTask, checkpoint); }
+        })
+      }
+    });
+    return { runtime, world, events, errors, get paidActions() { return paidActions; } };
+  };
+
+  try {
+    const login = await createRuntime({ authenticated: false });
+    const loginResult = await login.runtime.runOnce();
+    assert.equal(loginResult.status, "requires_login");
+    assert.equal(login.world.listCalls, 1);
+    assert.equal(login.world.transitionCalls, 0);
+    assert.equal(login.paidActions, 0);
+    assert.deepEqual(login.events, ["context_ready", "environment_preflight"]);
+    await login.runtime.close();
+
+    const wrong = await createRuntime({ authenticated: true, voiceName: "错误声音" });
+    const wrongResult = await wrong.runtime.runOnce();
+    assert.equal(wrongResult.status, "requires_action");
+    assert.equal(wrong.world.listCalls, 1);
+    assert.ok(wrong.world.transitionCalls > 0);
+    assert.equal(wrong.paidActions, 0);
+    assert.deepEqual(wrong.events, [
+      "context_ready", "environment_preflight", "environment_preflight",
+      "prepare_current_settings", "verify_current_settings"
+    ]);
+    await wrong.runtime.close();
+  } finally {
+    await browser.close().catch(() => {});
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("playwright runtime keeps an empty queue and a legacy package browser-zero", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "cloud-runtime-preclaim-"));
+  const workspace = { root, profileDir: path.join(root, "profile") };
+  let browserLaunches = 0;
+  const runtimeFor = (world) => createCloudExecutorRuntime({
+    ...world.runtimeOptions,
+    executor: null,
+    readinessPort: null,
+    config: {
+      ...world.runtimeOptions.config,
+      enabled: true,
+      configured: true,
+      mode: "playwright",
+      workspace,
+      storage: { root, minFreeBytes: 0 },
+      browserType: {
+        async launchPersistentContext() {
+          browserLaunches += 1;
+          throw new Error("browser must stay closed for this preclaim gate");
+        }
+      }
+    }
+  });
+
+  try {
+    const emptyWorld = makeCloudWorld({ mode: "playwright", orderCount: 0 });
+    const emptyRuntime = runtimeFor(emptyWorld);
+    const empty = await emptyRuntime.runOnce();
+    assert.equal(empty.status, "standby");
+    assert.equal(emptyWorld.listCalls, 1);
+    assert.equal(emptyWorld.transitionCalls, 0);
+    await emptyRuntime.close();
+
+    const historical = structuredClone(currentDeliveryContract());
+    for (const field of Object.keys(HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS)) delete historical.production[field];
+    const legacyWorld = makeCloudWorld({ mode: "playwright", packageManifest: { hifly_hands_on_product_v1: historical } });
+    const legacyRuntime = runtimeFor(legacyWorld);
+    const legacy = await legacyRuntime.runOnce();
+    assert.equal(legacy.status, "requires_action");
+    assert.equal(legacy.reason, "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
+    assert.equal(legacyWorld.listCalls, 1);
+    assert.equal(legacyWorld.transitionCalls, 0);
+    assert.equal((await legacyWorld.repository.listAttempts(ORGANIZATION_ID)).length, 0);
+    await legacyRuntime.close();
+    assert.equal(browserLaunches, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("low persistent storage blocks before listing, claiming, or creating an attempt", async () => {
@@ -239,7 +500,7 @@ test("missing or expired Provider session maps to requires_login before claim", 
     const result = await runtime.runOnce();
     assert.equal(result.status, "requires_login");
     assert.equal(result.ready, false);
-    assert.equal(world.listCalls, 0, sessionState);
+    assert.equal(world.listCalls, 1, sessionState);
     assert.equal(world.transitionCalls, 0, sessionState);
     assert.doesNotMatch(JSON.stringify(result), /login details|sessionState|cookie|token|profile/i);
     await runtime.close();
@@ -301,6 +562,105 @@ test("completed Cloud report preserves bounded Stage 1 asset evidence", async ()
   const result = await world.service.runOnce();
   assert.equal(result.status, "succeeded");
   assert.deepEqual(result.report.supporting_outputs, [{ kind: "production_evidence", evidence: [evidence] }]);
+});
+
+test("current V1 delivery policy keeps the downloaded source as supporting output", async () => {
+  const original = Buffer.from("downloaded-original");
+  const delivery = Buffer.from("strict-padded-delivery");
+  let normalizeCalls = 0;
+  let preflightCalls = 0;
+  const normalizer = {
+    async preflight() { preflightCalls += 1; },
+    async normalize(input) {
+      normalizeCalls += 1;
+      assert.deepEqual(input.original.bytes, Buffer.from("provider-output"));
+      return {
+        original: { bytes: original, media_type: "video/mp4", original_filename: "provider.mp4", size: original.length },
+        delivery: { bytes: delivery, media_type: "video/mp4", original_filename: "provider.mp4", size: delivery.length },
+        evidence: []
+      };
+    }
+  };
+  const world = makeCloudWorld({
+    executorResult: { body: Buffer.from("provider-output"), mediaType: "video/mp4", originalFilename: "provider.mp4" },
+    packageManifest: { hifly_hands_on_product_v1: currentDeliveryContract() },
+    videoDeliveryNormalizer: normalizer
+  });
+
+  const result = await world.service.runOnce();
+  const candidates = await world.repository.listCandidates(ORGANIZATION_ID, result.attempt.id);
+  const reports = await world.repository.listReports(ORGANIZATION_ID, result.attempt.id);
+
+  assert.equal(normalizeCalls, 1);
+  assert.equal(preflightCalls, 1);
+  assert.equal(result.status, "succeeded");
+  assert.equal(candidates.length, 2);
+  const primary = candidates.find((candidate) => candidate.role === "primary_video");
+  const supporting = candidates.find((candidate) => candidate.role === "supporting_output");
+  assert.equal(primary.size, delivery.length);
+  assert.equal(supporting.size, original.length);
+  assert.equal(reports[0].primary_output.upload_reference, primary.id);
+  assert.equal(reports[0].supporting_outputs[0].upload_reference, supporting.id);
+  assert.equal(reports[0].supporting_outputs[0].role, "supporting_output");
+  assert.equal(reports[0].supporting_outputs[0].purpose, "hifly_original");
+});
+
+test("current V1 delivery policy preflights media tools before executor.run", async () => {
+  let executorCalls = 0;
+  const world = makeCloudWorld({
+    packageManifest: { hifly_hands_on_product_v1: currentDeliveryContract() },
+    executor: { async run() { executorCalls += 1; return { body: Buffer.from("should-not-run") }; } },
+    videoDeliveryNormalizer: {
+      async preflight() { throw Object.assign(new Error("ffmpeg unavailable"), { code: "CLOUD_EXECUTOR_VIDEO_DELIVERY_PREFLIGHT_FAILED" }); },
+      async normalize() { throw new Error("should not normalize"); }
+    }
+  });
+
+  const result = await world.service.runOnce();
+  assert.equal(executorCalls, 0);
+  assert.equal(result.status, "failed");
+  assert.equal(result.report.failure_stage, "video_delivery_preflight");
+  assert.equal((await world.repository.listCandidates(ORGANIZATION_ID, result.attempt.id)).length, 0);
+});
+
+test("post-executor delivery failure stops the Cloud attempt without a second executor call", async () => {
+  let executorCalls = 0;
+  const world = makeCloudWorld({
+    packageManifest: { hifly_hands_on_product_v1: currentDeliveryContract() },
+    executor: { async run() { executorCalls += 1; return { body: Buffer.from("provider-output") }; } },
+    videoDeliveryNormalizer: {
+      async preflight() {},
+      async normalize() { throw Object.assign(new Error("decode failed"), { code: "CLOUD_EXECUTOR_VIDEO_DELIVERY_TRANSCODE_FAILED" }); }
+    }
+  });
+
+  const result = await world.service.runOnce();
+  const replay = await world.service.runOnce();
+  assert.equal(executorCalls, 1);
+  assert.equal(result.status, "failed");
+  assert.equal(result.report.failure_stage, "post_download_delivery");
+  assert.equal(replay.status, "halted");
+  assert.equal((await world.repository.listCandidates(ORGANIZATION_ID, result.attempt.id)).length, 0);
+});
+
+test("historical V1 contracts retain the original Cloud output path", async () => {
+  const historical = structuredClone(currentDeliveryContract());
+  for (const field of Object.keys(HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS)) delete historical.production[field];
+  let preflightCalls = 0;
+  let normalizeCalls = 0;
+  const world = makeCloudWorld({
+    packageManifest: { hifly_hands_on_product_v1: historical },
+    videoDeliveryNormalizer: {
+      async preflight() { preflightCalls += 1; },
+      async normalize() { normalizeCalls += 1; throw new Error("historical output must not normalize"); }
+    }
+  });
+
+  const result = await world.service.runOnce();
+  assert.equal(result.status, "succeeded");
+  assert.equal(preflightCalls, 0);
+  assert.equal(normalizeCalls, 0);
+  assert.equal((await world.repository.listCandidates(ORGANIZATION_ID, result.attempt.id)).length, 1);
 });
 
 test("fake failure stops the worker and never claims the next order", async () => {

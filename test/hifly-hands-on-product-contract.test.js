@@ -7,10 +7,12 @@ import test from "node:test";
 
 import {
   HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_ID,
+  HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS,
   buildHiflyHandsOnProductV1,
   canonicalizeHiflyHandsOnProductV1,
   hashHiflyHandsOnProductV1,
-  requireHiflyHandsOnProductV1
+  requireHiflyHandsOnProductV1,
+  usesPostOutputPadPreservePolicy
 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
 import { createProductionOrderInputSnapshotPort } from "../src/production-orders/production-order-input-snapshot.js";
 import { buildManualHandoffManifest, canonicalJson, renderManualHandoffReadme, sha256 } from "../src/manual-handoff/manual-handoff-package.js";
@@ -98,6 +100,45 @@ test("approved structured facts build a deterministic immutable Hands-on-Product
   assert.equal(hashHiflyHandsOnProductV1(first), hashHiflyHandsOnProductV1(second));
   assert.equal(hashHiflyHandsOnProductV1(first), hashHiflyHandsOnProductV1({ ...first }));
   assert.equal(canonicalizeHiflyHandsOnProductV1(first).includes("output_instructions"), false);
+});
+
+test("current approved settings are explicit and historical V1 bytes remain unchanged", () => {
+  const historical = buildHiflyHandsOnProductV1(facts());
+  const current = buildHiflyHandsOnProductV1({
+    ...facts(),
+    production: { ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS }
+  });
+
+  assert.deepEqual(current.production, {
+    ...historical.production,
+    ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS
+  });
+  assert.equal(usesPostOutputPadPreservePolicy(historical), false);
+  assert.equal(usesPostOutputPadPreservePolicy(current), true);
+  assert.notEqual(hashHiflyHandsOnProductV1(current), hashHiflyHandsOnProductV1(historical));
+
+  const historicalClone = structuredClone(current);
+  for (const field of Object.keys(HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS)) delete historicalClone.production[field];
+  assert.deepEqual(historicalClone, historical);
+  assert.equal(hashHiflyHandsOnProductV1(historicalClone), hashHiflyHandsOnProductV1(historical));
+});
+
+test("current approved settings are all required and fixed when opted into", () => {
+  for (const field of Object.keys(HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS)) {
+    const input = facts({ production: { ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS } });
+    delete input.production[field];
+    assert.throws(() => buildHiflyHandsOnProductV1(input), { code: "HIFLY_HANDS_ON_PRODUCT_V1_SETTINGS_INCOMPLETE" });
+  }
+
+  for (const [field, value, code] of [
+    ["voice_display_name", "另一个声音", "HIFLY_HANDS_ON_PRODUCT_V1_VOICE_DISPLAY_NAME_INVALID"],
+    ["voice_style", "另一种风格", "HIFLY_HANDS_ON_PRODUCT_V1_VOICE_STYLE_INVALID"],
+    ["subtitles_enabled", false, "HIFLY_HANDS_ON_PRODUCT_V1_SUBTITLES_ENABLED_INVALID"],
+    ["output_aspect_ratio_policy", "prepaid_exact", "HIFLY_HANDS_ON_PRODUCT_V1_OUTPUT_ASPECT_RATIO_POLICY_INVALID"]
+  ]) {
+    const input = facts({ production: { ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS, [field]: value } });
+    assert.throws(() => buildHiflyHandsOnProductV1(input), { code });
+  }
 });
 
 test("the executable production contract names 9:16 as a target, not an observed artifact ratio", () => {
@@ -205,6 +246,10 @@ test("production input snapshot only derives V1 when an explicit contract id is 
   assert.equal(snapshot.hifly_hands_on_product_v1.plan.video_plan_version_id, "plan-v1");
   assert.equal(snapshot.hifly_hands_on_product_v1.avatar.material_version_id, "material-v1");
   assert.equal(snapshot.hifly_hands_on_product_v1.production.handheld_aspect_ratio_policy, "record_only");
+  assert.equal(snapshot.hifly_hands_on_product_v1.production.voice_display_name, "播客-女声");
+  assert.equal(snapshot.hifly_hands_on_product_v1.production.voice_style, "普通话");
+  assert.equal(snapshot.hifly_hands_on_product_v1.production.subtitles_enabled, true);
+  assert.equal(snapshot.hifly_hands_on_product_v1.production.output_aspect_ratio_policy, "post_output_verify_pad_preserve");
   assetVersionIds = ["product-asset-v1", "product-asset-v2"];
   await assert.rejects(() => port.freezeForOrder({ ...input, resolved }), { code: "HIFLY_HANDS_ON_PRODUCT_V1_PRODUCT_ASSET_REQUIRED" });
   assetVersionIds = ["product-asset-v1"];

@@ -2709,6 +2709,70 @@ test("generated dimension lookup fails closed for ambiguous or not-ready result 
   }
 });
 
+test("verifyCurrentSettings reads the approved voice and subtitle controls without an internal voice id", async (t) => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    if (error?.message?.includes("Executable doesn't exist")) return t.skip("Playwright browser is unavailable");
+    throw error;
+  }
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <div class="page-goods">
+        <div class="controls-panel">
+          <div class="card auto-voice-box">
+            <div class="voice-info"><div class="voice-details">
+              <p class="voice-name">播客-女声</p>
+              <p class="voice-style">普通话</p>
+            </div></div>
+            <button type="button">更换声音</button>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h2>字幕</h2>
+              <button type="button" role="switch" aria-checked="true"
+                onclick="window.subtitleClicks = (window.subtitleClicks || 0) + 1"></button>
+            </div>
+          </div>
+          <div class="overlay" style="position:fixed;inset:0;z-index:10;pointer-events:auto"></div>
+        </div>
+      </div>
+      <script>window.subtitleClicks = 0</script>
+    `);
+    const adapter = new HiflyHandsOnProductPage(page, { batch: { defaultTimeoutMs: 100 } }, { info() {} });
+    const product = {
+      hifly_hands_on_product_v1: {
+        production: {
+          voice_display_name: "播客-女声",
+          voice_style: "普通话",
+          subtitles_enabled: true,
+          output_aspect_ratio_policy: "post_output_verify_pad_preserve"
+        }
+      }
+    };
+
+    const first = await adapter.verifyCurrentSettings(product);
+    assert.deepEqual(first.evidence.map((record) => [record.field, record.actual, record.result]), [
+      ["voice_source", { display: "播客-女声", style: "普通话" }, HIFLY_VERIFICATION_RESULT.PARTIAL],
+      ["voice_display_name", "播客-女声", HIFLY_VERIFICATION_RESULT.PROVEN],
+      ["voice_style", "普通话", HIFLY_VERIFICATION_RESULT.PROVEN],
+      ["subtitles_enabled", true, HIFLY_VERIFICATION_RESULT.PROVEN]
+    ]);
+
+    await page.locator("button[role='switch']").evaluate((button) => button.setAttribute("aria-checked", "false"));
+    await assert.rejects(() => adapter.verifyCurrentSettings(product), {
+      code: "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED",
+      failureStage: "pre_paid_gate"
+    });
+    assert.equal(await page.locator("button[role='switch']").getAttribute("aria-checked"), "false");
+    assert.equal(await page.evaluate(() => window.subtitleClicks), 0);
+  } finally {
+    await browser.close();
+  }
+});
+
 test("runBatch preserves a post-handheld requires_action evidence stop", async () => {
   const evidence = createEvidenceRecord({
     field: "handheld_aspect_ratio",

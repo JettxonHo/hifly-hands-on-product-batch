@@ -96,10 +96,16 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
     enabled: true,
     mode: config.mode,
     configured: true,
-    check: async () => {
+    check: async (input = {}) => {
       if (config.mode !== "playwright" || typeof selectedExecutor.preflight !== "function") return { ready: true, status: "available" };
+      // The service first checks storage/configuration before it has selected
+      // an order. Defer browser construction until a ready package supplies
+      // a contract that can authorize the provider preflight.
+      if (input.phase === "pre_claim_environment") return { ready: true, status: "available" };
       try {
-        const result = await selectedExecutor.preflight();
+        const result = await selectedExecutor.preflight(input.packageRecord
+          ? { packageRecord: input.packageRecord, order: input.order, phase: input.phase }
+          : {});
         if (result?.ready === false || result?.status === "requires_login") {
           return { ready: false, status: result?.status === "requires_login" ? "requires_login" : "requires_action",
             ...(typeof result?.code === "string" ? { reason: result.code } : {}) };

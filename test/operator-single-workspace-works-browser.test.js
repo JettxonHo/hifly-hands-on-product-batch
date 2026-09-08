@@ -595,10 +595,15 @@ test("方案 A 作品库使用服务端六项分页并在桌面与手机安全�
       assert.equal(vertical.paginationBottom <= viewport.height, true, JSON.stringify(vertical));
     }
   }
+  await page.waitForFunction(() => {
+    const item = document.querySelector(".work-list-item");
+    return matchMedia("(prefers-reduced-motion: reduce)").matches && item &&
+      getComputedStyle(item).transitionDuration.split(",").every((value) => Number.parseFloat(value) <= 0.001);
+  });
   const transitionDuration = await page.locator(".work-list-item").first().evaluate((node) => getComputedStyle(node).transitionDuration);
   assert.equal(transitionDuration.split(",").every((value) => Number.parseFloat(value) <= 0.001), true, transitionDuration);
 
-  const screenshotDir = "/private/tmp/hifly-post-stage-works-screenshots-20260825";
+  const screenshotDir = process.env.WORKS_SCREENSHOTS_DIR || path.join(root, "screenshots");
   await mkdir(screenshotDir, { recursive: true });
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);

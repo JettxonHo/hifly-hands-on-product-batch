@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { createMemoryAssetRepository } from "../assets/memory-asset-repository.js";
+import { requireHiflyHandsOnProductV1, usesPostOutputPadPreservePolicy } from "../execution-contracts/hifly-hands-on-product-v1.js";
 import { createVerifiedOutputAssetPort } from "./verified-output-asset-port.js";
 
 const clean = (value) => typeof value === "string" ? value.trim() : "";
@@ -15,6 +16,11 @@ const BUSINESS_INPUT_FAILURES = new Set([
   "WORK_VERIFICATION_PRIMARY_OUTPUT_REQUIRED",
   "WORK_VERIFICATION_CANDIDATE_INVALID",
   "WORK_VERIFICATION_REPORT_OUTPUT_MISMATCH",
+  "WORK_VERIFICATION_CONTRACT_INVALID",
+  "WORK_VERIFICATION_SUPPORTING_OUTPUT_REQUIRED",
+  "WORK_VERIFICATION_SUPPORTING_OUTPUT_PURPOSE_INVALID",
+  "WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID",
+  "WORK_VERIFICATION_SUPPORTING_OUTPUT_MISMATCH",
   "WORK_VERIFICATION_PACKAGE_MISMATCH",
   "WORK_VERIFICATION_SOURCE_SNAPSHOT_REQUIRED"
 ]);
@@ -81,6 +87,16 @@ function sourceSnapshot(order) {
     avatar_asset_version_id: avatarAssetVersionId,
     production_config_snapshot: structuredClone(input.production_config_snapshot || input.capability_config_snapshot || plan.capability_config_snapshot || {})
   };
+}
+
+function usesCurrentDeliveryPolicy(packageRecord) {
+  const raw = packageRecord?.manifest?.hifly_hands_on_product_v1;
+  if (!raw) return false;
+  try {
+    return usesPostOutputPadPreservePolicy(requireHiflyHandsOnProductV1(raw));
+  } catch {
+    throw failure("WORK_VERIFICATION_CONTRACT_INVALID");
+  }
 }
 
 export function createWorkVerificationService({ repository, orderPort, executionPort, packagePort, objectStore,
@@ -150,7 +166,44 @@ export function createWorkVerificationService({ repository, orderPort, execution
     });
     if (!packageRecord || packageRecord.organization_id !== job.organization_id || packageRecord.production_order_id !== order.id ||
       packageRecord.package_version !== attempt.package_version || packageRecord.manifest_hash !== attempt.manifest_hash) throw failure("WORK_VERIFICATION_PACKAGE_MISMATCH");
-    return { input, order, attempt, report, candidate, packageRecord, source: sourceSnapshot(order) };
+    const requiresOriginalSupportingOutput = usesCurrentDeliveryPolicy(packageRecord);
+    const supportingCandidates = [];
+    const reportedSupportingOutputs = report.supporting_outputs == null ? [] : report.supporting_outputs;
+    if (!Array.isArray(reportedSupportingOutputs)) throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID");
+    const supportingIds = new Set();
+    const referencedSupportingOutputs = reportedSupportingOutputs.filter((output) => output && typeof output === "object" &&
+      !Array.isArray(output) && Object.hasOwn(output, "upload_reference"));
+    if (requiresOriginalSupportingOutput && referencedSupportingOutputs.length !== 1) {
+      throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_REQUIRED");
+    }
+    for (const output of reportedSupportingOutputs) {
+      if (!output || typeof output !== "object" || Array.isArray(output)) throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID");
+      if (!Object.hasOwn(output, "upload_reference")) {
+        if (output.kind === "production_evidence") continue;
+        throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID");
+      }
+      const supportId = clean(output.upload_reference);
+      if (!supportId || supportId === candidate.id || supportingIds.has(supportId)) throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID");
+      supportingIds.add(supportId);
+      const supportingCandidate = await executionPort.getCandidate(job.organization_id, supportId);
+      if (!supportingCandidate || supportingCandidate.organization_id !== job.organization_id ||
+        supportingCandidate.production_order_id !== order.id || supportingCandidate.execution_attempt_id !== attempt.id ||
+        supportingCandidate.package_id !== attempt.package_id || supportingCandidate.package_version !== attempt.package_version ||
+        supportingCandidate.manifest_hash !== attempt.manifest_hash || supportingCandidate.role !== "supporting_output" ||
+        !["uploaded", "pending_verification"].includes(supportingCandidate.status)) {
+        throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID");
+      }
+      if (output.role !== "supporting_output" || output.original_filename !== supportingCandidate.original_filename ||
+        output.media_type !== supportingCandidate.media_type || Number(output.size) !== Number(supportingCandidate.size) ||
+        String(output.checksum || "").toLowerCase() !== String(supportingCandidate.checksum || "").toLowerCase()) {
+        throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_MISMATCH");
+      }
+      if (requiresOriginalSupportingOutput && output.purpose !== "hifly_original") {
+        throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_PURPOSE_INVALID");
+      }
+      supportingCandidates.push(supportingCandidate);
+    }
+    return { input, order, attempt, report, candidate, supportingCandidates, packageRecord, source: sourceSnapshot(order) };
   }
 
   async function verify(job) {
@@ -162,7 +215,7 @@ export function createWorkVerificationService({ repository, orderPort, execution
       return { checks: [], result: { verificationStatus: "failed", failureKind: "business", failureCode: error.code,
         failureReason: "固定执行报告、候选产物或交接包关系不满足核验门禁。" } };
     }
-    const { order, attempt, report, candidate, packageRecord } = source;
+    const { order, attempt, report, candidate, supportingCandidates, packageRecord } = source;
     const checks = [];
     const failBusiness = (code, reason) => ({ ...source, checks, result: { verificationStatus: "failed", failureKind: "business", failureCode: code, failureReason: reason } });
     if (isCoreInputDeviation(report)) return { ...source, checks, result: { verificationStatus: "requires_action", failureKind: "business", failureCode: "WORK_VERIFICATION_CORE_INPUT_DEVIATION", failureReason: "核心输入发生偏差，不能自动登记作品。" } };
@@ -181,13 +234,35 @@ export function createWorkVerificationService({ repository, orderPort, execution
     if (head.contentType !== candidate.media_type || body.length !== candidate.size || head.size !== candidate.size) return failBusiness("WORK_VERIFICATION_SIZE_OR_MEDIA_MISMATCH", "文件类型或大小与登记摘要不一致。");
     if (sha256(body) !== String(candidate.checksum).toLowerCase() || String(report.primary_output?.checksum).toLowerCase() !== String(candidate.checksum).toLowerCase()) return failBusiness("WORK_VERIFICATION_CHECKSUM_MISMATCH", "文件内容与登记摘要不一致。");
     checks.push({ code: "object_integrity", passed: true });
+    for (const supportingCandidate of supportingCandidates) {
+      if (!acceptsMediaType(supportingCandidate.media_type, accepted)) return failBusiness("WORK_VERIFICATION_SUPPORTING_OUTPUT_MEDIA_TYPE_INVALID", "附加产物类型不符合输出要求。");
+      const supportingHead = await objectStore.head(supportingCandidate.object_key);
+      if (!supportingHead) return failBusiness("WORK_VERIFICATION_SUPPORTING_OUTPUT_MISSING", "附加产物不存在。");
+      if (supportingHead.metadata?.organizationId !== job.organization_id || supportingHead.metadata?.candidateOutputId !== supportingCandidate.id) {
+        return failBusiness("WORK_VERIFICATION_SUPPORTING_OUTPUT_OWNERSHIP_INVALID", "附加产物归属与登记信息不一致。");
+      }
+      const supportingBody = await objectStore.get(supportingCandidate.object_key);
+      if (!Buffer.isBuffer(supportingBody)) return failBusiness("WORK_VERIFICATION_SUPPORTING_OUTPUT_MISSING", "附加产物不存在。");
+      if (supportingHead.contentType !== supportingCandidate.media_type || supportingBody.length !== supportingCandidate.size || supportingHead.size !== supportingCandidate.size) {
+        return failBusiness("WORK_VERIFICATION_SUPPORTING_OUTPUT_SIZE_OR_MEDIA_MISMATCH", "附加产物类型或大小与登记摘要不一致。");
+      }
+      if (sha256(supportingBody) !== String(supportingCandidate.checksum).toLowerCase()) {
+        return failBusiness("WORK_VERIFICATION_SUPPORTING_OUTPUT_CHECKSUM_MISMATCH", "附加产物内容与登记摘要不一致。");
+      }
+    }
+    if (supportingCandidates.length) checks.push({ code: "supporting_outputs_integrity", passed: true });
     return { ...source, checks, result: { verificationStatus: "passed", failureKind: null, failureCode: null, failureReason: null } };
   }
 
-  async function candidateProjection(job, input) {
+  async function candidateProjection(job, input, { candidateId = job.candidate_id } = {}) {
     if (!executionPort.markCandidateVerification) return;
-    return executionPort.markCandidateVerification({ organizationId: job.organization_id, candidateId: job.candidate_id, verificationJobId: job.id,
+    return executionPort.markCandidateVerification({ organizationId: job.organization_id, candidateId, verificationJobId: job.id,
       ...input });
+  }
+
+  async function projectCandidates(job, input, supportingCandidates = []) {
+    await candidateProjection(job, input);
+    for (const candidate of supportingCandidates) await candidateProjection(job, input, { candidateId: candidate.id });
   }
 
   async function requestVerification(input, { recoveryFromJobId = null, resolutionNote = null } = {}) {
@@ -251,8 +326,8 @@ export function createWorkVerificationService({ repository, orderPort, execution
       const saved = await repository.completeVerificationJob({ jobId: job.id, leaseToken, now: timestamp(now), ...result, checks: verified.checks, work,
         assetRegistration: result.verificationStatus === "passed" ? ({ transactionClient }) => canonicalOutputPort.registerVerifiedOutput({ organizationId: job.organization_id,
           actorMemberId: job.requested_by_member_id, candidate: verified.candidate, now: timestamp(now), transactionClient }) : null,
-        candidateProjection: ({ verificationStatus, failureKind, failureCode, now: projectionNow, transactionClient }) => candidateProjection(job,
-          { verificationStatus, failureKind, failureCode, now: projectionNow, transactionClient }),
+        candidateProjection: ({ verificationStatus, failureKind, failureCode, now: projectionNow, transactionClient }) => projectCandidates(job,
+          { verificationStatus, failureKind, failureCode, now: projectionNow, transactionClient }, verified.supportingCandidates),
         orderTransition: result.verificationStatus === "passed" ? {
           organizationId: job.organization_id,
           orderId: verified.order.id,

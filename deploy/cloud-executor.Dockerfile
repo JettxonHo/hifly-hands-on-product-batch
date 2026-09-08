@@ -9,7 +9,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates xvfb x11vnc novnc websockify x11-utils \
+  && apt-get install -y --no-install-recommends ca-certificates xvfb x11vnc novnc websockify x11-utils ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./

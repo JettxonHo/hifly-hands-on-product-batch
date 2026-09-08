@@ -7,12 +7,16 @@ import { createMemoryObjectStore } from "../src/assets/memory-object-store.js";
 import { createMemoryWorkVerificationRepository } from "../src/work-verification/memory-work-verification-repository.js";
 import { createVerifiedOutputAssetPort } from "../src/work-verification/verified-output-asset-port.js";
 import { createWorkVerificationService } from "../src/work-verification/work-verification-service.js";
+import { HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS, buildHiflyHandsOnProductV1 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
 
 const actor = { organizationId: "org-a", actorMemberId: "member-a", actorRole: "member" };
 
-function makeWorld({ transitionOrder = null, executionPortPatch = {}, packagePortPatch = {}, reportDeviations = [] } = {}) {
+function makeWorld({ transitionOrder = null, executionPortPatch = {}, packagePortPatch = {}, reportDeviations = [], includeSupporting = false,
+  currentDeliveryPolicy = false } = {}) {
   const body = Buffer.from("candidate-video");
   const checksum = createHash("sha256").update(body).digest("hex");
+  const supportingBody = Buffer.from("original-video");
+  const supportingChecksum = createHash("sha256").update(supportingBody).digest("hex");
   const order = {
     id: "order-a", organization_id: actor.organizationId, product_id: "product-a", status: "running", row_version: 4,
     video_plan_version_id: "plan-a", execution_purpose: "first_production",
@@ -25,15 +29,21 @@ function makeWorld({ transitionOrder = null, executionPortPatch = {}, packagePor
     manifest_hash: "manifest-a", executor_type: "manual", operator_id: actor.actorMemberId, status: "succeeded", row_version: 2 };
   const report = { id: "report-a", organization_id: actor.organizationId, report_version: 1, production_order_id: order.id,
     execution_attempt_id: attempt.id, package_id: attempt.package_id, package_version: attempt.package_version, manifest_hash: attempt.manifest_hash,
-    outcome: "completed", submitted_at: "2026-08-09T00:00:00.000Z", primary_output: { upload_reference: "candidate-a", checksum, media_type: "video/mp4", size: body.length, role: "primary_video" }, deviations: structuredClone(reportDeviations) };
+    outcome: "completed", submitted_at: "2026-08-09T00:00:00.000Z", primary_output: { upload_reference: "candidate-a", checksum, media_type: "video/mp4", size: body.length, role: "primary_video" },
+    supporting_outputs: includeSupporting ? [{ upload_reference: "candidate-support", checksum: supportingChecksum, media_type: "video/mp4", size: supportingBody.length, original_filename: "original.mp4", role: "supporting_output", purpose: "hifly_original" }] : [],
+    deviations: structuredClone(reportDeviations) };
   const candidate = { id: "candidate-a", organization_id: actor.organizationId, production_order_id: order.id, execution_attempt_id: attempt.id,
     package_id: attempt.package_id, package_version: attempt.package_version, manifest_hash: attempt.manifest_hash, role: "primary_video",
     original_filename: "candidate.mp4", media_type: "video/mp4", size: body.length, checksum, status: "pending_verification", object_key: "candidate-a.mp4" };
+  const supportingCandidate = { id: "candidate-support", organization_id: actor.organizationId, production_order_id: order.id, execution_attempt_id: attempt.id,
+    package_id: attempt.package_id, package_version: attempt.package_version, manifest_hash: attempt.manifest_hash, role: "supporting_output",
+    original_filename: "original.mp4", media_type: "video/mp4", size: supportingBody.length, checksum: supportingChecksum, status: "pending_verification", object_key: "candidate-support.mp4" };
   const packageRecord = { id: attempt.package_id, organization_id: actor.organizationId, production_order_id: order.id,
-    package_version: attempt.package_version, manifest_hash: attempt.manifest_hash, manifest: { accepted_media_types: ["video/mp4"], expected_quantity: 1 } };
+    package_version: attempt.package_version, manifest_hash: attempt.manifest_hash, manifest: { accepted_media_types: ["video/mp4"], expected_quantity: 1,
+      ...(currentDeliveryPolicy ? { hifly_hands_on_product_v1: currentDeliveryContract() } : {}) } };
   const objectStore = createMemoryObjectStore();
   const reports = [report];
-  const candidates = [candidate];
+  const candidates = includeSupporting ? [candidate, supportingCandidate] : [candidate];
   const orderPort = {
     async getOrder({ organizationId, orderId }) { return organizationId === order.organization_id && orderId === order.id ? structuredClone(order) : null; },
     async transitionOrder(input) {
@@ -55,13 +65,26 @@ function makeWorld({ transitionOrder = null, executionPortPatch = {}, packagePor
     ...executionPortPatch
   };
   const packagePort = { async getPackage({ organizationId, packageId }) { return organizationId === actor.organizationId && packageId === packageRecord.id ? structuredClone(packageRecord) : null; }, ...packagePortPatch };
-  return { order, attempt, report, candidate, reports, candidates, packageRecord, body, objectStore, orderPort, executionPort, packagePort };
+  return { order, attempt, report, candidate, supportingCandidate, reports, candidates, packageRecord, body, supportingBody, objectStore, orderPort, executionPort, packagePort };
+}
+
+function currentDeliveryContract() {
+  return buildHiflyHandsOnProductV1({
+    plan: { video_plan_version_id: "plan-a", plan_review_id: "review-a", status: "frozen", review_status: "approved", current: true },
+    product: { revision_id: "revision-a", primary_asset_version_id: "product-asset-a", checksum_sha256: "a".repeat(64), media_type: "image/png", size: 1 },
+    copy: { version_id: "copy-a", status: "frozen", review_status: "approved", body: "固定测试文案" },
+    avatar: { selection_id: "selection-a", avatar_version_id: "avatar-version-a", material_version_id: "material-a", checksum_sha256: "b".repeat(64),
+      media_type: "image/png", size: 1, status: "confirmed", current: true },
+    production: { ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS }
+  });
 }
 
 async function setup(options = {}) {
   const state = makeWorld(options);
   await state.objectStore.put({ key: state.candidate.object_key, body: state.body, contentType: state.candidate.media_type,
     metadata: { organizationId: actor.organizationId, candidateOutputId: state.candidate.id } });
+  if (state.supportingCandidate && state.supportingBody) await state.objectStore.put({ key: state.supportingCandidate.object_key, body: state.supportingBody,
+    contentType: state.supportingCandidate.media_type, metadata: { organizationId: actor.organizationId, candidateOutputId: state.supportingCandidate.id } });
   const assetRepository = options.assetRepository || createMemoryAssetRepository();
   const repository = options.repository || createMemoryWorkVerificationRepository(options.repositoryOptions);
   const service = createWorkVerificationService({ repository, verifiedOutputAssetPort: options.verifiedOutputAssetPort || createVerifiedOutputAssetPort({ repository: assetRepository }), ...state,
@@ -83,6 +106,67 @@ test("passed verification registers a canonical work_video AssetVersion and Work
   assert.equal(workspace.work.avatar_asset_version_id, "avatar-version-a");
   assert.deepEqual(workspace.work.production_config_snapshot, { preset: "test" });
   assert.equal("receipt_key" in (await state.service.getVerificationJob({ ...actor, jobId: workspace.job.id })), false);
+});
+
+test("A12 verifies and projects a report-referenced supporting output while registering delivery as primary Work", async () => {
+  const projections = [];
+  const state = await setup({ includeSupporting: true, currentDeliveryPolicy: true, executionPortPatch: {
+    async markCandidateVerification(input) {
+      projections.push(input);
+      const candidate = state.candidates.find((value) => value.id === input.candidateId);
+      Object.assign(candidate, { verification_status: input.verificationStatus, verification_failure_code: input.failureCode });
+    }
+  } });
+  await state.service.requestVerification({ ...actor, productionOrderId: state.order.id, executionAttemptId: state.attempt.id, reportId: state.report.id, candidateId: state.candidate.id, idempotencyKey: "supporting-output" });
+  const result = await state.service.runNextVerificationJob();
+  const workspace = await state.service.getVerificationWorkspace({ ...actor, productionOrderId: state.order.id });
+
+  assert.equal(result.job.verification_status, "passed");
+  assert.equal(state.candidate.verification_status, "passed");
+  assert.equal(state.supportingCandidate.verification_status, "passed");
+  assert.equal(projections.filter((value) => value.verificationStatus === "passed").length, 2);
+  assert.equal(workspace.work.primary_candidate_id, state.candidate.id);
+  assert.equal((await state.assetRepository.listAssets(actor.organizationId)).flatMap((asset) => asset.versions).length, 1);
+});
+
+test("current V1 delivery policy rejects a completed report without its retained original", async () => {
+  const state = await setup({ currentDeliveryPolicy: true });
+  await state.service.requestVerification({ ...actor, productionOrderId: state.order.id, executionAttemptId: state.attempt.id, reportId: state.report.id, candidateId: state.candidate.id, idempotencyKey: "missing-original" });
+  const result = await state.service.runNextVerificationJob();
+
+  assert.equal(result.job.verification_status, "failed");
+  assert.equal(result.job.failure_kind, "business");
+  assert.equal(result.job.failure_code, "WORK_VERIFICATION_SUPPORTING_OUTPUT_REQUIRED");
+  assert.equal(state.order.status, "running");
+  assert.equal((await state.repository.listWorks(actor.organizationId)).length, 0);
+});
+
+test("current V1 supporting output remains transaction-bound when Work completion fails", async () => {
+  const state = await setup({ includeSupporting: true, currentDeliveryPolicy: true,
+    transitionOrder: async () => { throw Object.assign(new Error("injected"), { code: "ORDER_TRANSITION_INJECTED" }); } });
+  await state.service.requestVerification({ ...actor, productionOrderId: state.order.id, executionAttemptId: state.attempt.id, reportId: state.report.id, candidateId: state.candidate.id, idempotencyKey: "supporting-transaction" });
+  const result = await state.service.runNextVerificationJob();
+
+  assert.equal(result.job.failure_kind, "technical");
+  assert.equal(result.job.failure_code, "ORDER_TRANSITION_INJECTED");
+  assert.equal(state.order.status, "running");
+  assert.equal((await state.repository.listWorks(actor.organizationId)).length, 0);
+  assert.equal((await state.assetRepository.listAssets(actor.organizationId)).length, 0);
+});
+
+test("current V1 delivery policy rejects a generic or duplicate supporting candidate", async () => {
+  for (const [suffix, mutate, expectedCode] of [
+    ["wrong-purpose", (report) => { report.supporting_outputs[0].purpose = "generic_attachment"; }, "WORK_VERIFICATION_SUPPORTING_OUTPUT_PURPOSE_INVALID"],
+    ["duplicate", (report) => { report.supporting_outputs.push(structuredClone(report.supporting_outputs[0])); }, "WORK_VERIFICATION_SUPPORTING_OUTPUT_REQUIRED"]
+  ]) {
+    const state = await setup({ includeSupporting: true, currentDeliveryPolicy: true });
+    mutate(state.report);
+    await state.service.requestVerification({ ...actor, productionOrderId: state.order.id, executionAttemptId: state.attempt.id, reportId: state.report.id, candidateId: state.candidate.id, idempotencyKey: `supporting-${suffix}` });
+    const result = await state.service.runNextVerificationJob();
+    assert.equal(result.job.failure_kind, "business");
+    assert.equal(result.job.failure_code, expectedCode);
+    assert.equal((await state.repository.listWorks(actor.organizationId)).length, 0);
+  }
 });
 
 test("asset registration failure leaves Work and order untouched", async () => {

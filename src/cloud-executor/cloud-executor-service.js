@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { sanitizeEvidenceRecords } from "../execution-contracts/hifly-hands-on-product-evidence.js";
+import { requireHiflyHandsOnProductV1, usesPostOutputPadPreservePolicy } from "../execution-contracts/hifly-hands-on-product-v1.js";
+import { createVideoDeliveryNormalizer } from "./video-delivery.js";
 
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const failure = (code, details = null) => Object.assign(new Error(code), { code, details });
@@ -77,7 +79,8 @@ export function createCloudExecutorReadiness({ enabled = false, mode = "fail_clo
 
 export function createCloudExecutorService({ repository, orderPort, packagePort, candidateStore, verificationPort = null,
   executor = null, readinessPort = null, enabled = false, mode = "fail_closed", organizationId, executorCloudId,
-  leaseMs = DEFAULT_LEASE_MS, heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS, now = Date.now } = {}) {
+  leaseMs = DEFAULT_LEASE_MS, heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS, now = Date.now,
+  videoDeliveryNormalizer = null } = {}) {
   if (!repository?.getReceipt || !repository?.claimAttempt || !repository?.startAttempt || !repository?.getAttempt ||
     !repository?.listAttempts || !repository?.heartbeatCloudAttempt || !repository?.expireCloudAttempt ||
     !repository?.createCandidateUpload || !repository?.markCandidateUploaded || !repository?.saveReport) {
@@ -99,6 +102,8 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
   const readiness = readinessPort || createCloudExecutorReadiness({ enabled, mode,
     configured: Boolean(identity.organizationId && identity.executorCloudId) });
   if (typeof readiness.check !== "function") throw new TypeError("cloud executor readiness port is required");
+  const deliveryNormalizer = videoDeliveryNormalizer || createVideoDeliveryNormalizer();
+  if (typeof deliveryNormalizer.normalize !== "function" || typeof deliveryNormalizer.preflight !== "function") throw new TypeError("cloud executor video delivery normalizer is required");
 
   const timestamp = () => new Date(now()).toISOString();
   const verificationTriggers = new Set();
@@ -250,10 +255,10 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     return result;
   }
 
-  async function candidateForResult(attempt, packageRecord, result) {
-    const body = result?.body;
+  async function candidateForResult(attempt, packageRecord, result, { role = "primary_video" } = {}) {
+    const body = result?.body ?? result?.bytes;
     if (!Buffer.isBuffer(body) || body.length < 1) throw failure("CLOUD_EXECUTOR_OUTPUT_INVALID");
-    const mediaType = clean(result.mediaType) || "video/mp4";
+    const mediaType = clean(result.mediaType || result.media_type) || "video/mp4";
     const checksum = clean(result.checksum).toLowerCase() || sha256(body);
     if (!/^[a-f0-9]{64}$/.test(checksum) || (result.checksum && checksum !== sha256(body))) throw failure("CLOUD_EXECUTOR_OUTPUT_INVALID");
     const id = randomUUID();
@@ -261,7 +266,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     return {
       id, organization_id: identity.organizationId, production_order_id: attempt.production_order_id,
       execution_attempt_id: attempt.id, package_id: packageRecord.id, package_version: attempt.package_version,
-      manifest_hash: attempt.manifest_hash, role: "primary_video", original_filename: clean(result.originalFilename) || "cloud-executor-output.mp4",
+      manifest_hash: attempt.manifest_hash, role, original_filename: clean(result.originalFilename || result.original_filename) || "cloud-executor-output.mp4",
       media_type: mediaType, size: body.length, checksum, status: "upload_pending", row_version: 1,
       upload_token_digest: `cloud-executor:${identity.executorCloudId}:${id}`,
       object_key: `cloud-executor/${identity.organizationId}/${attempt.id}/${id}.mp4`,
@@ -269,7 +274,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       created_at: at, updated_at: at, uploaded_at: null,
       audit: { id: randomUUID(), organization_id: identity.organizationId, actor_cloud_executor_id: identity.executorCloudId,
         attempt_id: attempt.id, production_order_id: attempt.production_order_id, package_id: packageRecord.id,
-        event_type: "cloud_executor.candidate_upload_authorized", metadata: { candidate_id: id, role: "primary_video" }, created_at: at },
+        event_type: "cloud_executor.candidate_upload_authorized", metadata: { candidate_id: id, role }, created_at: at },
       body
     };
   }
@@ -297,8 +302,16 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     return { candidate: completed.candidate || completed, body, replayed: saved.replayed && completed.replayed };
   }
 
-  async function saveReport({ attempt, order, candidate = null, outcome, failureStage = null, requiresActionReason = null,
-    progressPhase = null, evidence = null }) {
+  function outputReference(candidate) {
+    if (!candidate) return null;
+    const purpose = clean(candidate.purpose);
+    return { upload_reference: candidate.id, original_filename: candidate.original_filename,
+      media_type: candidate.media_type, size: candidate.size, checksum: candidate.checksum, role: candidate.role,
+      ...(purpose ? { purpose } : {}) };
+  }
+
+  async function saveReport({ attempt, order, candidate = null, supportingCandidates = [], outcome, failureStage = null,
+    requiresActionReason = null, progressPhase = null, evidence = null }) {
     const at = timestamp();
     const reports = await repository.listReports?.(identity.organizationId, attempt.id) || [];
     const safeEvidence = sanitizeEvidenceRecords(evidence, [], { strict: true });
@@ -310,9 +323,8 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       package_version: attempt.package_version, manifest_hash: attempt.manifest_hash, submitted_by: null,
       submitted_by_agent_id: null, submitted_by_cloud_executor_id: identity.executorCloudId, submitted_at: at,
       supersedes_report_id: null, outcome, started_at: attempt.started_at, completed_at: at, operator_note: "", deviations: [],
-      primary_output: candidate ? { upload_reference: candidate.id, original_filename: candidate.original_filename,
-        media_type: candidate.media_type, size: candidate.size, checksum: candidate.checksum, role: "primary_video" } : null,
-      supporting_outputs: safeEvidence.length ? [{ kind: "production_evidence", evidence: safeEvidence }] : [],
+      primary_output: outputReference(candidate),
+      supporting_outputs: [...supportingCandidates.map(outputReference), ...(safeEvidence.length ? [{ kind: "production_evidence", evidence: safeEvidence }] : [])],
       error_category: ["failed", "requires_action"].includes(outcome) ? "cloud_executor" : null,
       failure_stage: safeFailureStage, requires_action_reason: outcome === "requires_action" ? (requiresActionReason || "Cloud Executor requires human action") : null,
       retryability: ["failed", "requires_action"].includes(outcome) ? "not_retryable" : null,
@@ -334,12 +346,45 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
         heartbeat_at: at, progress_phase: safeProgressPhase || targetStatus, updated_at: at,
         status_history: [...(attempt.status_history || []), { status: targetStatus, at, actor_cloud_executor_id: identity.executorCloudId,
           reason: requiresActionReason || null }] },
-      candidatePatches: candidate ? [{ id: candidate.id, values: { status: "pending_verification" } }] : [],
+      candidatePatches: [candidate, ...supportingCandidates].filter(Boolean).map((value) => ({ id: value.id, values: { status: "pending_verification" } })),
       audit: { id: randomUUID(), organization_id: identity.organizationId, actor_cloud_executor_id: identity.executorCloudId,
         attempt_id: attempt.id, production_order_id: attempt.production_order_id, package_id: attempt.package_id,
         report_id: report.id, event_type: "cloud_executor.report_submitted", metadata: { report_id: report.id, outcome }, created_at: at }
     });
     return { report: saved.report, attempt: saved.attempt, replayed: saved.replayed };
+  }
+
+  function verifiedDeliveryContract(packageRecord) {
+    const raw = packageRecord?.manifest?.hifly_hands_on_product_v1;
+    if (!raw) return null;
+    let contract;
+    try {
+      contract = requireHiflyHandsOnProductV1(raw);
+    } catch (error) {
+      throw failure(error?.code || "CLOUD_EXECUTOR_CONTRACT_INVALID");
+    }
+    return usesPostOutputPadPreservePolicy(contract) ? contract : null;
+  }
+
+  async function prepareVideoResult(packageRecord, result) {
+    const contract = verifiedDeliveryContract(packageRecord);
+    if (!contract) return { primary: result, supporting: [], evidence: result?.evidence || result?.asset_evidence?.handheld_evidence };
+    let normalized;
+    try {
+      normalized = await deliveryNormalizer.normalize({
+        original: { bytes: result?.body, mediaType: clean(result?.mediaType) || "video/mp4", originalFilename: result?.originalFilename }
+      });
+    } catch (error) {
+      error.failureStage ||= "post_download_delivery";
+      throw error;
+    }
+    const baseEvidence = result?.evidence || result?.asset_evidence?.handheld_evidence || [];
+    return {
+      primary: { ...result, body: normalized.delivery.bytes, mediaType: normalized.delivery.media_type,
+        originalFilename: normalized.delivery.original_filename, checksum: normalized.delivery.checksum },
+      supporting: [normalized.original],
+      evidence: [...baseEvidence, ...normalized.evidence]
+    };
   }
 
   async function runAttempt(claimedAttempt, claimedOrder, packageRecord) {
@@ -390,6 +435,14 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       timer.unref?.();
       try {
         if (!['fake', 'playwright'].includes(mode) || typeof executor?.run !== "function") throw failure("CLOUD_EXECUTOR_FAIL_CLOSED");
+        if (verifiedDeliveryContract(packageRecord)) {
+          try {
+            await deliveryNormalizer.preflight();
+          } catch (error) {
+            error.failureStage ||= "video_delivery_preflight";
+            throw error;
+          }
+        }
         const packageArchive = mode === "playwright" ? await downloadPackageArchive(packageRecord.id) : null;
         const result = await executor.run({ organizationId: identity.organizationId, executorCloudId: identity.executorCloudId,
           order: executionOrder, attempt, package: packageRecord,
@@ -412,11 +465,17 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           halted = true;
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
-        const candidate = await candidateForResult(attempt, packageRecord, result);
+        const prepared = await prepareVideoResult(packageRecord, result);
+        const candidate = await candidateForResult(attempt, packageRecord, prepared.primary);
         const uploaded = await saveCandidate(candidate);
+        const supporting = [];
+        for (const value of prepared.supporting) {
+          const supportCandidate = await candidateForResult(attempt, packageRecord, value, { role: "supporting_output" });
+          supporting.push({ ...(await saveCandidate(supportCandidate)).candidate, purpose: "hifly_original" });
+        }
         const currentAttempt = await finishHeartbeats();
         const completed = await saveReport({ attempt: currentAttempt, order: executionOrder, candidate: uploaded.candidate, outcome: "completed",
-          evidence: result?.evidence || result?.asset_evidence?.handheld_evidence });
+          supportingCandidates: supporting, evidence: prepared.evidence });
         const verification = await triggerVerification({ order: executionOrder, attempt: completed.attempt, report: completed.report, candidate: uploaded.candidate });
         return { status: "succeeded", attempt: publicAttempt(completed.attempt), report: publicReport(completed.report),
           candidate: publicCandidate(uploaded.candidate), verification, replayed: completed.replayed };
@@ -454,7 +513,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
               report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
           }
           const failed = await saveReport({ attempt: current, order, outcome: "failed",
-            failureStage: mode === "playwright" ? "playwright_execution" : "fake_execution" });
+            failureStage: clean(terminalError?.failureStage) || (mode === "playwright" ? "playwright_execution" : "fake_execution") });
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
       }
@@ -468,7 +527,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     if (!identity.organizationId || !identity.executorCloudId) return { status: "unconfigured", ready: false, claimed: false };
     cloudContext(input);
     if (halted) return { status: "halted", stopped: true };
-    const state = publicReadiness(await readiness.check({ ...identity }));
+    const state = publicReadiness(await readiness.check({ ...identity, phase: "pre_claim_environment" }));
     if (!state.ready) return { status: state.status, ready: false, ...(state.reason ? { reason: state.reason } : {}) };
     const active = await expireOwnActiveAttempt();
     if (active?.expired) return { status: "requires_action", stopped: true, attempt: publicAttempt(active.attempt) };
@@ -481,6 +540,11 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       if (packageRecord) { selected = { order, packageRecord }; break; }
     }
     if (!selected) return { status: "standby", claimed: false };
+    const packageReadiness = publicReadiness(await readiness.check({ ...identity, phase: "pre_claim",
+      order: selected.order, packageRecord: selected.packageRecord }));
+    if (!packageReadiness.ready) {
+      return { status: packageReadiness.status, ready: false, ...(packageReadiness.reason ? { reason: packageReadiness.reason } : {}) };
+    }
     const at = timestamp();
     const attempt = {
       id: randomUUID(), organization_id: identity.organizationId, production_order_id: selected.order.id,

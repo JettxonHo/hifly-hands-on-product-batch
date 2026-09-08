@@ -403,6 +403,9 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
     compiled.voice_source = contract.production.voice_source;
     compiled.voice_identity_policy = contract.production.voice_identity_policy;
     compiled.production_mode = contract.production.mode;
+    for (const field of ["voice_display_name", "voice_style", "subtitles_enabled", "output_aspect_ratio_policy"]) {
+      if (Object.hasOwn(contract.production, field)) compiled[field] = contract.production[field];
+    }
   }
   return compiled;
 }

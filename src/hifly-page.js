@@ -63,6 +63,16 @@ function submissionReceiptUnavailableError() {
   });
 }
 
+function settingsVerificationError(fields, evidence) {
+  return Object.assign(new Error("CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED"), {
+    code: "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED",
+    details: fields,
+    evidence,
+    outcome: "requires_action",
+    failureStage: "pre_paid_gate"
+  });
+}
+
 export class HiflyHandsOnProductPage {
   constructor(page, config, logger) {
     this.page = page;
@@ -225,6 +235,89 @@ export class HiflyHandsOnProductPage {
       throw new Error("Custom script text could not be verified after filling.");
     }
     await this.captureStep(product, "script-filled");
+  }
+
+  async verifyCurrentSettings(product) {
+    const production = product?.hifly_hands_on_product_v1?.production;
+    const required = ["voice_display_name", "voice_style", "subtitles_enabled"];
+    if (!production || required.some((field) => !Object.hasOwn(production, field))) return null;
+
+    const voiceEvidence = (field, actual, result = HIFLY_VERIFICATION_RESULT.PROVEN) => createEvidenceRecord({
+      field,
+      expected: production[field],
+      actual,
+      evidenceSource: "hifly_dom_readback",
+      verificationStage: "pre_paid",
+      paidBoundary: "before_paid_action_1",
+      result
+    });
+    const evidence = [];
+    const voiceDetails = this.page.locator(
+      ".page-goods .controls-panel .card.auto-voice-box .voice-info .voice-details"
+    );
+    const voiceDetailsCount = await voiceDetails.count().catch(() => 0);
+    const visibleVoiceDetails = voiceDetails.first();
+    if (voiceDetailsCount !== 1 || !await visibleVoiceDetails.isVisible().catch(() => false)) {
+      evidence.push(voiceEvidence("voice_source", null, HIFLY_VERIFICATION_RESULT.NOT_PROVEN));
+      evidence.push(voiceEvidence("voice_display_name", null, HIFLY_VERIFICATION_RESULT.NOT_PROVEN));
+      evidence.push(voiceEvidence("voice_style", null, HIFLY_VERIFICATION_RESULT.NOT_PROVEN));
+    } else {
+      const voiceName = normalizeScriptText(await visibleVoiceDetails.locator("p.voice-name").textContent().catch(() => ""));
+      const voiceStyle = normalizeScriptText(await visibleVoiceDetails.locator("p.voice-style").textContent().catch(() => ""));
+      evidence.push(voiceEvidence("voice_source", { display: voiceName || null, style: voiceStyle || null }, HIFLY_VERIFICATION_RESULT.PARTIAL));
+      evidence.push(voiceEvidence("voice_display_name", voiceName || null,
+        voiceName === production.voice_display_name ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.FAIL));
+      evidence.push(voiceEvidence("voice_style", voiceStyle || null,
+        voiceStyle === production.voice_style ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.FAIL));
+    }
+
+    const subtitleHeaders = this.page.locator(".page-goods .controls-panel .card-header").filter({
+      has: this.page.locator("h2").filter({ hasText: /^\s*字幕\s*$/ })
+    });
+    let subtitleActual = null;
+    if (await subtitleHeaders.count().catch(() => 0) === 1) {
+      const subtitleToggle = subtitleHeaders.first().locator("button[role='switch']");
+      if (await subtitleToggle.count().catch(() => 0) === 1 && await subtitleToggle.isVisible().catch(() => false)) {
+        const checked = await subtitleToggle.getAttribute("aria-checked").catch(() => null);
+        if (checked !== "true" && checked !== "false") {
+          subtitleActual = null;
+        } else {
+          subtitleActual = checked === "true";
+        }
+      }
+    }
+    evidence.push(voiceEvidence("subtitles_enabled", subtitleActual,
+      subtitleActual === production.subtitles_enabled ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.FAIL));
+
+    const failed = evidence.filter((record) => record.result !== HIFLY_VERIFICATION_RESULT.PROVEN &&
+      !(record.field === "voice_source" && record.result === HIFLY_VERIFICATION_RESULT.PARTIAL));
+    if (failed.length) throw settingsVerificationError(failed.map((record) => record.field), evidence);
+    return { status: "verified", evidence };
+  }
+
+  async prepareCurrentSettings(product) {
+    const production = product?.hifly_hands_on_product_v1?.production;
+    if (!production || !Object.hasOwn(production, "subtitles_enabled")) return null;
+
+    const subtitleHeaders = this.page.locator(".page-goods .controls-panel .card-header").filter({
+      has: this.page.locator("h2").filter({ hasText: /^\s*字幕\s*$/ })
+    });
+    if (await subtitleHeaders.count().catch(() => 0) !== 1) return null;
+
+    const subtitleToggle = subtitleHeaders.first().locator("button[role='switch']");
+    if (await subtitleToggle.count().catch(() => 0) !== 1 ||
+      !await subtitleToggle.isVisible().catch(() => false)) return null;
+
+    const checked = await subtitleToggle.getAttribute("aria-checked").catch(() => null);
+    if (checked !== "true" && checked !== "false") return null;
+    if ((checked === "true") === production.subtitles_enabled) return { status: "ready" };
+
+    // This is the only mutating current-settings step. It runs during the
+    // pre-point preparation while the settings card is still interactable;
+    // the final verifier remains a read-only observation.
+    await subtitleToggle.click({ timeout: this.config.batch.defaultTimeoutMs });
+    const after = await subtitleToggle.getAttribute("aria-checked").catch(() => null);
+    return after === (production.subtitles_enabled ? "true" : "false") ? { status: "ready" } : null;
   }
 
   async fillScriptField(product, script) {
@@ -729,8 +822,9 @@ export class HiflyHandsOnProductPage {
       // navigate/reset the page. Reuse that same structured verifier after
       // the final per-task preparation and immediately before the paid
       // hands-on action. No checkpoint is written until this succeeds.
-      if (isFormalHandsOnProductTask(product) && typeof contractFieldVerifier === "function") {
-        await contractFieldVerifier();
+      if (isFormalHandsOnProductTask(product)) {
+        if (typeof contractFieldVerifier === "function") await contractFieldVerifier();
+        else await this.verifyCurrentSettings(product);
       }
 
       // Persist the paid-action boundary before clicking. A click can fail

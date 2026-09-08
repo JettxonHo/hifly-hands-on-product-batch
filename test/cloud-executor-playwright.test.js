@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { chromium } from "playwright";
 import test from "node:test";
 
 import { createCloudPlaywrightAdapter } from "../src/cloud-executor/playwright-adapter.js";
@@ -12,8 +13,10 @@ import { createMemoryManualHandoffRepository } from "../src/manual-handoff/memor
 import { createMemoryManualHandoffPackageStore } from "../src/manual-handoff/manual-handoff-package-store.js";
 import { buildManualHandoffZip, extractManualHandoffArchive } from "../src/manual-handoff/manual-handoff-package-store.js";
 import { sha256 } from "../src/manual-handoff/manual-handoff-package.js";
-import { buildHiflyHandsOnProductV1 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
+import { buildHiflyHandsOnProductV1, HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
+import { hiflyPrePaidRequirementsFor } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
+import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
 
 async function workspaceFixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "cloud-playwright-adapter-"));
@@ -35,7 +38,7 @@ async function workspaceFixture() {
   return { workspace, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
-function contractFixture({ planId, planReviewId, revisionId, productAssetVersionId, productBody, copyVersionId, copyBody = "固定测试文案", selectionId, avatarVersionId, materialVersionId, avatarBody, presentationSizeCode = "smart_fit" } = {}) {
+function contractFixture({ planId, planReviewId, revisionId, productAssetVersionId, productBody, copyVersionId, copyBody = "固定测试文案", selectionId, avatarVersionId, materialVersionId, avatarBody, presentationSizeCode = "smart_fit", currentSettings = false } = {}) {
   const product = productBody || Buffer.from("product");
   const avatar = avatarBody || Buffer.from("person");
   return buildHiflyHandsOnProductV1({
@@ -43,7 +46,12 @@ function contractFixture({ planId, planReviewId, revisionId, productAssetVersion
     product: { revision_id: revisionId, primary_asset_version_id: productAssetVersionId, checksum_sha256: sha256(product), media_type: "image/png", size: product.length },
     copy: { version_id: copyVersionId, status: "frozen", review_status: "approved", body: copyBody },
     avatar: { selection_id: selectionId, avatar_version_id: avatarVersionId, material_version_id: materialVersionId, checksum_sha256: sha256(avatar), media_type: "image/png", size: avatar.length, status: "confirmed", current: true },
-    ...(presentationSizeCode !== "smart_fit" ? { production: { presentation_size_code: presentationSizeCode } } : {})
+    ...(presentationSizeCode !== "smart_fit" || currentSettings ? {
+      production: {
+        ...(presentationSizeCode !== "smart_fit" ? { presentation_size_code: presentationSizeCode } : {}),
+        ...(currentSettings ? HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS : {})
+      }
+    } : {})
   });
 }
 
@@ -55,10 +63,10 @@ function fakeContext(page, calls) {
   };
 }
 
-function taskFor(workspace) {
+function taskFor(workspace, { currentSettings = false } = {}) {
   const productBody = Buffer.from("product");
   const avatarBody = Buffer.from("person");
-  const contract = contractFixture({ planId: "plan-cloud-task", planReviewId: "review-cloud-task", revisionId: "revision-cloud-task", productAssetVersionId: "asset-cloud-task", productBody, copyVersionId: "copy-cloud-task", selectionId: "selection-cloud-task", avatarVersionId: "avatar-cloud-task", materialVersionId: "material-cloud-task", avatarBody });
+  const contract = contractFixture({ planId: "plan-cloud-task", planReviewId: "review-cloud-task", revisionId: "revision-cloud-task", productAssetVersionId: "asset-cloud-task", productBody, copyVersionId: "copy-cloud-task", selectionId: "selection-cloud-task", avatarVersionId: "avatar-cloud-task", materialVersionId: "material-cloud-task", avatarBody, currentSettings });
   return {
     task_id: "cloud-task-1",
     sku: "SKU-CLOUD-1",
@@ -87,7 +95,13 @@ function taskFor(workspace) {
     voice_identity_policy: contract.production.voice_identity_policy,
     production_mode: contract.production.mode,
     presentation_size_code: contract.production.presentation_size_code,
-    avatar: { asset_version_id: contract.avatar.avatar_version_id }
+    avatar: { asset_version_id: contract.avatar.avatar_version_id },
+    ...(currentSettings ? {
+      voice_display_name: contract.production.voice_display_name,
+      voice_style: contract.production.voice_style,
+      subtitles_enabled: contract.production.subtitles_enabled,
+      output_aspect_ratio_policy: contract.production.output_aspect_ratio_policy
+    } : {})
   };
 }
 
@@ -110,15 +124,233 @@ function verifiedContractFields(fields = ["target_aspect_ratio", "voice_source"]
     status: "verified",
     evidence: fields.map((field) => createEvidenceRecord({
       field,
-      expected: field === "target_aspect_ratio" ? "9:16" : "hifly_native",
-      actual: field === "target_aspect_ratio" ? "9:16" : { display: "Hifly 原生声音" },
-      evidenceSource: field === "target_aspect_ratio" ? "production_contract" : "hifly_ui_display",
+      expected: field === "target_aspect_ratio" ? "9:16" : field === "voice_display_name" ? "播客-女声" : field === "voice_style" ? "普通话" : field === "subtitles_enabled" ? true : "hifly_native",
+      actual: field === "target_aspect_ratio" ? "9:16" : field === "voice_display_name" ? "播客-女声" : field === "voice_style" ? "普通话" : field === "subtitles_enabled" ? true : { display: "Hifly 原生声音" },
+      evidenceSource: ["target_aspect_ratio", "voice_source"].includes(field) ? field === "target_aspect_ratio" ? "production_contract" : "hifly_ui_display" : "hifly_dom_readback",
       verificationStage: "pre_paid",
       paidBoundary: "before_paid_action_1",
-      result: field === "target_aspect_ratio" ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.PARTIAL
+      result: field === "voice_source" ? HIFLY_VERIFICATION_RESULT.PARTIAL : HIFLY_VERIFICATION_RESULT.PROVEN
     }))
   };
 }
+
+test("cloud adapter binds approved current settings and leaves the target ratio for post-generation evidence", async () => {
+  const { workspace, cleanup } = await workspaceFixture();
+  const calls = [];
+  const phases = [];
+  const task = taskFor(workspace, { currentSettings: true });
+  const page = { setDefaultTimeout() {} };
+  const context = fakeContext(page, calls);
+  try {
+    const adapter = createCloudPlaywrightAdapter({
+      workspace,
+      browserType: { async launchPersistentContext() { return context; } },
+      taskFactory: async () => task,
+      contractFieldVerifier: async (input) => {
+        phases.push({ phase: input.phase, fields: input.fields });
+        return verifiedContractFields(input.fields);
+      },
+      hiflyPageFactory() {
+        return {
+          async preflight() { return { status: "ready" }; },
+          async verifyCurrentSettings(currentTask) {
+            calls.push(["settings", currentTask.voice_display_name, currentTask.voice_style, currentTask.subtitles_enabled]);
+            return verifiedContractFields(["voice_source", "voice_display_name", "voice_style", "subtitles_enabled"]);
+          },
+          async prepareAsset(_task, { contractFieldVerifier }) {
+            calls.push("prepare-asset");
+            await contractFieldVerifier();
+            return { asset_id: "asset-current-settings" };
+          },
+          async submitVideo() {
+            calls.push("submit");
+            return { status: "submitted", remoteEvidence: { evidence_source: "direct_submission", remote_id: "work-current-settings" } };
+          },
+          async querySubmission(remoteEvidence) { return { status: "ready", remoteEvidence }; },
+          async downloadArtifact(_remoteEvidence, destination) {
+            await writeFile(path.join(destination, "current-settings.mp4"), "video");
+            return { artifact_id: "work-current-settings", relative_path: "outputs/current-settings.mp4" };
+          },
+          async reconcileSubmission() { return { candidates: [] }; }
+        };
+      }
+    });
+
+    const result = await adapter.run({
+      order: orderFor(),
+      attempt: { id: "attempt-current-settings" },
+      package: packageFor()
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(phases, [
+      { phase: "pre_point", fields: ["voice_source", "voice_display_name", "voice_style", "subtitles_enabled"] },
+      { phase: "pre_paid_action_1", fields: ["voice_source", "voice_display_name", "voice_style", "subtitles_enabled"] }
+    ]);
+    assert.deepEqual(calls, [
+      ["settings", "播客-女声", "普通话", true],
+      "prepare-asset",
+      ["settings", "播客-女声", "普通话", true],
+      "submit"
+    ]);
+    assert.deepEqual(Object.keys(hiflyPrePaidRequirementsFor(task.hifly_hands_on_product_v1)), [
+      "voice_source", "voice_display_name", "voice_style", "subtitles_enabled"
+    ]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("cloud adapter selects the real page verifier by default for a current settings contract", async () => {
+  const { workspace, cleanup } = await workspaceFixture();
+  const calls = [];
+  const verifierPhases = [];
+  const task = taskFor(workspace, { currentSettings: true });
+  const page = { setDefaultTimeout() {} };
+  const context = fakeContext(page, calls);
+  try {
+    const adapter = createCloudPlaywrightAdapter({
+      workspace,
+      browserType: { async launchPersistentContext() { return context; } },
+      taskFactory: async () => task,
+      hiflyPageFactory() {
+        return {
+          async preflight() { calls.push("preflight"); return { status: "ready" }; },
+          async verifyCurrentSettings(currentTask) {
+            verifierPhases.push(currentTask.hifly_hands_on_product_v1.production.output_aspect_ratio_policy);
+            return verifiedContractFields(["voice_source", "voice_display_name", "voice_style", "subtitles_enabled"]);
+          },
+          async prepareAsset(_task, { contractFieldVerifier }) {
+            calls.push("prepare-asset");
+            await contractFieldVerifier();
+            return { asset_id: "asset-default-verifier" };
+          },
+          async submitVideo() {
+            calls.push("submit");
+            return { status: "submitted", remoteEvidence: { evidence_source: "direct_submission", remote_id: "work-default-verifier" } };
+          },
+          async querySubmission(remoteEvidence) { return { status: "ready", remoteEvidence }; },
+          async downloadArtifact(_remoteEvidence, destination) {
+            await writeFile(path.join(destination, "default-verifier.mp4"), "video");
+            return { artifact_id: "work-default-verifier", relative_path: "outputs/default-verifier.mp4" };
+          },
+          async reconcileSubmission() { return { candidates: [] }; }
+        };
+      }
+    });
+
+    const result = await adapter.run({
+      order: orderFor(),
+      attempt: { id: "attempt-default-verifier" },
+      package: packageFor()
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(verifierPhases, [
+      "post_output_verify_pad_preserve",
+      "post_output_verify_pad_preserve"
+    ]);
+    assert.deepEqual(calls, ["preflight", "prepare-asset", "submit"]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("cloud adapter default verifier reads current settings from the controlled Hifly DOM", async (t) => {
+  const { workspace, cleanup } = await workspaceFixture();
+  let browser;
+  let adapter;
+  try {
+    try {
+      browser = await chromium.launch({ headless: true });
+    } catch (error) {
+      if (error?.message?.includes("Executable doesn't exist")) return t.skip("Playwright browser is unavailable");
+      throw error;
+    }
+    const context = await browser.newContext({ acceptDownloads: true });
+    const page = await context.newPage();
+    await page.setContent(`
+      <div class="page-goods">
+        <div class="controls-panel">
+          <div class="card auto-voice-box">
+            <div class="voice-info"><div class="voice-details">
+              <p class="voice-name">播客-女声</p>
+              <p class="voice-style">普通话</p>
+            </div></div>
+          </div>
+          <div class="card"><div class="card-header">
+            <h2>字幕</h2><button type="button" role="switch" aria-checked="true"
+              onclick="window.subtitleClicks = (window.subtitleClicks || 0) + 1"></button>
+          </div></div>
+        </div>
+      </div>
+      <script>window.subtitleClicks = 0</script>
+    `);
+    const task = taskFor(workspace, { currentSettings: true });
+    let paidClicks = 0;
+    let invalidateSettingsBeforeLateRead = false;
+    adapter = createCloudPlaywrightAdapter({
+      workspace,
+      contextFactory: async () => context,
+      pageFactory: async () => page,
+      taskFactory: async () => task,
+      hiflyPageFactory(currentPage, config, logger) {
+        const hiflyPage = new HiflyHandsOnProductPage(currentPage, config, logger);
+        hiflyPage.preflight = async () => ({ status: "ready" });
+        hiflyPage.prepareAsset = async (_task, { contractFieldVerifier }) => {
+          if (invalidateSettingsBeforeLateRead) {
+            await currentPage.evaluate(() => {
+              document.querySelector("button[role='switch']")?.setAttribute("aria-checked", "false");
+              const overlay = document.createElement("div");
+              overlay.id = "settings-overlay";
+              overlay.style.cssText = "position:fixed;inset:0;z-index:10;pointer-events:auto";
+              document.body.appendChild(overlay);
+            });
+          }
+          await contractFieldVerifier();
+          paidClicks += 1;
+          return { asset_id: "asset-dom-default-verifier" };
+        };
+        hiflyPage.submitVideo = async () => ({
+          status: "submitted",
+          remoteEvidence: { evidence_source: "direct_submission", remote_id: "work-dom-default-verifier" }
+        });
+        hiflyPage.querySubmission = async (remoteEvidence) => ({ status: "ready", remoteEvidence });
+        hiflyPage.downloadArtifact = async (_remoteEvidence, destination) => {
+          await writeFile(path.join(destination, "dom-default-verifier.mp4"), "video");
+          return { artifact_id: "work-dom-default-verifier", relative_path: "outputs/dom-default-verifier.mp4" };
+        };
+        hiflyPage.reconcileSubmission = async () => ({ candidates: [] });
+        return hiflyPage;
+      }
+    });
+
+    assert.deepEqual(await adapter.preflight({ task }), { status: "ready" });
+    const result = await adapter.run({
+      order: orderFor(),
+      attempt: { id: "attempt-dom-default-verifier" },
+      package: packageFor()
+    });
+    assert.equal(result.status, "succeeded");
+    assert.equal(paidClicks, 1);
+
+    invalidateSettingsBeforeLateRead = true;
+    const blocked = await adapter.run({
+      order: orderFor(),
+      attempt: { id: "attempt-dom-default-verifier-late-blocked" },
+      package: packageFor()
+    });
+    assert.equal(blocked.status, "requires_action");
+    assert.equal(blocked.code, "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED");
+    assert.equal(blocked.failureStage, "pre_paid_gate");
+    assert.equal(paidClicks, 1);
+    assert.equal(await page.evaluate(() => window.subtitleClicks), 0);
+  } finally {
+    if (adapter) await adapter.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
+    await cleanup();
+  }
+});
 
 async function generatedPackageForCloudExecutor() {
   const assetBody = Buffer.from("generated-product-image");
@@ -231,14 +463,13 @@ test("cloud adapter injects an explicit profile/workspace and composes the exist
   }
 });
 
-test("cloud adapter preflight is browser-zero when no contract field verifier is proven", async () => {
+test("cloud adapter preserves browser-zero preflight without a task verifier", async () => {
   const { workspace, cleanup } = await workspaceFixture();
   const calls = [];
   try {
     const adapter = createCloudPlaywrightAdapter({
       workspace,
-      browserType: { async launchPersistentContext() { calls.push("browser"); throw new Error("browser must not launch"); } },
-      hiflyPageFactory() { calls.push("delegate"); return {}; }
+      browserType: { async launchPersistentContext() { calls.push("browser"); throw new Error("browser must not launch"); } }
     });
     const result = await adapter.preflight();
     assert.equal(result.ready, false);

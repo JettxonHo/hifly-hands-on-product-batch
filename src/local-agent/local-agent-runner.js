@@ -11,6 +11,7 @@ import {
   HIFLY_PRE_PAID_REQUIREMENTS,
   HIFLY_STRUCTURED_VERIFICATION_ERROR_CODES,
   completeEvidenceForFields,
+  hiflyPrePaidRequirementsFor,
   inspectStructuredVerificationResult,
   sanitizeEvidenceRecords,
 } from "../execution-contracts/hifly-hands-on-product-evidence.js";
@@ -91,22 +92,24 @@ const LOCAL_ACTION_REASON_CODES = new Set([
   ...LOCAL_CONTRACT_VERIFICATION_CODES
 ]);
 
-function localContractVerificationError(code, fields = LOCAL_CONTRACT_VERIFICATION_FIELDS, evidence = null) {
+function localContractVerificationError(code, fields = LOCAL_CONTRACT_VERIFICATION_FIELDS, evidence = null, failureStage = "pre_point_gate", requirements = HIFLY_PRE_PAID_REQUIREMENTS) {
   const error = localAgentError(code, {
     outcome: "requires_action",
     details: { fields, evidence }
   });
-  error.failureStage = "pre_point_gate";
-  error.evidence = completeEvidenceForFields(evidence, fields);
+  error.failureStage = failureStage;
+  error.evidence = completeEvidenceForFields(evidence, fields, requirements);
   return error;
 }
 
-async function verifyLocalPrePointContract({ executor, verifier, task }) {
+async function verifyLocalPrePointContract({ executor, verifier, task, phase = "pre_point", failureStage = "pre_point_gate" }) {
   const contract = task?.hifly_hands_on_product_v1;
   if (!contract) return null;
+  const requirements = hiflyPrePaidRequirementsFor(contract);
+  const fields = Object.keys(requirements);
   const candidate = verifier || executor?.verifyPrePointContract;
   if (typeof candidate !== "function") {
-    throw localContractVerificationError("CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
+    throw localContractVerificationError("CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", fields, null, failureStage, requirements);
   }
 
   let result;
@@ -116,21 +119,31 @@ async function verifyLocalPrePointContract({ executor, verifier, task }) {
       contract,
       page: executor?.page,
       hiflyPage: executor?.hiflyPage,
-      fields: LOCAL_CONTRACT_VERIFICATION_FIELDS,
-      phase: "pre_point"
+      fields,
+      phase
     });
   } catch (error) {
     if (LOCAL_CONTRACT_VERIFICATION_CODES.has(error?.code)) {
-      throw localContractVerificationError(error.code, error.details?.fields || LOCAL_CONTRACT_VERIFICATION_FIELDS, error.evidence);
+      throw localContractVerificationError(error.code, error.details?.fields || fields, error.evidence, failureStage, requirements);
     }
-    throw localContractVerificationError("CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
+    throw localContractVerificationError("CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", fields, null, failureStage, requirements);
   }
 
-  const inspected = inspectStructuredVerificationResult(result, HIFLY_PRE_PAID_REQUIREMENTS);
+  const inspected = inspectStructuredVerificationResult(result, requirements);
   if (!inspected.valid) {
-    throw localContractVerificationError(inspected.code, inspected.fields || LOCAL_CONTRACT_VERIFICATION_FIELDS, inspected.evidence);
+    throw localContractVerificationError(inspected.code, inspected.fields || fields, inspected.evidence, failureStage, requirements);
   }
   return inspected;
+}
+
+async function currentSettingsVerifier({ executor, task, phase }) {
+  const hiflyPage = executor?.hiflyPage;
+  if (typeof hiflyPage?.verifyCurrentSettings !== "function") {
+    throw localContractVerificationError("CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE", Object.keys(hiflyPrePaidRequirementsFor(task.hifly_hands_on_product_v1)), null,
+      phase === "pre_point" ? "pre_point_gate" : "pre_paid_gate", hiflyPrePaidRequirementsFor(task.hifly_hands_on_product_v1));
+  }
+  if (phase === "pre_point") await hiflyPage.prepareCurrentSettings?.(task);
+  return hiflyPage.verifyCurrentSettings(task);
 }
 
 function createLeaseHeartbeatController({ client, attemptId, runId, getProgressPhase, intervalMs, setIntervalImpl, clearIntervalImpl, heartbeatScheduler, onError }) {
@@ -187,7 +200,7 @@ function createLeaseHeartbeatController({ client, attemptId, runId, getProgressP
   };
 }
 
-async function executeBatch({ task, executor, temporaryRoot, attemptId, runId }) {
+async function executeBatch({ task, executor, temporaryRoot, attemptId, runId, contractFieldVerifier = null }) {
   const batchId = `local-agent-${attemptId}-${runId}`;
   const batchRoot = path.join(temporaryRoot, "batches");
   const downloadDir = path.join(temporaryRoot, "downloads");
@@ -205,13 +218,33 @@ async function executeBatch({ task, executor, temporaryRoot, attemptId, runId })
   const items = [{ ...sourceTask, execution_key: snapshot.executionKey }];
   const store = createBatchStore(batchRoot);
   const lock = await acquireExecutionLock({ root: path.join(temporaryRoot, "locks"), batchId, instanceId: `local-agent-${process.pid}-${runId}` });
+  const currentSettingsContract = task?.hifly_hands_on_product_v1 &&
+    hiflyPrePaidRequirementsFor(task.hifly_hands_on_product_v1) !== HIFLY_PRE_PAID_REQUIREMENTS;
+  const executionExecutor = typeof contractFieldVerifier === "function" && currentSettingsContract
+    ? {
+        ...executor,
+        async createAsset(currentTask, context = {}) {
+          const wrappedContext = {
+            ...context,
+            contractFieldVerifier: async () => verifyLocalPrePointContract({
+              executor,
+              verifier: contractFieldVerifier,
+              task: currentTask,
+              phase: "pre_paid_action_1",
+              failureStage: "pre_paid_gate"
+            })
+          };
+          return executor.createAsset(currentTask, wrappedContext);
+        }
+      }
+    : executor;
   try {
     const result = await runBatch({
       batchId,
       items,
       config: { execution },
       paths: { projectRoot: temporaryRoot, downloadDir },
-      executor,
+      executor: executionExecutor,
       store,
       lock
     });
@@ -350,12 +383,19 @@ export async function runLocalAgentOnce({
       return { status: "requires_action", exitCode: EXIT_CODES.requiresAction, attemptId, report };
     }
 
+    const currentSettingsContract = hiflyPrePaidRequirementsFor(task.hifly_hands_on_product_v1) !== HIFLY_PRE_PAID_REQUIREMENTS;
+    const effectiveContractFieldVerifier = isRealExecutionEnabled({ argv, env }) && currentSettingsContract
+      ? async (input) => {
+          const pageEvidence = await currentSettingsVerifier({ executor: selectedExecutor, task, phase: input.phase });
+          if (typeof contractFieldVerifier === "function") return contractFieldVerifier(input);
+          return pageEvidence;
+        }
+      : contractFieldVerifier;
     if (isRealExecutionEnabled({ argv, env })) {
-      await verifyLocalPrePointContract({ executor: selectedExecutor, verifier: contractFieldVerifier, task });
+      await verifyLocalPrePointContract({ executor: selectedExecutor, verifier: effectiveContractFieldVerifier, task });
     }
-
     progressPhase = "executing";
-    const output = await executeBatch({ task, executor: selectedExecutor, temporaryRoot, attemptId, runId });
+    const output = await executeBatch({ task, executor: selectedExecutor, temporaryRoot, attemptId, runId, contractFieldVerifier: effectiveContractFieldVerifier });
     await heartbeatController.assertLease();
     const outputChecksum = checksum(output.body);
     const filename = candidateFilename(task);

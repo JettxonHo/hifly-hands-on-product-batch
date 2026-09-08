@@ -776,7 +776,7 @@ test("production Compose and image define one disabled worker with persistent me
   assert.match(compose, /restart: unless-stopped/);
 
   assert.match(dockerfile, /FROM node:22-bookworm-slim/);
-  for (const packageName of ["xvfb", "x11vnc", "novnc", "websockify", "x11-utils"]) assert.match(dockerfile, new RegExp(`\\b${packageName}\\b`));
+  for (const packageName of ["xvfb", "x11vnc", "novnc", "websockify", "x11-utils", "ffmpeg"]) assert.match(dockerfile, new RegExp(`\\b${packageName}\\b`));
   assert.match(dockerfile, /playwright install --with-deps chromium/);
   const userNodeIndex = dockerfile.indexOf("USER node");
   const x11DirectoryIndex = dockerfile.indexOf("mkdir -p /tmp/.X11-unix");
