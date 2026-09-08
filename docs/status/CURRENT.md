@@ -1,10 +1,14 @@
 # 项目当前状态
 
-> 更新：2026-09-08。当前执行方向：HIFLY FAST-MVP / D-038。
-> R0 PASS；R1 PARTIAL；R2 BLOCKED（清单未冻结）；R3–R6 NOT_EXECUTED。
-> 当前分支 `codex/hifly-fast-mvp`，基准 main `2af015ab220ecc9d65de209ea690adb98cacc1c4`；部署 App/Worker `3e53bffdd2c59e401815148ccd317b669d32216b`，实时只读核验健康。
+> 更新：2026-09-09（北京时间）。当前执行方向：HIFLY FAST-MVP / D-038。
+> R0 PASS；R1 PARTIAL；R2 BLOCKED（Golden Path Preflight）；R3–R6 NOT_EXECUTED。
+> 当前分支 `codex/hifly-fast-mvp`，基准 main `2af015ab220ecc9d65de209ea690adb98cacc1c4`；部署 App/Worker 最近核验为 `3e53bffdd2c59e401815148ccd317b669d32216b` 且健康；本轮未部署。
 
-唯一主线：[ROADMAP](../ROADMAP.md)；[本轮证据](sessions/2026-09-07-fast-mvp.md)；[冻结清单（当前未冻结）](../experiments/fast-mvp-paired-v1.json)。
+唯一主线：[ROADMAP](../ROADMAP.md)；当前验收入口：[Golden Path Preflight](../experiments/GOLDEN_PATH_PREFLIGHT.md)；[本轮证据](sessions/2026-09-07-fast-mvp.md)；[现有清单（当前未冻结）](../experiments/fast-mvp-paired-v1.json)。
+
+Owner最新收口为P1＋人物A的一条工作台真实闭环；最多两条完整视频仅用于预算准备，当前未授权付费。P3、人物B、三种人物来源与3+3矩阵后置，不阻塞首条。人物A当前只读元数据为active/available/valid、材料可访问，本地原图与登记校验值一致，随后线上App实际Asset Store读取的组织/类型/大小/checksum均匹配；素材输入核验PASS，H0提供既有手里有货成功证据。P1文件与口播尚待提供；本机Hifly旧页刷新后为游客，已打开同账号扫码入口。官方积分说明已重新读取：定制500＋文本视频10积分/秒，单条/两条hard cap还缺可核验计费时长上界及本次报价。真实提交回执、持久关联接线和适用发布仍是硬缺口。当前仅预检/只读，不上传、建生产任务、生成或下载视频。
+
+候选c5d404b已通过独立Review和CI34223674200（含PostgreSQL原片事务与强制无skip的27项串行浏览器/媒体回归）、Windows stress34223674229；未合并/部署。以下保留此前FAST-MVP研发与校准记录，不覆盖Golden Path最新优先级。
 
 Owner 已明确授权本轮普通研发与零 Provider 验证。新上传、付费、合并、部署均未执行/未授权。旧目录 `Product Recommendation clip` 为脏旧 GUI 分支，不做实现源。旧 #278 合同已由 #279 合并/部署，下面历史的 pending merge 不再作为当前事实；缺少真实校验的 GAP 仍需解决。
 

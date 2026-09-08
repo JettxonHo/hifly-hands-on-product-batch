@@ -10,7 +10,9 @@
 
 2026-09-08 首次 30 分钟、0 积分校准已结束。Owner 随后确认具体设置/比例交付政策及第二次最多 30 分钟、0 积分校准；当前执行记录见 session，政策见 D-038。该有限访问授权不代表上传、生成或六条实验获批；普通离线研发继续在原范围内推进。
 
-R0–R6 的目标、前置、任务、验收、成本、停止、交付物与状态只维护在主 Roadmap。运行前必须冻结版本/六样本/设置/中间产物策略和预算，A 纯 Computer Use，B 工作台，默认 A1→A2→A3→B1→B2→B3，最多六视频，无自动付费重试。后续首批十条需新授权。
+Owner 最新收口：先冻结 P1＋人物 A 的 Golden Path；预算准备最多两条完整视频，每条包含全部固有收费阶段，首次真实Run仍需独立授权。当前仅输入核对与零积分/零生成校准；P1具体素材、口播/时长、完整报价、hard cap和可靠提交回执未齐备前禁止生成。人物B/P3、三种来源及三组配对降为成功后的Repeatability/Experiment Matrix。R0–R6仍只维护在主Roadmap，原配对设计保留为后置材料，不成为第一条的Gate。
+
+当前验收入口：[Golden Path Preflight Report](docs/experiments/GOLDEN_PATH_PREFLIGHT.md)。全部PASS后只申请一次独立、bounded的真实付费Golden Path授权；最多两条是预算准备范围，不是当前生成许可，也不是自动重试许可。
 
 H0 为 Playwright+Computer Use 混合校准；不是正式 A/B，也不证明当前工作台已完整通过。Mock/测试不能替代真实成功。
 
