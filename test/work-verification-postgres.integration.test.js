@@ -77,7 +77,8 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
   await pool.query(`INSERT INTO asset_assets(id,organization_id,kind,display_name,status,row_version,created_by_member_id,created_at,updated_at)
     VALUES ($1,'org-a12-pg','avatar_image','迁移回归人物素材','active',1,$2,$3,$3)`, [randomUUID(), seeded.member.id, at]);
   const ids = Object.fromEntries([
-    "project", "product", "revision", "plan", "copy", "avatarAsset", "avatarVersion", "order", "package", "packageJob", "attempt", "report", "candidate", "originalCandidate"
+    "project", "product", "revision", "plan", "copy", "avatarAsset", "avatarVersion", "order", "package", "packageJob", "attempt", "report", "candidate", "originalCandidate",
+    "concurrentAttempt", "concurrentReport", "concurrentCandidate"
   ].map((name) => [name, randomUUID()]));
   const organizationId = "org-a12-pg";
   const body = Buffer.from("postgres-candidate-video");
@@ -158,6 +159,21 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
     VALUES ($1,$2,$3,$4,$5,2,'manifest-a12','supporting_output','a12-original.mp4','video/mp4',$6,$7,'pending_verification',2,$8,$9,$10,$11,$11,$11)`,
     [ids.originalCandidate, organizationId, ids.order, ids.attempt, ids.package, originalBody.length, originalChecksum,
       createHash("sha256").update("a12-original-token").digest("hex"), "a12/original.mp4", seeded.member.id, at]);
+  const concurrentChecksum = "b".repeat(64);
+  await pool.query(`INSERT INTO manual_execution_attempts
+    (id,organization_id,production_order_id,package_id,package_version,manifest_hash,executor_type,operator_id,status,row_version,claimed_at,started_at,completed_at,created_at,updated_at,status_history)
+    VALUES ($1,$2,$3,$4,2,'manifest-a12','manual',$5,'succeeded',2,$6,$6,$6,$6,$6,$7)`,
+    [ids.concurrentAttempt, organizationId, ids.order, ids.package, seeded.member.id, at, JSON.stringify([{ from_status: "running", to_status: "succeeded", at }])]);
+  await pool.query(`INSERT INTO manual_execution_candidates
+    (id,organization_id,production_order_id,execution_attempt_id,package_id,package_version,manifest_hash,role,original_filename,media_type,size,checksum,status,row_version,upload_token_digest,object_key,uploaded_by_member_id,created_at,updated_at,uploaded_at)
+    VALUES ($1,$2,$3,$4,$5,2,'manifest-a12','primary_video','concurrent.mp4','video/mp4',1,$6,'pending_verification',2,$7,$8,$9,$10,$10,$10)`,
+    [ids.concurrentCandidate, organizationId, ids.order, ids.concurrentAttempt, ids.package, concurrentChecksum,
+      createHash("sha256").update("concurrent-token").digest("hex"), "a12/concurrent.mp4", seeded.member.id, at]);
+  await pool.query(`INSERT INTO manual_execution_reports
+    (id,organization_id,report_version,production_order_id,execution_attempt_id,package_id,package_version,manifest_hash,submitted_by,submitted_at,outcome,completed_at,deviations,primary_output)
+    VALUES ($1,$2,1,$3,$4,$5,2,'manifest-a12',$6,$7,'completed',$7,'[]',$8)`,
+    [ids.concurrentReport, organizationId, ids.order, ids.concurrentAttempt, ids.package, seeded.member.id, at,
+      JSON.stringify({ upload_reference: ids.concurrentCandidate, checksum: concurrentChecksum, media_type: "video/mp4", size: 1, role: "primary_video" })]);
 
   const migrationProbeClient = await pool.connect();
   try {
@@ -197,7 +213,7 @@ test("PostgreSQL A12 completion commits Work, canonical AssetVersion, order tran
   const concurrentReceiptKey = `${organizationId}:work-verification:concurrent-receipt`;
   const concurrentJobs = ["b", "c"].map((letter) => ({
     id: randomUUID(), organization_id: organizationId, type: "artifact_verification", production_order_id: ids.order,
-    execution_attempt_id: ids.attempt, report_id: ids.report, candidate_id: ids.candidate, primary_output_checksum: letter.repeat(64),
+    execution_attempt_id: ids.concurrentAttempt, report_id: ids.concurrentReport, candidate_id: ids.concurrentCandidate, primary_output_checksum: letter.repeat(64),
     requested_by_member_id: seeded.member.id, requested_by_role: "admin", status: "queued", verification_status: "queued",
     failure_kind: null, failure_code: null, failure_reason: null, attempts: 0, max_attempts: 3, lease_token: null,
     lease_expires_at: null, started_at: null, heartbeat_at: null, completed_at: null, work_id: null, receipt_key: concurrentReceiptKey,
