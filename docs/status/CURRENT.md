@@ -10,6 +10,8 @@ Owner最新收口为P1＋人物A的一条工作台真实闭环；最多两条完
 
 当前代码具备官方API的积分/公共人物目录读取，未接视频生成链；线上App只读核验官方Token未配置、生成执行保持停用。官网V2有口播task_id与结果查询，但手持商品合成接口未确认。详见[能力证据台账](../product/HIFLY_CAPABILITY_EVIDENCE.md)，不因套餐API权益自动改路或生成。
 
+后续只读公开前端调查已确认：goods先调用网页CMS两图手持合成，再将gen_id/图片引用交给商品视频接口；这些前端地址与公开V2不同，后台模型/服务共用及开发者Token权限仍未知。Owner优先完整官方API路线，当前仅做能力核验；没有因页面接口可见就改用它，没有执行素材上传、生成或新业务API调用。
+
 候选c5d404b已通过独立Review和CI34223674200（含PostgreSQL原片事务与强制无skip的27项串行浏览器/媒体回归）、Windows stress34223674229；未合并/部署。以下保留此前FAST-MVP研发与校准记录，不覆盖Golden Path最新优先级。
 
 Owner 已明确授权本轮普通研发与零 Provider 验证。新上传、付费、合并、部署均未执行/未授权。旧目录 `Product Recommendation clip` 为脏旧 GUI 分支，不做实现源。旧 #278 合同已由 #279 合并/部署，下面历史的 pending merge 不再作为当前事实；缺少真实校验的 GAP 仍需解决。

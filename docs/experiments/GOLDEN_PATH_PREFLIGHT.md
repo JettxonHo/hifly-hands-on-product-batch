@@ -45,6 +45,8 @@
 
 2026-09-09另行核对[官方API V2文档](https://api.lingverse.co/hifly.html)：官方口播视频接口返回task_id，查询/回调提供状态、时长和临时视频地址，可作为官方API路径的关联依据。但文档中的图片数字人输入只有单张图，未确认“人物图＋商品图合成手持效果”的接口；不能把普通图片数字人/口播API视为完整手里有货。项目官方client目前只查积分和公共人物目录，未接生成/任务查询/下载；线上App只读检查HIFLY_API_TOKEN存在性为false，生产执行保持停用。API能力与本轮路径的进一步选择见既有[能力证据台账](../product/HIFLY_CAPABILITY_EVIDENCE.md)，本次不切换执行器或扩大功能。
 
+同日公开前端核对进一步确认：goods用网页CMS的两图合成接口，再把gen_id/image_oss_key传给商品视频接口；不是前端直接调用公开V2的create_by_image/create_by_tts。后台是否共用服务/模型及开发者Token能否使用这些能力仍未知。提交响应的通用埋点提供id/creation_id/task_id候选线索，当前真实schema未验证，不能把它们直接写成可靠回执。Owner偏好完整官方API路线；仅替换后半段不能当作完整API闭环，当前上传/生成/预算门禁不变。
+
 ## 链路 readiness 与执行决定
 
 | 链路 | 当前判定 |
