@@ -162,15 +162,24 @@
     "private_evidence_root_alias": "original_gui_checkout_git_ignored_outputs",
     "person_private_ref": "outputs/golden-path-preflight-20260908/person-a.json",
     "product_alias": "P1",
-    "product_version": null,
-    "product_rights_ref": null,
-    "copy_ref": null,
+    "product_version": "P1-owner-input-20260909-v1",
+    "product_rights_ref": "Owner P1 upload/use/download/regression scope in preceding Golden Path instruction, bound to current supplied image and script; no paid execution authorization",
+    "copy_ref": "outputs/golden-path-preflight-20260908/inputs/p1-script.txt",
     "target_duration_seconds": null,
     "maximum_billable_duration_seconds": null,
     "initial_run_request_videos": 1,
     "phase_maximum_complete_videos": 2,
     "current_paid_authorization": false,
-    "report": "GOLDEN_PATH_PREFLIGHT.md"
+    "report": "GOLDEN_PATH_PREFLIGHT.md",
+    "product_private_ref": "outputs/golden-path-preflight-20260908/p1-input-v1.json",
+    "product_input_status": "LOCAL_INPUT_VERIFIED_NOT_REGISTERED_OR_UPLOADED",
+    "platform_image_acceptance": "NOT_VERIFIED",
+    "copy_source": "owner_exact_five_paragraphs",
+    "copy_status": "RECEIVED_UNMODIFIED",
+    "script_unicode_characters": 158,
+    "script_han_characters": 125,
+    "current_browser_account_status": "LOGGED_IN_OTHER_ACCOUNT_OWNER_CONFIRMED",
+    "production_account_session_verified": false
   },
   "golden_path_cost": {
     "source": "https://lingverse.feishu.cn/wiki/KW8AwmBY0iP0UFk6cLNcQJJKnsc",
@@ -182,7 +191,8 @@
     "single_video_hard_cap": null,
     "phase_hard_cap": null,
     "conditional_upper_formula": "500 + 10 * max(1, ceil(D)), only if maximum billable duration D is proven",
-    "status": "PARTIAL_DOCUMENTED_RATES_NOT_EXECUTION_READY"
+    "status": "PARTIAL_DOCUMENTED_RATES_NOT_EXECUTION_READY",
+    "excluded_observation": "Current Chrome account is not H0 production account; do not use its balance, membership or free-tier duration limit as a bound"
   },
   "repeatability_matrix": {
     "paths": {
@@ -206,7 +216,7 @@
         "avatar_version": null,
         "rights_ref": null,
         "copy_ref": null,
-        "status": "MISSING_APPROVED_INPUTS"
+        "status": "DEFERRED_GOLDEN_PATH_P1_INPUT_AVAILABLE_NOT_MATRIX_FROZEN"
       },
       {
         "sample_id": "P2",
