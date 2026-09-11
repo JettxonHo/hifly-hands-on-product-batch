@@ -274,7 +274,9 @@
     if (workspaceMode) {
       next.searchParams.delete("id");
       next.searchParams.set("project", projectId);
-      if (revision?.product_id) next.searchParams.set("product", revision.product_id);
+      const productId = revision?.product_id || activeProductId;
+      if (productId) next.searchParams.set("product", productId);
+      else next.searchParams.delete("product");
       next.searchParams.set("stage", "product_content");
     }
     if (revision?.id) next.searchParams.set("revision", revision.id);
@@ -582,10 +584,10 @@
     const selected = selectProductId
       ? project.products.find((item) => item.id === selectProductId || item.revision.product_id === selectProductId)
       : project.products.find((item) => item.revision.id === selectRevisionId);
-    if (workspaceMode && !selected && !selectRevisionId) throw Object.assign(new Error("OPERATOR_WORKSPACE_NOT_FOUND"), { status: 404 });
+    if (workspaceMode && !selected && !selectRevisionId && project.products.length) throw Object.assign(new Error("OPERATOR_WORKSPACE_NOT_FOUND"), { status: 404 });
     const historicalRevision = selected ? null : await requestedProjectRevision(selectRevisionId);
     const selectedRevision = selected?.revision || historicalRevision || (workspaceMode ? null : project.products[0]?.revision);
-    if (workspaceMode && !selectedRevision) throw Object.assign(new Error("OPERATOR_WORKSPACE_NOT_FOUND"), { status: 404 });
+    if (workspaceMode && !selectedRevision && project.products.length) throw Object.assign(new Error("OPERATOR_WORKSPACE_NOT_FOUND"), { status: 404 });
     if (selectedRevision) activeProductId = selectedRevision.product_id;
     if (selectedRevision) renderRevision(selectedRevision);
     else {
@@ -712,7 +714,10 @@
       const result = await request(`/api/projects/${projectId}/products`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ product_name: productForm.product_name.value }) });
       productForm.reset();
       productDialog.close();
-      if (workspaceMode) activeProductId = result.product.id;
+      if (workspaceMode) {
+        activeProductId = result.product.id;
+        if (!(await loadWorkspaceProjection())) return;
+      }
       await loadProject(result.revision.id, workspaceMode ? result.product.id : null);
       await refreshAssets();
     } catch (error) {
@@ -804,7 +809,12 @@
       if (!runtime.projectContentEnabled) return location.replace("/");
       if (workspaceMode) {
         if (runtime.operatorWorkspaceEnabled !== true) return fallbackFromWorkspace();
-        if (!(await loadWorkspaceProjection())) return;
+        if (!activeProductId) {
+          if (requestedRevisionId) return location.replace("/projects.html");
+          const projectBody = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project;
+          activeProductId = projectBody?.products?.[0]?.id || null;
+        }
+        if (activeProductId && !(await loadWorkspaceProjection())) return;
       }
       await loadProject(requestedRevisionId, workspaceMode && !requestedRevisionId ? activeProductId : null);
       await refreshAssets();
@@ -875,7 +885,7 @@
     });
   }
 
-  if (!projectId || (workspaceMode && !activeProductId)) return location.replace("/projects.html");
+  if (!projectId) return location.replace("/projects.html");
   if (workspaceMode) {
     acceptedWorkspaceHistoryIndex = Number.isInteger(history.state?.workspaceHistoryIndex) ? history.state.workspaceHistoryIndex : 0;
     history.replaceState({ ...(history.state || {}), workspaceHistoryIndex: acceptedWorkspaceHistoryIndex, productId: activeProductId }, "", location.href);

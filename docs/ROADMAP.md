@@ -6,6 +6,8 @@
 
 2026-09-08 Owner收口：当前先做 **P1＋人物A、工作台正式入口的一条Golden Path**。最多两条完整视频只是本轮预算准备上限，当前付费授权仍为0；首次Run在[Golden Path Preflight](experiments/GOLDEN_PATH_PREFLIGHT.md)全部PASS后单独申请。人物B、P3、三种人物来源和3+3矩阵均后置，不阻塞首条。
 
+2026-09-11当前R1/R2有界执行合同见[正式用户验证前置条件报告](status/REAL_USER_VALIDATION_PRECONDITION.md)。本轮先做身份/入口/回执/费用核验与必要修复，不直接生产、不启动非作者测试；一次独立Review覆盖实际diff，保留Required CI，发布在适用授权内进行。没有新API证据时不重开路线研究；Career Track B只附随保存证据。
+
 ## 产品与工程约束
 
 工作台完成：选择已有可执行人物 → 上传/选择商品图 → 输入中文口播 → 确认设置/费用 → 手持图与视频 → 自动取回 → 播放、下载、追踪。普通用户不需理解 CopyVersion、VideoPlan、合同或 Attempt；内部复用现有数据、任务、存储、Cloud Playwright、下载和审计核心。

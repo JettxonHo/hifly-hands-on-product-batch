@@ -1,10 +1,24 @@
 # 项目当前状态
 
+> 更新：2026-09-11。当前阶段：REAL_USER_VALIDATION_PRECONDITION_GATE，Owner已确认调整后的合同并授权执行。
+> R0 PASS；R1 PARTIAL；R2 BLOCKED；真实Golden Path及非作者测试未授权、未执行。
+
+当前任务合同与A–M核验结果统一记录在[前置条件报告](REAL_USER_VALIDATION_PRECONDITION.md)。本轮围绕已有Web Golden Path候选做必要最小修复和无Provider验证；保留API Coverage结论，不重开API调查。精确价格可未知，但上限必须可核验、可执行；内部任务防重不冒充Provider幂等，原片先留存再决定可交付。合并、部署、实际飞影校准/上传/生成和非作者测试仍需各自适用授权。
+
+2026-09-11实核：开发分支codex/hifly-fast-mvp起点4d98078，GitHub main2af015a；本地main仍是旧ca47ec9，不采用它作为主线。PR285仍OPEN/DRAFT、未合并；线上源码/App/Worker同为3e53bff且健康，执行停用；正式HTTPS入口自签名证书校验失败，未绕过。报告更新后只链接其详细证据，不复制多个状态表。
+
+## 2026-09-09 已完成调查及历史检查点
+
+以下为此前快照，当前执行范围与结论以2026-09-11前置条件报告为准。
+
 > 更新：2026-09-09（北京时间）。当前执行方向：HIFLY FAST-MVP / D-038。
+> 当前有界工作：Developer API Coverage Gate只读调查。结论D—PROVIDER_CONFIRMATION_REQUIRED；调查报告交付后停止，未授权API Spike或继续增强Playwright。
 > R0 PASS；R1 PARTIAL；R2 BLOCKED（Golden Path Preflight）；R3–R6 NOT_EXECUTED。
 > 当前分支 `codex/hifly-fast-mvp`，基准 main `2af015ab220ecc9d65de209ea690adb98cacc1c4`；部署 App/Worker 最近核验为 `3e53bffdd2c59e401815148ccd317b669d32216b` 且健康；本轮未部署。
 
 唯一主线：[ROADMAP](../ROADMAP.md)；当前验收入口：[Golden Path Preflight](../experiments/GOLDEN_PATH_PREFLIGHT.md)；[本轮证据](sessions/2026-09-07-fast-mvp.md)；[现有清单（当前未冻结）](../experiments/fast-mvp-paired-v1.json)。
+
+本次[Developer API Coverage Report](../product/HIFLY_GOODS_IN_HAND_API_COVERAGE_REPORT.md)为该有界Gate的当前结论：Holding能力REQUIRES_PROVIDER_CONFIRMATION，原生等价性未证明，完整API合同未成立，进入P1＋Person A Official API Spike的答案为NO。公开资料未记载不等于厂商明确不提供，不能据此选PUBLIC_API_GAP或HYBRID。当前付费套餐的具体Holding权限、输入/回执/下游衔接与API费用均待官方确认；本轮未触发业务API、上传、生成、Secret或生产变更。
 
 Owner最新收口为P1＋人物A的一条工作台真实闭环；最多两条完整视频仅用于预算准备，当前未授权付费。P3、人物B、三种人物来源与3+3矩阵后置，不阻塞首条。人物A当前只读元数据为active/available/valid、材料可访问，本地原图与登记校验值一致，随后线上App实际Asset Store读取的组织/类型/大小/checksum均匹配；素材输入核验PASS，H0提供既有手里有货成功证据。P1已收到Jisulife手持风扇原图（PNG448×770，203,769 bytes）及五段口播，原文保留、仅作本地预检留存；飞影图片接收未验证。本机Hifly已登录，但Owner确认这是不同于H0付费账号的账号；其余额、套餐状态与时长限制已排除，未上传或建任务。官方积分说明已重新读取：定制500＋文本视频10积分/秒，单条/两条hard cap还缺可核验计费时长上界及本次报价。真实提交回执、持久关联接线和适用发布仍是硬缺口。当前仅预检/只读，不上传、建生产任务、生成或下载视频。
 

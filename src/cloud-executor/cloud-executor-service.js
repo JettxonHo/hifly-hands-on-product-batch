@@ -368,7 +368,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
 
   async function prepareVideoResult(packageRecord, result) {
     const contract = verifiedDeliveryContract(packageRecord);
-    if (!contract) return { primary: result, supporting: [], evidence: result?.evidence || result?.asset_evidence?.handheld_evidence };
+    if (!contract) return { primary: result, evidence: result?.evidence || result?.asset_evidence?.handheld_evidence };
     let normalized;
     try {
       normalized = await deliveryNormalizer.normalize({
@@ -382,7 +382,6 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     return {
       primary: { ...result, body: normalized.delivery.bytes, mediaType: normalized.delivery.media_type,
         originalFilename: normalized.delivery.original_filename, checksum: normalized.delivery.checksum },
-      supporting: [normalized.original],
       evidence: [...baseEvidence, ...normalized.evidence]
     };
   }
@@ -390,6 +389,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
   async function runAttempt(claimedAttempt, claimedOrder, packageRecord) {
     let started;
     let finishHeartbeats = null;
+    const supporting = [];
     try {
       started = await startAttempt(claimedAttempt, claimedOrder);
       const attempt = started.attempt;
@@ -465,14 +465,15 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           halted = true;
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
+        // Keep the executor's downloaded bytes before probing or transforming
+        // them. A failed delivery remains evidence of this attempt, not a Work.
+        if (verifiedDeliveryContract(packageRecord)) {
+          const original = await candidateForResult(attempt, packageRecord, result, { role: "supporting_output" });
+          supporting.push({ ...(await saveCandidate(original)).candidate, purpose: "hifly_original" });
+        }
         const prepared = await prepareVideoResult(packageRecord, result);
         const candidate = await candidateForResult(attempt, packageRecord, prepared.primary);
         const uploaded = await saveCandidate(candidate);
-        const supporting = [];
-        for (const value of prepared.supporting) {
-          const supportCandidate = await candidateForResult(attempt, packageRecord, value, { role: "supporting_output" });
-          supporting.push({ ...(await saveCandidate(supportCandidate)).candidate, purpose: "hifly_original" });
-        }
         const currentAttempt = await finishHeartbeats();
         const completed = await saveReport({ attempt: currentAttempt, order: executionOrder, candidate: uploaded.candidate, outcome: "completed",
           supportingCandidates: supporting, evidence: prepared.evidence });
@@ -508,12 +509,13 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           if (terminalError?.code === "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN" || terminalError?.outcome === "requires_action") {
             const requiresAction = await saveReport({ attempt: current, order, outcome: "requires_action",
               failureStage: clean(terminalError.failureStage) || "unknown_post_submit", requiresActionReason: terminalError.message,
-              progressPhase: "unknown_post_submit", evidence: terminalError.evidence });
+              progressPhase: "unknown_post_submit", evidence: terminalError.evidence, supportingCandidates: supporting });
             return { status: "requires_action", stopped: true, attempt: publicAttempt(requiresAction.attempt),
               report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
           }
           const failed = await saveReport({ attempt: current, order, outcome: "failed",
-            failureStage: clean(terminalError?.failureStage) || (mode === "playwright" ? "playwright_execution" : "fake_execution") });
+            failureStage: clean(terminalError?.failureStage) || (mode === "playwright" ? "playwright_execution" : "fake_execution"),
+            supportingCandidates: supporting });
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
       }

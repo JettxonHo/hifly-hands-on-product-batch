@@ -8,6 +8,8 @@
 
 本台账是 Provider 能力证据台账：每项能力按五层确认状态记录**当前实际确认到哪一层**。Evidence 证明当前实际确认状态，但不能自行改变产品决策。
 
+最新有界Developer API Coverage Gate见[专门报告](HIFLY_GOODS_IN_HAND_API_COVERAGE_REPORT.md)：Q1=REQUIRES_PROVIDER_CONFIRMATION；架构判定D=PROVIDER_CONFIRMATION_REQUIRED；当前API Spike准入NO。本次只读调查完成后停止；以下已确认网页工作流仅作复用证据，不升级为Developer API授权或等价性证明。
+
 ## 2026-09-09 Golden Path 的 API 与会话核对
 
 - 重新读取[官方API V2](https://api.lingverse.co/hifly.html)：Bearer Token鉴权；提供单张图片创建数字人、文本/音频驱动视频、task_id查询和完成回调；视频结果地址为临时地址。当前文档未确认“人物图＋商品图合成手持效果”的正式接口，不能将套餐API权益或create_by_image直接当成完整手里有货支持，也不能据此断言飞影完全不存在其他授权接口。
