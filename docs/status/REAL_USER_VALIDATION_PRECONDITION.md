@@ -124,6 +124,7 @@ API是否完整开放不是本轮重新调查的阻断；人物B/P3、UI美化�
 - 060915a的[CI34590525025](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/runs/34590525025)（Ubuntu/Windows/identity-postgres）与[Windows stress34590525022](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/runs/34590525022)全部SUCCESS。CI日志明确显示A11/A12 PostgreSQL集成用例ok、skipped 0，新回执JSONB往返已实际执行；这仅为测试数据库证明，不是生产库迁移或真实Provider验证。
 - 合并、镜像构建、部署、Workspace/Worker激活：NOT_EXECUTED；没有新授权。Exact merged main仍2af015a；本轮候选没有merged SHA。线上仍3e53bff。
 - 回滚准备：本轮为入口条件导航和既有Report引用顺序修正，无migration；未来发布需要在适用授权下选择已验证构建回滚，保留原片、失败Report和历史任务，禁止重提付费任务。当前不执行回滚。
+- 新Hifly回执kind对旧版A12不是前向兼容：旧版会拒绝该条目。未来发布须App/Worker协调到同一版本；回滚时暂停相关生产/验证并保留新报告，不能删掉回执强过旧校验，待支持该kind的版本恢复后处理。本轮没有执行这些生产操作。
 
 ## J. Golden Path Readiness
 
