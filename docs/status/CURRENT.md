@@ -11,6 +11,8 @@
 
 同一Gate进一步修复P0内部回执丢字段：已由页面确认的规范化回执可经Adapter进入Report，服务端绑定Attempt，A12验证唯一Cloud来源和字段；Work沿用Report引用，不加表/通用框架。实际响应解析器仍未实现，因此真实回执Gate仍BLOCKED。新正式执行缺有效回执不能completed/Work；保存Attempt收到的字节仅作证据，不证明Provider归属。主控联合复核130项129pass/1个PG环境skip，独立Review通过；PG需当前候选CI实际执行。详细首轮失败与修复见本轮报告。
 
+回执实现060915a的CI34590525025和Windows stress34590525022现已全部SUCCESS；A11/A12 PostgreSQL用例真实执行、0skip。基础Workspace页面/service已在main及线上镜像，关闭的是有效开关；未上线的是FAST-MVP增强/本轮修复，不能沿用“整个Workspace未合并”的笼统说法。最终状态以本轮A–M报告为准，仍不进入真实运行。
+
 ## 2026-09-09 已完成调查及历史检查点
 
 以下为此前快照，当前执行范围与结论以2026-09-11前置条件报告为准。

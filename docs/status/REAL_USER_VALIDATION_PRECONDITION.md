@@ -28,11 +28,12 @@ A12明确验证Cloud报告来源、唯一条目、合法字段及同Attempt绑�
 | Repo / 工作目录 | JettxonHo/hifly-hands-on-product-batch；`/Users/ketchup/Documents/hifly-fast-mvp` |
 | 分支 / 本轮起点 | `codex/hifly-fast-mvp` / `4d98078b6c923d6839c134b30d242b40570ed170` |
 | 本轮实现提交 | `a4623e1f93271aad2f5718d1a94cb1d02d0483e2`；两个最小修复及报告归档，未合并/部署。最终文档检查点以PR当前头为准，不冒充被测生产版本。 |
+| P0回执内部接线提交 | `060915ad4b25ddac7a77fcf935c2ceda9df0cae4`；规范化回执持久链及严格验证，未合并/部署。 |
 | GitHub main | `2af015ab220ecc9d65de209ea690adb98cacc1c4`；正常GitHub API核验，不只读本地缓存。 |
 | 本地main | `ca47ec90f8de157f607f6e453edfc6c81203ea02`，旧本地引用，不用作开发或部署基准。 |
 | PR / Issue | [#285](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285) OPEN/DRAFT、未合并；[#284](https://github.com/JettxonHo/hifly-hands-on-product-batch/issues/284)记录当前合同；[#157](https://github.com/JettxonHo/hifly-hands-on-product-batch/issues/157)仍跟踪TLS/公开发布缺口。#278等旧Issue未关闭，不代表其已合并代码不存在。 |
 | 线上源码 / App / Worker | 三者均为`3e53bffdd2c59e401815148ccd317b669d32216b`；源码工作树干净，两容器running/healthy。Docker镜像revision标签分别核验，未凭main推断。 |
-| main与线上差异 | 3e53bff→2af015a仅README及README图片；当前Workspace/FAST-MVP新候选仍在PR，未部署。 |
+| main与线上差异 | 3e53bff→2af015a仅README及README图片。基础workspace.html和operator-workspace service已在main，线上容器也实际存在；不能说整个Workspace尚未合并。FAST-MVP增强及本轮入口/归档/回执修复仍在PR，未部署。 |
 | 工作树 | 进入时有上一API Gate的3份未提交文档，全部保留；本轮新增必要代码/测试和报告修订，未reset/stash/覆盖无关工作。 |
 
 Git/部分GitHub读取曾出现TLS传输错误或EOF；使用正常API重试核实，没有关闭证书校验或将失败当作仓库不存在。此前“只读API Gate结束即停止”是历史阶段状态，本轮Owner新授权已恢复必要前置修复；Resume报告中的缺口经本轮代码与runtime独立核验。
@@ -45,6 +46,7 @@ Git/部分GitHub读取曾出现TLS传输错误或EOF；使用正常API重试核�
 - 正式企业入口设计为登录→`/projects.html`→项目工作区。修复前`web/projects.js`固定进入旧`project.html`，即使Workspace已开启也不能从普通项目导航进入新工作区。
 - 本轮最小修复：Workspace开启时项目链接进入`workspace.html?project=...&stage=product_content`；空项目能在同一工作区创建商品并形成正常上下文；关闭时保留legacy兼容。缺product却带历史revision的含糊链接继续拒绝，避免首商品投影与另一商品内容错配；正常重开项目保持同一商品绑定。没有要求用户手工输入隐藏URL。
 - 线上`OPERATOR_WORKSPACE_ENABLED`未设置，有效值false；企业身份/Project Content开启。线上App/Worker代码版本一致，没有证据宣称二者版本错配；但新候选尚未发布且新入口未启用。正式浏览器缓存一致性因TLS失败未进一步验证。
+- 对旧审计措辞作纠正：基础Workspace并非完全缺失或未合并，而是已有基础实现未启用；未上线的是FAST-MVP增强与本轮修复。这两类状态分别记录。
 
 ## C. Provider Submission / Receipt Contract
 
@@ -119,6 +121,7 @@ API是否完整开放不是本轮重新调查的阻断；人物B/P3、UI美化�
 - 独立Review要求在同一任务内补上缺product但带revision的拒绝，并补充重开项目绑定验证；随后又修正测试等待动态URL更新的同步点。没有降低断言或增加审查角色。产品修正后的联合回归仍79/79；最后仅测试同步改动，入口7/7通过。原联合日志与最终日志保留于原GUI目录outputs/precondition-20260911/，不覆盖历史失败证据。
 - 实现提交a4623e1的[CI34586963425](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/runs/34586963425)与[Windows stress34586963422](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/runs/34586963422)均SUCCESS；不继承旧头结果。此次没有重复运行本地全量业务测试，Required CI已实际执行。后续仅文档检查点的Checks仍以PR当前头为准。
 - 最后P0内部回执切片：实现者首轮75项为73pass/1fail/1skip，新增A12 fixture漏对象归属metadata；补齐fixture后通过，未放宽生产校验。最终实现者93项92pass/1个PG环境skip；主控联合复核130项129pass/0fail/1个PG环境skip，静态255JS与diff check通过，独立diff Review APPROVED。测试均注入数据；现有manual-execution-postgres集成测试已加入真实repository回执往返断言，必须由当前候选CI实际执行，本地skip不写为通过。相关首轮/修复/最终日志保留，不混加重叠测试计数。
+- 060915a的[CI34590525025](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/runs/34590525025)（Ubuntu/Windows/identity-postgres）与[Windows stress34590525022](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/runs/34590525022)全部SUCCESS。CI日志明确显示A11/A12 PostgreSQL集成用例ok、skipped 0，新回执JSONB往返已实际执行；这仅为测试数据库证明，不是生产库迁移或真实Provider验证。
 - 合并、镜像构建、部署、Workspace/Worker激活：NOT_EXECUTED；没有新授权。Exact merged main仍2af015a；本轮候选没有merged SHA。线上仍3e53bff。
 - 回滚准备：本轮为入口条件导航和既有Report引用顺序修正，无migration；未来发布需要在适用授权下选择已验证构建回滚，保留原片、失败Report和历史任务，禁止重提付费任务。当前不执行回滚。
 
