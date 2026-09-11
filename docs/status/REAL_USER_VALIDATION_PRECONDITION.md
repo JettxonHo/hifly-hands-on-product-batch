@@ -21,6 +21,7 @@ Owner确认日期：2026-09-11。当前阶段：`REAL_USER_VALIDATION_PRECONDITI
 | --- | --- |
 | Repo / 工作目录 | JettxonHo/hifly-hands-on-product-batch；`/Users/ketchup/Documents/hifly-fast-mvp` |
 | 分支 / 本轮起点 | `codex/hifly-fast-mvp` / `4d98078b6c923d6839c134b30d242b40570ed170` |
+| 本轮实现提交 | `a4623e1f93271aad2f5718d1a94cb1d02d0483e2`；两个最小修复及报告归档，未合并/部署。最终文档检查点以PR当前头为准，不冒充被测生产版本。 |
 | GitHub main | `2af015ab220ecc9d65de209ea690adb98cacc1c4`；正常GitHub API核验，不只读本地缓存。 |
 | 本地main | `ca47ec90f8de157f607f6e453edfc6c81203ea02`，旧本地引用，不用作开发或部署基准。 |
 | PR / Issue | [#285](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285) OPEN/DRAFT、未合并；[#284](https://github.com/JettxonHo/hifly-hands-on-product-batch/issues/284)记录当前合同；[#157](https://github.com/JettxonHo/hifly-hands-on-product-batch/issues/157)仍跟踪TLS/公开发布缺口。#278等旧Issue未关闭，不代表其已合并代码不存在。 |
@@ -108,7 +109,7 @@ API是否完整开放不是本轮重新调查的阻断；人物B/P3、UI美化�
 - 实现者首轮：入口浏览器7/7＋Stage1浏览器2/2；Cloud Executor及持久媒体40/40；均无首次失败。
 - 主控联合回归：Cloud Executor、持久媒体、正式入口、Stage1、两份治理测试共79/79，0fail/cancelled/skip；静态检查255 JS，diff check通过。仅本地受控数据和服务，非真实用户/Provider验证。重叠计数不相加。
 - 独立Review要求在同一任务内补上缺product但带revision的拒绝，并补充重开项目绑定验证；随后又修正测试等待动态URL更新的同步点。没有降低断言或增加审查角色。产品修正后的联合回归仍79/79；最后仅测试同步改动，入口7/7通过。原联合日志与最终日志保留于原GUI目录outputs/precondition-20260911/，不覆盖历史失败证据。
-- 当前提交CI：待候选提交后由PR285核验，不继承旧头结果。此次没有重复运行本地全量业务测试；Required CI仍保留。
+- 实现提交a4623e1的[CI34586963425](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/runs/34586963425)与[Windows stress34586963422](https://github.com/JettxonHo/hifly-hands-on-product-batch/actions/runs/34586963422)均SUCCESS；不继承旧头结果。此次没有重复运行本地全量业务测试，Required CI已实际执行。后续仅文档检查点的Checks仍以PR当前头为准。
 - 合并、镜像构建、部署、Workspace/Worker激活：NOT_EXECUTED；没有新授权。Exact merged main仍2af015a；本轮候选没有merged SHA。线上仍3e53bff。
 - 回滚准备：本轮为入口条件导航和既有Report引用顺序修正，无migration；未来发布需要在适用授权下选择已验证构建回滚，保留原片、失败Report和历史任务，禁止重提付费任务。当前不执行回滚。
 
