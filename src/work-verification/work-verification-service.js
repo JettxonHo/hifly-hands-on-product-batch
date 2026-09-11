@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { createMemoryAssetRepository } from "../assets/memory-asset-repository.js";
 import { requireHiflyHandsOnProductV1, usesPostOutputPadPreservePolicy } from "../execution-contracts/hifly-hands-on-product-v1.js";
+import { HIFLY_SUBMISSION_RECEIPT_KIND, isValidHiflySubmissionReceipt } from "../execution-contracts/hifly-hands-on-product-evidence.js";
 import { createVerifiedOutputAssetPort } from "./verified-output-asset-port.js";
 
 const clean = (value) => typeof value === "string" ? value.trim() : "";
@@ -17,6 +18,7 @@ const BUSINESS_INPUT_FAILURES = new Set([
   "WORK_VERIFICATION_CANDIDATE_INVALID",
   "WORK_VERIFICATION_REPORT_OUTPUT_MISMATCH",
   "WORK_VERIFICATION_CONTRACT_INVALID",
+  "WORK_VERIFICATION_HIFLY_RECEIPT_INVALID",
   "WORK_VERIFICATION_SUPPORTING_OUTPUT_REQUIRED",
   "WORK_VERIFICATION_SUPPORTING_OUTPUT_PURPOSE_INVALID",
   "WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID",
@@ -170,6 +172,13 @@ export function createWorkVerificationService({ repository, orderPort, execution
     const supportingCandidates = [];
     const reportedSupportingOutputs = report.supporting_outputs == null ? [] : report.supporting_outputs;
     if (!Array.isArray(reportedSupportingOutputs)) throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID");
+    // Existing reports need no retrofit. Any new Hifly receipt entry must be a
+    // unique Cloud report projection bound to this exact execution attempt.
+    const receipts = reportedSupportingOutputs.filter((output) => output?.kind === HIFLY_SUBMISSION_RECEIPT_KIND);
+    if (receipts.length && (receipts.length !== 1 || attempt.executor_type !== "cloud_executor" ||
+      !clean(attempt.executor_cloud_id) || report.submitted_by_cloud_executor_id !== attempt.executor_cloud_id ||
+      attempt.operator_id != null || attempt.executor_agent_id != null || report.submitted_by != null || report.submitted_by_agent_id != null ||
+      !isValidHiflySubmissionReceipt(receipts[0], attempt.id))) throw failure("WORK_VERIFICATION_HIFLY_RECEIPT_INVALID");
     const supportingIds = new Set();
     const referencedSupportingOutputs = reportedSupportingOutputs.filter((output) => output && typeof output === "object" &&
       !Array.isArray(output) && Object.hasOwn(output, "upload_reference"));
@@ -179,7 +188,7 @@ export function createWorkVerificationService({ repository, orderPort, execution
     for (const output of reportedSupportingOutputs) {
       if (!output || typeof output !== "object" || Array.isArray(output)) throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID");
       if (!Object.hasOwn(output, "upload_reference")) {
-        if (output.kind === "production_evidence") continue;
+        if (output.kind === "production_evidence" || output.kind === HIFLY_SUBMISSION_RECEIPT_KIND) continue;
         throw failure("WORK_VERIFICATION_SUPPORTING_OUTPUT_INVALID");
       }
       const supportId = clean(output.upload_reference);

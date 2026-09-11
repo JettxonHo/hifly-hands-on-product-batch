@@ -164,7 +164,9 @@ test("cloud adapter binds approved current settings and leaves the target ratio 
           },
           async submitVideo() {
             calls.push("submit");
-            return { status: "submitted", remoteEvidence: { evidence_source: "direct_submission", remote_id: "work-current-settings" } };
+            return { status: "submitted", remoteEvidence: { evidence_source: "causal_submission_receipt", remote_id: "work-current-settings",
+              receipt_id: "observation-current", observed_at: "2026-09-11T00:00:00.000Z",
+              remote_url: "https://example.invalid/?token=private", work_key: "private-url" } };
           },
           async querySubmission(remoteEvidence) { return { status: "ready", remoteEvidence }; },
           async downloadArtifact(_remoteEvidence, destination) {
@@ -183,6 +185,8 @@ test("cloud adapter binds approved current settings and leaves the target ratio 
     });
 
     assert.equal(result.status, "succeeded");
+    assert.deepEqual(result.submissionReceipt, { kind: "hifly_submission_receipt", evidence_source: "causal_submission_receipt",
+      remote_id: "work-current-settings", receipt_id: "observation-current", observed_at: "2026-09-11T00:00:00.000Z" });
     assert.deepEqual(phases, [
       { phase: "pre_point", fields: ["voice_source", "voice_display_name", "voice_style", "subtitles_enabled"] },
       { phase: "pre_paid_action_1", fields: ["voice_source", "voice_display_name", "voice_style", "subtitles_enabled"] }

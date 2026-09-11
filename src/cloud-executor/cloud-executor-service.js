@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { sanitizeEvidenceRecords } from "../execution-contracts/hifly-hands-on-product-evidence.js";
+import { sanitizeEvidenceRecords, sanitizeHiflySubmissionReceipt } from "../execution-contracts/hifly-hands-on-product-evidence.js";
 import { requireHiflyHandsOnProductV1, usesPostOutputPadPreservePolicy } from "../execution-contracts/hifly-hands-on-product-v1.js";
 import { createVideoDeliveryNormalizer } from "./video-delivery.js";
 
@@ -311,7 +311,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
   }
 
   async function saveReport({ attempt, order, candidate = null, supportingCandidates = [], outcome, failureStage = null,
-    requiresActionReason = null, progressPhase = null, evidence = null }) {
+    requiresActionReason = null, progressPhase = null, evidence = null, submissionReceipt = null }) {
     const at = timestamp();
     const reports = await repository.listReports?.(identity.organizationId, attempt.id) || [];
     const safeEvidence = sanitizeEvidenceRecords(evidence, [], { strict: true });
@@ -330,6 +330,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
       retryability: ["failed", "requires_action"].includes(outcome) ? "not_retryable" : null,
       upstream_return_target: null
     };
+    if (submissionReceipt) report.supporting_outputs.push(submissionReceipt);
     const fingerprint = stableJson({ operation: "report", report_id: report.id, attempt_id: attempt.id,
       outcome, primary_output: report.primary_output, failure_stage: report.failure_stage, supporting_outputs: report.supporting_outputs });
     const receiptKey = `${identity.organizationId}:${identity.executorCloudId}:cloud-executor:report:${report.id}`;
@@ -390,6 +391,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     let started;
     let finishHeartbeats = null;
     const supporting = [];
+    let submissionReceipt = null;
     try {
       started = await startAttempt(claimedAttempt, claimedOrder);
       const attempt = started.attempt;
@@ -448,12 +450,19 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           order: executionOrder, attempt, package: packageRecord,
           ...(packageArchive ? { packageArchive } : {}), progress: reportProgress, checkpoint: reportProgress });
         if (heartbeatError || progressError) throw failure("CLOUD_EXECUTOR_LEASE_LOST");
+        // Apply to new formal Playwright executions through this service only.
+        // Historical reports and manual/Local/fake execution contracts are not
+        // retroactively required to contain the new receipt projection.
+        const requiresSubmissionReceipt = mode === "playwright" && Boolean(packageRecord.manifest?.hifly_hands_on_product_v1);
+        if (requiresSubmissionReceipt) {
+          submissionReceipt = sanitizeHiflySubmissionReceipt(result?.submissionReceipt, attempt.id);
+        }
         if (result?.status === "requires_action" || result?.outcome === "requires_action") {
           const currentAttempt = await finishHeartbeats();
           const requiresAction = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "requires_action",
             failureStage: clean(result?.failureStage) || "unknown_post_submit",
             requiresActionReason: clean(result?.requiresActionReason) || "Cloud Executor requires human action",
-            progressPhase: clean(result?.failureStage) || "unknown_post_submit", evidence: result?.evidence });
+            progressPhase: clean(result?.failureStage) || "unknown_post_submit", evidence: result?.evidence, submissionReceipt });
           halted = true;
           return { status: "requires_action", stopped: true, attempt: publicAttempt(requiresAction.attempt),
             report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
@@ -461,22 +470,28 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
         if (!result || result.ok === false || result.status === "failed" || result.failure) {
           const currentAttempt = await finishHeartbeats();
           const failed = await saveReport({ attempt: currentAttempt, order: executionOrder, outcome: "failed",
-            failureStage: clean(result?.failureStage) || (mode === "playwright" ? "playwright_execution" : "fake_execution") });
+            failureStage: clean(result?.failureStage) || (mode === "playwright" ? "playwright_execution" : "fake_execution"), submissionReceipt });
           halted = true;
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
-        // Keep the executor's downloaded bytes before probing or transforming
-        // them. A failed delivery remains evidence of this attempt, not a Work.
-        if (verifiedDeliveryContract(packageRecord)) {
+        // Preserve bytes received for this attempt before delivery processing
+        // or a receipt stop. Bytes alone do not prove Provider ownership or
+        // make a Work. Legacy untransformed success still uses its primary.
+        if (verifiedDeliveryContract(packageRecord) || requiresSubmissionReceipt && !submissionReceipt) {
           const original = await candidateForResult(attempt, packageRecord, result, { role: "supporting_output" });
           supporting.push({ ...(await saveCandidate(original)).candidate, purpose: "hifly_original" });
+        }
+        if (requiresSubmissionReceipt && !submissionReceipt) {
+          throw Object.assign(failure("HIFLY_SUBMISSION_RECEIPT_INVALID"), {
+            outcome: "requires_action", failureStage: "submission_receipt"
+          });
         }
         const prepared = await prepareVideoResult(packageRecord, result);
         const candidate = await candidateForResult(attempt, packageRecord, prepared.primary);
         const uploaded = await saveCandidate(candidate);
         const currentAttempt = await finishHeartbeats();
         const completed = await saveReport({ attempt: currentAttempt, order: executionOrder, candidate: uploaded.candidate, outcome: "completed",
-          supportingCandidates: supporting, evidence: prepared.evidence });
+          supportingCandidates: supporting, evidence: prepared.evidence, submissionReceipt });
         const verification = await triggerVerification({ order: executionOrder, attempt: completed.attempt, report: completed.report, candidate: uploaded.candidate });
         return { status: "succeeded", attempt: publicAttempt(completed.attempt), report: publicReport(completed.report),
           candidate: publicCandidate(uploaded.candidate), verification, replayed: completed.replayed };
@@ -509,13 +524,13 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           if (terminalError?.code === "CLOUD_EXECUTOR_POST_SUBMIT_UNKNOWN" || terminalError?.outcome === "requires_action") {
             const requiresAction = await saveReport({ attempt: current, order, outcome: "requires_action",
               failureStage: clean(terminalError.failureStage) || "unknown_post_submit", requiresActionReason: terminalError.message,
-              progressPhase: "unknown_post_submit", evidence: terminalError.evidence, supportingCandidates: supporting });
+              progressPhase: "unknown_post_submit", evidence: terminalError.evidence, supportingCandidates: supporting, submissionReceipt });
             return { status: "requires_action", stopped: true, attempt: publicAttempt(requiresAction.attempt),
               report: publicReport(requiresAction.report), replayed: requiresAction.replayed };
           }
           const failed = await saveReport({ attempt: current, order, outcome: "failed",
             failureStage: clean(terminalError?.failureStage) || (mode === "playwright" ? "playwright_execution" : "fake_execution"),
-            supportingCandidates: supporting });
+            supportingCandidates: supporting, submissionReceipt });
           return { status: "failed", stopped: true, attempt: publicAttempt(failed.attempt), report: publicReport(failed.report), replayed: failed.replayed };
         }
       }

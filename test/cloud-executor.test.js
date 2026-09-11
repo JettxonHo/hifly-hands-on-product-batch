@@ -144,6 +144,11 @@ function currentDeliveryContract() {
   });
 }
 
+function submissionReceiptFixture() {
+  return { kind: "hifly_submission_receipt", evidence_source: "causal_submission_receipt", receipt_id: "observation-cloud",
+    remote_id: "hifly-cloud-video", observed_at: "2026-09-11T00:00:00.000Z" };
+}
+
 function throwingHeartbeatRace(error) {
   let releaseHeartbeat;
   let signalHeartbeatStarted;
@@ -587,7 +592,9 @@ test("current V1 delivery policy keeps the downloaded source as supporting outpu
     }
   };
   const world = makeCloudWorld({
-    executorResult: { body: original, mediaType: "video/mp4", originalFilename: "provider.mp4" },
+    mode: "playwright",
+    executorResult: { body: original, mediaType: "video/mp4", originalFilename: "provider.mp4",
+      submissionReceipt: { ...submissionReceiptFixture(), execution_attempt_id: "untrusted-attempt", remote_url: "https://example.invalid/?token=private" } },
     packageManifest: { hifly_hands_on_product_v1: currentDeliveryContract() },
     videoDeliveryNormalizer: normalizer
   });
@@ -610,6 +617,8 @@ test("current V1 delivery policy keeps the downloaded source as supporting outpu
   assert.equal(reports[0].supporting_outputs[0].upload_reference, supporting.id);
   assert.equal(reports[0].supporting_outputs[0].role, "supporting_output");
   assert.equal(reports[0].supporting_outputs[0].purpose, "hifly_original");
+  assert.deepEqual(reports[0].supporting_outputs[1], { ...submissionReceiptFixture(), execution_attempt_id: result.attempt.id });
+  assert.doesNotMatch(JSON.stringify(reports[0]), /untrusted-attempt|private|remote_url/);
 });
 
 test("current V1 delivery policy preflights media tools before executor.run", async () => {
@@ -633,8 +642,9 @@ test("current V1 delivery policy preflights media tools before executor.run", as
 test("post-executor delivery failure stops the Cloud attempt without a second executor call", async () => {
   let executorCalls = 0;
   const world = makeCloudWorld({
+    mode: "playwright",
     packageManifest: { hifly_hands_on_product_v1: currentDeliveryContract() },
-    executor: { async run() { executorCalls += 1; return { body: Buffer.from("provider-output") }; } },
+    executor: { async run() { executorCalls += 1; return { body: Buffer.from("provider-output"), submissionReceipt: submissionReceiptFixture() }; } },
     videoDeliveryNormalizer: {
       async preflight() {},
       async normalize() { throw Object.assign(new Error("decode failed"), { code: "CLOUD_EXECUTOR_VIDEO_DELIVERY_TRANSCODE_FAILED" }); }
@@ -659,6 +669,7 @@ test("post-executor delivery failure stops the Cloud attempt without a second ex
   assert.equal(reports[0].retryability, "not_retryable");
   assert.equal(reports[0].supporting_outputs[0].upload_reference, original.id);
   assert.equal(reports[0].supporting_outputs[0].purpose, "hifly_original");
+  assert.deepEqual(reports[0].supporting_outputs[1], { ...submissionReceiptFixture(), execution_attempt_id: result.attempt.id });
   assert.equal(world.verificationCalls.length, 0);
 });
 
@@ -691,6 +702,7 @@ test("original storage failure stops delivery processing and never reports succe
 test("an uncertain executor result is not archived as this attempt's original", async () => {
   let normalizeCalls = 0;
   const world = makeCloudWorld({
+    mode: "playwright",
     packageManifest: { hifly_hands_on_product_v1: currentDeliveryContract() },
     executorResult: { status: "requires_action", body: Buffer.from("unassociated-candidate") },
     videoDeliveryNormalizer: {
@@ -703,6 +715,29 @@ test("an uncertain executor result is not archived as this attempt's original", 
   assert.equal(normalizeCalls, 0);
   assert.equal((await world.repository.listCandidates(ORGANIZATION_ID, result.attempt.id)).length, 0);
   assert.equal(world.verificationCalls.length, 0);
+});
+
+test("new formal Playwright runs retain received bytes but cannot complete without a safe receipt", async () => {
+  for (const receipt of [undefined, { ...submissionReceiptFixture(), remote_id: null, remote_url: "https://example.invalid/?signature=private" }]) {
+    let normalizeCalls = 0;
+    const world = makeCloudWorld({
+      mode: "playwright", packageManifest: { hifly_hands_on_product_v1: currentDeliveryContract() },
+      executorResult: { status: "succeeded", body: Buffer.from("attempt-received-bytes"), submissionReceipt: receipt },
+      videoDeliveryNormalizer: { async preflight() {}, async normalize() { normalizeCalls += 1; } }
+    });
+    const result = await world.service.runOnce();
+    assert.equal(result.status, "requires_action");
+    assert.equal(result.report.failure_stage, "submission_receipt");
+    assert.equal(result.report.primary_output, null);
+    assert.equal(result.report.retryability, "not_retryable");
+    assert.equal(result.report.supporting_outputs.length, 1);
+    const [candidate] = await world.repository.listCandidates(ORGANIZATION_ID, result.attempt.id);
+    assert.equal(candidate.role, "supporting_output");
+    assert.deepEqual(await world.candidateStore.get(candidate.object_key), Buffer.from("attempt-received-bytes"));
+    assert.equal(normalizeCalls, 0);
+    assert.equal(world.verificationCalls.length, 0);
+    assert.equal((await world.service.runOnce()).status, "halted");
+  }
 });
 
 test("historical V1 contracts retain the original Cloud output path", async () => {

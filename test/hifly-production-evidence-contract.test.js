@@ -14,8 +14,26 @@ import {
   hiflyPrePaidRequirementsFor,
   inspectStructuredVerificationResult,
   sanitizeEvidenceRecords,
+  sanitizeHiflySubmissionReceipt,
+  isValidHiflySubmissionReceipt,
   verifyExactAspectRatio
 } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
+
+test("Hifly receipt projection binds the server attempt and excludes URL and raw fields", () => {
+  const input = { evidence_source: "causal_submission_receipt", receipt_id: "observation-1", remote_id: "hifly-task-1",
+    observed_at: "2026-09-11T00:00:00.000Z", execution_attempt_id: "wrong-attempt",
+    remote_url: "https://example.invalid/video?token=private", work_key: "private-url", headers: { authorization: "private" }, raw: "private" };
+  const receipt = sanitizeHiflySubmissionReceipt(input, "attempt-1");
+  assert.deepEqual(receipt, { kind: "hifly_submission_receipt", evidence_source: "causal_submission_receipt",
+    receipt_id: "observation-1", remote_id: "hifly-task-1", observed_at: input.observed_at, execution_attempt_id: "attempt-1" });
+  assert.equal(isValidHiflySubmissionReceipt(receipt, "attempt-1"), true);
+  assert.equal(isValidHiflySubmissionReceipt(receipt, "another-attempt"), false);
+  assert.equal(isValidHiflySubmissionReceipt({ ...receipt, raw: "private" }, "attempt-1"), false);
+  for (const patch of [
+    { evidence_source: "list_delta" }, { remote_id: null }, { remote_id: "https://example.invalid/?token=private" },
+    { receipt_id: "a".repeat(129) }, { observed_at: "2026-02-30T00:00:00.000Z" }
+  ]) assert.equal(sanitizeHiflySubmissionReceipt({ ...input, ...patch }, "attempt-1"), null);
+});
 
 test("exact 9:16 verification records the observed dimensions and fails 1600x2848", () => {
   const evidence = verifyExactAspectRatio({

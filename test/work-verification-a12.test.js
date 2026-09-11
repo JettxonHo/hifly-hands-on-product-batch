@@ -11,6 +11,13 @@ import { HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS, buildHiflyHandsOnProductV1 
 
 const actor = { organizationId: "org-a", actorMemberId: "member-a", actorRole: "member" };
 
+function attachCloudReceipt(state) {
+  Object.assign(state.attempt, { executor_type: "cloud_executor", operator_id: null, executor_cloud_id: "cloud-a12" });
+  state.report.submitted_by_cloud_executor_id = "cloud-a12";
+  state.report.supporting_outputs.push({ kind: "hifly_submission_receipt", evidence_source: "causal_submission_receipt",
+    receipt_id: "observation-a12", remote_id: "hifly-a12", observed_at: "2026-09-11T00:00:00.000Z", execution_attempt_id: state.attempt.id });
+}
+
 function makeWorld({ transitionOrder = null, executionPortPatch = {}, packagePortPatch = {}, reportDeviations = [], includeSupporting = false,
   currentDeliveryPolicy = false } = {}) {
   const body = Buffer.from("candidate-video");
@@ -117,6 +124,7 @@ test("A12 verifies and projects a report-referenced supporting output while regi
       Object.assign(candidate, { verification_status: input.verificationStatus, verification_failure_code: input.failureCode });
     }
   } });
+  attachCloudReceipt(state);
   await state.service.requestVerification({ ...actor, productionOrderId: state.order.id, executionAttemptId: state.attempt.id, reportId: state.report.id, candidateId: state.candidate.id, idempotencyKey: "supporting-output" });
   const result = await state.service.runNextVerificationJob();
   const workspace = await state.service.getVerificationWorkspace({ ...actor, productionOrderId: state.order.id });
@@ -131,6 +139,7 @@ test("A12 verifies and projects a report-referenced supporting output while regi
 
 test("current V1 delivery policy rejects a completed report without its retained original", async () => {
   const state = await setup({ currentDeliveryPolicy: true });
+  attachCloudReceipt(state);
   await state.service.requestVerification({ ...actor, productionOrderId: state.order.id, executionAttemptId: state.attempt.id, reportId: state.report.id, candidateId: state.candidate.id, idempotencyKey: "missing-original" });
   const result = await state.service.runNextVerificationJob();
 

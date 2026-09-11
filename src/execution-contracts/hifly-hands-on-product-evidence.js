@@ -1,5 +1,36 @@
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 
+export const HIFLY_SUBMISSION_RECEIPT_KIND = "hifly_submission_receipt";
+const RECEIPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+// This is the internal projection of an already causal Hifly receipt, not a
+// parser for provider responses. URL-only identities remain unsupported; never
+// persist signed URLs, work_key (which can itself be a URL), or raw payloads.
+export function sanitizeHiflySubmissionReceipt(value, executionAttemptId = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+    value.evidence_source !== "causal_submission_receipt" ||
+    (value.kind !== undefined && value.kind !== HIFLY_SUBMISSION_RECEIPT_KIND) ||
+    ![value.receipt_id, value.remote_id].every((id) => typeof id === "string" && RECEIPT_ID_PATTERN.test(id)) ||
+    typeof value.observed_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.observed_at) ||
+    !Number.isFinite(Date.parse(value.observed_at)) || new Date(value.observed_at).toISOString() !== value.observed_at ||
+    (executionAttemptId !== null && (typeof executionAttemptId !== "string" || !RECEIPT_ID_PATTERN.test(executionAttemptId)))) return null;
+  return {
+    kind: HIFLY_SUBMISSION_RECEIPT_KIND,
+    evidence_source: "causal_submission_receipt",
+    receipt_id: value.receipt_id,
+    remote_id: value.remote_id,
+    observed_at: value.observed_at,
+    ...(executionAttemptId !== null ? { execution_attempt_id: executionAttemptId } : {})
+  };
+}
+
+export function isValidHiflySubmissionReceipt(value, executionAttemptId) {
+  if (typeof executionAttemptId !== "string") return false;
+  const expected = sanitizeHiflySubmissionReceipt(value, executionAttemptId);
+  return expected !== null && Object.keys(value).length === Object.keys(expected).length &&
+    Object.entries(expected).every(([key, entry]) => value[key] === entry);
+}
+
 export const HIFLY_VERIFICATION_RESULT = Object.freeze({
   PROVEN: "PROVEN",
   PARTIAL: "PARTIAL",

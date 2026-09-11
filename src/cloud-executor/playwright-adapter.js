@@ -14,6 +14,7 @@ import {
   hiflyPrePaidRequirementsFor,
   inspectStructuredVerificationResult,
   sanitizeEvidenceRecords,
+  sanitizeHiflySubmissionReceipt,
 } from "../execution-contracts/hifly-hands-on-product-evidence.js";
 import { requireHiflyHandsOnProductV1 } from "../execution-contracts/hifly-hands-on-product-v1.js";
 import { createHiflyExecutor } from "../executors/hifly-executor.js";
@@ -238,6 +239,7 @@ export function safeArtifactPath(root, relativePath) {
 }
 
 function actionResult(item, progressTrace) {
+  const submissionReceipt = sanitizeHiflySubmissionReceipt(item?.remote_evidence);
   if (item?.status === "interrupted_unknown" || ["submitted", "download_pending"].includes(item?.status)) {
     return {
       status: "requires_action",
@@ -245,6 +247,7 @@ function actionResult(item, progressTrace) {
       failureStage: "unknown_post_submit",
       requiresActionReason: "Provider submission outcome is unknown or ambiguous; reconcile before any retry.",
       remoteCandidates: item.remote_candidates || [],
+      ...(submissionReceipt ? { submissionReceipt } : {}),
       checkpoints: progressTrace
     };
   }
@@ -267,6 +270,7 @@ function actionResult(item, progressTrace) {
     ok: false,
     failureStage: safeFailureStage(item?.error_phase, "playwright_execution"),
     errorCode: clean(item?.error_message) || "CLOUD_EXECUTOR_PLAYWRIGHT_FAILED",
+    ...(submissionReceipt ? { submissionReceipt } : {}),
     checkpoints: progressTrace
   };
 }
@@ -602,7 +606,9 @@ export function createCloudPlaywrightAdapter({
           throw error;
         }
         const evidence = sanitizeEvidenceRecords(item?.asset_evidence?.handheld_evidence, [], { strict: true });
-        return { status: "succeeded", body, outputPath, ...(evidence.length ? { evidence } : {}), checkpoints: progressTrace };
+        const submissionReceipt = sanitizeHiflySubmissionReceipt(item.remote_evidence);
+        return { status: "succeeded", body, outputPath, submissionReceipt,
+          ...(evidence.length ? { evidence } : {}), checkpoints: progressTrace };
       }
       const action = actionResult(item, progressTrace);
       if (action.status === "requires_action") {
