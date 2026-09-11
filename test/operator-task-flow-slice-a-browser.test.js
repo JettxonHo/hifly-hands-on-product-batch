@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,11 +12,14 @@ import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { createMemoryProjectContentRepository } from "../src/project-content/memory-project-content-repository.js";
 import { buildApp } from "../src/server/app.js";
 import { findAvailablePort } from "../src/server/start.js";
+import { registerBrowserCleanup } from "./helpers/browser-cleanup.js";
 import { ADMIN_EMAIL, ADMIN_TEMP_PASSWORD } from "./helpers/identity-world.js";
 
-async function startEnterpriseBrowser(t) {
+async function startEnterpriseBrowser(t, { operatorWorkspace = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-operator-task-flow-slice-a-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let app;
+  let browser;
+  registerBrowserCleanup(t, { root, getApp: () => app, getBrowser: () => browser });
   const port = await findAvailablePort(58500);
   const host = `127.0.0.1:${port}`;
   const origin = `http://${host}`;
@@ -28,7 +31,7 @@ async function startEnterpriseBrowser(t) {
     adminDisplayName: "任务流管理员",
     adminTempPassword: ADMIN_TEMP_PASSWORD
   });
-  const app = await buildApp({
+  app = await buildApp({
     root,
     executor: createFakeExecutor(),
     identity: {
@@ -43,7 +46,8 @@ async function startEnterpriseBrowser(t) {
       enabled: true,
       repository: createMemoryProjectContentRepository(),
       assetReferencePort: { async bindAvailableVersion() {} }
-    }
+    },
+    ...(operatorWorkspace ? { operatorWorkspace: { enabled: true } } : {})
   });
   try {
     await app.listen({ host: "127.0.0.1", port });
@@ -52,9 +56,6 @@ async function startEnterpriseBrowser(t) {
     if (error.code === "EPERM") return t.skip("sandbox disallows local TCP listening");
     throw error;
   }
-  t.after(() => app.close());
-
-  let browser;
   try {
     browser = await chromium.launch({
       headless: true,
@@ -66,7 +67,6 @@ async function startEnterpriseBrowser(t) {
     }
     throw error;
   }
-  t.after(() => browser.close());
   const page = await browser.newPage();
   return { page, origin };
 }
@@ -133,6 +133,51 @@ test("enterprise entry routes root to Projects and keeps explicit index as legac
   assert.match(page.url(), /\/index\.html$/);
   await page.getByRole("link", { name: "进入项目" }).click();
   await page.waitForURL(`${origin}/projects.html`);
+});
+
+test("operator workspace projects open the existing single-task workspace from the formal entry", async (t) => {
+  const setup = await startEnterpriseBrowser(t, { operatorWorkspace: true });
+  if (!setup) return;
+  const { page, origin } = setup;
+  await authenticate(page, origin);
+
+  await page.getByRole("button", { name: "创建项目", exact: true }).click();
+  await page.getByLabel("项目名称").fill("单任务入口项目");
+  await page.getByRole("dialog", { name: "创建项目" }).getByRole("button", { name: "创建项目", exact: true }).click();
+  const projectLink = page.getByRole("link", { name: "继续项目" });
+  const projectHref = await projectLink.getAttribute("href");
+  assert.match(projectHref, /^\/workspace\.html\?project=[^&]+&stage=product_content$/);
+
+  await projectLink.click();
+  await page.locator(".single-workspace-page").waitFor();
+  assert.equal(new URL(page.url()).pathname, "/workspace.html");
+  assert.equal(await page.getByText("还没有商品", { exact: true }).count(), 1);
+
+  await page.getByRole("button", { name: "创建商品", exact: true }).click();
+  await page.getByRole("dialog", { name: "创建商品" }).getByLabel("商品名称", { exact: true }).fill("入口商品");
+  await page.getByRole("dialog", { name: "创建商品" }).getByRole("button", { name: "创建商品", exact: true }).click();
+  await page.getByRole("heading", { name: "实物尺寸" }).waitFor();
+  const createdWorkspaceUrl = new URL(page.url());
+  const projectId = createdWorkspaceUrl.searchParams.get("project");
+  const productId = createdWorkspaceUrl.searchParams.get("product");
+  const revisionId = createdWorkspaceUrl.searchParams.get("revision");
+  assert.equal(createdWorkspaceUrl.pathname, "/workspace.html");
+  assert.ok(projectId);
+  assert.ok(productId);
+  assert.ok(revisionId);
+
+  await page.goto(`${origin}/projects.html`);
+  await page.getByRole("link", { name: "继续项目" }).click();
+  await page.locator(".single-workspace-page").waitFor();
+  await page.waitForURL((url) => url.pathname === "/workspace.html" && url.searchParams.get("product") === productId);
+  const reopenedWorkspaceUrl = new URL(page.url());
+  assert.equal(reopenedWorkspaceUrl.pathname, "/workspace.html");
+  assert.equal(reopenedWorkspaceUrl.searchParams.get("project"), projectId);
+  assert.equal(reopenedWorkspaceUrl.searchParams.get("product"), productId);
+
+  await page.goto(`${origin}/workspace.html?project=${encodeURIComponent(projectId)}&revision=${encodeURIComponent(revisionId)}&stage=product_content`);
+  await page.waitForURL(`${origin}/projects.html`);
+  assert.equal(new URL(page.url()).pathname, "/projects.html");
 });
 
 test("Projects and Project present one responsive operator task path", async (t) => {

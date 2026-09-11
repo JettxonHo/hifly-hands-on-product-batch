@@ -7,6 +7,8 @@ import { createCopyQualityWorker } from "../src/copy-quality/copy-quality-worker
 import { createDeterministicQualityEvaluator } from "../src/copy-quality/deterministic-evaluator.js";
 import { createDeepSeekQualityEvaluator } from "../src/copy-quality/deepseek-evaluator.js";
 import { createHybridQualityEvaluator } from "../src/copy-quality/hybrid-evaluator.js";
+import { createIntentAwareQualityEvaluator } from "../src/copy-quality/intent-aware-evaluator.js";
+import { MANUAL_INPUT_QUALITY_POLICY, createManualInputQualityEvaluator } from "../src/copy-quality/manual-input-evaluator.js";
 import { createMemoryCopyQualityRepository } from "../src/copy-quality/memory-copy-quality-repository.js";
 
 const productRevision = {
@@ -77,6 +79,50 @@ test("deterministic evaluator uses only confirmed boolean facts and retains hard
   assert.equal(result.findings.some((finding) => finding.matched_text.includes("70%")), false);
   assert.equal(result.findings.some((finding) => finding.code === "FACT_NUMERIC_UNSUPPORTED" &&
     finding.matched_text === "50%"), true);
+});
+
+test("manual input policy records an explicit semantic review finding without a provider call", async () => {
+  let providerCalls = 0;
+  const evaluator = createIntentAwareQualityEvaluator({
+    defaultEvaluator: {
+      kind: "controlled_test_double",
+      async evaluate() {
+        providerCalls += 1;
+        return { checks_complete: true, findings: [] };
+      }
+    },
+    manualInputEvaluator: createManualInputQualityEvaluator({
+      deterministicEvaluator: createDeterministicQualityEvaluator({ platformHardRules: [] })
+    })
+  });
+  const result = await evaluator.evaluate({
+    copyVersion: { intent: "manual_input", body: "这款商品全网最好，适合日常使用。" },
+    productRevision: { product_name: "商品", selling_points: [{ id: "point", text: "适合日常使用", confirmed: true }] }
+  });
+
+  assert.equal(providerCalls, 0);
+  assert.equal(evaluator.manualInputPolicy, MANUAL_INPUT_QUALITY_POLICY);
+  assert.equal(result.checks_complete, true);
+  assert.equal(result.findings.length, 1);
+  assert.deepEqual(result.findings[0], {
+    code: "MANUAL_SEMANTIC_REVIEW_REQUIRED",
+    kind: "review",
+    severity: "medium",
+    title: "语义宣称需负责人复核",
+    matched_text: "这款商品全网最好，适合日常使用。",
+    message: "本地规则未判断文案中的语义宣称，请由负责人复核文案是否有事实依据。",
+    evidence_reference: "copy:text:0",
+    rule_source: MANUAL_INPUT_QUALITY_POLICY,
+    suggestion: "请根据已确认商品事实核对整段文案；完成复核后可附理由接受或修改。"
+  });
+
+  const blocked = await evaluator.evaluate({
+    copyVersion: { intent: "manual_input", body: "这款水杯容量 500ml，适合日常使用。" },
+    productRevision: { product_name: "轻盈水杯", selling_points: [{ id: "volume", text: "容量 300ml", confirmed: true }] }
+  });
+  assert.equal(blocked.findings.some((finding) => finding.kind === "fact_gate" && finding.code === "FACT_NUMERIC_UNSUPPORTED"), true);
+  assert.equal(blocked.findings.some((finding) => finding.code === "MANUAL_SEMANTIC_REVIEW_REQUIRED"), true);
+  assert.equal(providerCalls, 0);
 });
 
 test("deterministic contradiction matching stays narrow and does not infer arbitrary negation", async () => {

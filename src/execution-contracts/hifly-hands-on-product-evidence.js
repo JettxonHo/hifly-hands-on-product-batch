@@ -1,5 +1,36 @@
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 
+export const HIFLY_SUBMISSION_RECEIPT_KIND = "hifly_submission_receipt";
+const RECEIPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+// This is the internal projection of an already causal Hifly receipt, not a
+// parser for provider responses. URL-only identities remain unsupported; never
+// persist signed URLs, work_key (which can itself be a URL), or raw payloads.
+export function sanitizeHiflySubmissionReceipt(value, executionAttemptId = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+    value.evidence_source !== "causal_submission_receipt" ||
+    (value.kind !== undefined && value.kind !== HIFLY_SUBMISSION_RECEIPT_KIND) ||
+    ![value.receipt_id, value.remote_id].every((id) => typeof id === "string" && RECEIPT_ID_PATTERN.test(id)) ||
+    typeof value.observed_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.observed_at) ||
+    !Number.isFinite(Date.parse(value.observed_at)) || new Date(value.observed_at).toISOString() !== value.observed_at ||
+    (executionAttemptId !== null && (typeof executionAttemptId !== "string" || !RECEIPT_ID_PATTERN.test(executionAttemptId)))) return null;
+  return {
+    kind: HIFLY_SUBMISSION_RECEIPT_KIND,
+    evidence_source: "causal_submission_receipt",
+    receipt_id: value.receipt_id,
+    remote_id: value.remote_id,
+    observed_at: value.observed_at,
+    ...(executionAttemptId !== null ? { execution_attempt_id: executionAttemptId } : {})
+  };
+}
+
+export function isValidHiflySubmissionReceipt(value, executionAttemptId) {
+  if (typeof executionAttemptId !== "string") return false;
+  const expected = sanitizeHiflySubmissionReceipt(value, executionAttemptId);
+  return expected !== null && Object.keys(value).length === Object.keys(expected).length &&
+    Object.entries(expected).every(([key, entry]) => value[key] === entry);
+}
+
 export const HIFLY_VERIFICATION_RESULT = Object.freeze({
   PROVEN: "PROVEN",
   PARTIAL: "PARTIAL",
@@ -39,6 +70,7 @@ export const HIFLY_HANDS_ON_PRODUCT_EVIDENCE_STATUS = Object.freeze({
   target_aspect_ratio: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
   handheld_aspect_ratio: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
   final_video_aspect_ratio: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
+  delivery_video_aspect_ratio: HIFLY_VERIFICATION_RESULT.NOT_PROVEN,
   stage1_to_stage2_dimension_behavior: HIFLY_VERIFICATION_RESULT.NOT_PROVEN
 });
 
@@ -81,11 +113,15 @@ const CONTROLLED_FIELDS = new Set([
   "tts_voice_id",
   "provider_voice_name",
   "submitted_voice_name",
+  "voice_display_name",
+  "voice_style",
   "display_name",
   "group_id",
+  "subtitles_enabled",
   "target_aspect_ratio",
   "handheld_aspect_ratio",
   "final_video_aspect_ratio",
+  "delivery_video_aspect_ratio",
   "stage1_to_stage2_dimension_behavior",
   "ui_input_copy_match",
   "final_audio_copy_correspondence",
@@ -128,7 +164,7 @@ const CONTROLLED_PAID_BOUNDARIES = new Set([
 ]);
 export const HIFLY_MAX_EVIDENCE_RECORDS = 16;
 const OPAQUE_VOICE_ID_FIELDS = new Set(["voice_id", "tts_voice_id", "group_id"]);
-const VOICE_NAME_FIELDS = new Set(["provider_voice_name", "submitted_voice_name"]);
+const VOICE_NAME_FIELDS = new Set(["provider_voice_name", "submitted_voice_name", "voice_display_name", "voice_style"]);
 
 function normalizeRequiredFields(value) {
   const requested = Array.isArray(value)
@@ -180,6 +216,54 @@ export const HIFLY_PRE_PAID_REQUIREMENTS = deepFreeze({
   }
 });
 
+const CURRENT_SETTING_FIELDS = Object.freeze(["voice_display_name", "voice_style", "subtitles_enabled"]);
+const CURRENT_POLICY_FIELD = "output_aspect_ratio_policy";
+const CURRENT_POLICY_VALUE = "post_output_verify_pad_preserve";
+
+/**
+ * Build the pre-paid requirements for a validated contract. Historical V1
+ * contracts keep their original target-ratio gate. New contracts carrying the
+ * explicit current settings verify those settings before the first paid
+ * action and leave the target as an intended value whose actual ratio is
+ * recorded after generation.
+ */
+export function hiflyPrePaidRequirementsFor(contract) {
+  const production = contract?.production;
+  const present = CURRENT_SETTING_FIELDS.filter((field) => Object.hasOwn(production || {}, field));
+  if (production?.[CURRENT_POLICY_FIELD] !== CURRENT_POLICY_VALUE || production?.handheld_aspect_ratio_policy !== "record_only" ||
+    present.length !== CURRENT_SETTING_FIELDS.length) {
+    return HIFLY_PRE_PAID_REQUIREMENTS;
+  }
+
+  return deepFreeze({
+    voice_source: HIFLY_PRE_PAID_REQUIREMENTS.voice_source,
+    voice_display_name: {
+      expected: production.voice_display_name,
+      actual_shape: "exact_text",
+      verification_stage: "pre_paid",
+      paid_boundary: "before_paid_action_1",
+      allowed_sources: ["hifly_dom_readback", "hifly_ui_display"],
+      allowed_results: [HIFLY_VERIFICATION_RESULT.PROVEN]
+    },
+    voice_style: {
+      expected: production.voice_style,
+      actual_shape: "exact_text",
+      verification_stage: "pre_paid",
+      paid_boundary: "before_paid_action_1",
+      allowed_sources: ["hifly_dom_readback", "hifly_ui_display"],
+      allowed_results: [HIFLY_VERIFICATION_RESULT.PROVEN]
+    },
+    subtitles_enabled: {
+      expected: production.subtitles_enabled,
+      actual_shape: "boolean",
+      verification_stage: "pre_paid",
+      paid_boundary: "before_paid_action_1",
+      allowed_sources: ["hifly_dom_readback", "hifly_ui_display"],
+      allowed_results: [HIFLY_VERIFICATION_RESULT.PROVEN]
+    }
+  });
+}
+
 export const HIFLY_STRUCTURED_VERIFICATION_ERROR_CODES = Object.freeze([
   "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE",
   "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED",
@@ -193,11 +277,11 @@ export const HIFLY_STRUCTURED_VERIFICATION_ERROR_CODES = Object.freeze([
   "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED"
 ]);
 
-export function buildUnavailableEvidence(fields = Object.keys(HIFLY_PRE_PAID_REQUIREMENTS)) {
+export function buildUnavailableEvidence(fields = Object.keys(HIFLY_PRE_PAID_REQUIREMENTS), requirements = HIFLY_PRE_PAID_REQUIREMENTS) {
   const required = normalizeRequiredFields(fields);
   return required.map((field) => createEvidenceRecord({
     field,
-    expected: HIFLY_PRE_PAID_REQUIREMENTS[field]?.expected ?? null,
+    expected: requirements[field]?.expected ?? null,
     actual: null,
     evidenceSource: "not_captured",
     verificationStage: "pre_paid",
@@ -302,7 +386,7 @@ function boundedScalar(value, field, side) {
 function fieldValue(value, field, side) {
   const bounded = boundedScalar(value, field, side);
   if (bounded === null) return null;
-  const ratioField = ["target_aspect_ratio", "handheld_aspect_ratio", "final_video_aspect_ratio"].includes(field);
+  const ratioField = ["target_aspect_ratio", "handheld_aspect_ratio", "final_video_aspect_ratio", "delivery_video_aspect_ratio"].includes(field);
   if (ratioField && side === "expected" && (typeof bounded !== "string" || !isRatioString(bounded))) {
     throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
   }
@@ -318,11 +402,18 @@ function fieldValue(value, field, side) {
     !isRatioString(bounded) && !isDimensionString(bounded)) {
     throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
   }
+  if (field === "delivery_video_aspect_ratio" && side === "actual" && typeof bounded === "string" &&
+    !isRatioString(bounded) && !isDimensionString(bounded)) {
+    throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
+  }
   if (OPAQUE_VOICE_ID_FIELDS.has(field) &&
     (typeof bounded !== "string" || !/^[\p{L}\p{N}][\p{L}\p{N}._:-]{0,127}$/u.test(bounded))) {
     throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
   }
   if (VOICE_NAME_FIELDS.has(field) && typeof bounded !== "string") {
+    throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
+  }
+  if (field === "subtitles_enabled" && typeof bounded !== "boolean") {
     throw evidenceError("HIFLY_EVIDENCE_VALUE_INVALID", [field, side]);
   }
   if (["product_presence", "product_identity", "major_shape", "major_color", "fine_print_fidelity",
@@ -499,6 +590,12 @@ function requirementActualMatches(record, requirement) {
     return typeof record.actual === "string" && isRatioString(record.actual) && record.actual === requirement.expected;
   }
   if (requirement.actual_shape === "voice_source" || record.field === "voice_source") return voiceActualMatches(record, requirement);
+  if (requirement.actual_shape === "exact_text" || ["voice_display_name", "voice_style"].includes(record.field)) {
+    return typeof record.actual === "string" && record.actual === requirement.expected;
+  }
+  if (requirement.actual_shape === "boolean" || record.field === "subtitles_enabled") {
+    return typeof record.actual === "boolean" && record.actual === requirement.expected;
+  }
   return true;
 }
 
@@ -532,10 +629,10 @@ export function sanitizeEvidenceRecords(value, requiredFields = [], options = {}
   return unique.slice(0, HIFLY_MAX_EVIDENCE_RECORDS);
 }
 
-export function completeEvidenceForFields(value, fields = Object.keys(HIFLY_PRE_PAID_REQUIREMENTS)) {
+export function completeEvidenceForFields(value, fields = Object.keys(HIFLY_PRE_PAID_REQUIREMENTS), requirements = HIFLY_PRE_PAID_REQUIREMENTS) {
   const required = normalizeRequiredFields(fields);
   const safe = sanitizeEvidenceRecords(value, required);
-  const unavailable = buildUnavailableEvidence(required);
+  const unavailable = buildUnavailableEvidence(required, requirements);
   return required.map((field, index) => safe.find((record) => record.field === field) || unavailable[index]);
 }
 

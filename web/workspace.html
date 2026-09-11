@@ -104,7 +104,7 @@
                   <div id="copyVersionList" class="workspace-copy-versions" aria-label="文案版本"></div>
                   <form id="workspaceCopyForm">
                     <label for="workspaceCopyBody">文案正文</label>
-                    <textarea id="workspaceCopyBody" rows="11" required></textarea>
+                    <textarea id="workspaceCopyBody" rows="11" maxlength="10000" required placeholder="输入你准备发布的中文口播文案"></textarea>
                     <div class="editor-meta"><span id="workspaceCopyCount">0 字</span><span id="workspaceCopySaveState">已保存</span></div>
                     <p id="workspaceCopyNotice" class="notice" role="status"></p>
                     <section id="workspaceCopyConflict" class="notice blocked action-notice" hidden><span>服务端文案已更新，你的本地修改仍保留。</span><button id="loadLatestWorkspaceCopy" class="secondary" type="button">载入最新状态后继续编辑</button></section>

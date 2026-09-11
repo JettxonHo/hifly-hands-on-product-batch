@@ -12,6 +12,7 @@
   const taskNext = document.querySelector("#taskNext");
   const taskBlocker = document.querySelector("#taskBlocker");
   let runtimeReady = false;
+  let operatorWorkspaceEnabled = false;
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
 
   async function request(url, options = {}) {
@@ -76,7 +77,9 @@
       readiness.className = "project-readiness";
       readiness.textContent = "商品状态需进入项目核对";
       const link = document.createElement("a");
-      link.href = `/project.html?id=${encodeURIComponent(project.id)}`;
+      link.href = operatorWorkspaceEnabled
+        ? `/workspace.html?project=${encodeURIComponent(project.id)}&stage=product_content`
+        : `/project.html?id=${encodeURIComponent(project.id)}`;
       link.textContent = index === 0 ? "继续项目" : "打开项目";
       link.setAttribute("aria-label", index === 0 ? `继续项目，打开 ${project.name}` : `打开项目 ${project.name}`);
       link.className = "project-context-link";
@@ -142,6 +145,7 @@
     const runtime = await request("/api/runtime");
     if (!runtime.projectContentEnabled) location.replace("/");
     else {
+      operatorWorkspaceEnabled = runtime.operatorWorkspaceEnabled === true;
       runtimeReady = true;
       await refresh();
     }

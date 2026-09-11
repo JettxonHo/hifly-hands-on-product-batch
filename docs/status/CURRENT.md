@@ -1,5 +1,54 @@
 # 项目当前状态
 
+> 更新：2026-09-11。当前阶段：REAL_USER_VALIDATION_PRECONDITION_GATE，Owner已确认调整后的合同并授权执行。
+> R0 PASS；R1 PARTIAL；R2 BLOCKED；真实Golden Path及非作者测试未授权、未执行。
+
+当前任务合同与A–M核验结果统一记录在[前置条件报告](REAL_USER_VALIDATION_PRECONDITION.md)。本轮围绕已有Web Golden Path候选做必要最小修复和无Provider验证；保留API Coverage结论，不重开API调查。精确价格可未知，但上限必须可核验、可执行；内部任务防重不冒充Provider幂等，原片先留存再决定可交付。合并、部署、实际飞影校准/上传/生成和非作者测试仍需各自适用授权。
+
+2026-09-11实核：开发分支codex/hifly-fast-mvp起点4d98078，GitHub main2af015a；本地main仍是旧ca47ec9，不采用它作为主线。PR285仍OPEN/DRAFT、未合并；线上源码/App/Worker同为3e53bff且健康，执行停用；正式HTTPS入口自签名证书校验失败，未绕过。报告更新后只链接其详细证据，不复制多个状态表。
+
+两个最小修复已在a4623e1完成：正式项目入口进入已有Workspace、交付处理失败仍关联原片。独立Review与79项联合回归/255JS检查通过，a4623e1的CI34586963425和Windows stress34586963422均SUCCESS。真实回执、可执行费用/调用上限、可信入口/发布及Provider身份仍BLOCKED，本阶段结束后停在下一具体Gate，不发起真实运行。
+
+同一Gate进一步修复P0内部回执丢字段：已由页面确认的规范化回执可经Adapter进入Report，服务端绑定Attempt，A12验证唯一Cloud来源和字段；Work沿用Report引用，不加表/通用框架。实际响应解析器仍未实现，因此真实回执Gate仍BLOCKED。新正式执行缺有效回执不能completed/Work；保存Attempt收到的字节仅作证据，不证明Provider归属。主控联合复核130项129pass/1个PG环境skip，独立Review通过；PG需当前候选CI实际执行。详细首轮失败与修复见本轮报告。
+
+回执实现060915a的CI34590525025和Windows stress34590525022现已全部SUCCESS；A11/A12 PostgreSQL用例真实执行、0skip。基础Workspace页面/service已在main及线上镜像，关闭的是有效开关；未上线的是FAST-MVP增强/本轮修复，不能沿用“整个Workspace未合并”的笼统说法。最终状态以本轮A–M报告为准，仍不进入真实运行。
+
+## 2026-09-09 已完成调查及历史检查点
+
+以下为此前快照，当前执行范围与结论以2026-09-11前置条件报告为准。
+
+> 更新：2026-09-09（北京时间）。当前执行方向：HIFLY FAST-MVP / D-038。
+> 当前有界工作：Developer API Coverage Gate只读调查。结论D—PROVIDER_CONFIRMATION_REQUIRED；调查报告交付后停止，未授权API Spike或继续增强Playwright。
+> R0 PASS；R1 PARTIAL；R2 BLOCKED（Golden Path Preflight）；R3–R6 NOT_EXECUTED。
+> 当前分支 `codex/hifly-fast-mvp`，基准 main `2af015ab220ecc9d65de209ea690adb98cacc1c4`；部署 App/Worker 最近核验为 `3e53bffdd2c59e401815148ccd317b669d32216b` 且健康；本轮未部署。
+
+唯一主线：[ROADMAP](../ROADMAP.md)；当前验收入口：[Golden Path Preflight](../experiments/GOLDEN_PATH_PREFLIGHT.md)；[本轮证据](sessions/2026-09-07-fast-mvp.md)；[现有清单（当前未冻结）](../experiments/fast-mvp-paired-v1.json)。
+
+本次[Developer API Coverage Report](../product/HIFLY_GOODS_IN_HAND_API_COVERAGE_REPORT.md)为该有界Gate的当前结论：Holding能力REQUIRES_PROVIDER_CONFIRMATION，原生等价性未证明，完整API合同未成立，进入P1＋Person A Official API Spike的答案为NO。公开资料未记载不等于厂商明确不提供，不能据此选PUBLIC_API_GAP或HYBRID。当前付费套餐的具体Holding权限、输入/回执/下游衔接与API费用均待官方确认；本轮未触发业务API、上传、生成、Secret或生产变更。
+
+Owner最新收口为P1＋人物A的一条工作台真实闭环；最多两条完整视频仅用于预算准备，当前未授权付费。P3、人物B、三种人物来源与3+3矩阵后置，不阻塞首条。人物A当前只读元数据为active/available/valid、材料可访问，本地原图与登记校验值一致，随后线上App实际Asset Store读取的组织/类型/大小/checksum均匹配；素材输入核验PASS，H0提供既有手里有货成功证据。P1已收到Jisulife手持风扇原图（PNG448×770，203,769 bytes）及五段口播，原文保留、仅作本地预检留存；飞影图片接收未验证。本机Hifly已登录，但Owner确认这是不同于H0付费账号的账号；其余额、套餐状态与时长限制已排除，未上传或建任务。官方积分说明已重新读取：定制500＋文本视频10积分/秒，单条/两条hard cap还缺可核验计费时长上界及本次报价。真实提交回执、持久关联接线和适用发布仍是硬缺口。当前仅预检/只读，不上传、建生产任务、生成或下载视频。
+
+当前代码具备官方API的积分/公共人物目录读取，未接视频生成链；线上App只读核验官方Token未配置、生成执行保持停用。官网V2有口播task_id与结果查询，但手持商品合成接口未确认。详见[能力证据台账](../product/HIFLY_CAPABILITY_EVIDENCE.md)，不因套餐API权益自动改路或生成。
+
+后续只读公开前端调查已确认：goods先调用网页CMS两图手持合成，再将gen_id/图片引用交给商品视频接口；这些前端地址与公开V2不同，后台模型/服务共用及开发者Token权限仍未知。Owner优先完整官方API路线，当前仅做能力核验；没有因页面接口可见就改用它，没有执行素材上传、生成或新业务API调用。
+
+候选c5d404b已通过独立Review和CI34223674200（含PostgreSQL原片事务与强制无skip的27项串行浏览器/媒体回归）、Windows stress34223674229；未合并/部署。以下保留此前FAST-MVP研发与校准记录，不覆盖Golden Path最新优先级。
+
+Owner 已明确授权本轮普通研发与零 Provider 验证。新上传、付费、合并、部署均未执行/未授权。旧目录 `Product Recommendation clip` 为脏旧 GUI 分支，不做实现源。旧 #278 合同已由 #279 合并/部署，下面历史的 pending merge 不再作为当前事实；缺少真实校验的 GAP 仍需解决。
+
+2026-09-08 Owner 另行批准的一次 30 分钟、0 积分页面校准已结束。已真实访问 Hifly 并验证声音/字幕/AI 开关/大小的 UI 行为，余额观测净变化 0；没有上传、生成或点击视频下载。声音跨刷新保留，但 AI/字幕恢复开启；旧手持图会在弹窗重新出现。实测证据与退出清理见 [本轮记录](sessions/2026-09-07-fast-mvp.md)。据此已增加最终准备完成后的同一校验回调，并修正付费前失败误报提交不明及重启后错误进入对账的状态，实现提交 `a7c8abb` 的 198/198 兼容回归与独立 Review 通过；远端 CI 另由 [Issue #284](https://github.com/JettxonHo/hifly-hands-on-product-batch/issues/284) 和 [PR 当前头 Checks](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285/checks) 记录，不沿用旧提交结果。完整视频报价、冻结声音/字幕期望与因果回执仍未取得，本次访问授权不延续到下一轮。
+
+Owner 随后于 2026-09-08 确认设置与比例政策：播客-女声/普通话、字幕开、智能适配、AI 文案关；原片实测并保留，交付片统一无变形无裁切补边至严格9:16。默认读取器、前置准备/最后只读复核、原片/交付片归档及A12原片校验已形成独立Review通过的候选。runtime先读取已鉴权候选合同，空队列/旧合同无verifier零浏览器，真实登录/存储通过后才领取任务。第二次零积分校准已结束，只补齐图片数字人350积分分项，完整视频费率与因果回执仍未知。最后设置还原在窗口内；窗口后login确认可能触发额外导航，已记录清理偏差，未上传/建任务/生成/下载。详细真值见session。
+
+人物自动取用、直接人工口播与真实审核、付费不明停止、工单刷新防重沿用前轮实现。[Draft PR #285](https://github.com/JettxonHo/hifly-hands-on-product-batch/pull/285) 仍OPEN/DRAFT，未合并/部署。本轮两次本机全量为1422项，分别1个治理文案断言失败、2个浏览器同步失败，17环境skip；原失败和修复保留。修复后CI同口径的四文件串行27/27、0skip，媒体五文件84/84、静态检查255JS、示例3行和diffcheck通过，独立Review批准。新PG事务与最终完整CI按PR当前头核对。上一轮1393项/1376pass及旧CI均属历史，不代替新头；R1仍PARTIAL，正式B在缺少回执/费用控制时上传前停止。
+
+H0 只证明混合 Playwright+Computer Use 单个原生校准。历史 613 为余额变化，不是当前报价；本轮提交/扣费 0。旧 RBV 仍未完成，下面保留历史，不覆盖新方向。
+
+---
+
+## 2026-09-02 及更早历史状态
+
+
 > 最后更新：2026-09-02
 > 当前 Goal：RBV-GOAL-001；当前 bounded engineering implementation：Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` provider-free/Hifly-free production contract revision（独立分支 `codex/hifly-hands-on-product-v1-contract`；exact base `3fbca9647b0d8fab89423ec0e55fd5ee7b71821c`，working head 为本阶段候选）
 > 当前阶段：`HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_REWORK`；字段级 Production Evidence Contract、Cloud/Local structured pre-point verifier 与 Hifly post-handheld ratio evidence/conditional exact stop 已实现并 focused GREEN。`CONTRACT_IMPLEMENTATION = GAP` 仍成立：native voice exact identity、final-video ratio/audio、Stage 1→Stage 2 dimension behavior 需要独立真实证据与 Gate。Issue #275 已为历史 `COMPLETE/MERGED/DEPLOYED`（PR #276 squash merge 至 `main@fbc722ee40054045d8883f0a7e20beb1a11e4221`，GitHub Issue #275 CLOSED；exact-head CI run `33418338737` 三绿）。真实 Plan Create、Provider/Hifly、登录与积分动作仍禁止。RBV Readiness Freeze 记录仍为 `docs/status/RBV_CALIBRATION_READINESS_FREEZE.md`，产品方向继续引用 D-037 与 `docs/product/REAL_BATCH_PRODUCTION_VALIDATION_PILOT.md`。

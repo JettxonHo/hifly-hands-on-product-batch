@@ -1,5 +1,7 @@
 # 产品文档入口
 
+> 当前 Owner 方向：2026-09-07 [D-038 FAST-MVP](DECISION_LOG.md#d-038-hifly-fast-mvp)，唯一阶段路线图 [ROADMAP](../ROADMAP.md)。历史 RBV/Cloud 记录保留；旧预算/门禁不代表本轮授权。
+
 > 状态：Accepted
 > Owner：owner（JettxonHo）
 > 最后更新：2026-08-31

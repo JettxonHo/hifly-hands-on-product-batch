@@ -19,6 +19,24 @@ export const HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION = Object.freeze({
   copy_ai_generation: false
 });
 
+// These fields are an explicit additive policy for newly created snapshots.
+// Historical V1 contracts omit them and therefore retain their original
+// canonical bytes and execution semantics.
+export const HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS = Object.freeze({
+  voice_display_name: "播客-女声",
+  voice_style: "普通话",
+  subtitles_enabled: true,
+  output_aspect_ratio_policy: "post_output_verify_pad_preserve"
+});
+
+const CURRENT_SETTING_FIELDS = Object.freeze(Object.keys(HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS));
+
+export function usesPostOutputPadPreservePolicy(contract) {
+  const production = contract?.production;
+  return production?.output_aspect_ratio_policy === HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS.output_aspect_ratio_policy &&
+    CURRENT_SETTING_FIELDS.every((field) => Object.hasOwn(production, field));
+}
+
 const SHA256 = /^[a-f0-9]{64}$/;
 const MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -35,6 +53,11 @@ export const HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES = Object.freeze({
   ASPECT_RATIO_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_ASPECT_RATIO_INVALID",
   HANDHELD_RATIO_POLICY_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_HANDHELD_RATIO_POLICY_INVALID",
   VOICE_SOURCE_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_VOICE_SOURCE_INVALID",
+  VOICE_DISPLAY_NAME_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_VOICE_DISPLAY_NAME_INVALID",
+  VOICE_STYLE_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_VOICE_STYLE_INVALID",
+  SUBTITLES_ENABLED_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_SUBTITLES_ENABLED_INVALID",
+  OUTPUT_ASPECT_RATIO_POLICY_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_OUTPUT_ASPECT_RATIO_POLICY_INVALID",
+  SETTINGS_INCOMPLETE: "HIFLY_HANDS_ON_PRODUCT_V1_SETTINGS_INCOMPLETE",
   PRESENTATION_SIZE_INVALID: "HIFLY_HANDS_ON_PRODUCT_V1_PRESENTATION_SIZE_INVALID",
   BINDING_MISMATCH: "HIFLY_HANDS_ON_PRODUCT_V1_BINDING_MISMATCH"
 });
@@ -193,6 +216,7 @@ function avatarFacts(value) {
 }
 
 function productionFacts(value) {
+  const requestedProduction = value?.production || {};
   const requested = value?.production?.handheld_aspect_ratio_policy;
   const policy = requested === undefined
     ? HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION.handheld_aspect_ratio_policy
@@ -200,7 +224,39 @@ function productionFacts(value) {
   if (!HANDHELD_RATIO_POLICIES.has(policy)) {
     throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.HANDHELD_RATIO_POLICY_INVALID, ["production.handheld_aspect_ratio_policy"]);
   }
-  return { ...HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION, handheld_aspect_ratio_policy: policy };
+  const presentSettings = CURRENT_SETTING_FIELDS.filter((field) => Object.hasOwn(requestedProduction, field));
+  if (presentSettings.length > 0 && presentSettings.length !== CURRENT_SETTING_FIELDS.length) {
+    throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.SETTINGS_INCOMPLETE, ["production"]);
+  }
+  const result = { ...HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION, handheld_aspect_ratio_policy: policy };
+  if (presentSettings.length === CURRENT_SETTING_FIELDS.length) {
+    const voiceDisplayName = clean(requestedProduction.voice_display_name);
+    const voiceStyle = clean(requestedProduction.voice_style);
+    if (!voiceDisplayName) throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.VOICE_DISPLAY_NAME_INVALID, ["production.voice_display_name"]);
+    if (!voiceStyle) throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.VOICE_STYLE_INVALID, ["production.voice_style"]);
+    if (typeof requestedProduction.subtitles_enabled !== "boolean") {
+      throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.SUBTITLES_ENABLED_INVALID, ["production.subtitles_enabled"]);
+    }
+    if (voiceDisplayName !== HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS.voice_display_name) {
+      throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.VOICE_DISPLAY_NAME_INVALID, ["production.voice_display_name"]);
+    }
+    if (voiceStyle !== HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS.voice_style) {
+      throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.VOICE_STYLE_INVALID, ["production.voice_style"]);
+    }
+    if (requestedProduction.subtitles_enabled !== HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS.subtitles_enabled) {
+      throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.SUBTITLES_ENABLED_INVALID, ["production.subtitles_enabled"]);
+    }
+    if (requestedProduction.output_aspect_ratio_policy !== HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS.output_aspect_ratio_policy) {
+      throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.OUTPUT_ASPECT_RATIO_POLICY_INVALID, ["production.output_aspect_ratio_policy"]);
+    }
+    Object.assign(result, {
+      voice_display_name: voiceDisplayName,
+      voice_style: voiceStyle,
+      subtitles_enabled: requestedProduction.subtitles_enabled,
+      output_aspect_ratio_policy: requestedProduction.output_aspect_ratio_policy
+    });
+  }
+  return result;
 }
 
 export function canonicalizeHiflyHandsOnProductV1(value) {
@@ -259,7 +315,7 @@ function assertContractShape(contract) {
   requiredString(avatar.material_version_id, "avatar.material_version_id", HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.AVATAR_INVALID);
   const production = contract.production;
   if (!production || typeof production !== "object") throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.INVALID, ["production"]);
-  assertExactKeys(production, new Set(Object.keys(HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION)), "production");
+  assertExactKeys(production, new Set([...Object.keys(HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION), ...CURRENT_SETTING_FIELDS]), "production");
   for (const [key, expected] of Object.entries(HIFLY_HANDS_ON_PRODUCT_V1_PRODUCTION)) {
     if (key === "handheld_aspect_ratio_policy") continue;
     if (production[key] !== expected) {
@@ -272,6 +328,19 @@ function assertContractShape(contract) {
   }
   if (!HANDHELD_RATIO_POLICIES.has(production.handheld_aspect_ratio_policy)) {
     throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.HANDHELD_RATIO_POLICY_INVALID, ["production.handheld_aspect_ratio_policy"]);
+  }
+  const presentSettings = CURRENT_SETTING_FIELDS.filter((field) => Object.hasOwn(production, field));
+  if (presentSettings.length > 0 && presentSettings.length !== CURRENT_SETTING_FIELDS.length) {
+    throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.SETTINGS_INCOMPLETE, ["production"]);
+  }
+  if (presentSettings.length === CURRENT_SETTING_FIELDS.length) {
+    if (!clean(production.voice_display_name)) throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.VOICE_DISPLAY_NAME_INVALID, ["production.voice_display_name"]);
+    if (!clean(production.voice_style)) throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.VOICE_STYLE_INVALID, ["production.voice_style"]);
+    if (typeof production.subtitles_enabled !== "boolean") throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.SUBTITLES_ENABLED_INVALID, ["production.subtitles_enabled"]);
+    if (production.voice_display_name !== HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS.voice_display_name) throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.VOICE_DISPLAY_NAME_INVALID, ["production.voice_display_name"]);
+    if (production.voice_style !== HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS.voice_style) throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.VOICE_STYLE_INVALID, ["production.voice_style"]);
+    if (production.subtitles_enabled !== HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS.subtitles_enabled) throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.SUBTITLES_ENABLED_INVALID, ["production.subtitles_enabled"]);
+    if (production.output_aspect_ratio_policy !== HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS.output_aspect_ratio_policy) throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.OUTPUT_ASPECT_RATIO_POLICY_INVALID, ["production.output_aspect_ratio_policy"]);
   }
   if (contract.copy?.mode !== "frozen_copy" || contract.copy?.transform !== "none" || contract.copy?.language !== "zh-CN" || !SHA256.test(contract.copy?.body_hash || "")) {
     throw fail(HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES.COPY_INVALID, ["copy"]);

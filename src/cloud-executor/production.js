@@ -1,8 +1,12 @@
+import path from "node:path";
+
 import { createVerifiedOutputAssetPort } from "../work-verification/verified-output-asset-port.js";
 import { createWorkVerificationService } from "../work-verification/work-verification-service.js";
 import { createWorkVerificationWorker } from "../work-verification/work-verification-worker.js";
+import { createAssetService } from "../assets/asset-service.js";
 import { createPostgresAssetRepository } from "../assets/postgres-asset-repository.js";
 import { createLocalObjectStore } from "../assets/local-object-store.js";
+import { createPostgresAvatarSelectionRepository } from "../avatar-selection/postgres-avatar-selection-repository.js";
 import { createIdentityPool } from "../identity/postgres.js";
 import { createPostgresIdentityRepository } from "../identity/postgres-identity-repository.js";
 import { createPostgresManualExecutionRepository } from "../manual-execution/postgres-manual-execution-repository.js";
@@ -111,6 +115,49 @@ function defaultRepositoryFactories() {
   };
 }
 
+function createAvatarExecutionBindingPort({ repository, now = Date.now } = {}) {
+  if (!repository?.getSelectionState || !repository?.getCatalogVersion) return null;
+  return {
+    async assertUsableAvatarBinding({ organizationId, productId, copyVersionId, avatarSelectionId, avatarVersionId, materialVersionId } = {}) {
+      try {
+        if (![organizationId, productId, copyVersionId, avatarSelectionId, avatarVersionId, materialVersionId]
+          .every((value) => clean(value))) throw failure("AVATAR_SOURCE_UNAVAILABLE");
+        const state = await repository.getSelectionState(organizationId, productId);
+        const selection = state?.current_selection;
+        const entry = await repository.getCatalogVersion(organizationId, avatarVersionId);
+        const asset = entry?.asset;
+        const version = entry?.asset_version;
+        const capabilities = Array.isArray(entry?.capabilities) ? entry.capabilities : [];
+        const expiresAt = version?.authorization_expires_at;
+        const authorizationCurrent = !expiresAt || Number.isFinite(Date.parse(expiresAt)) && Date.parse(expiresAt) > now();
+        const capabilityEvidence = capabilities.some((item) => item?.verification_status === "verified" && clean(item?.evidence_reference));
+        if (!selection || selection.organization_id !== organizationId || selection.product_id !== productId ||
+            selection.id !== avatarSelectionId || selection.copy_version_id !== copyVersionId ||
+            selection.asset_version_id !== avatarVersionId || selection.status !== "confirmed" ||
+            !asset || asset.organization_id !== organizationId || asset.status !== "active" ||
+            !version || version.organization_id !== organizationId || version.id !== avatarVersionId ||
+            version.status !== "available" || version.material_asset_version_id !== materialVersionId ||
+            version.materials_accessible !== true || version.material_status !== "available" ||
+            !["valid", "expiring"].includes(version.authorization_status) || !authorizationCurrent ||
+            version.authorization_scope !== "current_organization" || version.capability_status !== "verified" ||
+            !capabilityEvidence) {
+          throw failure("AVATAR_SOURCE_UNAVAILABLE");
+        }
+      } catch {
+        throw failure("AVATAR_SOURCE_UNAVAILABLE");
+      }
+    }
+  };
+}
+
+function readOnlyObjectStore(store) {
+  if (!store?.head || !store?.get) throw failure("CLOUD_EXECUTOR_SOURCE_ASSET_STORE_INVALID");
+  return {
+    head: (key) => store.head(key),
+    get: (key) => store.get(key)
+  };
+}
+
 async function initializeRepository(name, repository) {
   if (typeof repository?.initialize !== "function") throw failure(`CLOUD_EXECUTOR_${name.toUpperCase()}_REPOSITORY_INVALID`);
   await repository.initialize();
@@ -139,10 +186,29 @@ export async function createCloudExecutorProductionPorts({ pool, config, reposit
   };
   for (const name of INITIALIZE_ORDER) await initializeRepository(name, repositories[name]);
 
+  const avatarSelectionFactory = repositoryFactories.avatarSelection ||
+    (config.mode === "playwright" && typeof pool?.connect === "function" ? createPostgresAvatarSelectionRepository : null);
+  const avatarSelectionRepository = avatarSelectionFactory ? avatarSelectionFactory(repositoryInput) : null;
+  if (avatarSelectionRepository) await initializeRepository("avatarSelection", avatarSelectionRepository);
+
   const candidateStore = objectStoreFactory({ root: workspace.outputsDir, kind: "candidate" });
   const handoffStore = objectStoreFactory({ root: config.handoffDir, kind: "handoff" });
   await candidateStore.initialize?.();
   await handoffStore.initialize?.();
+  const sourceAssetStore = config.mode === "playwright"
+    ? objectStoreFactory({
+      root: path.resolve(config.sourceAssetsRoot || path.join(path.dirname(config.handoffDir || "/var/lib/hifly/manual-handoff-packages"), "objects")),
+      kind: "source",
+      readOnly: true
+    })
+    : null;
+  const avatarAssetSource = avatarSelectionRepository && sourceAssetStore
+    ? createAssetService({
+      repository: repositories.assets,
+      objectStore: readOnlyObjectStore(sourceAssetStore),
+      avatarBindingPort: createAvatarExecutionBindingPort({ repository: avatarSelectionRepository, now })
+    }).sourceAvatarImagePort
+    : null;
 
   const { memberOrderPort, cloudOrderPort } = createCloudOrderPorts({ repository: repositories.productionOrders, config });
   const packagePort = createManualHandoffPackageService({
@@ -174,6 +240,8 @@ export async function createCloudExecutorProductionPorts({ pool, config, reposit
     if (closed) return;
     closed = true;
     await verificationWorker.stop?.();
+    await sourceAssetStore?.close?.();
+    await avatarSelectionRepository?.close?.();
     for (const name of INITIALIZE_ORDER.slice().reverse()) await repositories[name]?.close?.();
   }
 
@@ -188,6 +256,7 @@ export async function createCloudExecutorProductionPorts({ pool, config, reposit
       repository: repositories.manualExecution,
       orderPort: cloudOrderPort,
       packagePort,
+      avatarAssetSource,
       candidateStore,
       verificationPort: {
         requestVerification: verificationPortService.requestVerification,

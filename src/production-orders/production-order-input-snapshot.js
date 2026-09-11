@@ -1,4 +1,5 @@
 import {
+  HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS,
   HIFLY_HANDS_ON_PRODUCT_V1_CONTRACT_ID,
   HIFLY_HANDS_ON_PRODUCT_V1_ERROR_CODES,
   buildHiflyHandsOnProductV1
@@ -164,6 +165,7 @@ export function createProductionOrderInputSnapshotPort({ copyService, copyReview
               material_version_id: material.material_version_id, checksum_sha256: material.checksum_sha256,
               media_type: material.media_type, size: material.size, status: selection.status,
               current: avatarWorkspace.selection.current_valid === true },
+            production: { ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS },
           };
           hiflyHandsOnProductV1 = buildHiflyHandsOnProductV1(facts);
         }

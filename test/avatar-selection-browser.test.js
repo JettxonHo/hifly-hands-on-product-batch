@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,17 +14,20 @@ import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { createMemoryProjectContentRepository } from "../src/project-content/memory-project-content-repository.js";
 import { buildApp } from "../src/server/app.js";
 import { findAvailablePort } from "../src/server/start.js";
+import { registerBrowserCleanup } from "./helpers/browser-cleanup.js";
 import { ADMIN_EMAIL, ADMIN_TEMP_PASSWORD } from "./helpers/identity-world.js";
 
 test("avatar workspace confirms, changes, restores history, and remains responsive without Hifly", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hifly-avatar-browser-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let app;
+  let browser;
+  registerBrowserCleanup(t, { root, getApp: () => app, getBrowser: () => browser });
   const port = await findAvailablePort(57700), host = `127.0.0.1:${port}`, origin = `http://${host}`;
   const identityRepository = createMemoryIdentityRepository();
   const avatarRepository = createMemoryAvatarSelectionRepository();
   const seeded = await seedInitialAdmin(identityRepository, { organizationId: "org-avatar-browser", organizationName: "星桥人物工作台",
     adminEmail: ADMIN_EMAIL, adminDisplayName: "人物运营", adminTempPassword: ADMIN_TEMP_PASSWORD });
-  const app = await buildApp({ root, executor: createFakeExecutor(),
+  app = await buildApp({ root, executor: createFakeExecutor(),
     identity: { enabled: true, repository: identityRepository, trustedHosts: [host], trustedOrigins: [origin], cookieSecure: false, seed: { enabled: false } },
     projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort: { async bindAvailableVersion(input) { return { reference: input }; } } },
     avatarSelection: { enabled: true, repository: avatarRepository, copyApprovalPort: {
@@ -52,15 +55,12 @@ test("avatar workspace confirms, changes, restores history, and remains responsi
     idempotencyKey: "avatar-browser-second-product", productName: "轻盈防晒霜" });
   try { await app.listen({ host: "127.0.0.1", port }); }
   catch (error) { await app.close(); if (error.code === "EPERM") return t.skip("sandbox disallows local TCP listening"); throw error; }
-  t.after(() => app.close());
-  let browser;
   const executablePath = process.env.IDENTITY_BROWSER_EXECUTABLE || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   try { browser = await chromium.launch({ headless: true, executablePath }); }
   catch (_systemError) {
     try { browser = await chromium.launch({ headless: true }); }
     catch (error) { return t.skip(`Chrome/Chromium unavailable: ${error.message}`); }
   }
-  t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill(ADMIN_EMAIL);
   await page.getByLabel("密码", { exact: true }).fill(ADMIN_TEMP_PASSWORD); await page.getByRole("button", { name: "登录" }).click();
@@ -225,12 +225,14 @@ test("avatar admin GUI registers verified material and members remain read-only"
   const avatarPath = path.join(root, "avatar.png");
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
   await writeFile(avatarPath, png);
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let app;
+  let browser;
+  registerBrowserCleanup(t, { root, getApp: () => app, getBrowser: () => browser });
   const port = await findAvailablePort(57800), host = `127.0.0.1:${port}`, origin = `http://${host}`;
   const identityRepository = createMemoryIdentityRepository();
   const seeded = await seedInitialAdmin(identityRepository, { organizationId: "org-avatar-admin-browser", organizationName: "管理员人物工作台",
     adminEmail: "avatar-admin-browser@example.test", adminDisplayName: "人物管理员", adminTempPassword: "Temporary-Avatar-Admin-9!" });
-  const app = await buildApp({ root, executor: createFakeExecutor(),
+  app = await buildApp({ root, executor: createFakeExecutor(),
     identity: { enabled: true, repository: identityRepository, trustedHosts: [host], trustedOrigins: [origin], cookieSecure: false, seed: { enabled: false } },
     assets: { enabled: true, repository: createMemoryAssetRepository(), objectStore: createMemoryObjectStore(), worker: { autoStart: true, pollIntervalMs: 20 } },
     projectContent: { enabled: true, repository: createMemoryProjectContentRepository(), assetReferencePort: { async bindAvailableVersion(input) { return { reference: input }; } } },
@@ -250,14 +252,11 @@ test("avatar admin GUI registers verified material and members remain read-only"
     projectId: project.id, idempotencyKey: "avatar-admin-browser-product", productName: "管理员人物商品" });
   try { await app.listen({ host: "127.0.0.1", port }); }
   catch (error) { await app.close(); if (error.code === "EPERM") return t.skip("sandbox disallows local TCP listening"); throw error; }
-  t.after(() => app.close());
-  let browser;
   try { browser = await chromium.launch({ headless: true, executablePath: process.env.IDENTITY_BROWSER_EXECUTABLE || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }); }
   catch (_systemError) {
     try { browser = await chromium.launch({ headless: true }); }
     catch (error) { return t.skip(`Chrome/Chromium unavailable: ${error.message}`); }
   }
-  t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(`${origin}/login.html`); await page.getByLabel("工作邮箱").fill("avatar-admin-browser@example.test");
   await page.getByLabel("密码", { exact: true }).fill("Temporary-Avatar-Admin-9!"); await page.getByRole("button", { name: "登录" }).click();

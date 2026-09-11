@@ -462,6 +462,53 @@ test("Stage 5 reconciles committed create and handoff writes hidden by an HTTP 5
   assert.equal(generatedPackages.length, 1);
 });
 
+test("Stage 5 retries an unknown create with the same key and exact plan payload", async (t) => {
+  const setup = await world(t);
+  if (!setup) return t.skip("real Chrome unavailable in this environment");
+  const { browser, origin, project, first, state, createdOrders } = setup;
+  state.current = fixture(first.product.id, { noOrder: true, canCreate: true });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await login(page, origin);
+  await page.goto(workspaceUrl(origin, project.id, first.product.id, null));
+  await page.waitForFunction(() => document.querySelector("#workspacePrimaryAction")?.dataset.actionCode === "create_production_order");
+
+  const requests = [];
+  await page.route("**/api/products/*/production-orders", async (route) => {
+    requests.push({ key: route.request().headers()["idempotency-key"], payload: route.request().postDataJSON() });
+    if (requests.length === 1) {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "UPSTREAM_RESPONSE_UNKNOWN" }) });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.locator("#workspacePrimaryAction").click();
+  const dialog = page.locator("#productionCreateDialog");
+  await dialog.getByRole("button", { name: "确认创建" }).click();
+  await page.getByText("创建结果未知；已保留本次创建意图，请重试同一次请求或刷新后核对。", { exact: true }).waitFor();
+  assert.equal(await dialog.evaluate((element) => element.open), true);
+  assert.equal(requests.length, 1);
+  const storedIntent = await page.evaluate(() => {
+    const entry = Object.entries(sessionStorage).find(([key]) => key.startsWith("hifly-production-create-intent-v1:"));
+    return entry ? JSON.parse(entry[1]) : null;
+  });
+  assert.equal(storedIntent.product_id, first.product.id);
+  assert.equal(storedIntent.payload.video_plan_version_id, "plan-stage-5");
+  assert.equal(storedIntent.state, "unknown");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByText("生产待创建", { exact: true }).first().waitFor();
+  await page.locator("#workspacePrimaryAction").click();
+  assert.equal(await dialog.evaluate((element) => element.open), true);
+  await dialog.getByRole("button", { name: "确认创建" }).click();
+  await page.getByText("生产交接资料待生成", { exact: true }).first().waitFor();
+  assert.equal(await dialog.evaluate((element) => element.open), false);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].key, requests[0].key);
+  assert.deepEqual(requests[1].payload, requests[0].payload);
+  assert.equal(createdOrders.length, 1);
+});
+
 test("Stage 5 ignores stale same-runtime responses and Back Forward reload exact product authority", async (t) => {
   const setup = await world(t);
   if (!setup) return t.skip("real Chrome unavailable in this environment");

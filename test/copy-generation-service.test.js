@@ -81,6 +81,66 @@ test("ready product revision generates one editable copy draft asynchronously", 
   assert.equal(copies[0].generation_job_id, requested.job.id);
 });
 
+test("ready product revision accepts one direct manual copy without invoking the generation provider", async () => {
+  let providerCalls = 0;
+  const ctx = world({ provider: createControlledCopyProvider({
+    async generate() {
+      providerCalls += 1;
+      return { body: "不应被调用" };
+    }
+  }) });
+  const command = { ...actor, productRevisionId: readySnapshot.id, body: "负责人提供的中文口播文案", idempotencyKey: "manual-copy-1" };
+
+  const created = await ctx.service.createManualCopyVersion(command);
+  const replay = await ctx.service.createManualCopyVersion(command);
+
+  assert.equal(created.id, replay.id);
+  assert.equal(created.status, "draft");
+  assert.equal(created.intent, "manual_input");
+  assert.equal(created.generation_job_id, null);
+  assert.equal(created.parent_copy_version_id, null);
+  assert.equal(created.created_by_member_id, actor.actorMemberId);
+  assert.equal(created.version_number, 1);
+  assert.equal(providerCalls, 0);
+  await assert.rejects(ctx.service.createManualCopyVersion({ ...command, body: "同一键不能换正文" }), { code: "IDEMPOTENCY_CONFLICT" });
+  await assert.rejects(ctx.service.createManualCopyVersion({ ...command, idempotencyKey: "manual-copy-2" }), { code: "COPY_VERSION_CONFLICT" });
+});
+
+test("direct manual copy requires the current ready revision and rejects an active generation", async () => {
+  const wrongOrg = world();
+  await assert.rejects(wrongOrg.service.createManualCopyVersion({ organizationId: "org-other", actorMemberId: actor.actorMemberId,
+    productRevisionId: readySnapshot.id, body: "越权正文", idempotencyKey: "manual-copy-wrong-org" }), { code: "PRODUCT_REVISION_NOT_FOUND" });
+
+  const superseded = world();
+  superseded.supersedeRevision();
+  await assert.rejects(superseded.service.createManualCopyVersion({ ...actor, productRevisionId: readySnapshot.id,
+    body: "旧版本正文", idempotencyKey: "manual-copy-stale" }), { code: "PRODUCT_REVISION_NOT_FOUND" });
+
+  const active = world();
+  await active.service.requestGeneration({ ...actor, productRevisionId: readySnapshot.id,
+    intent: "product_recommendation", idempotencyKey: "manual-copy-active-generation" });
+  await assert.rejects(active.service.createManualCopyVersion({ ...actor, productRevisionId: readySnapshot.id,
+    body: "避免覆盖排队生成", idempotencyKey: "manual-copy-after-generation" }), { code: "COPY_VERSION_CONFLICT" });
+});
+
+test("manual input and generation requests serialize without allowing an overwrite", async () => {
+  const ctx = world();
+  const results = await Promise.allSettled([
+    ctx.service.createManualCopyVersion({ ...actor, productRevisionId: readySnapshot.id,
+      body: "并发人工首版文案", idempotencyKey: "manual-copy-race" }),
+    ctx.service.requestGeneration({ ...actor, productRevisionId: readySnapshot.id,
+      intent: "product_recommendation", idempotencyKey: "generated-copy-race" })
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+  assert.equal(results.find((result) => result.status === "rejected").reason.code, "COPY_VERSION_CONFLICT");
+  const copies = await ctx.service.listCopyVersions({ ...actor, productRevisionId: readySnapshot.id });
+  const jobs = await ctx.service.listGenerationJobs({ ...actor, productRevisionId: readySnapshot.id });
+  assert.equal(copies.length + jobs.length, 1);
+  if (copies.length) assert.equal(copies[0].intent, "manual_input");
+  if (jobs.length) assert.equal(jobs[0].intent, "product_recommendation");
+});
+
 test("superseded product revisions retain copy history while blocking new generation", async () => {
   const ctx = world();
   const draft = await generatedDraft(ctx, "historical-copy");

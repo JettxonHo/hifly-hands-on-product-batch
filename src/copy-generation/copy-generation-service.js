@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 const failure = (code) => Object.assign(new Error(code), { code });
 const cleanText = (value) => typeof value === "string" ? value.trim() : "";
+export const MAX_COPY_BODY_CHARS = 10_000;
 
 function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -29,6 +30,7 @@ export function createCopyGenerationService({ repository, productRevisionPort, r
     async requestGeneration(input) {
       context(input);
       const intent = cleanText(input.intent) || "product_recommendation";
+      if (intent === "manual_input") throw failure("COPY_GENERATION_INTENT_INVALID");
       const key = idempotencyKey(input.idempotencyKey);
       const productRevision = await productRevisionPort.getReadySnapshot({ organizationId: input.organizationId, productRevisionId: input.productRevisionId });
       const at = timestamp();
@@ -43,6 +45,49 @@ export function createCopyGenerationService({ repository, productRevisionPort, r
         fingerprint: stableJson({ product_revision_id: productRevision.id, intent }),
         job,
         audit: { id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId, event_type: "copy.generation_requested", product_revision_id: productRevision.id, copy_generation_job_id: job.id, metadata: { intent }, created_at: at }
+      });
+    },
+    async createManualCopyVersion(input) {
+      context(input);
+      const body = cleanText(input.body);
+      if (!body) throw failure("COPY_BODY_REQUIRED");
+      if (body.length > MAX_COPY_BODY_CHARS) throw failure("COPY_BODY_TOO_LARGE");
+      const key = idempotencyKey(input.idempotencyKey);
+      const productRevision = await productRevisionPort.getCurrentReadySnapshot({
+        organizationId: input.organizationId,
+        productRevisionId: input.productRevisionId
+      });
+      const at = timestamp();
+      const copyVersion = {
+        id: randomUUID(),
+        organization_id: input.organizationId,
+        project_id: productRevision.project_id,
+        product_id: productRevision.product_id,
+        product_revision_id: productRevision.id,
+        generation_job_id: null,
+        intent: "manual_input",
+        status: "draft",
+        version_number: null,
+        row_version: 1,
+        body,
+        parent_copy_version_id: null,
+        created_by_member_id: input.actorMemberId,
+        created_at: at,
+        updated_at: at,
+        frozen_at: null
+      };
+      return repository.createManualCopyVersion({
+        organizationId: input.organizationId,
+        productRevisionId: productRevision.id,
+        copyVersion,
+        receiptKey: `${input.organizationId}:${input.actorMemberId}:manual-copy:${key}`,
+        fingerprint: stableJson({ product_revision_id: productRevision.id, intent: copyVersion.intent, body }),
+        audit: {
+          id: randomUUID(), organization_id: input.organizationId, actor_member_id: input.actorMemberId,
+          event_type: "copy.manual_input_created", product_revision_id: productRevision.id,
+          copy_version_id: copyVersion.id, metadata: { source: "manual_input" }, created_at: at
+        },
+        now: at
       });
     },
     async getGenerationJob(input) {
@@ -93,6 +138,7 @@ export function createCopyGenerationService({ repository, productRevisionPort, r
         ...current,
         id: randomUUID(), status: "draft", version_number: null, row_version: 1,
         body, parent_copy_version_id: current.id, generation_job_id: null,
+        ...(input.copyOrigin === "ai_rewrite" ? { intent: "ai_rewrite" } : {}),
         created_by_member_id: input.actorMemberId, created_at: at, updated_at: at, frozen_at: null
       };
       const result = await repository.editCopy({

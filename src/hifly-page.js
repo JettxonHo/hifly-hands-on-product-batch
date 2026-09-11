@@ -20,6 +20,59 @@ function uniqueLabels(values) {
   return labels;
 }
 
+function isFormalHandsOnProductTask(product) {
+  return Boolean(product?.hifly_hands_on_product_v1);
+}
+
+function pageClosedError() {
+  return Object.assign(new Error("Hifly page is closed"), {
+    code: "HIFLY_PAGE_CLOSED",
+    outcome: "requires_action"
+  });
+}
+
+function assetPaidActionUnknownError(cause) {
+  return Object.assign(new Error("Hifly hands-on image submission outcome is unknown", { cause }), {
+    code: "HIFLY_HANDS_ON_IMAGE_SUBMISSION_UNKNOWN",
+    outcome: "requires_action",
+    failureStage: "asset_paid_action"
+  });
+}
+
+function editingModalStateLostError() {
+  return Object.assign(new Error("Hifly hands-on modal left the current editing state"), {
+    code: "HIFLY_HANDS_ON_MODAL_EDITING_STATE_LOST",
+    outcome: "requires_action",
+    failureStage: "asset_pre_submit"
+  });
+}
+
+function modalStateUnverifiedError() {
+  return Object.assign(new Error("Hifly hands-on modal state could not be verified"), {
+    code: "HIFLY_HANDS_ON_MODAL_STATE_UNVERIFIED",
+    outcome: "requires_action",
+    failureStage: "asset_pre_submit"
+  });
+}
+
+function submissionReceiptUnavailableError() {
+  return Object.assign(new Error("A causal Hifly submission receipt resolver is required before formal video submission"), {
+    code: "HIFLY_SUBMISSION_RECEIPT_UNAVAILABLE",
+    outcome: "requires_action",
+    failureStage: "pre_submit_receipt"
+  });
+}
+
+function settingsVerificationError(fields, evidence) {
+  return Object.assign(new Error("CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED"), {
+    code: "CONTRACT_STRUCTURED_EVIDENCE_NOT_VERIFIED",
+    details: fields,
+    evidence,
+    outcome: "requires_action",
+    failureStage: "pre_paid_gate"
+  });
+}
+
 export class HiflyHandsOnProductPage {
   constructor(page, config, logger) {
     this.page = page;
@@ -27,7 +80,19 @@ export class HiflyHandsOnProductPage {
     this.logger = logger;
   }
 
+  assertPageOpen() {
+    if (typeof this.page?.isClosed !== "function") return;
+    let closed;
+    try {
+      closed = this.page.isClosed();
+    } catch {
+      closed = true;
+    }
+    if (closed) throw pageClosedError();
+  }
+
   async openWorkbench() {
+    this.assertPageOpen();
     await this.page.goto(this.config.hiflyWorkbenchUrl, { waitUntil: "domcontentloaded" });
     await this.page.waitForLoadState("networkidle", {
       timeout: this.config.batch.defaultTimeoutMs
@@ -74,6 +139,7 @@ export class HiflyHandsOnProductPage {
   }
 
   async preflight() {
+    this.assertPageOpen();
     if (this.config.handsOnProductUrl) {
       await this.enterHandsOnProductMode();
     } else {
@@ -84,17 +150,18 @@ export class HiflyHandsOnProductPage {
     return { status: "ready" };
   }
 
-  async fillProduct(product) {
+  async fillProduct(product, { checkpoint, contractFieldVerifier } = {}) {
+    this.assertPageOpen();
     const ui = this.config.hiflyUi;
 
-    await this.resetExistingUpload();
+    await this.resetExistingUpload(product);
     await this.fillOptionalField(ui.productNameLabel, product.product_name, "product_name");
     await this.fillOptionalField(ui.sellingPointsLabel, product.selling_points, "selling_points");
     await this.applyScriptMode(product);
     // The inner Hands-on-Product image generation can consume points. Freeze
     // and read back the copy/AI mode first so a toggle or script failure stops
     // before the paid modal action.
-    const handheldEvidence = await this.createHandsOnImage(product);
+    const handheldEvidence = await this.createHandsOnImage(product, { checkpoint, contractFieldVerifier });
     await this.captureStep(product, "after-upload");
     return handheldEvidence;
   }
@@ -170,15 +237,106 @@ export class HiflyHandsOnProductPage {
     await this.captureStep(product, "script-filled");
   }
 
+  async verifyCurrentSettings(product) {
+    const production = product?.hifly_hands_on_product_v1?.production;
+    const required = ["voice_display_name", "voice_style", "subtitles_enabled"];
+    if (!production || required.some((field) => !Object.hasOwn(production, field))) return null;
+
+    const voiceEvidence = (field, actual, result = HIFLY_VERIFICATION_RESULT.PROVEN) => createEvidenceRecord({
+      field,
+      expected: production[field],
+      actual,
+      evidenceSource: "hifly_dom_readback",
+      verificationStage: "pre_paid",
+      paidBoundary: "before_paid_action_1",
+      result
+    });
+    const evidence = [];
+    const voiceDetails = this.page.locator(
+      ".page-goods .controls-panel .card.auto-voice-box .voice-info .voice-details"
+    );
+    const voiceDetailsCount = await voiceDetails.count().catch(() => 0);
+    const visibleVoiceDetails = voiceDetails.first();
+    if (voiceDetailsCount !== 1 || !await visibleVoiceDetails.isVisible().catch(() => false)) {
+      evidence.push(voiceEvidence("voice_source", null, HIFLY_VERIFICATION_RESULT.NOT_PROVEN));
+      evidence.push(voiceEvidence("voice_display_name", null, HIFLY_VERIFICATION_RESULT.NOT_PROVEN));
+      evidence.push(voiceEvidence("voice_style", null, HIFLY_VERIFICATION_RESULT.NOT_PROVEN));
+    } else {
+      const voiceName = normalizeScriptText(await visibleVoiceDetails.locator("p.voice-name").textContent().catch(() => ""));
+      const voiceStyle = normalizeScriptText(await visibleVoiceDetails.locator("p.voice-style").textContent().catch(() => ""));
+      evidence.push(voiceEvidence("voice_source", { display: voiceName || null, style: voiceStyle || null }, HIFLY_VERIFICATION_RESULT.PARTIAL));
+      evidence.push(voiceEvidence("voice_display_name", voiceName || null,
+        voiceName === production.voice_display_name ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.FAIL));
+      evidence.push(voiceEvidence("voice_style", voiceStyle || null,
+        voiceStyle === production.voice_style ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.FAIL));
+    }
+
+    const subtitleHeaders = this.page.locator(".page-goods .controls-panel .card-header").filter({
+      has: this.page.locator("h2").filter({ hasText: /^\s*字幕\s*$/ })
+    });
+    let subtitleActual = null;
+    if (await subtitleHeaders.count().catch(() => 0) === 1) {
+      const subtitleToggle = subtitleHeaders.first().locator("button[role='switch']");
+      if (await subtitleToggle.count().catch(() => 0) === 1 && await subtitleToggle.isVisible().catch(() => false)) {
+        const checked = await subtitleToggle.getAttribute("aria-checked").catch(() => null);
+        if (checked !== "true" && checked !== "false") {
+          subtitleActual = null;
+        } else {
+          subtitleActual = checked === "true";
+        }
+      }
+    }
+    evidence.push(voiceEvidence("subtitles_enabled", subtitleActual,
+      subtitleActual === production.subtitles_enabled ? HIFLY_VERIFICATION_RESULT.PROVEN : HIFLY_VERIFICATION_RESULT.FAIL));
+
+    const failed = evidence.filter((record) => record.result !== HIFLY_VERIFICATION_RESULT.PROVEN &&
+      !(record.field === "voice_source" && record.result === HIFLY_VERIFICATION_RESULT.PARTIAL));
+    if (failed.length) throw settingsVerificationError(failed.map((record) => record.field), evidence);
+    return { status: "verified", evidence };
+  }
+
+  async prepareCurrentSettings(product) {
+    const production = product?.hifly_hands_on_product_v1?.production;
+    if (!production || !Object.hasOwn(production, "subtitles_enabled")) return null;
+
+    const subtitleHeaders = this.page.locator(".page-goods .controls-panel .card-header").filter({
+      has: this.page.locator("h2").filter({ hasText: /^\s*字幕\s*$/ })
+    });
+    if (await subtitleHeaders.count().catch(() => 0) !== 1) return null;
+
+    const subtitleToggle = subtitleHeaders.first().locator("button[role='switch']");
+    if (await subtitleToggle.count().catch(() => 0) !== 1 ||
+      !await subtitleToggle.isVisible().catch(() => false)) return null;
+
+    const checked = await subtitleToggle.getAttribute("aria-checked").catch(() => null);
+    if (checked !== "true" && checked !== "false") return null;
+    if ((checked === "true") === production.subtitles_enabled) return { status: "ready" };
+
+    // This is the only mutating current-settings step. It runs during the
+    // pre-point preparation while the settings card is still interactable;
+    // the final verifier remains a read-only observation.
+    await subtitleToggle.click({ timeout: this.config.batch.defaultTimeoutMs });
+    const after = await subtitleToggle.getAttribute("aria-checked").catch(() => null);
+    return after === (production.subtitles_enabled ? "true" : "false") ? { status: "ready" } : null;
+  }
+
   async fillScriptField(product, script) {
     await this.fillRequiredField(this.scriptLabelCandidates(), script, "script");
     await this.captureStep(product, "script-field-filled");
   }
 
-  async prepareAsset(product) {
-    await this.openWorkbench();
-    await this.enterHandsOnProductMode();
-    const handheldEvidence = await this.fillProduct(product);
+  async prepareAsset(product, { checkpoint, contractFieldVerifier } = {}) {
+    this.assertPageOpen();
+    this.assertSubmissionReceiptCapability(product);
+    // A visible hands-on modal can be an account-level editing session left by
+    // the previous product. Navigating away or reopening the outer upload entry
+    // may restore that account-level image, so keep the current modal alive and
+    // let fillProduct reset it in place.
+    if (await this.handsOnModalVisibility() !== true) {
+      await this.openWorkbench();
+      await this.enterHandsOnProductMode();
+    }
+    const handheldEvidence = await this.fillProduct(product, { checkpoint, contractFieldVerifier });
     const safeEvidence = sanitizeEvidenceRecords(handheldEvidence ? [handheldEvidence] : [], [], { strict: true });
     return {
       asset_id: `hifly-asset-${product.task_id || product.sku}`,
@@ -187,6 +345,7 @@ export class HiflyHandsOnProductPage {
   }
 
   async submitVideo(product, { asset, checkpoint } = {}) {
+    this.assertPageOpen();
     const before = await this.listLatestWorks();
     const observedAt = new Date().toISOString();
     await checkpoint?.({
@@ -198,8 +357,33 @@ export class HiflyHandsOnProductPage {
       }
     });
 
+    // The legacy page path keeps its historical list-delta behavior. Formal
+    // hands-on-product tasks need an injected provider receipt seam before the
+    // outer paid click; a newest/list-first work item is not causal evidence.
+    const receiptResolver = this.assertSubmissionReceiptCapability(product);
+    let preReceipt = null;
+    if (isFormalHandsOnProductTask(product)) {
+      try {
+        preReceipt = await receiptResolver({
+          phase: "pre_submit",
+          task: product,
+          asset,
+          beforeWorks: before,
+          page: this.page
+        });
+      } catch (error) {
+        if (error?.code === "HIFLY_SUBMISSION_RECEIPT_UNAVAILABLE") throw error;
+        throw submissionReceiptUnavailableError();
+      }
+      if (!preReceipt || typeof preReceipt !== "object" || preReceipt.ready !== true ||
+        typeof preReceipt.receipt_id !== "string" || !preReceipt.receipt_id.trim()) {
+        throw submissionReceiptUnavailableError();
+      }
+    }
+
     await this.captureStep(product, "before-submit");
     await this.clickSubmitButton();
+    const clickedAt = new Date().toISOString();
     await this.captureStep(product, "after-submit");
     await checkpoint?.({
       phase: "remote_submit_clicked",
@@ -209,6 +393,50 @@ export class HiflyHandsOnProductPage {
     });
 
     const candidates = await this.waitForNewLatestWorks(before, { checkpoint });
+    if (isFormalHandsOnProductTask(product)) {
+      let postReceipt;
+      try {
+        postReceipt = await receiptResolver({
+          phase: "post_submit",
+          task: product,
+          asset,
+          beforeWorks: before,
+          afterWorks: candidates,
+          receipt: preReceipt,
+          clicked_at: clickedAt,
+          page: this.page
+        });
+      } catch {
+        postReceipt = null;
+      }
+
+      if (postReceipt?.causal === true && postReceipt.receipt_id === preReceipt.receipt_id &&
+        (typeof postReceipt.remote_id === "string" && postReceipt.remote_id.trim() ||
+          typeof postReceipt.remote_url === "string" && postReceipt.remote_url.trim())) {
+        return {
+          status: "submitted",
+          remoteEvidence: {
+            evidence_source: "causal_submission_receipt",
+            remote_id: postReceipt.remote_id ?? null,
+            remote_url: postReceipt.remote_url ?? null,
+            work_key: postReceipt.work_key ?? postReceipt.remote_id ?? postReceipt.remote_url,
+            receipt_id: postReceipt.receipt_id,
+            observed_at: new Date().toISOString()
+          }
+        };
+      }
+
+      await checkpoint?.({
+        phase: "remote_submit_association_unknown",
+        evidence: {
+          observed_at: new Date().toISOString(),
+          candidate_count: candidates.length,
+          receipt_id: preReceipt.receipt_id
+        }
+      });
+      return { status: "ambiguous", candidates };
+    }
+
     if (candidates.length === 1 && (candidates[0].remote_id || candidates[0].remote_url)) {
       return {
         status: "submitted",
@@ -226,6 +454,7 @@ export class HiflyHandsOnProductPage {
   }
 
   async querySubmission(remoteEvidence) {
+    this.assertPageOpen();
     const candidates = await this.matchLatestWorks(remoteEvidence);
     if (candidates.length > 1) return { status: "ambiguous", candidates };
     if (candidates.length === 0) return { status: "submitted", remoteEvidence };
@@ -240,11 +469,13 @@ export class HiflyHandsOnProductPage {
   }
 
   async reconcileSubmission(_product, checkpoint) {
+    this.assertPageOpen();
     const evidence = checkpoint?.remote_evidence ?? checkpoint?.submit_checkpoint?.evidence ?? {};
     return { candidates: await this.matchLatestWorks(evidence) };
   }
 
   async downloadArtifact(remoteEvidence, destination, context = {}) {
+    this.assertPageOpen();
     const candidates = await this.matchLatestWorks(remoteEvidence);
     if (candidates.length !== 1) {
       const error = new Error("Could not uniquely match a remote work for download");
@@ -536,7 +767,8 @@ export class HiflyHandsOnProductPage {
     this.logger.info(event, { messages });
   }
 
-  async createHandsOnImage(product) {
+  async createHandsOnImage(product, { checkpoint, contractFieldVerifier } = {}) {
+    this.assertPageOpen();
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await this.openHandsOnModal(product);
       await this.captureStep(product, attempt === 0 ? "modal-open" : "modal-retry-open");
@@ -585,10 +817,67 @@ export class HiflyHandsOnProductPage {
 
       await this.selectAndVerifyGoodsSize(product.presentation_size_code || "smart_fit");
       await this.captureStep(product, "modal-size-selected");
-      await this.clickModalGenerate();
-      await this.captureStep(product, "modal-after-generate");
-      const handheldEvidence = await this.confirmGeneratedHandsOnImage(product);
-      return handheldEvidence;
+
+      // The Cloud adapter's early verifier runs before this flow can
+      // navigate/reset the page. Reuse that same structured verifier after
+      // the final per-task preparation and immediately before the paid
+      // hands-on action. No checkpoint is written until this succeeds.
+      if (isFormalHandsOnProductTask(product)) {
+        if (typeof contractFieldVerifier === "function") await contractFieldVerifier();
+        else await this.verifyCurrentSettings(product);
+      }
+
+      // Persist the paid-action boundary before clicking. A click can fail
+      // after the provider accepted it, so a later generic retry must never
+      // reinterpret the failure as a free pre-submit error.
+      await checkpoint?.({
+        phase: "asset_paid_action_pre",
+        evidence: {
+          observed_at: new Date().toISOString(),
+          sku: product?.sku ?? null,
+          task_id: product?.task_id ?? null,
+          paid_boundary: "before_paid_action_1"
+        }
+      });
+
+      let paidActionStarted = false;
+      try {
+        paidActionStarted = true;
+        await this.clickModalGenerate();
+        await checkpoint?.({
+          phase: "asset_paid_action_clicked",
+          evidence: {
+            observed_at: new Date().toISOString(),
+            sku: product?.sku ?? null,
+            task_id: product?.task_id ?? null,
+            paid_boundary: "after_paid_action_1"
+          }
+        });
+      } catch (error) {
+        if (paidActionStarted) throw assetPaidActionUnknownError(error);
+        throw error;
+      }
+
+      try {
+        await this.captureStep(product, "modal-after-generate");
+        const handheldEvidence = await this.confirmGeneratedHandsOnImage(product);
+        await checkpoint?.({
+          phase: "asset_paid_action_completed",
+          evidence: {
+            observed_at: new Date().toISOString(),
+            sku: product?.sku ?? null,
+            task_id: product?.task_id ?? null,
+            paid_boundary: "after_paid_action_1_confirmed"
+          }
+        });
+        return handheldEvidence;
+      } catch (error) {
+        // A post-handheld contract decision is already a precise paid-boundary
+        // result and must keep its original evidence/code. Other failures after
+        // the click are outcome-unknown and cannot be retried automatically.
+        if (error?.failureStage === "post_handheld_pre_video") throw error;
+        throw assetPaidActionUnknownError(error);
+      }
     }
   }
 
@@ -658,8 +947,33 @@ export class HiflyHandsOnProductPage {
   async resetAndReopenHandsOnModal(product) {
     await this.resetGeneratedHandsOnImage(product);
     await this.captureStep(product, "modal-reset");
-    // clearResidual 删残留图会关闭"手持商品图"弹窗、回到外层页面；
-    // 重新打开一个干净的上传界面（残留已删），才能看到"上传商品"按钮。
+
+    // `重新编辑` is an in-place transition. Reopening the outer entry after
+    // it can restore the previous account-level image, which is exactly the
+    // stale-input failure this guard is meant to prevent. Continue only while
+    // the same visible modal remains in editing state.
+    const visibility = await this.handsOnModalVisibility();
+    if (visibility === true) {
+      const state = await this.inspectVisibleGeneratedModalState();
+      if (state.visible !== true) throw modalStateUnverifiedError();
+      if (await this.hasGeneratedImageReady()) {
+        await this.dumpModalDomSnapshot(product);
+        throw new Error("stale generated image persists after in-place edit; refusing to confirm a possible stale asset");
+      }
+      return;
+    }
+
+    // A real Playwright page can tell us that the modal disappeared. Treat
+    // that as a lost editing session; do not reopen and risk account-level
+    // state restoration. The null branch is retained for legacy duck-typed
+    // callers whose page object has no visibility primitive.
+    if (visibility === false) {
+      throw editingModalStateLostError();
+    }
+
+    // Legacy callers without a usable modal visibility primitive keep the
+    // historical recovery path. Formal browser pages always take the guarded
+    // branches above.
     await this.openHandsOnModal(product);
     await this.captureStep(product, "modal-reopen");
     if (await this.hasGeneratedImageReady()) {
@@ -669,12 +983,22 @@ export class HiflyHandsOnProductPage {
   }
 
   async openHandsOnModal(product) {
+    this.assertPageOpen();
     const timeout = this.config.batch.defaultTimeoutMs;
     const visibleState = await this.inspectVisibleGeneratedModalState();
     if (visibleState.failed) {
       await this.resetGeneratedHandsOnImage(product);
       return;
     }
+
+    // Do not click the page-level upload entry when the same hands-on modal is
+    // already open. That click can close/reopen the modal and restore a stale
+    // account-level image.
+    if (await this.handsOnModalVisibility() === true) {
+      if (visibleState.visible !== true) throw modalStateUnverifiedError();
+      return;
+    }
+
     if (await this.hasGeneratedImageReady()) return;
 
     await this.uploadButton().waitFor({ state: "visible", timeout });
@@ -904,21 +1228,23 @@ export class HiflyHandsOnProductPage {
   }
 
   async resetGeneratedHandsOnImage(product) {
+    this.assertPageOpen();
     const timeout = this.config.batch.defaultTimeoutMs;
     const dialog = this.dialogLocator();
     await this.clickModalEditButton(dialog, timeout);
     await this.captureStep(product, "after-reset-edit");
     await this.dumpModalDomSnapshot(product);
 
-    const uploadProductButton = this.page.getByRole("button", {
-      name: new RegExp(escapeRegExp(this.config.hiflyUi.uploadProductText))
-    }).first();
+    const uploadProductButton = this.modalUploadButton(dialog, this.config.hiflyUi.uploadProductText);
 
     // 点“重新编辑”后残留图可能仍占着商品图槽位，“上传商品”按钮被换成 图片+垃圾桶，
     // 先尝试清除残留图，让空槽重新露出上传按钮。
     if (!await uploadProductButton.isVisible({ timeout: 2000 }).catch(() => false)) {
       await this.clearResidualModalImages(product);
     }
+
+    const visibility = await this.handsOnModalVisibility();
+    if (visibility === false) throw editingModalStateLostError();
 
     try {
       await uploadProductButton.waitFor({ state: "visible", timeout });
@@ -970,17 +1296,9 @@ export class HiflyHandsOnProductPage {
       scope = this.page.locator(".ant-modal:visible, [role='dialog']:visible").last();
     }
 
-    // 方案A：点弹窗底部“重置”按钮，一次清空
-    const resetText = this.config.hiflyUi?.modalResetText || "重置";
-    const resetBtn = scope.getByRole("button", { name: new RegExp(escapeRegExp(resetText)) }).first();
-    if (await resetBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
-      await resetBtn.click({ timeout, force: true }).catch(() => {});
-      await this.page.waitForTimeout(1000);
-      await this.captureStep(product, "after-modal-reset-clear");
-      return;
-    }
-
-    // 方案B：逐个点图片槽的删除图标（倒序，避免索引漂移）。不含 .anticon-close——那是弹窗关闭×，不是删除图。
+    // Prefer per-slot delete controls so the existing editing modal survives.
+    // Do not use the broad reset action first: on the real page it can close
+    // the modal and cause the account-level image to return on reopen.
     const trashBtns = scope.locator(
       "[class*='delete'], [class*='trash'], .anticon-delete, button:has(svg[class*='delete'])"
     );
@@ -989,7 +1307,22 @@ export class HiflyHandsOnProductPage {
       await trashBtns.nth(i).click({ timeout, force: true }).catch(() => {});
       await this.page.waitForTimeout(400);
     }
-    if (count > 0) await this.captureStep(product, "after-modal-trash-clear");
+    if (count > 0) {
+      await this.captureStep(product, "after-modal-trash-clear");
+      if (await this.handsOnModalVisibility() === false) throw editingModalStateLostError();
+      return;
+    }
+
+    // Last-resort legacy control. If it closes the modal, stop rather than
+    // reopening it with a potentially restored stale account-level image.
+    const resetText = this.config.hiflyUi?.modalResetText || "重置";
+    const resetBtn = scope.getByRole("button", { name: new RegExp(escapeRegExp(resetText)) }).first();
+    if (await resetBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await resetBtn.click({ timeout, force: true }).catch(() => {});
+      await this.page.waitForTimeout(1000);
+      await this.captureStep(product, "after-modal-reset-clear");
+      if (await this.handsOnModalVisibility() === false) throw editingModalStateLostError();
+    }
   }
 
   // 抓弹窗内右侧商品图的 src（排除 rec_ 推荐人物）。用于上传前后对比验证。
@@ -1309,8 +1642,39 @@ export class HiflyHandsOnProductPage {
     }
   }
 
-  async resetExistingUpload() {
+  async handsOnModalVisibility() {
+    try {
+      const dialog = this.dialogLocator();
+      if (!dialog || typeof dialog.isVisible !== "function") return null;
+      return await dialog.isVisible({ timeout: 1000 });
+    } catch {
+      return null;
+    }
+  }
+
+  assertSubmissionReceiptCapability(product) {
+    if (!isFormalHandsOnProductTask(product)) return null;
+    const resolver = this.config?.behavior?.submissionReceiptResolver ?? this.config?.submissionReceiptResolver;
+    if (typeof resolver !== "function") throw submissionReceiptUnavailableError();
+    return resolver;
+  }
+
+  async resetExistingUpload(product = null) {
+    this.assertPageOpen();
     if (!this.config.behavior?.resetUploadBeforeEachProduct) return;
+
+    const modalVisibility = await this.handsOnModalVisibility();
+    if (modalVisibility === true) {
+      const visibleState = await this.inspectVisibleGeneratedModalState().catch(() => ({ ready: false, failed: false }));
+      if (visibleState.visible !== true) throw modalStateUnverifiedError();
+      if (visibleState.failed || visibleState.ready || await this.hasGeneratedImageReady()) {
+        await this.resetGeneratedHandsOnImage(product);
+        if (await this.handsOnModalVisibility() === false) throw editingModalStateLostError();
+      }
+      // Keep an already-open editing modal in place. Navigating to the goods
+      // page or clicking the outer upload card may restore stale account state.
+      return;
+    }
 
     await this.closeHandsOnModalIfOpen();
 
@@ -1388,6 +1752,13 @@ export class HiflyHandsOnProductPage {
   uploadButton(label = this.config.hiflyUi.uploadLabel) {
     const escaped = escapeRegExp(label);
     return this.page.getByRole("button", { name: new RegExp(escaped) }).first();
+  }
+
+  modalUploadButton(dialog, label) {
+    const locator = dialog && typeof dialog.getByRole === "function" ? dialog : this.page;
+    return locator.getByRole("button", {
+      name: new RegExp(escapeRegExp(label))
+    }).first();
   }
 
   dialogLocator() {
