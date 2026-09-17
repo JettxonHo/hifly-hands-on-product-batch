@@ -80,7 +80,7 @@ export function createCloudExecutorReadiness({ enabled = false, mode = "fail_clo
 export function createCloudExecutorService({ repository, orderPort, packagePort, candidateStore, verificationPort = null,
   executor = null, readinessPort = null, enabled = false, mode = "fail_closed", organizationId, executorCloudId,
   leaseMs = DEFAULT_LEASE_MS, heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS, now = Date.now,
-  videoDeliveryNormalizer = null } = {}) {
+  videoDeliveryNormalizer = null, targetOrderId = null } = {}) {
   if (!repository?.getReceipt || !repository?.claimAttempt || !repository?.startAttempt || !repository?.getAttempt ||
     !repository?.listAttempts || !repository?.heartbeatCloudAttempt || !repository?.expireCloudAttempt ||
     !repository?.createCandidateUpload || !repository?.markCandidateUploaded || !repository?.saveReport) {
@@ -105,6 +105,7 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
   const deliveryNormalizer = videoDeliveryNormalizer || createVideoDeliveryNormalizer();
   if (typeof deliveryNormalizer.normalize !== "function" || typeof deliveryNormalizer.preflight !== "function") throw new TypeError("cloud executor video delivery normalizer is required");
 
+  const boundedOrderId = clean(targetOrderId);
   const timestamp = () => new Date(now()).toISOString();
   const verificationTriggers = new Set();
   let halted = false;
@@ -549,14 +550,25 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
     const active = await expireOwnActiveAttempt();
     if (active?.expired) return { status: "requires_action", stopped: true, attempt: publicAttempt(active.attempt) };
     if (active?.busy) return { status: "busy", attempt: publicAttempt(active.attempt) };
+    if (boundedOrderId) {
+      const attempts = await repository.listAttempts(identity.organizationId);
+      if (attempts.some((attempt) => attempt.production_order_id === boundedOrderId)) {
+        halted = true;
+        return { status: "requires_action", reason: "CLOUD_EXECUTOR_ORDER_ALREADY_ATTEMPTED", stopped: true, claimed: false };
+      }
+    }
     const orders = await listOrders();
     let selected = null;
     for (const order of orders) {
+      if (boundedOrderId && order.id !== boundedOrderId) continue;
       if (order.status !== "waiting_for_executor") continue;
       const packageRecord = readyPackage(await listPackages(order.id));
       if (packageRecord) { selected = { order, packageRecord }; break; }
     }
     if (!selected) return { status: "standby", claimed: false };
+    if (mode === "playwright" && selected.packageRecord.manifest?.hifly_hands_on_product_v1 && !boundedOrderId) {
+      return { status: "requires_action", reason: "CLOUD_EXECUTOR_TARGET_ORDER_REQUIRED", ready: false, claimed: false, stopped: true };
+    }
     const packageReadiness = publicReadiness(await readiness.check({ ...identity, phase: "pre_claim",
       order: selected.order, packageRecord: selected.packageRecord }));
     if (!packageReadiness.ready) {
@@ -589,7 +601,14 @@ export function createCloudExecutorService({ repository, orderPort, packagePort,
           package_version: selected.packageRecord.package_version, manifest_hash: selected.packageRecord.manifest_hash }, created_at: at }
     });
     if (!saved?.attempt) throw failure("CLOUD_EXECUTOR_CLAIM_FAILED");
-    return runAttempt(saved.attempt, await getOrder(selected.order.id), selected.packageRecord);
+    // A replayed transactional claim is not permission to run the attempt again.
+    if (boundedOrderId && saved.replayed) {
+      halted = true;
+      return { status: "requires_action", reason: "CLOUD_EXECUTOR_ORDER_ALREADY_ATTEMPTED", stopped: true, claimed: false };
+    }
+    if (boundedOrderId) halted = true;
+    const result = await runAttempt(saved.attempt, await getOrder(selected.order.id), selected.packageRecord);
+    return boundedOrderId ? { ...result, stopped: true } : result;
   }
 
   return { runOnce, heartbeat, expireLease, publicAttempt, publicCandidate, publicReport,

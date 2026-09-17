@@ -6,6 +6,7 @@ import os from "node:os";
 import { chromium } from "playwright";
 import test from "node:test";
 
+import { createCloudPlaywrightAdapter } from "../src/cloud-executor/playwright-adapter.js";
 import { createCloudExecutorService } from "../src/cloud-executor/cloud-executor-service.js";
 import { createCloudExecutorWorker } from "../src/cloud-executor/cloud-executor-worker.js";
 import { createCloudExecutorConfig } from "../src/cloud-executor/config.js";
@@ -60,7 +61,7 @@ test("execution attempt identity keeps manual, local_agent, and cloud_executor d
 
 function makeCloudWorld({ enabled = true, mode = "fake", readiness = { ready: true }, executorResult = { body: Buffer.from("x") }, executor = null,
   orderCount = 1, leaseMs = 30_000, heartbeatIntervalMs = 5_000, nowValue = Date.parse("2026-08-12T00:00:00.000Z"), packageManifest = null,
-  videoDeliveryNormalizer = null } = {}) {
+  videoDeliveryNormalizer = null, targetOrderId = "order-cloud-1" } = {}) {
   const order = {
     id: "order-cloud-1", organization_id: ORGANIZATION_ID, status: "waiting_for_executor", row_version: 1,
     created_by_member_id: "member-owner", input_snapshot: {}, status_history: []
@@ -108,7 +109,7 @@ function makeCloudWorld({ enabled = true, mode = "fake", readiness = { ready: tr
   };
   const selectedExecutor = executor || { async run() { return executorResult; } };
   const serviceOptions = {
-    enabled, mode, organizationId: ORGANIZATION_ID, executorCloudId: CLOUD_EXECUTOR_ID,
+    enabled, mode, targetOrderId: mode === "playwright" ? targetOrderId : null, organizationId: ORGANIZATION_ID, executorCloudId: CLOUD_EXECUTOR_ID,
     repository, orderPort, packagePort, candidateStore, readinessPort, verificationPort,
     executor: selectedExecutor, leaseMs, heartbeatIntervalMs, now: () => nowValue,
     ...(videoDeliveryNormalizer ? { videoDeliveryNormalizer } : {})
@@ -117,7 +118,7 @@ function makeCloudWorld({ enabled = true, mode = "fake", readiness = { ready: tr
   return { service, order: orders[0], orders, packages, repository, candidateStore, verificationCalls,
     orderPort, packagePort, runtimeOptions: {
       config: { enabled, configured: enabled && mode === "fake", mode, organizationId: ORGANIZATION_ID,
-        executorCloudId: CLOUD_EXECUTOR_ID, worker: { pollIntervalMs: 1, leaseMs, heartbeatIntervalMs } },
+        executorCloudId: CLOUD_EXECUTOR_ID, targetOrderId: mode === "playwright" ? targetOrderId : null, worker: { pollIntervalMs: 1, leaseMs, heartbeatIntervalMs } },
       repository, orderPort, packagePort, candidateStore, readinessPort, verificationPort, executor: selectedExecutor,
       now: () => nowValue
     },
@@ -231,7 +232,7 @@ test("runtime no-verifier preflight blocks claim with a stable contract gate", a
   await runtime.close();
 });
 
-test("playwright runtime separates environment readiness from current-settings gates", async (t) => {
+test("playwright runtime refuses missing cost evidence before login and settings checks", async (t) => {
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
@@ -314,12 +315,12 @@ test("playwright runtime separates environment readiness from current-settings g
       </div></div>
     </div></div>`;
 
-  const createRuntime = async ({ authenticated, voiceName = "播客-女声", subtitle = false }) => {
+  const createRuntime = async ({ authenticated, voiceName = "播客-女声", subtitle = false, offlineCostEvidence = false }) => {
     const world = makeCloudWorld({ mode: "playwright", packageManifest: { hifly_hands_on_product_v1: contract } });
     const events = [];
     const errors = [];
     let paidActions = 0;
-    const runtime = createCloudExecutorRuntime({
+    const runtimeOptions = {
       ...world.runtimeOptions,
       executor: null,
       readinessPort: null,
@@ -392,12 +393,23 @@ test("playwright runtime separates environment readiness from current-settings g
           async reconcileSubmission(currentTask, checkpoint) { return hiflyPage.reconcileSubmission(currentTask, checkpoint); }
         })
       }
+    };
+    const runtime = createCloudExecutorRuntime({ ...runtimeOptions,
+      executor: offlineCostEvidence ? createCloudPlaywrightAdapter({
+        ...runtimeOptions.config, assertCostBound: async () => {}
+      }) : null
     });
     return { runtime, world, events, errors, get paidActions() { return paidActions; } };
   };
 
   try {
-    const login = await createRuntime({ authenticated: false });
+    const blocked = await createRuntime({ authenticated: true });
+    assert.equal((await blocked.runtime.runOnce()).reason, "HIFLY_COST_BOUND_UNAVAILABLE");
+    assert.equal(blocked.world.transitionCalls, 0);
+    assert.deepEqual(blocked.events, []);
+    await blocked.runtime.close();
+
+    const login = await createRuntime({ authenticated: false, offlineCostEvidence: true });
     const loginResult = await login.runtime.runOnce();
     assert.equal(loginResult.status, "requires_login");
     assert.equal(login.world.listCalls, 1);
@@ -406,16 +418,14 @@ test("playwright runtime separates environment readiness from current-settings g
     assert.deepEqual(login.events, ["context_ready", "environment_preflight"]);
     await login.runtime.close();
 
-    const wrong = await createRuntime({ authenticated: true, voiceName: "错误声音" });
+    const wrong = await createRuntime({ authenticated: true, voiceName: "错误声音", offlineCostEvidence: true });
     const wrongResult = await wrong.runtime.runOnce();
     assert.equal(wrongResult.status, "requires_action");
     assert.equal(wrong.world.listCalls, 1);
     assert.ok(wrong.world.transitionCalls > 0);
     assert.equal(wrong.paidActions, 0);
-    assert.deepEqual(wrong.events, [
-      "context_ready", "environment_preflight", "environment_preflight",
-      "prepare_current_settings", "verify_current_settings"
-    ]);
+    assert.deepEqual(wrong.events, ["context_ready", "environment_preflight", "environment_preflight",
+      "prepare_current_settings", "verify_current_settings"]);
     await wrong.runtime.close();
   } finally {
     await browser.close().catch(() => {});
@@ -462,7 +472,7 @@ test("playwright runtime keeps an empty queue and a legacy package browser-zero"
     const legacyRuntime = runtimeFor(legacyWorld);
     const legacy = await legacyRuntime.runOnce();
     assert.equal(legacy.status, "requires_action");
-    assert.equal(legacy.reason, "CONTRACT_FIELD_NOT_MACHINE_VERIFIABLE");
+    assert.equal(legacy.reason, "HIFLY_COST_BOUND_UNAVAILABLE");
     assert.equal(legacyWorld.listCalls, 1);
     assert.equal(legacyWorld.transitionCalls, 0);
     assert.equal((await legacyWorld.repository.listAttempts(ORGANIZATION_ID)).length, 0);
@@ -1128,4 +1138,63 @@ test("cloud executor migration adds a separate identity without relaxing existin
   assert.match(migration, /executor_type = 'cloud_executor'/);
   assert.match(migration, /num_nonnulls\(uploaded_by_member_id, uploaded_by_agent_id, uploaded_by_cloud_executor_id\) = 1/);
   assert.match(migration, /num_nonnulls\(submitted_by, submitted_by_agent_id, submitted_by_cloud_executor_id\) = 1/);
+});
+
+
+test("bounded worker selects exactly its order, stops after success and rejects a restart", async () => {
+  const world = makeCloudWorld({ orderCount: 2 });
+  const options = { ...world.runtimeOptions, config: { ...world.runtimeOptions.config, targetOrderId: "order-cloud-2" } };
+  const runtime = createCloudExecutorRuntime(options);
+  const result = await runtime.runOnce();
+  assert.equal(result.status, "succeeded");
+  assert.equal(result.stopped, true);
+  assert.equal(runtime.worker.halted, true);
+  assert.equal(world.orders[0].status, "waiting_for_executor");
+  assert.equal(world.orders[1].status, "running"); // Existing A12 verification owns order completion.
+  await runtime.close();
+  // Reconstruct runtime against the same persisted repository, even if an
+  // operator has put the order back in the eligible queue.
+  world.orders[1].status = "waiting_for_executor";
+  const restarted = createCloudExecutorRuntime(options);
+  const replay = await restarted.runOnce();
+  assert.equal(replay.reason, "CLOUD_EXECUTOR_ORDER_ALREADY_ATTEMPTED");
+  assert.equal(replay.stopped, true);
+  assert.equal((await world.repository.listAttempts(ORGANIZATION_ID)).length, 1);
+  assert.equal(world.orders[0].status, "waiting_for_executor");
+  await restarted.close();
+});
+
+test("bounded order mismatch never falls through to another eligible order", async () => {
+  const world = makeCloudWorld({ orderCount: 2 });
+  const runtime = createCloudExecutorRuntime({ ...world.runtimeOptions,
+    config: { ...world.runtimeOptions.config, targetOrderId: "not-in-this-organization" } });
+  assert.equal((await runtime.runOnce()).status, "standby");
+  assert.equal(world.transitionCalls, 0);
+  await runtime.close();
+});
+
+test("formal Playwright order without an exact target fails before claim", async () => {
+  const world = makeCloudWorld({ mode: "playwright", targetOrderId: null,
+    packageManifest: { hifly_hands_on_product_v1: { contract_id: "HIFLY_HANDS_ON_PRODUCT_V1" } } });
+  assert.equal((await world.service.runOnce()).reason, "CLOUD_EXECUTOR_TARGET_ORDER_REQUIRED");
+  assert.equal(world.transitionCalls, 0);
+});
+
+test("two workers sharing a bounded order execute only one transactional claim", async () => {
+  let calls = 0;
+  const world = makeCloudWorld({ executor: { async run() { calls += 1; return { body: Buffer.from("x") }; } } });
+  const options = { ...world.runtimeOptions, config: { ...world.runtimeOptions.config, targetOrderId: "order-cloud-1" } };
+  const first = createCloudExecutorRuntime(options);
+  const second = createCloudExecutorRuntime(options);
+  await Promise.all([first.runOnce(), second.runOnce()]);
+  assert.equal(calls, 1);
+  assert.equal((await world.repository.listAttempts(ORGANIZATION_ID)).length, 1);
+  await first.close();
+  await second.close();
+});
+
+
+test("configuration reads the exact bounded Order target", () => {
+  const config = createCloudExecutorConfig({ env: { CLOUD_EXECUTOR_TARGET_ORDER_ID: "order-explicit" } });
+  assert.equal(config.targetOrderId, "order-explicit");
 });

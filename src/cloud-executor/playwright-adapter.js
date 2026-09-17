@@ -289,6 +289,11 @@ export function createCloudPlaywrightAdapter({
   avatarMappings = null,
   avatarAssetSource = null,
   contractFieldVerifier = null,
+  // No production cost evidence reader exists yet. Only trusted JS callers
+  // (offline fixtures) may inject this dependency; runtime config never wires it.
+  assertCostBound = async () => {
+    throw Object.assign(new Error("HIFLY_COST_BOUND_UNAVAILABLE"), { code: "HIFLY_COST_BOUND_UNAVAILABLE" });
+  },
   batchStoreFactory = createBatchStore,
   lockFactory = acquireExecutionLock,
   snapshotFactory = createExecutionSnapshot,
@@ -333,8 +338,20 @@ export function createCloudPlaywrightAdapter({
     return delegate;
   }
 
+  async function costReadiness(input) {
+    try {
+      await assertCostBound(input);
+      return null;
+    } catch {
+      return { status: "requires_action", ready: false, code: "HIFLY_COST_BOUND_UNAVAILABLE",
+        failureStage: "pre_paid_gate", requiresActionReason: "HIFLY_COST_BOUND_UNAVAILABLE" };
+    }
+  }
+
   async function preflight({ task = null, packageRecord = null, package: packageInput = null } = {}) {
     const selectedPackage = packageRecord || packageInput;
+    const costBlocked = await costReadiness({ task, packageRecord: selectedPackage });
+    if (costBlocked) return costBlocked;
     if (!task && selectedPackage) {
       let contract;
       try {
@@ -404,6 +421,8 @@ export function createCloudPlaywrightAdapter({
   }
 
   async function run(input = {}) {
+    const costBlocked = await costReadiness(input);
+    if (costBlocked) return costBlocked;
     if (halted) {
       return {
         status: "requires_action",

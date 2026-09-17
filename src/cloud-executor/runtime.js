@@ -149,6 +149,7 @@ export function createCloudExecutorRuntime({ config, repository, orderPort, pack
     mode: config.mode,
     organizationId: config.organizationId,
     executorCloudId: config.executorCloudId,
+    targetOrderId: config.targetOrderId,
     leaseMs: config.worker?.leaseMs,
     heartbeatIntervalMs: config.worker?.heartbeatIntervalMs,
     now

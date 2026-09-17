@@ -382,6 +382,12 @@ export class HiflyHandsOnProductPage {
     }
 
     await this.captureStep(product, "before-submit");
+    if (isFormalHandsOnProductTask(product) && typeof checkpoint !== "function") {
+      throw Object.assign(new Error("HIFLY_PAID_ACTION_CHECKPOINT_REQUIRED"), { code: "HIFLY_PAID_ACTION_CHECKPOINT_REQUIRED" });
+    }
+    if (isFormalHandsOnProductTask(product)) {
+      await checkpoint({ phase: "remote_paid_action_pre", evidence: { paid_boundary: "before_paid_action_2" } });
+    }
     await this.clickSubmitButton();
     const clickedAt = new Date().toISOString();
     await this.captureStep(product, "after-submit");
@@ -830,6 +836,9 @@ export class HiflyHandsOnProductPage {
       // Persist the paid-action boundary before clicking. A click can fail
       // after the provider accepted it, so a later generic retry must never
       // reinterpret the failure as a free pre-submit error.
+      if (isFormalHandsOnProductTask(product) && typeof checkpoint !== "function") {
+        throw Object.assign(new Error("HIFLY_PAID_ACTION_CHECKPOINT_REQUIRED"), { code: "HIFLY_PAID_ACTION_CHECKPOINT_REQUIRED" });
+      }
       await checkpoint?.({
         phase: "asset_paid_action_pre",
         evidence: {

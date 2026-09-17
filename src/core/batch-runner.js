@@ -228,19 +228,33 @@ export async function runBatch({
       instanceId,
       signal,
       emit: ({ type, phase: eventPhase, evidence }) => emit(task, type, eventPhase ?? phase, evidence),
-      checkpoint: async ({ phase: checkpointPhase, evidence }) => annotate(task, {
-        ...(typeof checkpointPhase === "string" && checkpointPhase.startsWith("asset_paid_action_")
-          ? { asset_paid_action_checkpoint: {
-            phase: checkpointPhase,
-            observed_at: now(),
-            evidence
-          } }
-          : { submit_checkpoint: {
-            phase: checkpointPhase,
-            observed_at: now(),
-            evidence
-          } })
-      }, checkpointPhase)
+      checkpoint: async ({ phase: checkpointPhase, evidence }) => {
+        const paidStage = checkpointPhase === "asset_paid_action_pre" ? "asset"
+          : checkpointPhase === "remote_paid_action_pre" ? "video" : null;
+        if (paidStage) await assertExecutionLockOwnership(lock, { batchId });
+        const next = await updateTask(task.task_id, (current) => {
+          if (paidStage && current.paid_action_consumption?.[paidStage]) {
+            throw Object.assign(new Error("HIFLY_PAID_ACTION_ALREADY_CONSUMED"), {
+              code: "HIFLY_PAID_ACTION_ALREADY_CONSUMED", outcome: "requires_action",
+              failureStage: paidStage === "asset" ? "asset_paid_action" : "remote_submit"
+            });
+          }
+          const observedAt = now();
+          return {
+            ...current,
+            ...(paidStage ? { paid_action_consumption: {
+              ...current.paid_action_consumption,
+              [paidStage]: { execution_key: current.execution_key, consumed_at: observedAt }
+            } } : {}),
+            [typeof checkpointPhase === "string" && checkpointPhase.startsWith("asset_paid_action_")
+              ? "asset_paid_action_checkpoint" : "submit_checkpoint"]: {
+              phase: checkpointPhase, observed_at: observedAt, evidence
+            }
+          };
+        });
+        emit(next, "task.checkpoint_persisted", checkpointPhase, { evidence });
+        return next;
+      }
     };
   }
 

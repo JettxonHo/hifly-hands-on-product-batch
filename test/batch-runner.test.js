@@ -3637,7 +3637,7 @@ test("formal Hifly submission accepts only the resolver's causal remote identity
     }
   };
 
-  const result = await adapter.submitVideo({ hifly_hands_on_product_v1: { production: {} } });
+  const result = await adapter.submitVideo({ hifly_hands_on_product_v1: { production: {} } }, { checkpoint: async () => {} });
 
   assert.equal(result.status, "submitted");
   assert.equal(result.remoteEvidence.evidence_source, "causal_submission_receipt");
@@ -3701,6 +3701,7 @@ test("inner paid action context is forwarded and a post-click unknown never re-e
     assert.equal(first.items[0].retryability, "not_retryable");
     assert.equal(first.items[0].requires_action_reason, "HIFLY_HANDS_ON_IMAGE_SUBMISSION_UNKNOWN");
     assert.equal(first.items[0].asset_paid_action_checkpoint.phase, "asset_paid_action_pre");
+    assert.equal(first.items[0].paid_action_consumption.asset.execution_key, executionKey);
 
     await fixture.store.update(fixture.batchId, (current) => ({
       ...current,
@@ -3947,4 +3948,47 @@ test("a pre-paid safe stop without an asset checkpoint remains pending", async (
   } finally {
     await fixture.cleanup();
   }
+});
+
+
+test("video paid checkpoint is persisted before submit and cannot be consumed again", async () => {
+  let clicks = 0;
+  let submitContext;
+  const fixture = await fixtureRun({ executor: {
+    async createAsset() { return { asset_id: "asset" }; },
+    async submitVideo(_task, _asset, context) {
+      submitContext = context;
+      await context.checkpoint({ phase: "remote_paid_action_pre" });
+      const stored = await fixture.store.read(fixture.batchId);
+      assert.equal(stored.items[0].paid_action_consumption.video.execution_key, fixture.items[0].execution_key);
+      clicks += 1;
+      throw new Error("response lost after click");
+    },
+    async querySubmission() { throw new Error("forbidden"); },
+    async downloadArtifact() { throw new Error("forbidden"); },
+    async reconcileSubmission() { return { candidates: [] }; }
+  } });
+  try {
+    await runBatch(fixture);
+    await assert.rejects(submitContext.checkpoint({ phase: "remote_paid_action_pre" }), { code: "HIFLY_PAID_ACTION_ALREADY_CONSUMED" });
+    await runBatch(fixture);
+    assert.equal(clicks, 1);
+    assert.ok((await fixture.store.read(fixture.batchId)).items[0].paid_action_consumption.video.consumed_at);
+  } finally { await fixture.cleanup(); }
+});
+
+test("formal video submit requires a durable callback and stops if it fails", async () => {
+  const adapter = new HiflyHandsOnProductPage({ isClosed() { return false; } }, {
+    behavior: { submissionReceiptResolver: async () => ({ ready: true, receipt_id: "test-receipt" }) }
+  }, { info() {} });
+  let clicks = 0;
+  adapter.listLatestWorks = async () => [];
+  adapter.captureStep = async () => {};
+  adapter.clickSubmitButton = async () => { clicks += 1; };
+  const task = { hifly_hands_on_product_v1: { production: {} } };
+  await assert.rejects(adapter.submitVideo(task), { code: "HIFLY_PAID_ACTION_CHECKPOINT_REQUIRED" });
+  await assert.rejects(adapter.submitVideo(task, { checkpoint: async ({ phase }) => {
+    if (phase === "remote_paid_action_pre") throw new Error("storage failed");
+  } }), /storage failed/);
+  assert.equal(clicks, 0);
 });

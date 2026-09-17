@@ -113,6 +113,7 @@ export function createCloudExecutorConfig({ root = process.cwd(), env = process.
     executorType: "cloud_executor",
     organizationId,
     executorCloudId,
+    targetOrderId: env.CLOUD_EXECUTOR_TARGET_ORDER_ID?.trim() || null,
     workspace,
     avatarMappingPath,
     hiflyConfigPath,

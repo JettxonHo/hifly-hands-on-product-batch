@@ -5,7 +5,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import test from "node:test";
 
-import { createCloudPlaywrightAdapter } from "../src/cloud-executor/playwright-adapter.js";
+import { createCloudPlaywrightAdapter as createProductionCloudPlaywrightAdapter } from "../src/cloud-executor/playwright-adapter.js";
 import { createExecutionSnapshot } from "../src/core/execution-snapshot.js";
 import { createManualHandoffPackageService } from "../src/manual-handoff/manual-handoff-package-service.js";
 import { createManualHandoffPackageWorker } from "../src/manual-handoff/manual-handoff-package-worker.js";
@@ -17,6 +17,12 @@ import { buildHiflyHandsOnProductV1, HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS 
 import { hiflyPrePaidRequirementsFor } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 import { HiflyHandsOnProductPage } from "../src/hifly-page.js";
+
+// These tests exercise inner execution behavior with an explicit offline cost
+// dependency. Production has no such reader and is tested separately below.
+const createCloudPlaywrightAdapter = (options) => createProductionCloudPlaywrightAdapter({
+  assertCostBound: async () => {}, ...options
+});
 
 async function workspaceFixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "cloud-playwright-adapter-"));
@@ -1007,4 +1013,23 @@ test("cloud adapter closes a browser after a failed pre-point verifier and never
     assert.equal(calls.includes("submit"), false);
     assert.equal(calls.at(-1), "context-close");
   } finally { await cleanup(); }
+});
+
+
+test("production adapter refuses unknown cost before preflight or direct run side effects", async () => {
+  const { workspace, cleanup } = await workspaceFixture();
+  let calls = 0;
+  const adapter = createProductionCloudPlaywrightAdapter({
+    workspace,
+    hiflyConfig: { execution: { assetPointsPerItem: 0, videoPointsEstimate: 0 }, costVerified: true },
+    contextFactory: async () => { calls += 1; throw new Error("browser forbidden"); },
+    taskFactory: async () => { calls += 1; throw new Error("materialization forbidden"); }
+  });
+  try {
+    for (const result of [await adapter.preflight(), await adapter.run({})]) {
+      assert.equal(result.code, "HIFLY_COST_BOUND_UNAVAILABLE");
+      assert.equal(result.status, "requires_action");
+    }
+    assert.equal(calls, 0);
+  } finally { await adapter.close(); await cleanup(); }
 });

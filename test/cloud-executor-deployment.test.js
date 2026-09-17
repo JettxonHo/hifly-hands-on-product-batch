@@ -532,7 +532,7 @@ test("playwright production ports resolve a current registered avatar from the r
   }
 });
 
-test("production ports pass the source resolver into the default Cloud runtime without a network or mapping path", async () => {
+test("production default Cloud runtime stops before source resolution without cost evidence", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ce07-runtime-source-"));
   const workspace = createCloudWorkspaceConfig({ root, profileDir: path.join(root, "profile") });
   const avatarBytes = PNG;
@@ -612,13 +612,9 @@ test("production ports pass the source resolver into the default Cloud runtime w
       packageArchive: { body: packageArchive, contentType: "application/zip" }
     });
     assert.equal(result.status, "requires_action");
-    assert.equal(result.code, "CONTRACT_STRUCTURED_EVIDENCE_REQUIRED");
-    assert.deepEqual(sourceCalls, [{
-      organizationId: "org-runtime-source", productId: "product-runtime-source", copyVersionId: "copy-runtime-source",
-      avatarSelectionId: "selection-runtime-source", avatarVersionId: "avatar-version-runtime-source",
-      materialVersionId: "material-version-runtime-source", assetVersionId: "material-version-runtime-source"
-    }]);
-    assert.deepEqual(contextCalls, ["launch", "close"]);
+    assert.equal(result.code, "HIFLY_COST_BOUND_UNAVAILABLE");
+    assert.deepEqual(sourceCalls, []);
+    assert.deepEqual(contextCalls, []);
     await handle.close();
     assert.equal(portsClosed, true);
   } finally {
@@ -672,10 +668,12 @@ test("standalone configuration fixes concurrency at one and rejects unsafe heart
     CLOUD_EXECUTOR_ENABLED: "false",
     CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED: "true",
     CLOUD_EXECUTOR_ID: EXECUTOR_ID,
+    CLOUD_EXECUTOR_TARGET_ORDER_ID: "bounded-order",
     CLOUD_EXECUTOR_ORGANIZATION_ID: ORGANIZATION_ID,
     CLOUD_EXECUTOR_HEARTBEAT_URL: "http://app:3000/internal/cloud-executor/v1/heartbeat",
     CLOUD_EXECUTOR_HEARTBEAT_TOKEN: "test-token"
   } });
+  assert.equal(paired.targetOrderId, "bounded-order");
   assert.equal(paired.heartbeat.enabled, true);
   assert.equal(paired.heartbeat.standbyEnabled, true);
   assert.throws(() => createCloudExecutorConfig({ env: {
@@ -751,6 +749,7 @@ test("production Compose and image define one disabled worker with persistent me
   assert.match(compose, /CLOUD_EXECUTOR_ENABLED: \$\{CLOUD_EXECUTOR_ENABLED:-false\}/);
   assert.match(compose, /CLOUD_EXECUTOR_MODE: \$\{CLOUD_EXECUTOR_MODE:-fail_closed\}/);
   assert.match(compose, /CLOUD_EXECUTOR_CONCURRENCY: "1"/);
+  assert.equal(compose.match(/CLOUD_EXECUTOR_TARGET_ORDER_ID: \$\{CLOUD_EXECUTOR_TARGET_ORDER_ID:-\}/g)?.length, 2);
   const appService = compose.slice(compose.indexOf("\n  app:"), compose.indexOf("\n  postgres:"));
   const cloudService = compose.slice(compose.indexOf("\n  cloud_executor:"), compose.indexOf("\nvolumes:"));
   assert.match(appService, /CLOUD_EXECUTOR_OUTPUTS_DIR: \$\{CLOUD_EXECUTOR_OUTPUTS_DIR:-\/var\/lib\/hifly-executor\/outputs\}/);
@@ -795,6 +794,7 @@ test("production Compose and image define one disabled worker with persistent me
   for (const line of [
     "CLOUD_EXECUTOR_ENABLED=false",
     "CLOUD_EXECUTOR_MODE=fail_closed",
+    "CLOUD_EXECUTOR_TARGET_ORDER_ID=",
     "CLOUD_EXECUTOR_STANDBY_HEARTBEAT_ENABLED=false",
     "CLOUD_EXECUTOR_CONCURRENCY=1",
     "CLOUD_EXECUTOR_HEARTBEAT_URL=http://app:3000/internal/cloud-executor/v1/heartbeat",
