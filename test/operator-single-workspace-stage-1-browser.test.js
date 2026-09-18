@@ -454,10 +454,14 @@ test("all five workspace stages keep forbidden reads on-page and redirect only u
   const context = await browser.newContext();
   const page = await context.newPage();
   await authenticate(page, origin);
+  // Login intent creation replaces session cookies. Isolate each scenario
+  // using only this synthetic fixture's in-memory authenticated state.
+  const authenticatedState = await context.storageState();
   let commands = 0;
   for (const stage of ["product_content", "copy", "avatar", "video_plan", "production"]) {
     for (const status of [403, 401]) {
-      const probe = await context.newPage();
+      const probeContext = await browser.newContext({ storageState: authenticatedState });
+      const probe = await probeContext.newPage();
       probe.on("request", (request) => {
         if (new URL(request.url()).pathname.startsWith("/api/") && !["GET", "HEAD"].includes(request.method())) commands += 1;
       });
@@ -470,9 +474,15 @@ test("all five workspace stages keep forbidden reads on-page and redirect only u
       if (status === 403) {
         await probe.getByText("当前账号无权访问或操作此内容，请确认账号与访问权限。", { exact: true }).waitFor();
         assert.equal(probe.url(), target);
-      } else await probe.waitForURL(`${origin}/login.html`);
+      } else {
+        // Concurrent runtime/auth 401s may replace the same login navigation.
+        // Verify the rendered destination, not a superseded load event.
+        await probe.getByRole("heading", { name: "登录", exact: true }).waitFor();
+        await probe.getByLabel("工作邮箱").waitFor();
+        assert.equal(probe.url(), `${origin}/login.html`);
+      }
       assert.equal(commands, 0);
-      await probe.close();
+      await probeContext.close();
     }
   }
 });

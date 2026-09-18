@@ -19,6 +19,8 @@ Owner确认日期：2026-09-11。当前阶段：`REAL_USER_VALIDATION_PRECONDITI
 - 控制验证：worker联合218/218；最后部署接线等调整后57/57（覆盖有重叠，不相加）；主控独立复跑Cloud/Playwright/login/deployment/batch/page/local-runner/production-deployment共207/207、0skip。check255JS及diffcheck通过。首轮164项1fail、第二轮170项1fail及后续失败原日志保留；修复内容为旧gate预期、A12前工单状态预期及新增费用阻断对深层fixture的影响，没有降低生产保护。
 - 私有测试日志：本工作树`outputs/convergence-20260917/`（Git忽略）；代码/Mock证据不证明真实生成。UI权限提示切片`b65b91e`已完成：五个工作台阶段401仍跳登录、403留页说明权限，初始化/命令错误均覆盖，本地草稿保留；服务端权限不变。新增6个实际本地浏览器用例，既有CI串行零skip步骤补齐五阶段。完整affected首轮30pass/1fixture失败，修复后Stage1 4/4，其余27/27已通过，0skip；首轮旧文案/URL预期及owned-context隔离错误日志保留。主控独立Review无阻断，新6项浏览器测试复跑6/6、0skip；最终分支头CI按PR检查。12a9c54于2026-09-18推送；首次git TLS连接失败，保留证书校验改用HTTP/1.1重试成功；新头CI35318503466失败：Ubuntu/Windows均在旧contract测试未注入离线cost依赖处失败，PG在formal fixture未指定目标Order处失败；当时另发现cost拒绝返回缺outcome，随后由f2941bd按原合同修复。原日志已保留，未将该头称为CI通过。`f2941bd`修复费用拒绝的outcome合同，离线fixture保留旧ratio/voice校验，PG测试增加指定Order、错目标零执行和重启后不重放；独立Review通过。本地完整1437项：1420pass、17环境skip、0fail；PG skip不冒充真实数据库通过，新CI35318959161的Ubuntu/Windows/PostgreSQL三项SUCCESS；日志确认新增A11/A12 PostgreSQL用例实际运行且0skip。Windows stress35318959113亦SUCCESS。此结论仅对应f2941bd，后续UI/文档提交按PR当前头核验。
 
+最终头5acd689的CI35320085769中Ubuntu/Windows通过，PG作业的数据库部分通过，但扩展后的串行browser/media为54pass/1fail/0skip：新增五阶段初始化用例在两个401引发的重复导航下等待load出现ERR_ABORTED。保留该头失败记录；以登录页实际可见状态和精确URL验证替代中间load事件；随后本地六用例5pass/1fail进一步定位：登录页/auth/intent会更新共享fixture Cookie，导致后续403场景混入真实401。改为每场景独立测试context，从内存复用初始虚构登录状态、不落盘/输出；生产逻辑不变，保留无副作用断言，不删除用例、不跳过。修正后新增权限6/6与Stage1整文件4/4、均0skip；独立Review通过，临时诊断清理。最终CI统一以PR285当前头检查及Issue284收口记录为准，不继承此前结果。
+
 本次实际下游：GitHub读取、已授权开发分支推送/Issue与Draft PR维护及CI执行；SSH/容器元数据读取、生产数据库只读事务、对象head/get、失败的可信HTTPS握手；飞影页面访问/上传/任务/生成/视频下载/外部付费模型均0。工具与基础设施费用账单不可得，UNKNOWN，不写成免费。合并/部署/Secret修改NOT_EXECUTED。
 
 ### 发布准备与剩余实现
