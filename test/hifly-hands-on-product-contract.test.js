@@ -431,7 +431,9 @@ test("Cloud adapter blocks before browser/delegate without an injected proven ra
   });
   const workspace = { root, profileDir: path.join(root, "profile"), assetsDir: path.join(root, "assets"), outputsDir: path.join(root, "outputs"), evidenceDir: path.join(root, "evidence") };
   try {
-    const adapter = createCloudPlaywrightAdapter({ workspace, taskFactory: async () => ({
+    // Explicit offline dependency keeps this test focused on ratio/voice;
+    // production has no cost reader and remains blocked independently.
+    const adapter = createCloudPlaywrightAdapter({ workspace, assertCostBound: async () => {}, taskFactory: async () => ({
       task_id: "cloud", script: "copy", resolved_script_mode: "frozen_copy", presentation_size_code: "smart_fit",
       hifly_hands_on_product_v1: contract, contract_id: contract.contract_id,
       video_plan_version_id: contract.plan.video_plan_version_id, plan_review_id: contract.plan.plan_review_id,

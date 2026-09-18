@@ -343,8 +343,7 @@ export function createCloudPlaywrightAdapter({
       await assertCostBound(input);
       return null;
     } catch {
-      return { status: "requires_action", ready: false, code: "HIFLY_COST_BOUND_UNAVAILABLE",
-        failureStage: "pre_paid_gate", requiresActionReason: "HIFLY_COST_BOUND_UNAVAILABLE" };
+      return prePointGateResult({ code: "HIFLY_COST_BOUND_UNAVAILABLE", failureStage: "pre_paid_gate" });
     }
   }
 

@@ -1029,6 +1029,10 @@ test("production adapter refuses unknown cost before preflight or direct run sid
     for (const result of [await adapter.preflight(), await adapter.run({})]) {
       assert.equal(result.code, "HIFLY_COST_BOUND_UNAVAILABLE");
       assert.equal(result.status, "requires_action");
+      assert.equal(result.outcome, "requires_action");
+      assert.equal(result.ready, false);
+      assert.equal(result.failureStage, "pre_paid_gate");
+      assert.equal(result.requiresActionReason, "HIFLY_COST_BOUND_UNAVAILABLE");
     }
     assert.equal(calls, 0);
   } finally { await adapter.close(); await cleanup(); }

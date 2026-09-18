@@ -163,7 +163,8 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
     }
   };
   let verificationRequests = 0;
-  const cloudService = createCloudExecutorService({
+  let cloudExecutions = 0;
+  const cloudServiceOptions = {
     repository: repositoryWithUploadHeartbeat,
     orderPort: {
       listOrdersForCloudExecutor: () => orderRepository.listOrders(cloudOrder.organization_id),
@@ -196,18 +197,29 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
       async wake() {}
     },
     readinessPort: { async check() { return { ready: true }; } },
-    executor: { async run() { return { body: Buffer.from("cloud-pg-candidate"), mediaType: "video/mp4", submissionReceipt: cloudReceipt }; } },
+    executor: { async run({ order: selectedOrder }) {
+      cloudExecutions += 1;
+      assert.equal(selectedOrder.id, cloudOrder.id);
+      return { body: Buffer.from("cloud-pg-candidate"), mediaType: "video/mp4", submissionReceipt: cloudReceipt };
+    } },
     enabled: true,
     mode: "playwright",
+    targetOrderId: cloudOrder.id,
     organizationId: cloudOrder.organization_id,
     executorCloudId,
     heartbeatIntervalMs: 30_000,
     now: () => Date.parse(at)
-  });
-
+  };
+  const wrongTargetService = createCloudExecutorService({ ...cloudServiceOptions, targetOrderId: randomUUID() });
+  assert.equal((await wrongTargetService.runOnce()).status, "standby");
+  assert.equal(cloudExecutions, 0);
+  assert.equal((await repository.listAttempts(cloudOrder.organization_id, cloudOrder.id)).length, 0);
+  const cloudService = createCloudExecutorService(cloudServiceOptions);
   const cloudResult = await cloudService.runOnce();
   assert.deepEqual(cloudReportErrors, []);
   assert.equal(cloudResult.status, "succeeded");
+  assert.equal(cloudResult.stopped, true);
+  assert.equal(cloudExecutions, 1);
   const cloudAttempts = await repository.listAttempts(cloudOrder.organization_id, cloudOrder.id);
   const cloudReports = await repository.listReports(cloudOrder.organization_id, cloudAttempts[0].id);
   const cloudCandidates = await repository.listCandidates(cloudOrder.organization_id, cloudAttempts[0].id);
@@ -224,7 +236,13 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
   [cloudOrder.organization_id, cloudAttempts[0].id])).rows[0].count), 1);
   assert.equal(verificationRequests, 1);
   assert.equal((await repository.listReports("org-other", cloudAttempts[0].id)).length, 0);
-  assert.equal((await cloudService.runOnce()).status, "standby");
+  assert.equal((await cloudService.runOnce()).status, "halted");
+  const restartedCloudService = createCloudExecutorService(cloudServiceOptions);
+  const restartedResult = await restartedCloudService.runOnce();
+  assert.equal(restartedResult.reason, "CLOUD_EXECUTOR_ORDER_ALREADY_ATTEMPTED");
+  assert.equal(restartedResult.stopped, true);
+  assert.equal(cloudExecutions, 1);
+  assert.equal((await repository.listAttempts(cloudOrder.organization_id, cloudOrder.id)).length, 1);
   assert.equal((await repository.listReports(cloudOrder.organization_id, cloudAttempts[0].id)).length, 1);
 
   const errorOrderId = randomUUID(), errorPackageId = randomUUID(), errorJobId = randomUUID();
