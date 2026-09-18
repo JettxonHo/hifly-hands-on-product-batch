@@ -17,10 +17,29 @@ export function createMemoryCopyGenerationRepository() {
         if (receipt.fingerprint !== fingerprint) throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { code: "IDEMPOTENCY_CONFLICT" });
         return clone({ job: jobs.get(receipt.jobId), copy_version: receipt.copyVersionId ? copies.get(receipt.copyVersionId) : null });
       }
+      const manualDraft = [...copies.values()].find((value) => value.organization_id === job.organization_id &&
+        value.product_revision_id === job.product_revision_id && value.status === "draft" && value.intent === "manual_input");
+      if (manualDraft) throw Object.assign(new Error("COPY_VERSION_CONFLICT"), { code: "COPY_VERSION_CONFLICT" });
       jobs.set(job.id, clone(job));
       receipts.set(receiptKey, { fingerprint, jobId: job.id, copyVersionId: null });
       audits.push(clone(audit));
       return clone({ job, copy_version: null });
+    },
+    async createManualCopyVersion({ organizationId, productRevisionId, copyVersion, receiptKey, fingerprint, audit, now }) {
+      const receipt = receipts.get(receiptKey);
+      if (receipt) {
+        if (receipt.fingerprint !== fingerprint) throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { code: "IDEMPOTENCY_CONFLICT" });
+        return clone(copies.get(receipt.copyVersionId));
+      }
+      const existingCopy = [...copies.values()].find((value) => value.organization_id === organizationId && value.product_revision_id === productRevisionId);
+      const activeGeneration = [...jobs.values()].find((value) => value.organization_id === organizationId &&
+        value.product_revision_id === productRevisionId && ["queued", "running"].includes(value.status));
+      if (existingCopy || activeGeneration) throw Object.assign(new Error("COPY_VERSION_CONFLICT"), { code: "COPY_VERSION_CONFLICT" });
+      copyVersion.version_number = 1;
+      copies.set(copyVersion.id, clone(copyVersion));
+      receipts.set(receiptKey, { fingerprint, copyVersionId: copyVersion.id });
+      audits.push(clone({ ...audit, metadata: { ...(audit.metadata || {}), source: "manual_input" } }));
+      return clone(copyVersion);
     },
     async getJob(organizationId, id) {
       const job = jobs.get(id);
@@ -120,6 +139,9 @@ export function createMemoryCopyGenerationRepository() {
       if (!job) throw Object.assign(new Error("COPY_GENERATION_JOB_NOT_FOUND"), { code: "COPY_GENERATION_JOB_NOT_FOUND" });
       if (job.status === "succeeded") return clone(copies.get(job.copy_version_id));
       if (job.status !== "running" || job.lease_token !== copyVersion.lease_token) throw Object.assign(new Error("COPY_GENERATION_LEASE_LOST"), { code: "COPY_GENERATION_LEASE_LOST" });
+      const manualDraft = [...copies.values()].find((value) => value.organization_id === copyVersion.organization_id &&
+        value.product_revision_id === copyVersion.product_revision_id && value.status === "draft" && value.intent === "manual_input");
+      if (manualDraft) throw Object.assign(new Error("COPY_VERSION_CONFLICT"), { code: "COPY_VERSION_CONFLICT" });
       delete copyVersion.lease_token;
       copyVersion.version_number = Math.max(0, ...[...copies.values()].filter((copy) => copy.organization_id === copyVersion.organization_id && copy.product_revision_id === copyVersion.product_revision_id).map((copy) => copy.version_number)) + 1;
       for (const current of copies.values()) {

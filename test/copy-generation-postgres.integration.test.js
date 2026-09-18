@@ -69,3 +69,43 @@ test("clean PostgreSQL copy migration preserves jobs, lease recovery, and frozen
   const frozen = await service.freezeCopyVersion({ ...input.actor, copyVersionId: copy.id, expectedRevision: copy.row_version, idempotencyKey: "copy-pg-freeze" });
   await assert.rejects(pool.query("UPDATE copy_versions SET body='覆盖冻结正文' WHERE id=$1", [frozen.id]), /immutable/);
 });
+
+test("PostgreSQL serializes direct manual input against an AI generation request", { skip: !connectionString }, async (t) => {
+  const pool = createIdentityPool({ connectionString });
+  t.after(() => pool.end());
+  await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
+  await runIdentityMigrations(pool);
+  await runAssetMigrations(pool);
+  await runProjectContentMigrations(pool);
+  await runCopyGenerationMigrations(pool);
+
+  const identityRepository = createPostgresIdentityRepository({ pool, ownsPool: false });
+  const seeded = await seedInitialAdmin(identityRepository, {
+    organizationId: "org_copy_pg", organizationName: "Copy PG", adminEmail: "copy@example.test",
+    adminDisplayName: "Copy Admin", adminTempPassword: "Temporary-Copy-9!"
+  });
+  const input = await availableProductRevision(pool, seeded.member.id);
+  const repository = createPostgresCopyGenerationRepository({ pool });
+  const service = createCopyGenerationService({ repository, productRevisionPort: input.productRevisionPort });
+  const manual = service.createManualCopyVersion({ ...input.actor, productRevisionId: input.ready.id,
+    body: "人工提供的首版文案", idempotencyKey: "pg-race-manual" });
+  const generated = service.requestGeneration({ ...input.actor, productRevisionId: input.ready.id,
+    intent: "product_recommendation", idempotencyKey: "pg-race-generated" });
+  const results = await Promise.allSettled([manual, generated]);
+  const fulfilled = results.filter((result) => result.status === "fulfilled");
+  const rejected = results.filter((result) => result.status === "rejected");
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].reason.code, "COPY_VERSION_CONFLICT");
+
+  const copies = await service.listCopyVersions({ ...input.actor, productRevisionId: input.ready.id });
+  const jobs = await service.listGenerationJobs({ ...input.actor, productRevisionId: input.ready.id });
+  assert.ok(copies.length + jobs.length === 1);
+  if (copies.length) {
+    assert.equal(copies[0].intent, "manual_input");
+    assert.equal(jobs.length, 0);
+  } else {
+    assert.equal(jobs[0].intent, "product_recommendation");
+    assert.equal(copies.length, 0);
+  }
+});

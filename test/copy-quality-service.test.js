@@ -21,7 +21,7 @@ const finding = (overrides = {}) => ({
   suggestion: "改为有事实依据的体验描述", ...overrides
 });
 
-async function world({ evaluate, rewrite, now = () => Date.parse("2026-08-07T08:00:00.000Z"), maxAttempts = 3,
+async function world({ evaluate, rewrite, manualInput = false, now = () => Date.parse("2026-08-07T08:00:00.000Z"), maxAttempts = 3,
   profileVersion = "commerce-cn-v1", ruleVersion = "rules-2026-08" } = {}) {
   const copyRepository = createMemoryCopyGenerationRepository();
   let revisionSnapshot = structuredClone(snapshot);
@@ -40,9 +40,14 @@ async function world({ evaluate, rewrite, now = () => Date.parse("2026-08-07T08:
     }
   };
   const copyService = createCopyGenerationService({ repository: copyRepository, productRevisionPort, now });
-  await copyService.requestGeneration({ ...actor, productRevisionId: snapshot.id, intent: "product_recommendation", idempotencyKey: "seed-copy" });
-  const job = await copyService.claimNextGenerationJob();
-  const copy = await copyService.completeGenerationJob({ job, body: "这是一条待质检的商品种草文案。" });
+  const copy = manualInput
+    ? await copyService.createManualCopyVersion({ ...actor, productRevisionId: snapshot.id,
+      body: "负责人提供的首版商品种草文案。", idempotencyKey: "seed-manual-copy" })
+    : await (async () => {
+      await copyService.requestGeneration({ ...actor, productRevisionId: snapshot.id, intent: "product_recommendation", idempotencyKey: "seed-copy" });
+      const job = await copyService.claimNextGenerationJob();
+      return copyService.completeGenerationJob({ job, body: "这是一条待质检的商品种草文案。" });
+    })();
   const repository = createMemoryCopyQualityRepository();
   const invalidations = [];
   let activePolicy = { profileVersion, ruleVersion };
@@ -325,6 +330,25 @@ test("AI rewrite is persistent async work and concurrent same-key requests execu
   assert.equal(parent.parent_copy_version_id, null);
   assert.equal((await ctx.service.getQualityRun({ ...actor, qualityRunId: started.quality_run.id })).quality_findings.length, 1);
   assert.equal((await ctx.copyService.listCopyVersions({ ...actor, productRevisionId: snapshot.id })).length, 2);
+});
+
+test("manual origin survives human edits while an AI rewrite descendant uses the normal quality policy", async () => {
+  const ctx = await world({ manualInput: true, rewrite: async () => ({ body: "AI 改写后的商品种草文案。" }) });
+  const started = await ctx.service.startQualityCheck({ ...actor, copyVersionId: ctx.copy.id,
+    expectedRevision: ctx.copy.row_version, idempotencyKey: "manual-origin-qc" });
+  assert.equal(started.quality_run.rule_version, "manual_input_local_rules");
+  await ctx.worker.runNext();
+  const frozen = await ctx.copyService.getCopyVersion({ ...actor, copyVersionId: ctx.copy.id });
+  const humanDraft = await ctx.copyService.editCopyVersion({ ...actor, copyVersionId: frozen.id,
+    expectedRevision: frozen.row_version, body: "负责人调整后的商品种草文案。" });
+  assert.equal(humanDraft.intent, "manual_input");
+
+  const requested = await ctx.service.requestCopyRewrite({ ...actor, copyVersionId: frozen.id,
+    scope: "full", instruction: "改写为更自然的表达", idempotencyKey: "manual-origin-ai-rewrite" });
+  await ctx.rewriteWorker.runNext();
+  const completed = await ctx.service.getRewriteJob({ ...actor, rewriteJobId: requested.rewrite_job.id });
+  assert.equal(completed.copy_version.intent, "ai_rewrite");
+  assert.equal(completed.quality_run.rule_version, "rules-2026-08");
 });
 
 test("rewrite worker passes the current ProductRevision snapshot to the rewriter", async () => {

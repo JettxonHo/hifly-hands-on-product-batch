@@ -26,11 +26,33 @@ export function createPostgresCopyGenerationRepository({ pool, ownsPool = false 
           if (receipt.payload_fingerprint !== fingerprint) throw failure("IDEMPOTENCY_CONFLICT");
           return { job: job(one(await client.query("SELECT * FROM copy_generation_jobs WHERE id=$1", [receipt.job_id]))), copy_version: receipt.copy_version_id ? copy(one(await client.query("SELECT * FROM copy_versions WHERE id=$1", [receipt.copy_version_id]))) : null };
         }
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`copy-version:${value.organization_id}:${value.product_revision_id}`]);
+        const manualDraft = one(await client.query("SELECT id FROM copy_versions WHERE organization_id=$1 AND product_revision_id=$2 AND status='draft' AND intent='manual_input' LIMIT 1", [value.organization_id, value.product_revision_id]));
+        if (manualDraft) throw failure("COPY_VERSION_CONFLICT");
         await client.query(`INSERT INTO copy_generation_jobs(id,organization_id,type,status,product_revision_id,project_id,product_id,intent,input_snapshot,attempts,max_attempts,copy_version_id,failure_code,lease_token,started_at,heartbeat_at,lease_expires_at,completed_at,created_at,updated_at)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, [value.id,value.organization_id,value.type,value.status,value.product_revision_id,value.project_id,value.product_id,value.intent,JSON.stringify(value.input_snapshot),value.attempts,value.max_attempts,value.copy_version_id,value.failure_code,value.lease_token || null,value.started_at,value.heartbeat_at,value.lease_expires_at,value.completed_at,value.created_at,value.updated_at]);
         await client.query("INSERT INTO copy_generation_idempotency_receipts(receipt_key,payload_fingerprint,job_id,created_at) VALUES ($1,$2,$3,$4)", [receiptKey,fingerprint,value.id,value.created_at]);
         await appendAudit(client, audit);
         return { job: value, copy_version: null };
+      });
+    },
+    async createManualCopyVersion({ organizationId, productRevisionId, copyVersion: value, receiptKey, fingerprint, audit, now }) {
+      return withTransaction(pool, async (client) => {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`copy-generation:${receiptKey}`]);
+        const receipt = one(await client.query("SELECT * FROM copy_generation_idempotency_receipts WHERE receipt_key=$1", [receiptKey]));
+        if (receipt) {
+          if (receipt.payload_fingerprint !== fingerprint) throw failure("IDEMPOTENCY_CONFLICT");
+          return copy(one(await client.query("SELECT * FROM copy_versions WHERE id=$1", [receipt.copy_version_id])));
+        }
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`copy-version:${organizationId}:${productRevisionId}`]);
+        const existingCopy = one(await client.query("SELECT id FROM copy_versions WHERE organization_id=$1 AND product_revision_id=$2 LIMIT 1", [organizationId, productRevisionId]));
+        const activeGeneration = one(await client.query("SELECT id FROM copy_generation_jobs WHERE organization_id=$1 AND product_revision_id=$2 AND status IN ('queued','running') LIMIT 1", [organizationId, productRevisionId]));
+        if (existingCopy || activeGeneration) throw failure("COPY_VERSION_CONFLICT");
+        const inserted = copy(one(await client.query(`INSERT INTO copy_versions(id,organization_id,project_id,product_id,product_revision_id,generation_job_id,intent,status,version_number,row_version,body,parent_copy_version_id,created_by_member_id,created_at,updated_at,frozen_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [value.id,value.organization_id,value.project_id,value.product_id,value.product_revision_id,value.generation_job_id,value.intent,value.status,1,value.row_version,value.body,value.parent_copy_version_id,value.created_by_member_id,value.created_at,value.updated_at,value.frozen_at])));
+        await client.query("INSERT INTO copy_generation_idempotency_receipts(receipt_key,payload_fingerprint,copy_version_id,created_at) VALUES ($1,$2,$3,$4)", [receiptKey,fingerprint,inserted.id,now]);
+        await appendAudit(client, { ...audit, metadata: { ...(audit.metadata || {}), source: "manual_input" } });
+        return inserted;
       });
     },
     async getJob(organizationId, id) { return job(one(await pool.query("SELECT * FROM copy_generation_jobs WHERE organization_id=$1 AND id=$2", [organizationId,id]))); },
@@ -113,6 +135,8 @@ export function createPostgresCopyGenerationRepository({ pool, ownsPool = false 
         if (current.status !== "running" || current.lease_token !== copyVersion.lease_token) throw failure("COPY_GENERATION_LEASE_LOST");
         const value = copyVersion;
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`copy-version:${value.organization_id}:${value.product_revision_id}`]);
+        const manualDraft = one(await client.query("SELECT id FROM copy_versions WHERE organization_id=$1 AND product_revision_id=$2 AND status='draft' AND intent='manual_input' LIMIT 1", [value.organization_id, value.product_revision_id]));
+        if (manualDraft) throw failure("COPY_VERSION_CONFLICT");
         const nextVersion = Number(one(await client.query("SELECT coalesce(max(version_number),0)+1 next FROM copy_versions WHERE organization_id=$1 AND product_revision_id=$2", [value.organization_id,value.product_revision_id])).next);
         await client.query("UPDATE copy_versions SET status='superseded',row_version=row_version+1,updated_at=$3 WHERE organization_id=$1 AND product_revision_id=$2 AND status='draft'", [value.organization_id,value.product_revision_id,now]);
         const inserted = copy(one(await client.query(`INSERT INTO copy_versions(id,organization_id,project_id,product_id,product_revision_id,generation_job_id,intent,status,version_number,row_version,body,parent_copy_version_id,created_by_member_id,created_at,updated_at,frozen_at)

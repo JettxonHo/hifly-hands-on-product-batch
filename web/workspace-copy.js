@@ -1,7 +1,9 @@
 (() => {
+  const permissionDeniedMessage = "当前账号无权访问或操作此内容，请确认账号与访问权限。";
   const stageRoutes = Object.freeze({ avatar: "/avatar.html", video_plan: "/plan.html", production: "/production.html" });
   const actions = Object.freeze({
     return_to_product_content: { stage: "copy", kind: "navigate", label: "返回商品资料" },
+    create_manual_copy: { stage: "copy", kind: "command", label: "直接输入文案" },
     request_copy_generation: { stage: "copy", kind: "command", label: "生成文案" },
     retry_copy_generation: { stage: "copy", kind: "command", label: "重新生成文案" },
     save_copy_draft: { stage: "copy", kind: "command", label: "保存当前修改" },
@@ -31,7 +33,8 @@
     const headers = new Headers(options.headers || {});
     if (options.method && options.method !== "GET") headers.set("x-identity-csrf", csrf());
     const response = await fetch(url, { credentials: "same-origin", ...options, headers });
-    if ([401, 403].includes(response.status)) {
+    if (response.status === 403) throw Object.assign(new Error("FORBIDDEN"), { status: 403 });
+    if (response.status === 401) {
       location.replace("/login.html");
       throw Object.assign(new Error("AUTH_REQUIRED"), { status: response.status });
     }
@@ -128,6 +131,7 @@
     let deriveMode = false;
     let conflict = false;
     let readFailed = false;
+    let readFailureMessage = "";
     let trusted = true;
     let busy = false;
     let pollTimer = null;
@@ -148,6 +152,9 @@
     function selectedCopy() { return copyStage?.copy_version || null; }
     function currentProduct() { return project?.products.find((item) => item.id === productId) || null; }
     function isHistorical() { return Boolean(selectedCopy() && copyStage.current_copy_version_id && selectedCopy().id !== copyStage.current_copy_version_id); }
+    function manualEntryAvailable() {
+      return !selectedCopy() && !["queued", "running"].includes(copyStage?.generation?.status);
+    }
 
     function setNotice(message = "", kind = "") {
       const notice = node("#workspaceCopyNotice");
@@ -187,11 +194,11 @@
       const status = node("#taskStatus");
       status.textContent = readFailed ? "读取失败" : copyStage?.business_status || "等待开始";
       status.className = `state ${readFailed ? "failure" : copyStage?.human_review?.status === "approved" ? "approved" : "pending"}`;
-      node("#saveStatus").textContent = dirty ? "有未保存修改" : busy ? "处理中" : "已保存";
+      node("#saveStatus").textContent = dirty ? "有未保存修改" : busy ? "处理中" : copy ? "已保存" : "等待输入";
       const code = recommendedCode();
       node("#taskNext").textContent = actions[code]?.label || "等待当前状态完成";
       const blocker = node("#taskBlocker");
-      const blockers = readFailed ? ["当前商品或文案的权威状态未完整载入。"] : copyStage?.blocker_codes || [];
+      const blockers = readFailed ? [readFailureMessage || "当前商品或文案的权威状态未完整载入。"] : copyStage?.blocker_codes || [];
       blocker.hidden = blockers.length === 0;
       blocker.textContent = blockers.length ? blockers.map((value) => ({
         PRODUCT_CONTENT_NOT_READY: "先完成当前商品资料。", COPY_REQUIRED: "当前商品还没有文案版本。",
@@ -228,16 +235,21 @@
       node("#copyWorkspaceContent").hidden = false;
       node("#copyVersionState").textContent = copy ? `${copyLabels[copy.status] || copy.status} · v${copy.version_number}` : "尚无文案";
       node("#copyVersionState").className = `state ${copy?.status || "pending"}`;
-      node("#copyVersionMeta").textContent = copy ? `文案版本 v${copy.version_number}` : "基于已就绪商品资料生成第一版文案";
+      node("#copyVersionMeta").textContent = copy ? `文案版本 v${copy.version_number}` : "直接输入第一版文案，保存后开始质检";
       renderVersions();
       const historical = isHistorical();
-      form.hidden = !copy;
+      const manualEntry = manualEntryAvailable();
+      form.hidden = !copy && !manualEntry;
       node("#generateWorkspaceCopy").hidden = Boolean(copy) || !["not_started", "failed", "timed_out"].includes(copyStage?.generation?.status);
+      node("#generateWorkspaceCopy").textContent = copyStage?.generation?.status === "failed" && copyStage?.generation?.current_job_id
+        ? "重试生成文案" : "生成文案";
       node("#deriveWorkspaceCopy").hidden = !copy || copy.status === "draft" || deriveMode;
       node("#returnCurrentCopy").hidden = !historical;
       if (copy && !dirty && !deriveMode) body.value = copy.body;
-      body.readOnly = !copy || historical || (copy.status !== "draft" && !deriveMode);
-      node("#saveWorkspaceCopy").hidden = !copy || body.readOnly;
+      if (!copy && !dirty) body.value = "";
+      body.readOnly = copy ? historical || (copy.status !== "draft" && !deriveMode) : !manualEntry;
+      node("#saveWorkspaceCopy").hidden = copy ? body.readOnly : !manualEntry;
+      node("#saveWorkspaceCopy").textContent = copy ? "保存草稿" : "保存文案";
       node("#workspaceCopyConflict").hidden = !conflict;
       updateEditorMeta();
       renderQuality();
@@ -247,21 +259,25 @@
 
     function updateEditorMeta() {
       node("#workspaceCopyCount").textContent = `${[...body.value].length} 字`;
-      if (selectedCopy() && !busy) dirty = (selectedCopy().status === "draft" || deriveMode) && body.value !== selectedCopy().body;
-      node("#workspaceCopySaveState").textContent = dirty ? "有未保存修改" : busy ? "保存中" : "已保存";
+      if (!busy) {
+        if (selectedCopy()) dirty = (selectedCopy().status === "draft" || deriveMode) && body.value !== selectedCopy().body;
+        else if (manualEntryAvailable()) dirty = body.value.trim().length > 0;
+      }
+      node("#workspaceCopySaveState").textContent = dirty ? "有未保存修改" : busy ? "保存中" : selectedCopy() ? "已保存" : "尚未保存";
       node("#saveWorkspaceCopy").disabled = !dirty || busy;
       renderSummary();
     }
 
     function renderQuality() {
       const quality = copyStage?.quality;
+      const manualInputQuality = quality?.manual_input_policy === "manual_input_local_rules";
       const label = quality?.conclusion ? qualityLabels[quality.conclusion] : qualityLabels[quality?.status] || "未质检";
       const badge = node("#workspaceQualityState");
       badge.textContent = label;
       badge.className = `state ${quality?.conclusion || quality?.status || "pending"}`;
       node("#workspaceQualitySummary").textContent = quality?.current_valid === false ? "结论已失效，不能用于人工审核。" :
-        quality?.conclusion === "passed" ? "自动质检已通过，仍需独立人工审核。" :
-          quality?.conclusion === "needs_review" ? "请逐条处理待人工判断项；全部处理后服务端才会更新有效结论。" :
+        quality?.conclusion === "passed" ? manualInputQuality ? "本地规则质检已完成；未执行模型语义判断，仍需独立人工审核。" : "自动质检已通过，仍需独立人工审核。" :
+          quality?.conclusion === "needs_review" ? manualInputQuality ? "本地规则已发现可能的语义宣称，请逐条由负责人复核；处理后服务端才会更新有效结论。" : "请逐条处理待人工判断项；全部处理后服务端才会更新有效结论。" :
             quality?.conclusion === "blocked" ? "存在不可绕过门禁，不能接受后继续人工审核。" :
               ["queued", "running"].includes(quality?.status) ? "质检正在异步执行，可以离开后返回。" : "保存当前文案后执行完整质检。";
       const findings = node("#workspaceFindingList");
@@ -348,7 +364,7 @@
         replaceUrl();
         return true;
       } catch (error) {
-        const message = error.status === 409 ? "质检状态已被其他人更新，请刷新当前文案。" :
+        const message = error.status === 403 ? permissionDeniedMessage : error.status === 409 ? "质检状态已被其他人更新，请刷新当前文案。" :
           error.status === 422 ? "当前判断项不能这样处理，请刷新后核对。" : "质检判断未保存，请稍后重试。";
         setNotice(message, error.status === 409 || error.status === 422 ? "blocked" : "error");
         if (node("#workspaceFindingDialog").open) node("#workspaceFindingError").textContent = message;
@@ -403,7 +419,8 @@
       }));
     }
 
-    function disableForReadFailure() {
+    function disableForReadFailure(error) {
+      readFailureMessage = error?.status === 403 ? permissionDeniedMessage : "";
       clearTimeout(pollTimer);
       readFailed = true;
       trusted = true;
@@ -481,8 +498,8 @@
         identity = identityBody;
         await load({ focus });
         replaceUrl();
-      } catch (_error) {
-        disableForReadFailure();
+      } catch (error) {
+        disableForReadFailure(error);
       }
     }
 
@@ -505,12 +522,25 @@
 
     async function save() {
       const copy = selectedCopy();
-      if (!copy || !dirty || busy) return false;
+      if (!dirty || busy) return false;
       const value = body.value.trim();
       if (!value) { setNotice("文案正文不能为空。", "error"); return false; }
       busy = true;
       updateEditorMeta();
       try {
+        if (!copy) {
+          const result = await request(`/api/product-revisions/${encodeURIComponent(workspace.product.current_revision_id)}/copy-versions`, {
+            method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+            body: JSON.stringify({ body: value })
+          });
+          dirty = false;
+          deriveMode = false;
+          copyVersionId = result.copy_version.id;
+          await load({ focus: false });
+          replaceUrl();
+          setNotice("文案已保存。", "success");
+          return true;
+        }
         const result = await request(`/api/copy-versions/${encodeURIComponent(copy.id)}`, {
           method: "PATCH", headers: { "content-type": "application/json" },
           body: JSON.stringify({ expected_revision: copy.row_version, body: value })
@@ -524,9 +554,13 @@
         return true;
       } catch (error) {
         if (error.status === 409) {
+          if (!copy) {
+            await load({ focus: false }).catch(() => undefined);
+            replaceUrl();
+          }
           conflict = true;
           setNotice("保存发生版本冲突，本地正文尚未丢失。", "blocked");
-        } else setNotice("文案保存失败，请稍后重试。", "error");
+        } else setNotice(error.status === 403 ? permissionDeniedMessage : "文案保存失败，请稍后重试。", "error");
         return false;
       } finally {
         busy = false;
@@ -549,7 +583,7 @@
         replaceUrl();
         return true;
       } catch (error) {
-        setNotice(error.status === 409 ? "状态已被其他人更新，请刷新当前文案。" : "操作未完成，请刷新后重试。", error.status === 409 ? "blocked" : "error");
+        setNotice(error.status === 403 ? permissionDeniedMessage : error.status === 409 ? "状态已被其他人更新，请刷新当前文案。" : "操作未完成，请刷新后重试。", error.status === 409 ? "blocked" : "error");
         return false;
       } finally {
         busy = false;
@@ -564,6 +598,10 @@
       if (!actions[code] || actions[code].stage !== "copy") return;
       if (code === "retry_copy_read") return bootstrap();
       if (code === "return_to_product_content") return location.assign(workspaceUrl(projectId, productId, "product_content"));
+      if (code === "create_manual_copy") {
+        body.focus();
+        return;
+      }
       if (code === "request_copy_generation") return command(`/api/product-revisions/${encodeURIComponent(workspace.product.current_revision_id)}/copy-generations`, { body: { intent: "product_recommendation" } });
       if (code === "retry_copy_generation" && copyStage.generation.current_job_id) return command(`/api/copy-generation-jobs/${encodeURIComponent(copyStage.generation.current_job_id)}/retry`);
       if (code === "save_copy_draft") return save();
@@ -616,7 +654,9 @@
       body.addEventListener("input", updateEditorMeta);
       form.addEventListener("submit", async (event) => { event.preventDefault(); await save(); });
       primary.addEventListener("click", () => execute(primary.dataset.actionCode));
-      node("#generateWorkspaceCopy").addEventListener("click", () => execute(workspace?.recommended_action?.code === "retry_copy_generation" ? "retry_copy_generation" : "request_copy_generation"));
+      node("#generateWorkspaceCopy").addEventListener("click", () => execute(
+        copyStage?.generation?.status === "failed" && copyStage?.generation?.current_job_id
+          ? "retry_copy_generation" : "request_copy_generation"));
       node("#deriveWorkspaceCopy").addEventListener("click", () => execute("derive_copy_draft"));
       node("#returnCurrentCopy").addEventListener("click", () => guardNavigation(() => execute("return_to_current_copy_version")));
       node("#loadLatestWorkspaceCopy").addEventListener("click", () => execute("load_latest_copy_version"));

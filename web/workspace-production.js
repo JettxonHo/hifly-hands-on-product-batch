@@ -1,4 +1,5 @@
 (() => {
+  const permissionDeniedMessage = "当前账号无权访问或操作此内容，请确认账号与访问权限。";
   const ACTIONS = Object.freeze({
     return_to_video_plan: Object.freeze({ stage: "production", kind: "navigate", label: "返回视频方案" }),
     create_production_order: Object.freeze({ stage: "production", kind: "command", label: "创建生产工单" }),
@@ -27,11 +28,32 @@
   const VERIFICATION_LABELS = {
     not_started: "未发起", pending: "核验中", passed: "已通过", failed: "核验失败", requires_action: "需人工处理"
   };
+  const CREATE_INTENT_STORAGE_PREFIX = "hifly-production-create-intent-v1";
+  const CREATE_INTENT_PURPOSE = "first_production";
+  const CREATE_INTENT_KEY_MAX_LENGTH = 128;
   const byId = (id) => document.getElementById(id);
   const ambiguousWriteError = (error) => !Number.isInteger(error?.status) || error.status === 408 ||
     error.status >= 500 || [404, 409, 422].includes(error.status);
   const csrf = () => decodeURIComponent((document.cookie.split(";").map((part) => part.trim())
     .find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
+
+  function createIntentStorageKey(identity, projectId, productId) {
+    const organizationId = identity?.organization?.id;
+    const memberId = identity?.member?.id;
+    if (![organizationId, memberId, projectId, productId].every((value) => typeof value === "string" && value.trim())) return null;
+    return [CREATE_INTENT_STORAGE_PREFIX, organizationId, memberId, projectId, productId]
+      .map((value) => encodeURIComponent(value)).join(":");
+  }
+
+  function validCreateIntent(value, productId) {
+    const payload = value?.payload;
+    return value && typeof value === "object" && value.product_id === productId &&
+      typeof value.key === "string" && value.key.length > 0 && value.key.length <= CREATE_INTENT_KEY_MAX_LENGTH &&
+      payload && typeof payload === "object" && !Array.isArray(payload) &&
+      Object.keys(payload).length === 2 && typeof payload.video_plan_version_id === "string" &&
+      payload.video_plan_version_id.trim() && payload.execution_purpose === CREATE_INTENT_PURPOSE &&
+      ["prepared", "in_flight", "unknown"].includes(value.state);
+  }
 
   async function request(url, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -40,7 +62,8 @@
       if (!headers.has("content-type")) headers.set("content-type", "application/json");
     }
     const response = await fetch(url, { credentials: "same-origin", ...options, headers });
-    if ([401, 403].includes(response.status)) {
+    if (response.status === 403) throw Object.assign(new Error("FORBIDDEN"), { status: 403 });
+    if (response.status === 401) {
       location.replace("/login.html");
       throw Object.assign(new Error("AUTH_REQUIRED"), { status: response.status });
     }
@@ -97,7 +120,8 @@
     let lastOrderTriggerId = orderId;
     let selectedProductTrigger = null;
     let createTrigger = null;
-    let createIntentKey = null;
+    let createIntent = null;
+    let identity = null;
 
     document.body.dataset.workspaceStage = "production";
     document.body.dataset.mobileLayer = "detail";
@@ -119,14 +143,70 @@
       return buttons.find((button) => button.dataset.orderId === (selectedOrderId || lastOrderTriggerId)) || null;
     }
 
+    function storedCreateIntentKey(productId = activeProductId) {
+      return createIntentStorageKey(identity, projectId, productId);
+    }
+
+    function clearStoredCreateIntent(productId = activeProductId) {
+      const key = storedCreateIntentKey(productId);
+      if (!key) return;
+      try { sessionStorage.removeItem(key); } catch (_error) { /* browser storage may be unavailable */ }
+    }
+
+    function persistCreateIntent(intent) {
+      const key = storedCreateIntentKey(intent?.product_id);
+      if (!key || !validCreateIntent(intent, intent.product_id)) return false;
+      try {
+        sessionStorage.setItem(key, JSON.stringify(intent));
+        return true;
+      } catch (_error) {
+        return false;
+      }
+    }
+
+    function restoreCreateIntent(productId = activeProductId) {
+      const key = storedCreateIntentKey(productId);
+      if (!key) return null;
+      try {
+        const value = JSON.parse(sessionStorage.getItem(key) || "null");
+        return validCreateIntent(value, productId) ? value : null;
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    function forgetCreateIntent(productId = createIntent?.product_id || activeProductId) {
+      clearStoredCreateIntent(productId);
+      createIntent = null;
+      createTrigger = null;
+    }
+
     function invalidateCreateIntent({ restoreFocus = false } = {}) {
       const trigger = createTrigger;
       const dialog = byId("productionCreateDialog");
       if (dialog.open) dialog.close();
-      createIntentKey = null;
+      const preserveUnknown = createIntent?.state === "in_flight" || createIntent?.state === "unknown";
+      if (!preserveUnknown) forgetCreateIntent();
       createTrigger = null;
       byId("productionCreateError").textContent = "";
       if (restoreFocus && trigger?.isConnected) trigger.focus();
+    }
+
+    function reconcileCreateIntent() {
+      const selected = projection?.stages?.find((item) => item.code === "production")?.production?.selected_order;
+      if (!selected || !createIntent || selected.product_id !== createIntent.product_id ||
+        selected.video_plan_version_id !== createIntent.payload.video_plan_version_id) return;
+      forgetCreateIntent(createIntent.product_id);
+      if (byId("productionCreateDialog").open) byId("productionCreateDialog").close();
+    }
+
+    function definitiveCreateRejection(error) {
+      const code = error?.body?.error || error?.message;
+      return error?.status === 400 || error?.status === 403 || [
+        "IDEMPOTENCY_CONFLICT", "PRODUCTION_ORDER_CONTEXT_REQUIRED", "PRODUCTION_ORDER_PURPOSE_INVALID",
+        "PRODUCTION_ORDER_PLAN_NOT_FOUND", "PRODUCTION_ORDER_FORBIDDEN", "PRODUCTION_ORDER_PLAN_GATE_BLOCKED",
+        "PRODUCTION_ORDER_INPUT_SNAPSHOT_REQUIRED"
+      ].includes(code);
     }
 
     function clearRecommendedAction() {
@@ -346,7 +426,7 @@
       byId("productionTaskDescription").textContent = "正在核对当前商品的服务端持久真值。";
     }
 
-    function failRead() {
+    function failRead(error) {
       readFailed = true;
       projection = null;
       clearProductionTruth();
@@ -355,7 +435,7 @@
       byId("productionTaskTitle").textContent = "生产状态暂时无法读取";
       byId("productionTaskState").textContent = "读取失败";
       byId("productionTaskState").className = "state failure";
-      byId("productionTaskDescription").textContent = "读取成功前不会使用旧工单、执行、核验或作品状态。";
+      byId("productionTaskDescription").textContent = error?.status === 403 ? permissionDeniedMessage : "读取成功前不会使用旧工单、执行、核验或作品状态。";
       disableStageLinks();
       clearRecommendedAction();
       renderAction();
@@ -384,15 +464,16 @@
         projection = response.workspace;
         readFailed = false;
         selectedOrderId = stage.production?.selected_order?.id || null;
+        reconcileCreateIntent();
         renderProducts();
         renderProduction();
         const exactUrl = stageUrl(projectId, activeProductId, "production", projection, selectedOrderId);
         history.replaceState({ productId: activeProductId, orderId: selectedOrderId }, "", exactUrl);
         if (focus) byId("productionTaskTitle").focus();
         return true;
-      } catch {
+      } catch (error) {
         if (epoch !== requestEpoch) return;
-        failRead();
+        failRead(error);
         return false;
       } finally {
         if (epoch === requestEpoch) {
@@ -417,7 +498,7 @@
           const recovered = await load({ focus: true });
           if (recovered && !notice.textContent) notice.textContent = "已重新读取当前生产状态，请按最新状态继续。";
         } else {
-          notice.textContent = "操作未完成，当前状态没有改变。";
+          notice.textContent = error.status === 403 ? permissionDeniedMessage : "操作未完成，当前状态没有改变。";
         }
         return false;
       } finally {
@@ -427,19 +508,28 @@
     }
 
     async function createProductionOrder() {
-      if (busy || !production?.current_plan?.id || !createIntentKey) return false;
+      if (busy || !createIntent) return false;
+      createIntent.state = "in_flight";
+      if (!persistCreateIntent(createIntent)) {
+        byId("productionCreateError").textContent = "当前浏览器无法保存创建意图，请允许本会话存储后重试。";
+        return false;
+      }
       busy = true;
       renderAction();
       try {
         await request(`/api/products/${encodeURIComponent(activeProductId)}/production-orders`, {
-          method: "POST", headers: { "idempotency-key": createIntentKey },
-          body: JSON.stringify({ video_plan_version_id: production.current_plan.id, execution_purpose: "first_production" })
+          method: "POST", headers: { "idempotency-key": createIntent.key },
+          body: JSON.stringify(createIntent.payload)
         });
-        createIntentKey = null;
-        createTrigger = null;
+        forgetCreateIntent(createIntent.product_id);
         await load({ focus: true });
         return true;
       } catch (error) {
+        if (definitiveCreateRejection(error)) {
+          forgetCreateIntent();
+          byId("productionCreateError").textContent = error.status === 403 ? permissionDeniedMessage : "创建请求被当前生产门禁拒绝，请按最新状态处理。";
+          return false;
+        }
         const mustReconcile = ambiguousWriteError(error);
         if (!mustReconcile) {
           byId("productionCreateError").textContent = "创建未完成，当前状态没有改变。";
@@ -449,13 +539,16 @@
         clearProductionTruth();
         const recovered = await load();
         if (!recovered) {
-          byId("productionCreateError").textContent = "创建结果未知，当前生产状态仍无法读取。";
+          createIntent.state = "unknown";
+          persistCreateIntent(createIntent);
+          byId("productionCreateError").textContent = "创建结果未知，当前生产状态仍无法读取；已保留本次创建意图。";
           return false;
         }
         const currentAction = ownedAction(projection?.recommended_action);
         if (currentAction?.code === "create_production_order") {
-          createIntentKey = crypto.randomUUID();
-          byId("productionCreateError").textContent = "服务端仍允许创建；请重新确认新的创建意图。";
+          createIntent.state = "unknown";
+          persistCreateIntent(createIntent);
+          byId("productionCreateError").textContent = "创建结果未知；已保留本次创建意图，请重试同一次请求或刷新后核对。";
           byId("confirmProductionCreate").focus();
           return false;
         }
@@ -469,6 +562,13 @@
     }
 
     function closeCreateDialog() {
+      if (createIntent?.state === "in_flight" || createIntent?.state === "unknown") {
+        const trigger = createTrigger;
+        byId("productionCreateDialog").close();
+        createTrigger = null;
+        if (trigger?.isConnected) trigger.focus();
+        return;
+      }
       invalidateCreateIntent({ restoreFocus: true });
     }
 
@@ -503,7 +603,25 @@
         location.assign(stageUrl(projectId, activeProductId, "video_plan", projection));
       } else if (action.code === "create_production_order") {
         createTrigger = primary;
-        createIntentKey = crypto.randomUUID();
+        if (!createIntent || createIntent.product_id !== activeProductId) {
+          const restored = restoreCreateIntent(activeProductId);
+          if (restored) createIntent = restored;
+        }
+        if (!createIntent || createIntent.product_id !== activeProductId) {
+          const payload = { video_plan_version_id: production?.current_plan?.id, execution_purpose: CREATE_INTENT_PURPOSE };
+          createIntent = {
+            product_id: activeProductId,
+            key: crypto.randomUUID(),
+            payload,
+            state: "prepared"
+          };
+          if (!persistCreateIntent(createIntent)) {
+            createIntent = null;
+            createTrigger = null;
+            byId("productionCreateError").textContent = "当前浏览器无法保存创建意图，请允许本会话存储后重试。";
+            return;
+          }
+        }
         byId("productionCreateError").textContent = "";
         byId("productionCreateDialog").showModal();
         byId("confirmProductionCreate").focus();
@@ -532,6 +650,7 @@
       const params = new URLSearchParams(location.search);
       activeProductId = params.get("product");
       selectedOrderId = params.get("orderId");
+      createIntent = restoreCreateIntent(activeProductId);
       await load({ focus: true });
     });
 
@@ -541,12 +660,14 @@
         location.replace(legacyProductionUrl(projectId, activeProductId, selectedOrderId));
         return;
       }
+      identity = await request("/api/auth/me");
       project = (await request(`/api/projects/${encodeURIComponent(projectId)}`)).project;
       if (!project?.products?.some((item) => item.id === activeProductId)) throw new Error("PRODUCT_NOT_FOUND");
+      createIntent = restoreCreateIntent(activeProductId);
       renderProducts();
       await load();
-    } catch {
-      failRead();
+    } catch (error) {
+      failRead(error);
     }
   }
 

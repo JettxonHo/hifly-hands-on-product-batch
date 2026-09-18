@@ -2,11 +2,38 @@
 
 > 状态：Accepted structure / Evidence continuously updated（台账结构已接受；证据随调研持续更新）
 > Owner：owner（JettxonHo）
-> 最后更新：2026-08-26
+> 最后更新：2026-09-09
 > 适用范围：记录飞影 Provider 各能力的当前实际确认状态，是 DSE 体系中的 Evidence 文档
 > 非目标：本文件不是营销功能列表；不自行改变产品决策（决策见 [DECISION_LOG.md](DECISION_LOG.md)）；不把「产品目标」误写为「已经实现」
 
 本台账是 Provider 能力证据台账：每项能力按五层确认状态记录**当前实际确认到哪一层**。Evidence 证明当前实际确认状态，但不能自行改变产品决策。
+
+最新有界Developer API Coverage Gate见[专门报告](HIFLY_GOODS_IN_HAND_API_COVERAGE_REPORT.md)：Q1=REQUIRES_PROVIDER_CONFIRMATION；架构判定D=PROVIDER_CONFIRMATION_REQUIRED；当前API Spike准入NO。本次只读调查完成后停止；以下已确认网页工作流仅作复用证据，不升级为Developer API授权或等价性证明。
+
+## 2026-09-09 Golden Path 的 API 与会话核对
+
+- 重新读取[官方API V2](https://api.lingverse.co/hifly.html)：Bearer Token鉴权；提供单张图片创建数字人、文本/音频驱动视频、task_id查询和完成回调；视频结果地址为临时地址。当前文档未确认“人物图＋商品图合成手持效果”的正式接口，不能将套餐API权益或create_by_image直接当成完整手里有货支持，也不能据此断言飞影完全不存在其他授权接口。
+- 实际代码8bd44ab（与c5d404b业务代码一致）：`src/providers/hifly-api-client.js`仅getAccountCredit/listPublicAvatars；production-start接入管理员连接测试与公共人物目录。没有官方生成、生成任务查询或下载adapter。正式Cloud生成实现仍选择Playwright及持久浏览器Profile；Capture HTTP是另一可选旧路径，不是官方API接入证明。
+- 当前线上App的只读环境投影：HIFLY_API_TOKEN存在性false，CLOUD_EXECUTOR_ENABLED=false、CLOUD_EXECUTOR_MODE=fail_closed、PRODUCTION_EXECUTOR=fail_closed。未读取/输出Token值、未变更配置，未调用带鉴权的飞影API。2026-08-09的本地只读API成功只能作为历史，不能代表当前部署已配置或正在用API生产。
+- Owner确认当前本机Chrome账号与H0真实付费账号不同。该账号的余额、未开会员提示及免费版时长上限均排除出Golden Path预算/权限证据；没有在其下上传或创建任务。频繁扫码需区分Profile过期、运行环境切换和账号混用，不应解释为每条视频必然要求扫码。
+- 下一步只确认正确生产账号及官方手持合成接口的实际开放范围。若官方完整支持，再按证据提出复用现有任务/费用/作品核心的最小接入；本次不启用API、不调用生成、不预选架构。
+
+### 同日补充：网页是否由公开 API 组合完成
+
+Owner明确：若完整能力都能通过官方开放API实现，优先API Key鉴权，消除日常生产对反复网页登录的依赖。该偏好不是新的生成预算，也不证明接口已经开放或可稳定生产。
+
+只读取得[goods入口HTML](https://hifly.cc/goods)、它引用的[主bundle index-5e515b60.js](https://hifly.cc/assets/index-5e515b60.js)及[lvlib.js](https://hifly.cc/lvlib.js)，共3文件、7,437,321 bytes；无账号凭据，不执行bundle或请求其中的业务接口。快照保留在原GUI目录Git忽略的`outputs/golden-path-preflight-20260908/public-source-audit/`。下述是公开前端代码证据，不是本轮真实调用结果或服务端实现证明。
+
+| 环节 | 当前公开前端证据 | 与公开V2的关系 |
+| --- | --- | --- |
+| 两图合成 | goods组件调用Int，传human_image_oss_key、goods_image_oss_key、goods_size、identifier；Int为POST `one_stop/goods_in_hand/goods_holding_image_generation`，Nnt以identifier做GET轮询。 | 公开V2文档没有确认相应两图合成能力；单图create_by_image不能按参数合同代替这一步。identifier作用域/唯一性未核验。 |
+| 商品视频 | goods提交Ant，即POST `one_stop/goods_in_hand/videos`；包含声音、文字、尺寸、字幕等，若合成结果有gen_id便传入，否则使用image_oss_key。 | 可以证明前端将手持合成结果传到商品视频步骤；不能证明后台内部调用了哪些公开API或模型。 |
+| 网页鉴权 | 上述nt客户端的CMS base为`//hiflyworks-api.lingverse.co/api/app/v1/`，请求拦截器取网页登录token加入Bearer头及Web/团队标识。 | 与公开文档`hfw-api.hifly.cc/api/v2/hifly/`不是同一前端调用地址；不能因为都用Bearer就认定开发者API Key可互用。 |
+| 视频提交回执线索 | Ant把响应传给通用Zl埋点，尝试读取id/creation_id/task_id；goods界面主要检查sensitive_words后刷新列表。 | 这是待核对的候选字段，不证明该端点实际返回某字段，也不证明没有回执。必须获得当前响应合同或实际受控响应才能用于工作台绑定。 |
+
+公开V2文档可组合的后半段是：已有手持图→`avatar/create_by_image`→`avatar/task`取得avatar→`video/create_by_tts`→`video/task`取得结果。仅文档合同层面成立，账号权限、费用、图片适用性及与原生goods的模型/效果等价均未验证。不能假定goods后端内部就是这条链，bundle中的其他图片数字人wrapper也不能作为goods调用链的证明。
+
+最小待确认项是：飞影是否对开发者Token开放上述两图合成及商品视频能力，或有正式等价的公开接口组合；相应模型/参数、报价以及直接任务回执/查询合同。若开放即可提出复用现有工作台核心的最小API接入；若仅后半段开放，仍缺手持图来源，不能宣称已完整摆脱网页。任何外部图像模型或额外素材生成都属于另行决策范围，本轮未执行。
 
 ---
 

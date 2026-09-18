@@ -15,6 +15,7 @@ import { createCopyGenerationService } from "../copy-generation/copy-generation-
 import { createCopyGenerationWorker } from "../copy-generation/copy-generation-worker.js";
 import { createPostgresCopyGenerationRepository } from "../copy-generation/postgres-copy-generation-repository.js";
 import { createControlledQualityEvaluator } from "../copy-quality/controlled-evaluator.js";
+import { createIntentAwareQualityEvaluator } from "../copy-quality/intent-aware-evaluator.js";
 import { createControlledCopyRewriter } from "../copy-quality/controlled-rewriter.js";
 import { createStaticQualityProfileResolver } from "../copy-quality/static-profile-resolver.js";
 import { createCopyQualityService } from "../copy-quality/copy-quality-service.js";
@@ -156,7 +157,7 @@ function apiError(error, request = null) {
     "QUALITY_PROVIDER_REQUEST_NOT_STARTED", "QUALITY_PROVIDER_RESPONSE_NOT_READY", "QUALITY_PROVIDER_RESPONSE_ALREADY_RECORDED", "QUALITY_PROVIDER_OUTCOME_UNKNOWN", "QUALITY_ONE_ATTEMPT_LEGACY_RUN_ACTIVE", "QUALITY_ONE_ATTEMPT_LEGACY_OUTCOME_UNKNOWN", "QUALITY_ONE_ATTEMPT_CANCEL_BLOCKED", "QUALITY_RUN_CANCEL_BLOCKED",
     "QUALITY_RUN_LEASE_LOST", "COPY_REWRITE_REQUIRES_FROZEN_VERSION", "COPY_REWRITE_RETRY_BLOCKED", "COPY_REWRITE_LEASE_LOST"].includes(error?.code)) return { statusCode: 409, code: error.code };
   if (["COPY_REVIEW_CONFLICT", "COPY_REVIEW_ACTIVE_EXISTS"].includes(error?.code)) return { statusCode: 409, code: error.code };
-  if (["COPY_GENERATION_CONTEXT_REQUIRED", "COPY_BODY_REQUIRED", "INVALID_COPY_REVISION"].includes(error?.code)) return { statusCode: 400, code: error.code };
+  if (["COPY_GENERATION_CONTEXT_REQUIRED", "COPY_GENERATION_INTENT_INVALID", "COPY_BODY_REQUIRED", "COPY_BODY_TOO_LARGE", "COPY_MANUAL_INPUT_PAYLOAD_INVALID", "INVALID_COPY_REVISION"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (["COPY_QUALITY_CONTEXT_REQUIRED", "QUALITY_PROFILE_REQUIRED", "QUALITY_PROVIDER_REQUEST_INVALID", "QUALITY_FINDING_RESOLUTION_INVALID", "QUALITY_FINDING_REASON_REQUIRED", "QUALITY_FINDING_ACCEPT_BLOCKED", "COPY_REWRITE_EMPTY_RESULT", "COPY_REWRITE_NO_CHANGE", "COPY_REWRITE_SCOPE_INVALID", "COPY_REWRITE_INSTRUCTION_REQUIRED"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (["COPY_REVIEW_CONTEXT_REQUIRED", "COPY_REVIEW_REASON_REQUIRED"].includes(error?.code)) return { statusCode: 400, code: error.code };
   if (error?.code === "COPY_REVIEW_FORBIDDEN") return { statusCode: 403, code: error.code };
@@ -628,7 +629,10 @@ export async function buildApp({
     const repository = copyQualityOptions.repository || (sharedPool ? createPostgresCopyQualityRepository({ pool: sharedPool }) : null);
     if (!repository) throw Object.assign(new Error("COPY_QUALITY_REPOSITORY_REQUIRED"), { code: "COPY_QUALITY_REPOSITORY_REQUIRED" });
     await repository.initialize();
-    const evaluator = copyQualityOptions.evaluator || createControlledQualityEvaluator();
+    const evaluator = createIntentAwareQualityEvaluator({
+      defaultEvaluator: copyQualityOptions.evaluator || createControlledQualityEvaluator(),
+      manualInputEvaluator: copyQualityOptions.manualInputEvaluator
+    });
     const rewriter = copyQualityOptions.rewriter || createControlledCopyRewriter();
     const profileResolver = copyQualityOptions.profileResolver || createStaticQualityProfileResolver({
       profileVersion: copyQualityOptions.profileVersion, ruleVersion: copyQualityOptions.ruleVersion
@@ -649,7 +653,8 @@ export async function buildApp({
       heartbeatIntervalMs: copyQualityOptions.worker?.heartbeatIntervalMs,
       onError: copyQualityOptions.worker?.onError || ((error) => console.error("Copy rewrite worker error:", error?.code || "UNEXPECTED_ERROR")) });
     app.decorate("copyQuality", { repository, service, worker, rewriteWorker, evaluatorKind: worker.evaluatorKind,
-      rewriterKind: rewriteWorker.rewriterKind, profileResolverKind: profileResolver.kind || "unknown" });
+      manualInputPolicy: worker.manualInputPolicy, rewriterKind: rewriteWorker.rewriterKind,
+      profileResolverKind: profileResolver.kind || "unknown" });
     app.addHook("onClose", async () => { worker.stop(); rewriteWorker.stop(); await repository.close?.(); });
     await registerCopyQualityRoutes(app, { service, worker, rewriteWorker });
     if (copyQualityOptions.worker?.autoStart !== false) { worker.start(); rewriteWorker.start(); }

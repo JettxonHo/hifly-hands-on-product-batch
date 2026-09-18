@@ -462,6 +462,53 @@ test("Stage 5 reconciles committed create and handoff writes hidden by an HTTP 5
   assert.equal(generatedPackages.length, 1);
 });
 
+test("Stage 5 retries an unknown create with the same key and exact plan payload", async (t) => {
+  const setup = await world(t);
+  if (!setup) return t.skip("real Chrome unavailable in this environment");
+  const { browser, origin, project, first, state, createdOrders } = setup;
+  state.current = fixture(first.product.id, { noOrder: true, canCreate: true });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await login(page, origin);
+  await page.goto(workspaceUrl(origin, project.id, first.product.id, null));
+  await page.waitForFunction(() => document.querySelector("#workspacePrimaryAction")?.dataset.actionCode === "create_production_order");
+
+  const requests = [];
+  await page.route("**/api/products/*/production-orders", async (route) => {
+    requests.push({ key: route.request().headers()["idempotency-key"], payload: route.request().postDataJSON() });
+    if (requests.length === 1) {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "UPSTREAM_RESPONSE_UNKNOWN" }) });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.locator("#workspacePrimaryAction").click();
+  const dialog = page.locator("#productionCreateDialog");
+  await dialog.getByRole("button", { name: "确认创建" }).click();
+  await page.getByText("创建结果未知；已保留本次创建意图，请重试同一次请求或刷新后核对。", { exact: true }).waitFor();
+  assert.equal(await dialog.evaluate((element) => element.open), true);
+  assert.equal(requests.length, 1);
+  const storedIntent = await page.evaluate(() => {
+    const entry = Object.entries(sessionStorage).find(([key]) => key.startsWith("hifly-production-create-intent-v1:"));
+    return entry ? JSON.parse(entry[1]) : null;
+  });
+  assert.equal(storedIntent.product_id, first.product.id);
+  assert.equal(storedIntent.payload.video_plan_version_id, "plan-stage-5");
+  assert.equal(storedIntent.state, "unknown");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByText("生产待创建", { exact: true }).first().waitFor();
+  await page.locator("#workspacePrimaryAction").click();
+  assert.equal(await dialog.evaluate((element) => element.open), true);
+  await dialog.getByRole("button", { name: "确认创建" }).click();
+  await page.getByText("生产交接资料待生成", { exact: true }).first().waitFor();
+  assert.equal(await dialog.evaluate((element) => element.open), false);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].key, requests[0].key);
+  assert.deepEqual(requests[1].payload, requests[0].payload);
+  assert.equal(createdOrders.length, 1);
+});
+
 test("Stage 5 ignores stale same-runtime responses and Back Forward reload exact product authority", async (t) => {
   const setup = await world(t);
   if (!setup) return t.skip("real Chrome unavailable in this environment");
@@ -582,4 +629,37 @@ test("Stage 5 selects the accepted product and clears prior authority while its 
   assert.equal(await page.locator("#taskContext").textContent(), "当前商品生产真值暂时无法读取");
   assert.equal(await page.locator("#workspacePrimaryAction").getAttribute("data-action-code"), "retry_production_read");
   assert.equal((await page.locator("body").innerText()).includes("order-stage-5"), false);
+});
+
+test("Stage 5 forbidden creation stays on-page without creating an order", async (t) => {
+  const setup = await world(t);
+  if (!setup) return t.skip("real Chrome unavailable in this environment");
+  const { browser, origin, project, first, state, createdOrders } = setup;
+  state.current = fixture(first.product.id, { noOrder: true, canCreate: true });
+  const page = await browser.newPage();
+  await login(page, origin);
+  await page.goto(workspaceUrl(origin, project.id, first.product.id, null));
+  await page.getByText("生产待创建", { exact: true }).first().waitFor();
+  let status = 403, calls = 0;
+  await page.route("**/api/products/*/production-orders", (route) => {
+    calls += 1;
+    return route.fulfill({ status, json: { error: status === 403 ? "FORBIDDEN" : "AUTH_REQUIRED" } });
+  });
+  await page.locator("#workspacePrimaryAction").click();
+  const dialog = page.getByRole("dialog", { name: "确认创建当前商品的生产工单" });
+  await dialog.getByRole("button", { name: "确认创建" }).click();
+  await page.locator("#productionCreateError").getByText(/当前账号无权/).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/workspace.html");
+  assert.equal(createdOrders.length, 0);
+  assert.equal(calls, 1);
+  // A definitive rejection consumes the local intent; reopen for the 401 case.
+  await page.reload();
+  await page.getByText("生产待创建", { exact: true }).first().waitFor();
+  status = 401;
+  await page.route("**/api/auth/me", (route) => route.fulfill({ status: 401, json: { error: "AUTH_REQUIRED" } }));
+  await page.locator("#workspacePrimaryAction").click();
+  await dialog.getByRole("button", { name: "确认创建" }).click();
+  await page.waitForURL(`${origin}/login.html`);
+  assert.equal(createdOrders.length, 0);
+  assert.equal(calls, 2);
 });

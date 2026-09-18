@@ -15,6 +15,7 @@ import { runVideoPlanningMigrations } from "../src/video-planning/postgres.js";
 import { runProductionOrderMigrations } from "../src/production-orders/postgres.js";
 import { createPostgresProductionOrderRepository } from "../src/production-orders/postgres-production-order-repository.js";
 import { runManualHandoffMigrations } from "../src/manual-handoff/postgres.js";
+import { buildHiflyHandsOnProductV1 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
 
 const connectionString = process.env.TEST_DATABASE_URL || process.env.IDENTITY_TEST_DATABASE_URL;
 const isolatedUrl = (value, schema) => { const url = new URL(value); url.searchParams.set("options", `-c search_path=${schema}`); return url.toString(); };
@@ -95,6 +96,13 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
   assert.equal((await repository.listAttempts("org-other", order.id)).length, 0);
 
   const cloudOrderId = randomUUID(), cloudPackageId = randomUUID(), cloudJobId = randomUUID();
+  const cloudContract = buildHiflyHandsOnProductV1({
+    plan: { video_plan_version_id: "plan-pg", plan_review_id: "review-pg", status: "frozen", review_status: "approved", current: true },
+    product: { revision_id: "revision-pg", primary_asset_version_id: "asset-pg", checksum_sha256: "a".repeat(64), media_type: "image/png", size: 1 },
+    copy: { version_id: "copy-pg", status: "frozen", review_status: "approved", body: "PG fixed copy" },
+    avatar: { selection_id: "selection-pg", avatar_version_id: "avatar-pg", material_version_id: "material-pg",
+      checksum_sha256: "b".repeat(64), media_type: "image/png", size: 1, status: "confirmed", current: true }
+  });
   const cloudOrder = { ...order, id: cloudOrderId, status: "waiting_for_executor", row_version: 1,
     status_history: [{ status: "waiting_for_executor", at }] };
   await orderRepository.createOrder({ receiptKey: "cloud-order", fingerprint: "cloud-order", order: cloudOrder,
@@ -108,7 +116,7 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
     await cloudHandoffClient.query(`INSERT INTO manual_handoff_packages(id,organization_id,production_order_id,contract_type,contract_version,package_version,status,generation_request_id,generation_job_id,manifest,readme,manifest_hash,package_hash,storage_key,created_by_member_id,created_at,updated_at,row_version,status_history)
       VALUES ($1,$2,$3,'manual_handoff','1.0',1,'ready','cloud-generation',$4,$5,$6,$7,$8,$9,$10,$11,$11,1,$12)`,
     [cloudPackageId, cloudOrder.organization_id, cloudOrder.id, cloudJobId,
-      JSON.stringify({ accepted_media_types: ["video/mp4"] }), "说明", "manifest-cloud-pg", "package-cloud-pg",
+      JSON.stringify({ accepted_media_types: ["video/mp4"], hifly_hands_on_product_v1: cloudContract }), "说明", "manifest-cloud-pg", "package-cloud-pg",
       "manual-handoff/cloud-package.zip", seeded.member.id, at,
       JSON.stringify([{ from_status: "generating", to_status: "ready", at }])]);
     await cloudHandoffClient.query(`INSERT INTO manual_handoff_package_generation_jobs(id,organization_id,package_id,type,status,attempts,max_attempts,order_snapshot,created_at,updated_at)
@@ -123,6 +131,8 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
   }
 
   const executorCloudId = "cloud-executor-pg";
+  const cloudReceipt = { kind: "hifly_submission_receipt", evidence_source: "causal_submission_receipt",
+    receipt_id: "observation-pg", remote_id: "hifly-video-pg", observed_at: "2026-09-11T00:00:00.000Z" };
   const cloudReportErrors = [];
   const repositoryWithUploadHeartbeat = {
     ...repository,
@@ -153,7 +163,8 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
     }
   };
   let verificationRequests = 0;
-  const cloudService = createCloudExecutorService({
+  let cloudExecutions = 0;
+  const cloudServiceOptions = {
     repository: repositoryWithUploadHeartbeat,
     orderPort: {
       listOrdersForCloudExecutor: () => orderRepository.listOrders(cloudOrder.organization_id),
@@ -173,10 +184,12 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
       async listPackagesForCloudExecutor(input) {
         return input.productionOrderId === cloudOrder.id ? [{
           id: cloudPackageId, organization_id: cloudOrder.organization_id, production_order_id: cloudOrder.id,
-          package_version: 1, status: "ready", manifest_hash: "manifest-cloud-pg", package_hash: "package-cloud-pg"
+          package_version: 1, status: "ready", manifest_hash: "manifest-cloud-pg", package_hash: "package-cloud-pg",
+          manifest: { hifly_hands_on_product_v1: cloudContract }
         }] : [];
       },
-      async getPackageForCloudExecutor() { return null; }
+      async getPackageForCloudExecutor() { return null; },
+      async downloadPackageForCloudExecutor() { return { body: Buffer.from("injected-package") }; }
     },
     candidateStore: createMemoryObjectStore(),
     verificationPort: {
@@ -184,18 +197,29 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
       async wake() {}
     },
     readinessPort: { async check() { return { ready: true }; } },
-    executor: { async run() { return { body: Buffer.from("cloud-pg-candidate"), mediaType: "video/mp4" }; } },
+    executor: { async run({ order: selectedOrder }) {
+      cloudExecutions += 1;
+      assert.equal(selectedOrder.id, cloudOrder.id);
+      return { body: Buffer.from("cloud-pg-candidate"), mediaType: "video/mp4", submissionReceipt: cloudReceipt };
+    } },
     enabled: true,
-    mode: "fake",
+    mode: "playwright",
+    targetOrderId: cloudOrder.id,
     organizationId: cloudOrder.organization_id,
     executorCloudId,
     heartbeatIntervalMs: 30_000,
     now: () => Date.parse(at)
-  });
-
+  };
+  const wrongTargetService = createCloudExecutorService({ ...cloudServiceOptions, targetOrderId: randomUUID() });
+  assert.equal((await wrongTargetService.runOnce()).status, "standby");
+  assert.equal(cloudExecutions, 0);
+  assert.equal((await repository.listAttempts(cloudOrder.organization_id, cloudOrder.id)).length, 0);
+  const cloudService = createCloudExecutorService(cloudServiceOptions);
   const cloudResult = await cloudService.runOnce();
   assert.deepEqual(cloudReportErrors, []);
   assert.equal(cloudResult.status, "succeeded");
+  assert.equal(cloudResult.stopped, true);
+  assert.equal(cloudExecutions, 1);
   const cloudAttempts = await repository.listAttempts(cloudOrder.organization_id, cloudOrder.id);
   const cloudReports = await repository.listReports(cloudOrder.organization_id, cloudAttempts[0].id);
   const cloudCandidates = await repository.listCandidates(cloudOrder.organization_id, cloudAttempts[0].id);
@@ -204,6 +228,7 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
   assert.equal(cloudReports.length, 1);
   assert.equal(cloudReports[0].outcome, "completed");
   assert.equal(cloudCandidates.length, 1);
+  assert.deepEqual(cloudReports[0].supporting_outputs[0], { ...cloudReceipt, execution_attempt_id: cloudAttempts[0].id });
   assert.equal(cloudCandidates[0].execution_attempt_id, cloudAttempts[0].id);
   assert.equal(cloudCandidates[0].status, "pending_verification");
   assert.equal(Number((await pool.query(`SELECT count(*) FROM manual_execution_status_ledger
@@ -211,7 +236,13 @@ test("clean PostgreSQL A11/A12 migration and repository preserve manual, local-a
   [cloudOrder.organization_id, cloudAttempts[0].id])).rows[0].count), 1);
   assert.equal(verificationRequests, 1);
   assert.equal((await repository.listReports("org-other", cloudAttempts[0].id)).length, 0);
-  assert.equal((await cloudService.runOnce()).status, "standby");
+  assert.equal((await cloudService.runOnce()).status, "halted");
+  const restartedCloudService = createCloudExecutorService(cloudServiceOptions);
+  const restartedResult = await restartedCloudService.runOnce();
+  assert.equal(restartedResult.reason, "CLOUD_EXECUTOR_ORDER_ALREADY_ATTEMPTED");
+  assert.equal(restartedResult.stopped, true);
+  assert.equal(cloudExecutions, 1);
+  assert.equal((await repository.listAttempts(cloudOrder.organization_id, cloudOrder.id)).length, 1);
   assert.equal((await repository.listReports(cloudOrder.organization_id, cloudAttempts[0].id)).length, 1);
 
   const errorOrderId = randomUUID(), errorPackageId = randomUUID(), errorJobId = randomUUID();

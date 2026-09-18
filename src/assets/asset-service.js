@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import path from "node:path";
 import { fileTypeFromBuffer } from "file-type";
 
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -57,7 +58,8 @@ export function publicAvatarThumbnailObjectKey(organizationId, providerKey, chec
   return `${organizationId}/public-avatar-thumbnails/${safeProviderKey}/${checksumSha256}`;
 }
 
-export function createAssetService({ repository, objectStore, now = Date.now, uploadTtlMs = 600000, downloadTtlMs = 300000 } = {}) {
+export function createAssetService({ repository, objectStore, now = Date.now, uploadTtlMs = 600000, downloadTtlMs = 300000,
+  avatarBindingPort = null } = {}) {
   if (!repository || !objectStore) throw new TypeError("repository and objectStore are required");
   const timestamp = () => new Date(now()).toISOString();
   const downloads = new Map();
@@ -158,8 +160,7 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
       };
     }
   };
-  const sourceProductImagePort = {
-    async readVerifiedProductImage({ organizationId, assetVersionId, sourceAssetVersionId }) {
+  async function readVerifiedImage({ organizationId, assetVersionId, sourceAssetVersionId, expectedKind }) {
       assetVersionId = assetVersionId || sourceAssetVersionId;
       const version = await repository.getAssetVersion(organizationId, assetVersionId);
       if (!version || version.id !== assetVersionId || version.organization_id !== organizationId || !version.asset_id) {
@@ -175,31 +176,36 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
       }
       if (!asset || asset.id !== version.asset_id || asset.organization_id !== organizationId ||
           version.organization_id !== asset.organization_id || asset.status !== "active" ||
-          asset.kind !== "product_image" || version.status !== "available") {
+          asset.kind !== expectedKind || version.status !== "available") {
         fail("ASSET_SOURCE_UNAVAILABLE");
       }
 
       const contentType = version.verified_content_type;
       const size = version.verified_size;
       const checksumSha256 = version.verified_checksum_sha256;
-      if (!ALLOWED_TYPES.has(contentType) || !Number.isInteger(size) || size < 1 ||
+      if (!ALLOWED_TYPES.has(contentType) || !Number.isInteger(size) || size < 1 || size > MAX_IMAGE_BYTES ||
           !/^[a-f0-9]{64}$/.test(checksumSha256 || "") || typeof version.object_key !== "string" || !version.object_key) {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+      const objectKey = version.object_key.replaceAll("\\", "/");
+      if (objectKey !== version.object_key || objectKey.startsWith("/") || path.posix.isAbsolute(objectKey) ||
+          path.win32.isAbsolute(objectKey) || objectKey.includes("\0") || objectKey.split("/").includes("..")) {
         fail("ASSET_SOURCE_UNAVAILABLE");
       }
 
       let head;
       try {
-        head = await objectStore.head(version.object_key);
+        head = await objectStore.head(objectKey);
       } catch {
         fail("ASSET_SOURCE_UNAVAILABLE");
       }
-      if (!head || head.metadata?.organizationId !== organizationId || head.size !== size) {
+      if (!head || head.metadata?.organizationId !== organizationId || head.contentType !== contentType || head.size !== size) {
         fail("ASSET_SOURCE_UNAVAILABLE");
       }
 
       let bytes;
       try {
-        bytes = await objectStore.get(version.object_key);
+        bytes = await objectStore.get(objectKey);
       } catch {
         fail("ASSET_SOURCE_UNAVAILABLE");
       }
@@ -227,6 +233,33 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
         size,
         checksum_sha256: checksumSha256
       };
+  }
+
+  const sourceProductImagePort = {
+    async readVerifiedProductImage(input = {}) {
+      return readVerifiedImage({ ...input, expectedKind: "product_image" });
+    }
+  };
+  const sourceAvatarImagePort = {
+    async readVerifiedAvatarImage(input = {}) {
+      if (input.assetVersionId && input.materialVersionId && input.assetVersionId !== input.materialVersionId) {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+      const materialVersionId = input.materialVersionId || input.assetVersionId || input.sourceAssetVersionId;
+      if (typeof avatarBindingPort?.assertUsableAvatarBinding !== "function") fail("ASSET_SOURCE_UNAVAILABLE");
+      try {
+        await avatarBindingPort.assertUsableAvatarBinding({
+          organizationId: input.organizationId,
+          productId: input.productId,
+          copyVersionId: input.copyVersionId,
+          avatarSelectionId: input.avatarSelectionId,
+          avatarVersionId: input.avatarVersionId,
+          materialVersionId
+        });
+      } catch {
+        fail("ASSET_SOURCE_UNAVAILABLE");
+      }
+      return readVerifiedImage({ ...input, assetVersionId: materialVersionId, expectedKind: "avatar_image" });
     }
   };
   const appearanceCandidateAssetPort = {
@@ -468,7 +501,7 @@ export function createAssetService({ repository, objectStore, now = Date.now, up
         verified_checksum_sha256: grant.verified_checksum_sha256
       };
     },
-    assetReferencePort, sourceProductImagePort, appearanceCandidateAssetPort, verifiedOutputAssetPort,
+    assetReferencePort, sourceProductImagePort, sourceAvatarImagePort, appearanceCandidateAssetPort, verifiedOutputAssetPort,
     registerPublicAvatarThumbnail,
     publicAvatarThumbnailAssetPort: { register: registerPublicAvatarThumbnail }
   };

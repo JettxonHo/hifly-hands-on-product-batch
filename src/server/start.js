@@ -61,6 +61,8 @@ function createLazyHiflyExecutor(root, initialConfig = {}, options = {}) {
     async downloadArtifact(...args) { return (await ensureDelegate()).downloadArtifact(...args); },
     async reconcileSubmission(...args) { return (await ensureDelegate()).reconcileSubmission(...args); },
     async close() { await context?.close(); },
+    get page() { return delegate?.page ?? null; },
+    get hiflyPage() { return delegate?.hiflyPage ?? null; },
     recordHarPath: options.recordHarPath ?? null
   };
 }

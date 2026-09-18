@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -238,7 +238,77 @@ function productUploadExtension(reference) {
   throw localAgentError("LOCAL_AGENT_PACKAGE_INVALID");
 }
 
-export async function compilePackageToBatchItem({ manifest, extractionRoot, avatarMappings = {}, taskId } = {}) {
+function avatarUploadExtension(mediaType) {
+  if (mediaType === "image/png") return ".png";
+  if (mediaType === "image/jpeg") return ".jpg";
+  if (mediaType === "image/webp") return ".webp";
+  throw localAgentError("AVATAR_SOURCE_UNAVAILABLE", { outcome: "requires_action" });
+}
+
+function avatarSourceFailure() {
+  return localAgentError("AVATAR_SOURCE_UNAVAILABLE", { outcome: "requires_action" });
+}
+
+async function materializeAvatarSource({ source, contract, extractionRoot }) {
+  if (!source || source.kind !== "avatar_image" || source.asset_version_id !== contract.avatar.material_version_id ||
+      source.media_type !== contract.avatar.media_type || source.size !== contract.avatar.size ||
+      source.checksum_sha256 !== contract.avatar.checksum_sha256 || !Buffer.isBuffer(source.bytes)) {
+    throw avatarSourceFailure();
+  }
+  if (source.bytes.length !== contract.avatar.size || sha256(source.bytes) !== contract.avatar.checksum_sha256) {
+    throw localAgentError("HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_INTEGRITY_MISMATCH");
+  }
+  const directory = path.join(extractionRoot, "resolved-avatar");
+  const avatarPath = path.join(directory, `avatar${avatarUploadExtension(contract.avatar.media_type)}`);
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await chmod(directory, 0o700);
+    await writeFile(avatarPath, source.bytes, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw avatarSourceFailure();
+    try {
+      await chmod(avatarPath, 0o600);
+      const existing = await readFile(avatarPath);
+      if (!existing.equals(source.bytes)) throw avatarSourceFailure();
+    } catch (readError) {
+      if (readError?.code === "AVATAR_SOURCE_UNAVAILABLE") throw readError;
+      throw avatarSourceFailure();
+    }
+  }
+  await assertLocalFile(avatarPath, "AVATAR_SOURCE_UNAVAILABLE");
+  await assertContractAsset(avatarPath, contract.avatar, "HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_INTEGRITY_MISMATCH");
+  return avatarPath;
+}
+
+async function resolveAvatarSource({ manifest, contract, extractionRoot, avatarMappings, avatarAssetSource, requireAvatarAssetSource }) {
+  if (avatarAssetSource || requireAvatarAssetSource) {
+    if (typeof avatarAssetSource?.readVerifiedAvatarImage !== "function") throw avatarSourceFailure();
+    let source;
+    try {
+      source = await avatarAssetSource.readVerifiedAvatarImage({
+        organizationId: text(manifest.organization_id),
+        productId: text(manifest.product_id),
+        copyVersionId: contract.copy.version_id,
+        avatarSelectionId: contract.avatar.selection_id,
+        avatarVersionId: contract.avatar.avatar_version_id,
+        materialVersionId: contract.avatar.material_version_id,
+        assetVersionId: contract.avatar.material_version_id
+      });
+    } catch {
+      throw avatarSourceFailure();
+    }
+    return materializeAvatarSource({ source, contract, extractionRoot });
+  }
+  const avatarId = contract?.avatar?.avatar_version_id || avatarVersionId(manifest);
+  const avatarPath = avatarPathFor(avatarMappings, avatarId);
+  if (!avatarId || !avatarPath) throw localAgentError("AVATAR_MAPPING_REQUIRED", { outcome: "requires_action" });
+  await assertLocalFile(avatarPath, "AVATAR_MAPPING_REQUIRED");
+  if (contract) await assertContractAsset(avatarPath, contract.avatar, "HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_INTEGRITY_MISMATCH");
+  return avatarPath;
+}
+
+export async function compilePackageToBatchItem({ manifest, extractionRoot, avatarMappings = {}, avatarAssetSource = null,
+  requireAvatarAssetSource = false, taskId } = {}) {
   if (!manifest || typeof manifest !== "object" || !text(extractionRoot)) throw localAgentError("LOCAL_AGENT_PACKAGE_INVALID");
   const itemCount = declaredItemCount(manifest);
   if (itemCount !== 1) {
@@ -248,12 +318,9 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
   const rawContract = handsOnProductContract(manifest);
   const contract = rawContract ? requireHiflyHandsOnProductV1(rawContract) : null;
   const avatarId = contract?.avatar?.avatar_version_id || avatarVersionId(manifest);
-  const avatarPath = avatarPathFor(avatarMappings, avatarId);
-  if (!avatarId || !avatarPath) throw localAgentError("AVATAR_MAPPING_REQUIRED", { outcome: "requires_action" });
-  await assertLocalFile(avatarPath, "AVATAR_MAPPING_REQUIRED");
-  if (contract) {
-    await assertContractAsset(avatarPath, contract.avatar, "HIFLY_HANDS_ON_PRODUCT_V1_AVATAR_INTEGRITY_MISMATCH");
-  }
+  const avatarPath = contract
+    ? await resolveAvatarSource({ manifest, contract, extractionRoot, avatarMappings, avatarAssetSource, requireAvatarAssetSource })
+    : await resolveAvatarSource({ manifest, contract, extractionRoot, avatarMappings, avatarAssetSource: null, requireAvatarAssetSource: false });
 
   const reference = productAsset(manifest, contract);
   const assetVersionId = text(reference?.asset_version_id);
@@ -312,7 +379,7 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
     image_path: imagePath,
     person_image_path: avatarPath,
     resolved_person_image_path: avatarPath,
-    resolved_person_source: "local_agent_mapping",
+    resolved_person_source: contract && (avatarAssetSource || requireAvatarAssetSource) ? "cloud_asset_store" : "local_agent_mapping",
     script: text(copy.copy_body || copy.body),
     resolved_script_mode: "frozen_copy",
     avatar: { asset_version_id: avatarId },
@@ -336,6 +403,9 @@ export async function compilePackageToBatchItem({ manifest, extractionRoot, avat
     compiled.voice_source = contract.production.voice_source;
     compiled.voice_identity_policy = contract.production.voice_identity_policy;
     compiled.production_mode = contract.production.mode;
+    for (const field of ["voice_display_name", "voice_style", "subtitles_enabled", "output_aspect_ratio_policy"]) {
+      if (Object.hasOwn(contract.production, field)) compiled[field] = contract.production[field];
+    }
   }
   return compiled;
 }

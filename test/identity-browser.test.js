@@ -11,6 +11,7 @@ import { seedInitialAdmin } from "../src/identity/seed-admin.js";
 import { createFakeExecutor } from "../src/executors/fake-executor.js";
 import { buildApp } from "../src/server/app.js";
 import { findAvailablePort } from "../src/server/start.js";
+import { registerBrowserCleanup } from "./helpers/browser-cleanup.js";
 import { ADMIN_EMAIL, ADMIN_TEMP_PASSWORD } from "./helpers/identity-world.js";
 
 test("real browser completes login, forced password change, and logout", { skip: process.env.IDENTITY_BROWSER_SMOKE !== "1" }, async (t) => {
@@ -25,8 +26,12 @@ test("real browser completes login, forced password change, and logout", { skip:
     adminDisplayName: "Browser Admin",
     adminTempPassword: ADMIN_TEMP_PASSWORD
   });
-  const app = await buildApp({
-    root: await mkdtemp(path.join(os.tmpdir(), "hifly-browser-")),
+  const root = await mkdtemp(path.join(os.tmpdir(), "hifly-browser-"));
+  let app;
+  let browser;
+  registerBrowserCleanup(t, { root, getApp: () => app, getBrowser: () => browser });
+  app = await buildApp({
+    root,
     executor: createFakeExecutor(),
     identity: {
       enabled: true,
@@ -38,12 +43,10 @@ test("real browser completes login, forced password change, and logout", { skip:
     }
   });
   await app.listen({ host: "127.0.0.1", port });
-  t.after(() => app.close());
-  const browser = await chromium.launch({
+  browser = await chromium.launch({
     headless: true,
     executablePath: process.env.IDENTITY_BROWSER_EXECUTABLE || chromium.executablePath()
   });
-  t.after(() => browser.close());
   const page = await browser.newPage();
 
   await page.goto(`${origin}/login.html`);

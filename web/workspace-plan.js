@@ -1,4 +1,5 @@
 (() => {
+  const permissionDeniedMessage = "当前账号无权访问或操作此内容，请确认账号与访问权限。";
   const STAGE = "video_plan";
   const ACTIONS = Object.freeze({
     return_to_avatar: { stage: STAGE, kind: "navigate", label: "返回人物" },
@@ -38,7 +39,8 @@
     const headers = new Headers(options.headers || {});
     if (options.method && options.method !== "GET") headers.set("x-identity-csrf", csrf());
     const response = await fetch(url, { credentials: "same-origin", ...options, headers });
-    if ([401, 403].includes(response.status)) {
+    if (response.status === 403) throw Object.assign(new Error("FORBIDDEN"), { status: 403 });
+    if (response.status === 401) {
       location.replace("/login.html");
       throw Object.assign(new Error("AUTH_REQUIRED"), { status: response.status });
     }
@@ -622,8 +624,8 @@
         if (epoch !== pollEpoch) return;
         try {
           await loadProjection({ planId: plan.id, focus: false, preserveDraft: dirty, scoped: true });
-        } catch (_error) {
-          failRead("预检状态暂时无法读取，请刷新当前方案。");
+        } catch (error) {
+          failRead(error.status === 403 ? permissionDeniedMessage : "预检状态暂时无法读取，请刷新当前方案。");
         }
       }, 1200);
     }
@@ -690,7 +692,7 @@
         return true;
       } catch (error) {
         if (loadEpoch !== requestEpoch || productId !== requestedProduct || (planId || null) !== authorityPlan) return false;
-        if (scoped || !readFailed) failRead(error?.message === "VIDEO_PLAN_NOT_FOUND" ? "当前方案不存在或已不可见，请刷新当前方案。" : "视频方案工作区加载失败，请刷新重试。");
+        if (scoped || !readFailed) failRead(error?.status === 403 ? permissionDeniedMessage : error?.message === "VIDEO_PLAN_NOT_FOUND" ? "当前方案不存在或已不可见，请刷新当前方案。" : "视频方案工作区加载失败，请刷新重试。");
         throw error;
       }
     }
@@ -710,9 +712,9 @@
           return false;
         }
         return await loadProjection({ planId: requestedPlan, focus, epoch });
-      } catch (_error) {
+      } catch (error) {
         if (epoch !== requestEpoch || productId !== requestedProduct || (planId || null) !== requestedPlan) return false;
-        failRead("视频方案工作区加载失败，请刷新重试。");
+        failRead(error.status === 403 ? permissionDeniedMessage : "视频方案工作区加载失败，请刷新重试。");
         return false;
       }
     }
@@ -873,7 +875,9 @@
         if (code === "create_video_plan" || code === "derive_video_plan_draft") setNotice(node("#videoPlanEditorNotice"), code === "create_video_plan" ? "视频方案已创建。" : "已创建新的方案草稿。", "success");
         return true;
       } catch (error) {
-        if (code === "create_video_plan") {
+        if (error.status === 403) {
+          setNotice(node(code === "create_video_plan" ? "#videoPlanCreateNotice" : "#videoPlanEditorNotice"), permissionDeniedMessage, "error");
+        } else if (code === "create_video_plan") {
           const status = [409, 422].includes(error.status) ? `（${error.status}）` : "";
           setNotice(node("#videoPlanCreateNotice"), status ? `创建未完成${status}。请先只读核对结果；未经授权不要更改标识或再次创建。` : "创建结果不明确。请先只读核对结果；未经授权不要更改标识或再次创建。", "blocked");
         } else if (error.status === 409) {

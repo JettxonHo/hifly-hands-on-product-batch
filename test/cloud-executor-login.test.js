@@ -254,12 +254,12 @@ test("persistent cloud Profile marker and fake readiness survive a runtime resta
   const markerPath = path.join(workspace.profileDir, ".cloud-executor-profile.marker");
   try {
     const first = adapterFor(workspace, []);
-    assert.deepEqual(await first.preflight(), { status: "ready" });
+    assert.deepEqual(await first.login(), { status: "ready" });
     const firstMarker = await readFile(markerPath, "utf8");
     await first.close();
 
     const second = adapterFor(workspace, []);
-    assert.deepEqual(await second.preflight(), { status: "ready" });
+    assert.deepEqual(await second.login(), { status: "ready" });
     assert.equal(await readFile(markerPath, "utf8"), firstMarker);
     await second.close();
   } finally {

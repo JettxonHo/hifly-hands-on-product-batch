@@ -87,7 +87,13 @@ Goal 级最终验收使用另一组状态：`GOAL_APPROVED`、`GOAL_APPROVED_WIT
 Agent 不可用时记录配置与运行时核验结果；未经 Owner 明确许可不得替换 `luna-worker`。环境失败要区分
 代码、测试、CI 和外部依赖。发生并行冲突时暂停受影响合并，由主控确定事实来源、接口归属和合并顺序。
 
-## 8. 当前分配（Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` rework）
+## 8. 当前分配（HIFLY FAST-MVP）
+
+主控负责 D-038/Roadmap、范围、独立 Review 与 Owner 集中授权申请；实现使用准确 luna-worker，基准 `2af015ab220ecc9d65de209ea690adb98cacc1c4`，分支 `codex/hifly-fast-mvp`。本轮普通隔离研发、零 Provider 测试、Issue/Draft PR 已授权；素材上传、真实生成、merge/deploy 未授权。Owner 唯一产品/预算/阶段决策者，不增加多个人工审批者。具体任务与验证见当前 session。
+
+## 历史分配（以下不覆盖当前 FAST-MVP）
+
+### 旧当前分配（Issue #278 `HIFLY_HANDS_ON_PRODUCT_V1` rework）
 
 ```text
 当前 Goal：RBV-GOAL-001；当前 bounded Stage：Issue #278 HIFLY_HANDS_ON_PRODUCT_V1 provider-free / Hifly-free rework

@@ -8,7 +8,7 @@ import { buildManualHandoffZip } from "../src/manual-handoff/manual-handoff-pack
 import { sha256 } from "../src/manual-handoff/manual-handoff-package.js";
 import { MINIMAL_MP4_FIXTURE } from "../src/local-agent/fake-executor.js";
 import { createLocalAgentHttpClient } from "../src/local-agent/agent-http-client.js";
-import { buildHiflyHandsOnProductV1 } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
+import { buildHiflyHandsOnProductV1, HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS } from "../src/execution-contracts/hifly-hands-on-product-v1.js";
 import { HIFLY_VERIFICATION_RESULT, createEvidenceRecord } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
 import {
   EXIT_CODES,
@@ -57,14 +57,15 @@ function manifest(overrides = {}) {
   };
 }
 
-function hiflyManifest() {
+function hiflyManifest({ currentSettings = false } = {}) {
   const productBody = Buffer.from("product-image");
   const avatarBody = Buffer.from("avatar-image");
   const contract = buildHiflyHandsOnProductV1({
     plan: { video_plan_version_id: "plan-1", plan_review_id: "review-1", status: "frozen", review_status: "approved", current: true },
     product: { revision_id: "revision-1", primary_asset_version_id: "product-version-1", checksum_sha256: sha256(productBody), media_type: "image/png", size: productBody.length },
     copy: { version_id: "copy-1", status: "frozen", review_status: "approved", body: "先展示商品，再说明体验。" },
-    avatar: { selection_id: "selection-1", avatar_version_id: "avatar-version-1", material_version_id: "material-1", checksum_sha256: sha256(avatarBody), media_type: "image/png", size: avatarBody.length, status: "confirmed", current: true }
+    avatar: { selection_id: "selection-1", avatar_version_id: "avatar-version-1", material_version_id: "material-1", checksum_sha256: sha256(avatarBody), media_type: "image/png", size: avatarBody.length, status: "confirmed", current: true },
+    ...(currentSettings ? { production: { ...HIFLY_HANDS_ON_PRODUCT_V1_CURRENT_SETTINGS } } : {})
   });
   return manifest({
     video_plan_version_id: "plan-1",
@@ -164,6 +165,21 @@ function createRecordingExecutor({ events, failAt = null, assetEvidence = null }
       record("reconcileSubmission");
       return { candidates: [] };
     }
+  };
+}
+
+function verifiedCurrentSettings(fields) {
+  return {
+    status: "verified",
+    evidence: fields.map((field) => createEvidenceRecord({
+      field,
+      expected: field === "voice_source" ? "hifly_native" : field === "voice_display_name" ? "播客-女声" : field === "voice_style" ? "普通话" : true,
+      actual: field === "voice_source" ? { display: "播客-女声", style: "普通话" } : field === "voice_display_name" ? "播客-女声" : field === "voice_style" ? "普通话" : true,
+      evidenceSource: "hifly_dom_readback",
+      verificationStage: "pre_paid",
+      paidBoundary: "before_paid_action_1",
+      result: field === "voice_source" ? HIFLY_VERIFICATION_RESULT.PARTIAL : HIFLY_VERIFICATION_RESULT.PROVEN
+    }))
   };
 }
 
@@ -412,6 +428,42 @@ test("real V1 execution accepts the same structured pre-point verifier contract 
       events
     });
     assert.equal(state.result.status, "completed");
+    assert.equal(real.calls.includes("createAsset"), true);
+  } finally {
+    await rm(avatarPath, { force: true });
+    await rm(state?.parent, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("real current-settings execution selects the page verifier without an injected callback", async () => {
+  const events = [];
+  const avatarPath = path.join(os.tmpdir(), `local-agent-avatar-${process.pid}-current-settings.png`);
+  await writeFile(avatarPath, "avatar-image");
+  const real = createRecordingExecutor({ events });
+  let pageVerifierCalls = 0;
+  real.hiflyPage = {
+    async verifyCurrentSettings() {
+      pageVerifierCalls += 1;
+      return verifiedCurrentSettings(["voice_source", "voice_display_name", "voice_style", "subtitles_enabled"]);
+    }
+  };
+  const originalCreateAsset = real.createAsset;
+  real.createAsset = async (task, context) => {
+    await context.contractFieldVerifier();
+    return originalCreateAsset.call(real, task, context);
+  };
+  let state;
+  try {
+    state = await runFixture({
+      packageManifest: hiflyManifest({ currentSettings: true }),
+      avatarMappings: { "avatar-version-1": avatarPath },
+      realExecutor: real,
+      argv: ["run-once", "--real"],
+      env: { LOCAL_AGENT_REAL_EXECUTION: "true" },
+      events
+    });
+    assert.equal(state.result.status, "completed");
+    assert.equal(pageVerifierCalls, 2);
     assert.equal(real.calls.includes("createAsset"), true);
   } finally {
     await rm(avatarPath, { force: true });

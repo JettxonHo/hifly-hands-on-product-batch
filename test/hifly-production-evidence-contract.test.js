@@ -11,10 +11,29 @@ import {
   buildHiflyHandsOnProductEvidenceStatus,
   createEvidenceRecord,
   evaluateProductFidelity,
+  hiflyPrePaidRequirementsFor,
   inspectStructuredVerificationResult,
   sanitizeEvidenceRecords,
+  sanitizeHiflySubmissionReceipt,
+  isValidHiflySubmissionReceipt,
   verifyExactAspectRatio
 } from "../src/execution-contracts/hifly-hands-on-product-evidence.js";
+
+test("Hifly receipt projection binds the server attempt and excludes URL and raw fields", () => {
+  const input = { evidence_source: "causal_submission_receipt", receipt_id: "observation-1", remote_id: "hifly-task-1",
+    observed_at: "2026-09-11T00:00:00.000Z", execution_attempt_id: "wrong-attempt",
+    remote_url: "https://example.invalid/video?token=private", work_key: "private-url", headers: { authorization: "private" }, raw: "private" };
+  const receipt = sanitizeHiflySubmissionReceipt(input, "attempt-1");
+  assert.deepEqual(receipt, { kind: "hifly_submission_receipt", evidence_source: "causal_submission_receipt",
+    receipt_id: "observation-1", remote_id: "hifly-task-1", observed_at: input.observed_at, execution_attempt_id: "attempt-1" });
+  assert.equal(isValidHiflySubmissionReceipt(receipt, "attempt-1"), true);
+  assert.equal(isValidHiflySubmissionReceipt(receipt, "another-attempt"), false);
+  assert.equal(isValidHiflySubmissionReceipt({ ...receipt, raw: "private" }, "attempt-1"), false);
+  for (const patch of [
+    { evidence_source: "list_delta" }, { remote_id: null }, { remote_id: "https://example.invalid/?token=private" },
+    { receipt_id: "a".repeat(129) }, { observed_at: "2026-02-30T00:00:00.000Z" }
+  ]) assert.equal(sanitizeHiflySubmissionReceipt({ ...input, ...patch }, "attempt-1"), null);
+});
 
 test("exact 9:16 verification records the observed dimensions and fails 1600x2848", () => {
   const evidence = verifyExactAspectRatio({
@@ -72,6 +91,34 @@ test("near-9:16 observation is record-only by default and requires an explicit i
     height: 2848,
     enforcementPolicy: { handheld_aspect_ratio: "require_exact" }
   }), { code: "HIFLY_EVIDENCE_ENFORCEMENT_POLICY_NOT_IMMUTABLE" });
+});
+
+test("delivery ratio evidence is distinct from the original final-video observation", () => {
+  const original = verifyExactAspectRatio({
+    width: 1600,
+    height: 2848,
+    expected: "9:16",
+    field: "final_video_aspect_ratio",
+    evidenceSource: "generated_artifact_natural_dimensions",
+    verificationStage: "post_final_video",
+    paidBoundary: "after_paid_action_2"
+  });
+  const delivery = verifyExactAspectRatio({
+    width: 1080,
+    height: 1920,
+    expected: "9:16",
+    field: "delivery_video_aspect_ratio",
+    evidenceSource: "generated_artifact_natural_dimensions",
+    verificationStage: "post_output_qc",
+    paidBoundary: "after_paid_action_2"
+  });
+  assert.equal(original.field, "final_video_aspect_ratio");
+  assert.equal(original.actual, "1600x2848");
+  assert.equal(original.result, HIFLY_VERIFICATION_RESULT.FAIL_EXACT_MATCH);
+  assert.equal(delivery.field, "delivery_video_aspect_ratio");
+  assert.equal(delivery.actual, "1080x1920");
+  assert.equal(delivery.result, HIFLY_VERIFICATION_RESULT.PASS_EXACT_MATCH);
+  assert.equal(HIFLY_HANDS_ON_PRODUCT_EVIDENCE_STATUS.delivery_video_aspect_ratio, HIFLY_VERIFICATION_RESULT.NOT_PROVEN);
 });
 
 test("ratio verification rejects unsafe cross-product arithmetic", () => {
@@ -152,6 +199,72 @@ test("structured verifier inspection rejects booleans and requires every request
   }, ["target_aspect_ratio", "voice_source"]);
   assert.equal(partial.code, "CONTRACT_STRUCTURED_EVIDENCE_INCOMPLETE");
   assert.deepEqual(partial.fields, ["voice_source"]);
+});
+
+test("current settings use the post-generation ratio policy and exact visible UI evidence", () => {
+  const requirements = hiflyPrePaidRequirementsFor({
+    production: {
+      handheld_aspect_ratio_policy: "record_only",
+      voice_display_name: "播客-女声",
+      voice_style: "普通话",
+      subtitles_enabled: true,
+      output_aspect_ratio_policy: "post_output_verify_pad_preserve"
+    }
+  });
+  assert.deepEqual(Object.keys(requirements), ["voice_source", "voice_display_name", "voice_style", "subtitles_enabled"]);
+  assert.deepEqual(Object.keys(hiflyPrePaidRequirementsFor({
+    production: {
+      handheld_aspect_ratio_policy: "require_exact",
+      voice_display_name: "播客-女声",
+      voice_style: "普通话",
+      subtitles_enabled: true,
+      output_aspect_ratio_policy: "post_output_verify_pad_preserve"
+    }
+  })), ["target_aspect_ratio", "voice_source"]);
+
+  const evidence = [
+    createEvidenceRecord({
+      field: "voice_source",
+      expected: "hifly_native",
+      actual: { display: "播客-女声", style: "普通话" },
+      evidenceSource: "hifly_dom_readback",
+      verificationStage: "pre_paid",
+      paidBoundary: "before_paid_action_1",
+      result: HIFLY_VERIFICATION_RESULT.PARTIAL
+    }),
+    createEvidenceRecord({
+      field: "voice_display_name",
+      expected: "播客-女声",
+      actual: "播客-女声",
+      evidenceSource: "hifly_dom_readback",
+      verificationStage: "pre_paid",
+      paidBoundary: "before_paid_action_1",
+      result: HIFLY_VERIFICATION_RESULT.PROVEN
+    }),
+    createEvidenceRecord({
+      field: "voice_style",
+      expected: "普通话",
+      actual: "普通话",
+      evidenceSource: "hifly_dom_readback",
+      verificationStage: "pre_paid",
+      paidBoundary: "before_paid_action_1",
+      result: HIFLY_VERIFICATION_RESULT.PROVEN
+    }),
+    createEvidenceRecord({
+      field: "subtitles_enabled",
+      expected: true,
+      actual: true,
+      evidenceSource: "hifly_dom_readback",
+      verificationStage: "pre_paid",
+      paidBoundary: "before_paid_action_1",
+      result: HIFLY_VERIFICATION_RESULT.PROVEN
+    })
+  ];
+  assert.equal(inspectStructuredVerificationResult({ status: "verified", evidence }, requirements).valid, true);
+  assert.equal(inspectStructuredVerificationResult({
+    status: "verified",
+    evidence: evidence.map((record) => record.field === "subtitles_enabled" ? { ...record, actual: false } : record)
+  }, requirements).code, "CONTRACT_STRUCTURED_EVIDENCE_VALUE_INVALID");
 });
 
 test("pre-paid verifier evidence is bound to expected values and controlled context", () => {

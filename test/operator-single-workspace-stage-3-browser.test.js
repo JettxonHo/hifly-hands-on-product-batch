@@ -642,3 +642,34 @@ test("Stage 3 invalidates stale previews and preserves accessible controls at ev
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   }
 });
+
+test("Stage 3 forbidden confirmation stays in the dialog without saving a selection", async (t) => {
+  const setup = await startWorld(t, 59460);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { browser, origin, project, first, avatarA } = setup;
+  const page = await browser.newPage();
+  await authenticate(page, origin);
+  await page.goto(workspaceUrl(origin, project.id, first.product.id));
+  await page.locator(`[data-avatar-id="${avatarA.asset.id}"]`).click();
+  await page.locator("#workspacePrimaryAction").click();
+  let status = 403, calls = 0;
+  const endpoint = `${origin}/api/products/${first.product.id}/avatar-workspace`;
+  const beforeResponse = await page.request.get(endpoint);
+  assert.equal(beforeResponse.status(), 200);
+  const before = await beforeResponse.json();
+  await page.route("**/api/products/*/avatar-selections", (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    calls += 1;
+    return route.fulfill({ status, json: { error: status === 403 ? "FORBIDDEN" : "AUTH_REQUIRED" } });
+  });
+  await page.locator("#confirmWorkspaceAvatar").click();
+  await page.locator("#workspaceAvatarConfirmError").getByText(/当前账号无权/).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/workspace.html");
+  assert.deepEqual(await (await page.request.get(endpoint)).json(), before);
+  assert.equal(calls, 1);
+  status = 401;
+  await page.route("**/api/auth/me", (route) => route.fulfill({ status: 401, json: { error: "AUTH_REQUIRED" } }));
+  await page.locator("#confirmWorkspaceAvatar").click();
+  await page.waitForURL(`${origin}/login.html`);
+  assert.equal(calls, 2);
+});

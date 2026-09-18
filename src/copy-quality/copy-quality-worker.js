@@ -43,6 +43,7 @@ export function createCopyQualityWorker({ service, evaluator, pollIntervalMs = 5
 
   return {
     evaluatorKind: evaluator.kind || "unknown",
+    manualInputPolicy: evaluator.manualInputPolicy || null,
     runNext,
     start() { if (!stopped) return; stopped = false; timer = setTimeout(tick, 0); },
     stop() { stopped = true; if (timer) clearTimeout(timer); timer = undefined; }

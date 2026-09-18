@@ -550,6 +550,12 @@ test("Stage 4 keeps PC and mobile composition first-class and restores exact dir
   const secondItem = page.locator(`#productList [data-product-id="${second.product.id}"]`);
   await secondItem.click();
   await page.waitForURL(new RegExp(`product=${second.product.id}`));
+  await page.waitForFunction((productId) => {
+    const currentProduct = document.querySelector(`#productList [data-product-id="${CSS.escape(productId)}"]`);
+    const heading = document.querySelector("#videoPlanWorkspaceHeading");
+    return currentProduct?.getAttribute("aria-current") === "true" && !heading?.hidden &&
+      heading?.textContent.trim() === "制定并审核视频方案" && document.activeElement === heading;
+  }, second.product.id);
   assert.equal(await page.locator("#videoPlanWorkspaceHeading").evaluate((node) => document.activeElement === node), true);
 
   await page.locator("#mobileVideoPlanProductBack").click();
@@ -607,6 +613,11 @@ test("Stage 4 rejects stale same-product plan responses and closes version selec
   await page.locator("#openVersionDrawer").click();
   await page.locator(`#mobileVersionList [data-plan-id="${versions.first.id}"]`).click();
   await page.waitForURL(new RegExp(`plan=${versions.first.id}`));
+  await page.waitForFunction(() => {
+    const dialog = document.querySelector("#versionDialog");
+    const heading = document.querySelector("#videoPlanWorkspaceHeading");
+    return dialog && !dialog.open && !heading?.hidden && document.activeElement === heading;
+  });
   assert.equal(await page.locator("#versionDialog").evaluate((dialog) => dialog.open), false);
   await expectVisibleFocus(page, "#videoPlanWorkspaceHeading");
   await page.locator("#workspacePrimaryAction").click();
@@ -889,4 +900,35 @@ test("Stage 4 renders every preflight state and restores visible dialog focus at
     await expectNoHorizontalOverflow(page);
     await page.close();
   }
+});
+
+test("Stage 4 forbidden creation is a permission denial and preserves the draft", async (t) => {
+  const setup = await startWorld(t, 59760);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { browser, origin, project, first } = setup;
+  const page = await browser.newPage();
+  await authenticate(page, origin);
+  await page.goto(workspaceUrl(origin, project.id, first.product.id));
+  await page.locator("#firstInstructions").fill("无权创建时保留制作说明");
+  let status = 403, calls = 0;
+  const endpoint = `${origin}/api/products/${first.product.id}/video-plan-workspace`;
+  const beforeResponse = await page.request.get(endpoint);
+  assert.equal(beforeResponse.status(), 200);
+  const before = await beforeResponse.json();
+  await page.route("**/api/products/*/video-plans", (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    calls += 1;
+    return route.fulfill({ status, json: { error: status === 403 ? "FORBIDDEN" : "AUTH_REQUIRED" } });
+  });
+  await page.locator("#workspacePrimaryAction").click();
+  await page.locator("#videoPlanCreateNotice").getByText(/当前账号无权/).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/workspace.html");
+  assert.equal(await page.locator("#firstInstructions").inputValue(), "无权创建时保留制作说明");
+  assert.deepEqual(await (await page.request.get(endpoint)).json(), before);
+  assert.equal(calls, 1);
+  status = 401;
+  await page.route("**/api/auth/me", (route) => route.fulfill({ status: 401, json: { error: "AUTH_REQUIRED" } }));
+  await page.locator("#workspacePrimaryAction").click();
+  await page.waitForURL(`${origin}/login.html`);
+  assert.equal(calls, 2);
 });

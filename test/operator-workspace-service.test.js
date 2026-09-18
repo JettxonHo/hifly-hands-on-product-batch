@@ -261,6 +261,30 @@ test("projects the exact current CopyVersion while keeping QC and human approval
   assert.deepEqual(downstreamReads, { avatar: 0, videoPlan: 0, production: 0 });
 });
 
+test("recommends direct manual copy input when a ready product has no copy version", async () => {
+  const revision = {
+    id: "revision-manual", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
+    status: "ready", product_name: "清透防晒乳", asset_version_ids: ["asset-a"], selling_points: [{ text: "清爽", confirmed: true }]
+  };
+  const service = createOperatorWorkspaceService({
+    projectContentService: {
+      async getProject() {
+        return { id: "project-a", name: "夏日项目", products: [{ id: "product-a", current_revision_id: revision.id, revision }] };
+      }
+    },
+    copyService: { async listCopyVersions() { return []; }, async listGenerationJobs() { return []; } },
+    qualityService: { async listQualityRuns() { return []; }, async getQualityRun() { throw new Error("not reached"); } },
+    reviewService: { async getReviewState() { throw new Error("not reached"); } }
+  });
+
+  const result = await service.getWorkspace({ organizationId: "org-a", actorMemberId: "member-a", projectId: "project-a", productId: "product-a", stage: "copy" });
+
+  assert.deepEqual(result.recommended_action, { code: "create_manual_copy", stage: "copy", kind: "command" });
+  assert.equal(result.stages[1].business_status, "等待输入文案");
+  assert.deepEqual(result.stages[1].blocker_codes, ["COPY_REQUIRED"]);
+  assert.equal(result.stages[1].copy_version, null);
+});
+
 test("strict one-attempt quality failure projects an owner-gated stop without retry action", async () => {
   const revision = {
     id: "revision-one-attempt", organization_id: "org-a", project_id: "project-a", product_id: "product-a",
