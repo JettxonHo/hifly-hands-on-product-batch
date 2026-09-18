@@ -14,6 +14,8 @@ Owner 最新收口：先冻结 P1＋人物 A 的 Golden Path；预算准备最�
 
 2026-09-11 Owner确认进入[REAL_USER_VALIDATION_PRECONDITION_GATE](docs/status/REAL_USER_VALIDATION_PRECONDITION.md)：先核对正式入口/部署、回执、防重、可执行费用上限和生产身份，再修必要缺口。完成本轮后停止；只有条件就绪才申请一次Owner受控Golden Path，之后才可另行进入非作者验证。Career Track B仅被动保存自然证据，不改变产品优先级或增加埋点。API只读Gate结论保留，不自动启用API或新Provider。
 
+2026-09-17 Owner明确要求实施已确认的最小闭环收敛计划：当前只推进步骤1–5可独立完成的研发/验证和授权准备，顺序见主Roadmap。首次成功之前不启动大规模清理、影刀迁移或审核政策简化；校准/付费/发布边界不因本次实施指令自动解除。
+
 当前验收入口：[Golden Path Preflight Report](docs/experiments/GOLDEN_PATH_PREFLIGHT.md)。全部PASS后只申请一次独立、bounded的真实付费Golden Path授权；最多两条是预算准备范围，不是当前生成许可，也不是自动重试许可。
 
 H0 为 Playwright+Computer Use 混合校准；不是正式 A/B，也不证明当前工作台已完整通过。Mock/测试不能替代真实成功。

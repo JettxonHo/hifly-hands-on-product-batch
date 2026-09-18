@@ -2,6 +2,37 @@
 
 Owner确认日期：2026-09-11。当前阶段：`REAL_USER_VALIDATION_PRECONDITION_GATE`。本文件同时记录本轮修订后的执行合同与A–M验收结果，CURRENT引用此处，不新增Roadmap。
 
+## 2026-09-17 收敛实施检查点
+
+状态：**PARTIAL / R1 PARTIAL / R2 BLOCKED**。本次检查点始于2026-09-17，研发于2026-09-18继续；生产/素材事实对应各自核验日期，不因跨日自动刷新。Owner确认实施最小闭环收敛计划的步骤1–5，沿用原有数据/执行核心。以下为本次重新核验事实；下文2026-09-11审计保留为历史。
+
+- 开发基线：`codex/hifly-fast-mvp@125fc254c8f3d8d727fd7a0e75c518ddeff58c84`，进入时干净。PR285实查仍OPEN/DRAFT，同头；远端main仍`2af015ab220ecc9d65de209ea690adb98cacc1c4`。起点CI34596194300及Windows stress34596194267通过，不代替新改动CI。
+- SSH只读核对：部署源码、App/Worker OCI revision均为`3e53bffdd2c59e401815148ccd317b669d32216b`；源码干净、容器healthy。App/Worker执行仍disabled/fail_closed；Workspace开关未设置。组织/Executor ID两端存在且一致，只输出匹配结论。
+- 正式`https://8.163.60.0` HEAD仍因self-signed证书校验失败（curl exit60）；未绕过、未申请/安装证书、未部署。受信任主机名/证书需在发布前明确，现有Issue157继续跟踪。
+- Worker持久目录仍为`/var/lib/hifly-executor/profile`；登录配置位于其内。未读取Cookie/Token/Profile字节、未启动生产浏览器。目录存在不证明飞影账号或会话有效。
+- Person A通过参数化SQL、`BEGIN READ ONLY`/ROLLBACK重新核对：组织绑定、available/active、授权valid未过期/current_organization、capability verified、materials accessible；关联原素材available/active。线上既有Asset Store仅head/get，类型、大小、既有完整性均匹配。无initialize/put、无业务写入或媒体传出。
+- P1及Person A本地文件与原登记完整性匹配；P1仍PNG448×770、203769 bytes，原口播158字符/125汉字。未注册新资产、绑定正式Order、上传或生成。
+- 已有公开前端和历史H0记录仍只提供候选字段，缺当前正常提交的可信回执schema与精确查询合同。真实resolver不虚构；报价/计费上界/指定账号仍待独立校准。最多两条仅预算准备，付费授权0。
+- 控制切片`12a9c54`已完成并由主控独立审查：默认真实Adapter的preflight/run在浏览器/素材解析前拒绝`HIFLY_COST_BOUND_UNAVAILABLE`。真实费用reader尚不存在，**这是拒绝能力，尚不是已完成预算放行/逐阶段计价**；测试仅显式注入JS依赖，生产JSON/环境变量没有放行开关。独立login保留，不因成本未知阻断登录校准。
+- `CLOUD_EXECUTOR_TARGET_ORDER_ID`贯穿配置与App/Worker部署映射；正式V1要求指定Order，只选该Order并在一次Attempt后停止，持久Attempt及claim replay拒绝重放。不能仅靠并发1限制授权范围。未改变任何线上配置。
+- 复用batch持久checkpoint：手持图和视频点击前消费对应阶段，重复消费/持久失败禁止点击；不建立通用授权平台、不迁移数据库。本地限制不等于Provider exactly-once。
+- 控制验证：worker联合218/218；最后部署接线等调整后57/57（覆盖有重叠，不相加）；主控独立复跑Cloud/Playwright/login/deployment/batch/page/local-runner/production-deployment共207/207、0skip。check255JS及diffcheck通过。首轮164项1fail、第二轮170项1fail及后续失败原日志保留；修复内容为旧gate预期、A12前工单状态预期及新增费用阻断对深层fixture的影响，没有降低生产保护。
+- 私有测试日志：本工作树`outputs/convergence-20260917/`（Git忽略）；代码/Mock证据不证明真实生成。UI权限提示切片`b65b91e`已完成：五个工作台阶段401仍跳登录、403留页说明权限，初始化/命令错误均覆盖，本地草稿保留；服务端权限不变。新增6个实际本地浏览器用例，既有CI串行零skip步骤补齐五阶段。完整affected首轮30pass/1fixture失败，修复后Stage1 4/4，其余27/27已通过，0skip；首轮旧文案/URL预期及owned-context隔离错误日志保留。主控独立Review无阻断，新6项浏览器测试复跑6/6、0skip；最终分支头CI按PR检查。12a9c54于2026-09-18推送；首次git TLS连接失败，保留证书校验改用HTTP/1.1重试成功；新头CI35318503466失败：Ubuntu/Windows均在旧contract测试未注入离线cost依赖处失败，PG在formal fixture未指定目标Order处失败；当时另发现cost拒绝返回缺outcome，随后由f2941bd按原合同修复。原日志已保留，未将该头称为CI通过。`f2941bd`修复费用拒绝的outcome合同，离线fixture保留旧ratio/voice校验，PG测试增加指定Order、错目标零执行和重启后不重放；独立Review通过。本地完整1437项：1420pass、17环境skip、0fail；PG skip不冒充真实数据库通过，新CI35318959161的Ubuntu/Windows/PostgreSQL三项SUCCESS；日志确认新增A11/A12 PostgreSQL用例实际运行且0skip。Windows stress35318959113亦SUCCESS。此结论仅对应f2941bd，后续UI/文档提交按PR当前头核验。
+
+本次实际下游：GitHub读取、已授权开发分支推送/Issue与Draft PR维护及CI执行；SSH/容器元数据读取、生产数据库只读事务、对象head/get、失败的可信HTTPS握手；飞影页面访问/上传/任务/生成/视频下载/外部付费模型均0。工具与基础设施费用账单不可得，UNKNOWN，不写成免费。合并/部署/Secret修改NOT_EXECUTED。
+
+### 发布准备与剩余实现
+
+本候选不具备真实生产放行条件：真实回执解析器/精确查询、当前账号核验与费用上界reader依赖尚未授权的外部证据。现有内部回执链、指定Order和阶段防重可在离线验证，但未完成整条Golden Path。
+
+发布申请待上述证据及对应实现/Review/CI齐备后提交，不以本次拒绝能力请求提前开启Worker。届时须包括：可信HTTPS入口、精确App/Worker同版镜像、Workspace开关、指定Order绑定及生产仍默认停用；不得顺手修改Secret或激活其他Provider。新回执kind与旧A12不前向兼容，回滚前暂停相关执行/验证，保留全部报告、原片、checkpoint和消费记录，恢复支持该报告的版本后再处理，禁止回滚后重新生成。证书和生产配置变更均未执行。
+
+### 下一次校准申请（尚未批准）
+
+申请一次最多30分钟窗口，自首次访问飞影起计时；复用上述云端生产Profile与Owner指定付费账号。允许检查登录、必要时Owner登录、查看既有任务/作品详情、报价说明及非付费设置，必要临时设置还原。仅记录脱敏账号别名、可查询任务ID的结构/归属机制、各收费阶段/计费单位与上界依据。登录、遥测和设置写入单列。
+
+默认素材上传、建任务、生成/试听/再生成、视频下载及内部付费请求重放均0。如果报价只有上传P1后可见，停止该分支，列出精确素材/目的地/非付费动作再申请；不得耗用旧上传或付费额度。已有任务不足以证明回执则报告最小证据缺口，不通过付费取证、不自动延长窗口。校准完成也不启动真实Golden Path。
+
 ## 本轮执行合同（按Owner确认修订）
 
 1. 目标仍为P1＋人物A从正式工作台完成一条受控Golden Path；先补前置条件，随后单独申请一次Owner控制的真实任务，成功后才讨论非作者验证。本轮不运行真实用户测试或付费生成。

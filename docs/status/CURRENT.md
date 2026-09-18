@@ -1,5 +1,7 @@
 # 项目当前状态
 
+> 2026-09-17：Owner已要求实施最小闭环收敛计划，步骤1–5中可独立完成的基线/控制/UI小修和本地验证已推进；真实解析/报价/账号仍依赖未授权校准。重新核验与本轮结果见[唯一前置条件记录](REAL_USER_VALIDATION_PRECONDITION.md#2026-09-17-收敛实施检查点)。R1 PARTIAL、R2 BLOCKED；校准/上传/付费/合并/部署没有新增授权。以下2026-09-11及更早记录保留为历史。
+
 > 更新：2026-09-11。当前阶段：REAL_USER_VALIDATION_PRECONDITION_GATE，Owner已确认调整后的合同并授权执行。
 > R0 PASS；R1 PARTIAL；R2 BLOCKED；真实Golden Path及非作者测试未授权、未执行。
 
