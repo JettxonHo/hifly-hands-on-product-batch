@@ -630,3 +630,36 @@ test("Stage 5 selects the accepted product and clears prior authority while its 
   assert.equal(await page.locator("#workspacePrimaryAction").getAttribute("data-action-code"), "retry_production_read");
   assert.equal((await page.locator("body").innerText()).includes("order-stage-5"), false);
 });
+
+test("Stage 5 forbidden creation stays on-page without creating an order", async (t) => {
+  const setup = await world(t);
+  if (!setup) return t.skip("real Chrome unavailable in this environment");
+  const { browser, origin, project, first, state, createdOrders } = setup;
+  state.current = fixture(first.product.id, { noOrder: true, canCreate: true });
+  const page = await browser.newPage();
+  await login(page, origin);
+  await page.goto(workspaceUrl(origin, project.id, first.product.id, null));
+  await page.getByText("生产待创建", { exact: true }).first().waitFor();
+  let status = 403, calls = 0;
+  await page.route("**/api/products/*/production-orders", (route) => {
+    calls += 1;
+    return route.fulfill({ status, json: { error: status === 403 ? "FORBIDDEN" : "AUTH_REQUIRED" } });
+  });
+  await page.locator("#workspacePrimaryAction").click();
+  const dialog = page.getByRole("dialog", { name: "确认创建当前商品的生产工单" });
+  await dialog.getByRole("button", { name: "确认创建" }).click();
+  await page.locator("#productionCreateError").getByText(/当前账号无权/).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/workspace.html");
+  assert.equal(createdOrders.length, 0);
+  assert.equal(calls, 1);
+  // A definitive rejection consumes the local intent; reopen for the 401 case.
+  await page.reload();
+  await page.getByText("生产待创建", { exact: true }).first().waitFor();
+  status = 401;
+  await page.route("**/api/auth/me", (route) => route.fulfill({ status: 401, json: { error: "AUTH_REQUIRED" } }));
+  await page.locator("#workspacePrimaryAction").click();
+  await dialog.getByRole("button", { name: "确认创建" }).click();
+  await page.waitForURL(`${origin}/login.html`);
+  assert.equal(createdOrders.length, 0);
+  assert.equal(calls, 2);
+});

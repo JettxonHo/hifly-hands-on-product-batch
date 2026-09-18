@@ -1,4 +1,5 @@
 (() => {
+  const permissionDeniedMessage = "当前账号无权访问或操作此内容，请确认账号与访问权限。";
   const stageRoutes = Object.freeze({ video_plan: "/plan.html", production: "/production.html" });
   const actions = Object.freeze({
     return_to_copy: { stage: "avatar", kind: "navigate", label: "返回文案" },
@@ -17,7 +18,8 @@
     const headers = new Headers(options.headers || {});
     if (options.method && options.method !== "GET") headers.set("x-identity-csrf", csrf());
     const response = await fetch(url, { credentials: "same-origin", ...options, headers });
-    if ([401, 403].includes(response.status)) {
+    if (response.status === 403) throw Object.assign(new Error("FORBIDDEN"), { status: 403 });
+    if (response.status === 401) {
       location.replace("/login.html");
       throw Object.assign(new Error("AUTH_REQUIRED"), { status: response.status });
     }
@@ -116,6 +118,7 @@
     let selectedAvatarVersionId = null;
     let viewedAvatarVersionId = null;
     let readFailed = false;
+    let readFailureMessage = "";
     let trusted = true;
     let busy = false;
     let conflict = false;
@@ -152,6 +155,7 @@
     function previewState(entry) { return previewCache.get(previewKey(entry)) || { status: "idle", reason: "" }; }
     function firstCharacter(entry) { return [...(entry?.display_name || "人")][0] || "人"; }
     function previewReason(error) {
+      if (error?.status === 403) return permissionDeniedMessage;
       if (error?.status === 404) return "人物图片已不可见，请刷新人物目录。";
       if (error?.status === 422) return "人物图片暂不可用，已显示文字占位。";
       if (error?.status === 503) return "人物图片授权暂时失败，可以重试。";
@@ -337,7 +341,7 @@
       const code = recommendedCode();
       node("#taskNext").textContent = actions[code]?.label || "等待当前状态完成";
       const blocker = node("#taskBlocker");
-      const blockers = readFailed ? ["当前商品或人物的权威状态未完整载入。"] : avatarStage?.blocker_codes || [];
+      const blockers = readFailed ? [readFailureMessage || "当前商品或人物的权威状态未完整载入。"] : avatarStage?.blocker_codes || [];
       const labels = {
         APPROVED_COPY_REQUIRED: "先完成文案人工批准。", AVATAR_SELECTION_REQUIRED: "请选择并确认一个可用人物。",
         AVATAR_SELECTION_INVALID: "当前人物已失效，请重新选择。", AVATAR_CATALOG_UNAVAILABLE: "当前没有可确认的人物。"
@@ -459,7 +463,8 @@
       renderSummary();
     }
 
-    function disableForReadFailure() {
+    function disableForReadFailure(error) {
+      readFailureMessage = error?.status === 403 ? permissionDeniedMessage : "";
       readFailed = true;
       trusted = true;
       workspace = null;
@@ -535,8 +540,8 @@
         }
         await load({ focus });
         replaceUrl();
-      } catch (_error) {
-        disableForReadFailure();
+      } catch (error) {
+        disableForReadFailure(error);
       }
     }
 
@@ -607,7 +612,7 @@
           node("#workspaceAvatarConfirmError").textContent = "人物选择已被其他成员更新，请载入最新状态后再确认。";
           node("#workspaceAvatarConflict").hidden = false;
           node("#confirmWorkspaceAvatar").disabled = true;
-        } else node("#workspaceAvatarConfirmError").textContent = "人物选择未保存，请稍后重试。";
+        } else node("#workspaceAvatarConfirmError").textContent = error.status === 403 ? permissionDeniedMessage : "人物选择未保存，请稍后重试。";
         return false;
       } finally {
         busy = false;

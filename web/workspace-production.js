@@ -1,4 +1,5 @@
 (() => {
+  const permissionDeniedMessage = "当前账号无权访问或操作此内容，请确认账号与访问权限。";
   const ACTIONS = Object.freeze({
     return_to_video_plan: Object.freeze({ stage: "production", kind: "navigate", label: "返回视频方案" }),
     create_production_order: Object.freeze({ stage: "production", kind: "command", label: "创建生产工单" }),
@@ -61,7 +62,8 @@
       if (!headers.has("content-type")) headers.set("content-type", "application/json");
     }
     const response = await fetch(url, { credentials: "same-origin", ...options, headers });
-    if ([401, 403].includes(response.status)) {
+    if (response.status === 403) throw Object.assign(new Error("FORBIDDEN"), { status: 403 });
+    if (response.status === 401) {
       location.replace("/login.html");
       throw Object.assign(new Error("AUTH_REQUIRED"), { status: response.status });
     }
@@ -424,7 +426,7 @@
       byId("productionTaskDescription").textContent = "正在核对当前商品的服务端持久真值。";
     }
 
-    function failRead() {
+    function failRead(error) {
       readFailed = true;
       projection = null;
       clearProductionTruth();
@@ -433,7 +435,7 @@
       byId("productionTaskTitle").textContent = "生产状态暂时无法读取";
       byId("productionTaskState").textContent = "读取失败";
       byId("productionTaskState").className = "state failure";
-      byId("productionTaskDescription").textContent = "读取成功前不会使用旧工单、执行、核验或作品状态。";
+      byId("productionTaskDescription").textContent = error?.status === 403 ? permissionDeniedMessage : "读取成功前不会使用旧工单、执行、核验或作品状态。";
       disableStageLinks();
       clearRecommendedAction();
       renderAction();
@@ -469,9 +471,9 @@
         history.replaceState({ productId: activeProductId, orderId: selectedOrderId }, "", exactUrl);
         if (focus) byId("productionTaskTitle").focus();
         return true;
-      } catch {
+      } catch (error) {
         if (epoch !== requestEpoch) return;
-        failRead();
+        failRead(error);
         return false;
       } finally {
         if (epoch === requestEpoch) {
@@ -496,7 +498,7 @@
           const recovered = await load({ focus: true });
           if (recovered && !notice.textContent) notice.textContent = "已重新读取当前生产状态，请按最新状态继续。";
         } else {
-          notice.textContent = "操作未完成，当前状态没有改变。";
+          notice.textContent = error.status === 403 ? permissionDeniedMessage : "操作未完成，当前状态没有改变。";
         }
         return false;
       } finally {
@@ -525,7 +527,7 @@
       } catch (error) {
         if (definitiveCreateRejection(error)) {
           forgetCreateIntent();
-          byId("productionCreateError").textContent = "创建请求被当前生产门禁拒绝，请按最新状态处理。";
+          byId("productionCreateError").textContent = error.status === 403 ? permissionDeniedMessage : "创建请求被当前生产门禁拒绝，请按最新状态处理。";
           return false;
         }
         const mustReconcile = ambiguousWriteError(error);
@@ -664,8 +666,8 @@
       createIntent = restoreCreateIntent(activeProductId);
       renderProducts();
       await load();
-    } catch {
-      failRead();
+    } catch (error) {
+      failRead(error);
     }
   }
 

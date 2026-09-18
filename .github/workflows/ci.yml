@@ -105,7 +105,11 @@ jobs:
             node --test --test-concurrency=1 \
               test/video-delivery.test.js \
               test/cloud-executor-playwright.test.js \
+              test/operator-single-workspace-stage-1-browser.test.js \
               test/operator-single-workspace-stage-2-browser.test.js \
+              test/operator-single-workspace-stage-3-browser.test.js \
+              test/operator-single-workspace-stage-4-browser.test.js \
+              test/operator-single-workspace-stage-5-browser.test.js \
               test/operator-single-workspace-works-browser.test.js \
             >"$hifly_tap_file" 2>&1
           hifly_test_exit=$?

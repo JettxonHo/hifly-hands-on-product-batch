@@ -446,3 +446,62 @@ test("Stage 1 preserves Product Content truth across actions, history, conflicts
   assert.equal(await page.locator('#revisionForm input[name="product_name"]').inputValue(), "新建隔离商品");
   assert.equal(await page.getByRole("button", { name: /新建隔离商品/ }).getAttribute("aria-current"), "true");
 });
+
+test("all five workspace stages keep forbidden reads on-page and redirect only unauthenticated reads", async (t) => {
+  const setup = await startWorkspaceBrowser(t);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { browser, origin, project, product } = setup;
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await authenticate(page, origin);
+  let commands = 0;
+  for (const stage of ["product_content", "copy", "avatar", "video_plan", "production"]) {
+    for (const status of [403, 401]) {
+      const probe = await context.newPage();
+      probe.on("request", (request) => {
+        if (new URL(request.url()).pathname.startsWith("/api/") && !["GET", "HEAD"].includes(request.method())) commands += 1;
+      });
+      await probe.route("**/api/runtime", (route) => route.fulfill({ status, body: "access denied" }));
+      if (status === 401) {
+        await probe.route("**/api/auth/me", (route) => route.fulfill({ status: 401, json: { error: "AUTH_REQUIRED" } }));
+      }
+      const target = workspaceUrl(origin, project.id, product.id, stage);
+      await probe.goto(target);
+      if (status === 403) {
+        await probe.getByText("当前账号无权访问或操作此内容，请确认账号与访问权限。", { exact: true }).waitFor();
+        assert.equal(probe.url(), target);
+      } else await probe.waitForURL(`${origin}/login.html`);
+      assert.equal(commands, 0);
+      await probe.close();
+    }
+  }
+});
+
+test("Stage 1 forbidden creation keeps its dialog and never creates a product", async (t) => {
+  const setup = await startWorkspaceBrowser(t);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { browser, origin, project, product } = setup;
+  const page = await browser.newPage();
+  await authenticate(page, origin);
+  const target = workspaceUrl(origin, project.id, product.id);
+  await page.goto(target);
+  await page.locator("#openProductDialog").click();
+  await page.locator('#productForm [name="product_name"]').fill("无权创建的商品");
+  const loadedUrl = page.url();
+  const before = await (await page.request.get(`${origin}/api/projects/${project.id}`)).json();
+  let status = 403, calls = 0;
+  await page.route("**/api/projects/*/products", (route) => {
+    calls += 1;
+    return route.fulfill({ status, json: { error: status === 403 ? "FORBIDDEN" : "AUTH_REQUIRED" } });
+  });
+  await page.locator('#productForm button[type="submit"]').click();
+  await page.locator("#productError").getByText(/当前账号无权/).waitFor();
+  assert.equal(page.url(), loadedUrl);
+  assert.deepEqual(await (await page.request.get(`${origin}/api/projects/${project.id}`)).json(), before);
+  assert.equal(calls, 1);
+  status = 401;
+  await page.route("**/api/auth/me", (route) => route.fulfill({ status: 401, json: { error: "AUTH_REQUIRED" } }));
+  await page.locator('#productForm button[type="submit"]').click();
+  await page.waitForURL(`${origin}/login.html`);
+  assert.equal(calls, 2);
+});

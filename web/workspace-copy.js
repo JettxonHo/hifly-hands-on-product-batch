@@ -1,4 +1,5 @@
 (() => {
+  const permissionDeniedMessage = "当前账号无权访问或操作此内容，请确认账号与访问权限。";
   const stageRoutes = Object.freeze({ avatar: "/avatar.html", video_plan: "/plan.html", production: "/production.html" });
   const actions = Object.freeze({
     return_to_product_content: { stage: "copy", kind: "navigate", label: "返回商品资料" },
@@ -32,7 +33,8 @@
     const headers = new Headers(options.headers || {});
     if (options.method && options.method !== "GET") headers.set("x-identity-csrf", csrf());
     const response = await fetch(url, { credentials: "same-origin", ...options, headers });
-    if ([401, 403].includes(response.status)) {
+    if (response.status === 403) throw Object.assign(new Error("FORBIDDEN"), { status: 403 });
+    if (response.status === 401) {
       location.replace("/login.html");
       throw Object.assign(new Error("AUTH_REQUIRED"), { status: response.status });
     }
@@ -129,6 +131,7 @@
     let deriveMode = false;
     let conflict = false;
     let readFailed = false;
+    let readFailureMessage = "";
     let trusted = true;
     let busy = false;
     let pollTimer = null;
@@ -195,7 +198,7 @@
       const code = recommendedCode();
       node("#taskNext").textContent = actions[code]?.label || "等待当前状态完成";
       const blocker = node("#taskBlocker");
-      const blockers = readFailed ? ["当前商品或文案的权威状态未完整载入。"] : copyStage?.blocker_codes || [];
+      const blockers = readFailed ? [readFailureMessage || "当前商品或文案的权威状态未完整载入。"] : copyStage?.blocker_codes || [];
       blocker.hidden = blockers.length === 0;
       blocker.textContent = blockers.length ? blockers.map((value) => ({
         PRODUCT_CONTENT_NOT_READY: "先完成当前商品资料。", COPY_REQUIRED: "当前商品还没有文案版本。",
@@ -361,7 +364,7 @@
         replaceUrl();
         return true;
       } catch (error) {
-        const message = error.status === 409 ? "质检状态已被其他人更新，请刷新当前文案。" :
+        const message = error.status === 403 ? permissionDeniedMessage : error.status === 409 ? "质检状态已被其他人更新，请刷新当前文案。" :
           error.status === 422 ? "当前判断项不能这样处理，请刷新后核对。" : "质检判断未保存，请稍后重试。";
         setNotice(message, error.status === 409 || error.status === 422 ? "blocked" : "error");
         if (node("#workspaceFindingDialog").open) node("#workspaceFindingError").textContent = message;
@@ -416,7 +419,8 @@
       }));
     }
 
-    function disableForReadFailure() {
+    function disableForReadFailure(error) {
+      readFailureMessage = error?.status === 403 ? permissionDeniedMessage : "";
       clearTimeout(pollTimer);
       readFailed = true;
       trusted = true;
@@ -494,8 +498,8 @@
         identity = identityBody;
         await load({ focus });
         replaceUrl();
-      } catch (_error) {
-        disableForReadFailure();
+      } catch (error) {
+        disableForReadFailure(error);
       }
     }
 
@@ -556,7 +560,7 @@
           }
           conflict = true;
           setNotice("保存发生版本冲突，本地正文尚未丢失。", "blocked");
-        } else setNotice("文案保存失败，请稍后重试。", "error");
+        } else setNotice(error.status === 403 ? permissionDeniedMessage : "文案保存失败，请稍后重试。", "error");
         return false;
       } finally {
         busy = false;
@@ -579,7 +583,7 @@
         replaceUrl();
         return true;
       } catch (error) {
-        setNotice(error.status === 409 ? "状态已被其他人更新，请刷新当前文案。" : "操作未完成，请刷新后重试。", error.status === 409 ? "blocked" : "error");
+        setNotice(error.status === 403 ? permissionDeniedMessage : error.status === 409 ? "状态已被其他人更新，请刷新当前文案。" : "操作未完成，请刷新后重试。", error.status === 409 ? "blocked" : "error");
         return false;
       } finally {
         busy = false;

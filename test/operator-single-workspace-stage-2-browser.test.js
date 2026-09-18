@@ -456,3 +456,35 @@ test("Stage 2 resolves review findings truthfully and never accepts hard blocks"
   assert.equal(await hardBlockCard.getByRole("button", { name: "人工修改文案" }).count(), 1);
   await expectAction(page, "review_copy_quality", "处理质检问题");
 });
+
+test("Stage 2 forbidden save retains local copy without creating a version", async (t) => {
+  const setup = await startWorld(t, 59260);
+  if (!setup) return t.skip("local Chrome or TCP listening is unavailable");
+  const { browser, origin, project, first } = setup;
+  const page = await browser.newPage();
+  await authenticate(page, origin);
+  const target = url(origin, project.id, first.product.id);
+  await page.goto(target);
+  await page.locator("#workspaceCopyBody").fill("无权限时保留本地口播");
+  let status = 403, calls = 0;
+  const endpoint = `${origin}/api/product-revisions/${first.revision.id}/copy-versions`;
+  const beforeResponse = await page.request.get(endpoint);
+  assert.equal(beforeResponse.status(), 200);
+  const before = await beforeResponse.json();
+  await page.route("**/api/product-revisions/*/copy-versions", (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    calls += 1;
+    return route.fulfill({ status, json: { error: status === 403 ? "FORBIDDEN" : "AUTH_REQUIRED" } });
+  });
+  await page.locator("#workspacePrimaryAction").click();
+  await page.locator("#workspaceCopyNotice").getByText(/当前账号无权/).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/workspace.html");
+  assert.equal(await page.locator("#workspaceCopyBody").inputValue(), "无权限时保留本地口播");
+  assert.deepEqual(await (await page.request.get(endpoint)).json(), before);
+  assert.equal(calls, 1);
+  status = 401;
+  await page.route("**/api/auth/me", (route) => route.fulfill({ status: 401, json: { error: "AUTH_REQUIRED" } }));
+  await page.locator("#workspacePrimaryAction").click();
+  await page.waitForURL(`${origin}/login.html`);
+  assert.equal(calls, 2);
+});
