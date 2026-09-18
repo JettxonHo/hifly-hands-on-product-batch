@@ -21,6 +21,8 @@ Owner确认日期：2026-09-11。当前阶段：`REAL_USER_VALIDATION_PRECONDITI
 
 最终头5acd689的CI35320085769中Ubuntu/Windows通过，PG作业的数据库部分通过，但扩展后的串行browser/media为54pass/1fail/0skip：新增五阶段初始化用例在两个401引发的重复导航下等待load出现ERR_ABORTED。保留该头失败记录；以登录页实际可见状态和精确URL验证替代中间load事件；随后本地六用例5pass/1fail进一步定位：登录页/auth/intent会更新共享fixture Cookie，导致后续403场景混入真实401。改为每场景独立测试context，从内存复用初始虚构登录状态、不落盘/输出；生产逻辑不变，保留无副作用断言，不删除用例、不跳过。修正后新增权限6/6与Stage1整文件4/4、均0skip；独立Review通过，临时诊断清理。最终CI统一以PR285当前头检查及Issue284收口记录为准，不继承此前结果。
 
+635fca3的CI35322621552新增权限场景已通过，Ubuntu/Windows通过；串行55项仍54pass/1fail/0skip，失败改为既有Stage1并发编辑用例。该用例在页面初始化读完前就PATCH服务端，可能使首次读取变成历史只读版本；调整为先形成本地未保存草稿，再做服务端并发更新，仍严格验证冲突与草稿保留，不放宽超时或断言。修正后Stage1整文件4/4；使用与CI同列表、env -i和Playwright Chromium的串行browser/media回归55/55、0skip，78.7秒，255JS检查与独立Review通过。远端最终头结果以PR285检查/Issue284收口为准。
+
 本次实际下游：GitHub读取、已授权开发分支推送/Issue与Draft PR维护及CI执行；SSH/容器元数据读取、生产数据库只读事务、对象head/get、失败的可信HTTPS握手；飞影页面访问/上传/任务/生成/视频下载/外部付费模型均0。工具与基础设施费用账单不可得，UNKNOWN，不写成免费。合并/部署/Secret修改NOT_EXECUTED。
 
 ### 发布准备与剩余实现

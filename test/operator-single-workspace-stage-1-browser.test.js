@@ -290,6 +290,9 @@ test("Stage 1 preserves Product Content truth across actions, history, conflicts
   assert.equal(new URL(page.url()).searchParams.get("revision"), currentRevisionId);
   await page.unroute("**/copy.js");
   await page.goto(`${workspaceUrl(origin, project.id, product.id)}&revision=${currentRevisionId}`);
+  // Establish an editable local draft before the other writer changes authority.
+  await page.locator('textarea[name="product_description"]').fill("我的未保存修改");
+  await assertRecommendedAction(page, "save_product_content", "保存当前修改");
 
   const concurrent = await page.evaluate(async (revisionId) => {
     const csrf = decodeURIComponent((document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("hifly_identity_csrf=")) || "=").split("=").slice(1).join("="));
@@ -311,8 +314,10 @@ test("Stage 1 preserves Product Content truth across actions, history, conflicts
     return response.json();
   }, currentRevisionId);
   assert.ok(concurrent.revision?.id);
-  await page.locator('textarea[name="product_description"]').fill("我的未保存修改");
+  const saveResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/product-revisions/${currentRevisionId}` && response.request().method() === "PATCH");
   await page.locator("#workspacePrimaryAction").click();
+  assert.equal((await saveResponse).status(), 409);
   await page.getByText("页面内容已过期。本地修改仍保留，可先复制内容，或明确载入服务端最新版本。", { exact: true }).waitFor();
   assert.equal(await page.locator('textarea[name="product_description"]').inputValue(), "我的未保存修改");
   await assertRecommendedAction(page, "load_latest_product_content", "载入服务端最新版本");
